@@ -7,6 +7,7 @@ enter the distributed metadata.
 import hashlib
 import importlib.metadata
 import json
+import ntpath
 import os
 from pathlib import Path
 import re
@@ -18,6 +19,7 @@ import urllib.request
 import zipfile
 
 _packages = {}
+_windows_files = None
 
 
 def command(args):
@@ -86,16 +88,67 @@ def linux_component(path):
     return component
 
 
-def msys_path(path):
-    return command(['cygpath', '-u', str(path)]) or str(path)
+def _windows_key(path):
+    path = Path(path)
+    if not path.is_absolute() or '..' in path.parts:
+        return None
+    return ntpath.normcase(ntpath.normpath(str(path.resolve())))
 
 
-def native_windows_path(path):
-    return Path(command(['cygpath', '-w', str(path)]) or str(path))
+def _inside_windows_root(key, root):
+    try:
+        return key is not None and ntpath.commonpath([key, root]) == root
+    except ValueError:  # Different drives or incompatible absolute paths.
+        return False
+
+
+def _windows_inventory():
+    """One exact installed-file index; never infer ownership from a directory."""
+    global _windows_files
+    if _windows_files is not None:
+        return _windows_files
+    root = Path(command(['cygpath', '-w', '/']))
+    root_key = _windows_key(root)
+    if root_key is None:
+        raise RuntimeError('MSYS2 did not return an absolute native installation root.')
+    listing = command(['pacman', '-Ql'])
+    if not listing:
+        raise RuntimeError('The MSYS2 installed-file inventory could not be queried.')
+    owners, files = {}, {}
+    for line in listing.splitlines():
+        package, separator, spelling = line.partition(' ')
+        if not separator or not package or not spelling.startswith('/') or ':' in spelling \
+                or spelling.startswith('//') or '\\' in spelling \
+                or any(part in ('.', '..') for part in spelling.split('/')):
+            raise RuntimeError('Unsafe path in the MSYS2 installed-file inventory.')
+        if spelling.endswith('/'):
+            continue  # Shared directories do not establish ownership of files.
+        source = root.joinpath(*spelling.lstrip('/').split('/'))
+        key = _windows_key(source)
+        if not _inside_windows_root(key, root_key):
+            continue  # Symlinks escaping MSYS2 cannot establish trusted ownership.
+        if key in owners and owners[key] != package:
+            owners[key] = None  # Ambiguous ownership stays unassignable.
+        else:
+            owners.setdefault(key, package)
+        files.setdefault(package, {})[key] = source
+    common = []
+    for package_files in files.values():
+        for key, source in package_files.items():
+            spelling = source.relative_to(root).as_posix().lower()
+            if owners[key] is not None and spelling.startswith(
+                    ('usr/share/licenses/common/', 'ucrt64/share/licenses/common/')):
+                common.append(source)
+    _windows_files = dict(root=root_key, owners=owners, files=files, common_licenses=list(dict.fromkeys(common)))
+    return _windows_files
 
 
 def windows_component(path):
-    package = command(['pacman', '-Qoq', msys_path(path)])
+    inventory = _windows_inventory()
+    key = _windows_key(path)
+    if not _inside_windows_root(key, inventory['root']):
+        return None
+    package = inventory['owners'].get(key)
     if not package:
         return None
     if package in _packages:
@@ -106,24 +159,21 @@ def windows_component(path):
             key, value = line.split(' : ', 1)
             fields[key.strip()] = value.strip()
     licenses = []
-    for line in command(['pacman', '-Ql', package]).splitlines():
-        filename = line.split(' ', 1)[-1]
-        if '/share/licenses/' in filename:
-            candidate = native_windows_path(filename)
+    for license_key, candidate in inventory['files'][package].items():
+        if '/share/licenses/' in candidate.as_posix().lower() \
+                and inventory['owners'].get(license_key) == package:
             if candidate.is_file():
                 licenses.append(candidate)
     declarations = fields.get('Licenses', '').split()
     # Pacman packages using standard licenses may refer to the common license
     # package instead of repeating a copy in every library package.
     if not licenses:
-        for base in ('/usr/share/licenses/common', '/ucrt64/share/licenses/common'):
-            common = native_windows_path(base)
-            if common.is_dir():
-                for candidate in common.rglob('*'):
-                    if candidate.is_file() and any(re.sub(r'[^a-z0-9]', '', label.lower().replace('-or-later', '').replace('-only', '').replace('.0', ''))
-                                                   in re.sub(r'[^a-z0-9]', '', str(candidate.relative_to(common)).lower().replace('.0', ''))
-                                                   for label in declarations):
-                        licenses.append(candidate)
+        for candidate in inventory['common_licenses']:
+            relative = candidate.as_posix().lower().split('/share/licenses/common/', 1)[1]
+            if candidate.is_file() and any(re.sub(r'[^a-z0-9]', '', label.lower().replace('-or-later', '').replace('-only', '').replace('.0', ''))
+                                          in re.sub(r'[^a-z0-9]', '', relative.replace('.0', ''))
+                                          for label in declarations):
+                licenses.append(candidate)
     component = dict(name=package, version=fields.get('Version', ''), provider='MSYS2 UCRT64',
                      homepage=fields.get('URL', ''), license_declarations=declarations,
                      source=f'https://packages.msys2.org/packages/{package}', _licenses=licenses)

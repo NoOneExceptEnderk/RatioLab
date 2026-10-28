@@ -48,5 +48,8 @@ if [ -n "${RATIOLAB_NOTARY_PROFILE:-}" ]; then
     /usr/bin/xcrun stapler staple "$target"
     /usr/bin/xcrun stapler validate "$target"
 fi
-/usr/bin/shasum -a 256 "$target" > "$target.sha256"
+(
+    cd "$output"
+    /usr/bin/shasum -a 256 "RatioLab-$version-macos-$arch.dmg"
+) > "$target.sha256"
 printf '%s\n' "$target"

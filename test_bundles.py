@@ -230,22 +230,109 @@ class NativeNoticesTests(unittest.TestCase):
 
     def test_msys2_spdx_labels_find_common_license_directory_names(self):
         with tempfile.TemporaryDirectory() as temporary:
-            common = Path(temporary)
+            root = Path(temporary)
+            common = root/'usr/share/licenses/common'
+            common.mkdir(parents=True)
             (common/'GPL2').mkdir()
             (common/'LGPL2.1').mkdir()
             (common/'GPL2/license.txt').write_text('GPL test fixture')
             (common/'LGPL2.1/license.txt').write_text('LGPL test fixture')
             def command(args):
-                if args[:2] == ['pacman', '-Qoq']:
-                    return 'sample'
+                if args == ['cygpath', '-w', '/']:
+                    return str(root)
+                if args == ['pacman', '-Ql']:
+                    return ('sample /ucrt64/bin/sample.dll\n'
+                            'licenses /usr/share/licenses/common/GPL2/license.txt\n'
+                            'licenses /usr/share/licenses/common/LGPL2.1/license.txt')
                 if args[:2] == ['pacman', '-Qi']:
                     return 'Version : 1.2\nLicenses : GPL-2.0-or-later LGPL-2.1-only'
-                return ''
+                raise AssertionError(f'Unexpected command: {args}')
             with patch.object(support, 'command', side_effect=command), \
-                    patch.object(support, 'native_windows_path', return_value=common), \
+                    patch.object(support, '_windows_files', None), \
                     patch.object(support, '_packages', {}):
-                component = support.windows_component(Path('sample.dll'))
+                component = support.windows_component(root/'ucrt64/bin/sample.dll')
             self.assertEqual(set(component['_licenses']), set(common.rglob('license.txt')))
+
+    def test_msys2_many_files_share_one_exact_index_and_one_metadata_query(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)/'MSYS2 with spaces Ω'
+            license_file = root/'ucrt64/share/licenses/sample/LICENSE'
+            license_file.parent.mkdir(parents=True)
+            license_file.write_text('Native package license fixture')
+            listing = '\n'.join(f'sample /ucrt64/bin/item{index}.dll' for index in range(200))
+            listing += ('\nsample /ucrt64/share/licenses/sample/LICENSE\n'
+                        'sample /ucrt64/bin/ambiguous.dll\nother /ucrt64/bin/AMBIGUOUS.dll\n'
+                        'sample /ucrt64/bin/\nother /ucrt64/bin/')
+            def command(args):
+                if args == ['cygpath', '-w', '/']:
+                    return str(root)
+                if args == ['pacman', '-Ql']:
+                    return listing
+                if args == ['pacman', '-Qi', 'sample']:
+                    return 'Version : 1.2\nLicenses : MIT\nURL : https://example.invalid/sample'
+                raise AssertionError(f'Unexpected command: {args}')
+            with patch.object(support, 'command', side_effect=command) as commands, \
+                    patch.object(support, '_windows_files', None), \
+                    patch.object(support, '_packages', {}):
+                for index in range(200):
+                    component = support.windows_component(root/f'ucrt64/bin/item{index}.dll')
+                    self.assertEqual(component['name'], 'sample')
+                    self.assertEqual(component['version'], '1.2')
+                    self.assertEqual(component['_licenses'], [license_file])
+                self.assertEqual(support.windows_component(root/'ucrt64/bin/ITEM3.DLL')['name'], 'sample')
+                for unknown in (root/'ucrt64/bin/not-owned.dll', root/'ucrt64/bin/ambiguous.dll',
+                                root/'ucrt64/bin', root.parent/'outside.dll', Path('relative.dll'),
+                                root/'ucrt64/bin/../bin/item3.dll'):
+                    self.assertIsNone(support.windows_component(unknown))
+            self.assertEqual([call.args[0] for call in commands.call_args_list], [
+                ['cygpath', '-w', '/'], ['pacman', '-Ql'], ['pacman', '-Qi', 'sample']])
+
+    def test_msys2_index_rejects_relative_and_escaping_database_paths(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            for spelling in ('relative.dll', '/ucrt64/../../outside.dll', '//server/share/file.dll',
+                             '/ucrt64/bin/C:/escape.dll', '/ucrt64\\bin\\escape.dll'):
+                def command(args):
+                    return temporary if args[0] == 'cygpath' else 'sample '+spelling
+                with self.subTest(spelling=spelling), \
+                        patch.object(support, 'command', side_effect=command), \
+                        patch.object(support, '_windows_files', None):
+                    with self.assertRaisesRegex(RuntimeError, 'Unsafe path'):
+                        support._windows_inventory()
+            with patch.object(support, 'command', return_value='relative-root'), \
+                    patch.object(support, '_windows_files', None):
+                with self.assertRaisesRegex(RuntimeError, 'absolute native'):
+                    support._windows_inventory()
+
+    def test_msys2_index_resolves_internal_symlinks_and_rejects_external_targets(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)/'msys2'
+            alias, target = root/'ucrt64/alias', root/'ucrt64/real'
+            escape, outside = root/'ucrt64/escape', root.parent/'outside'
+            actual_resolve = Path.resolve
+            def resolve(path, *args, **kwargs):
+                if path.is_relative_to(alias):
+                    return target/path.relative_to(alias)
+                if path.is_relative_to(escape):
+                    return outside/path.relative_to(escape)
+                return actual_resolve(path, *args, **kwargs)
+            def command(args):
+                if args == ['cygpath', '-w', '/']:
+                    return str(root)
+                if args == ['pacman', '-Ql']:
+                    return 'sample /ucrt64/alias/owned.dll\nsample /ucrt64/escape/private.dll'
+                if args == ['pacman', '-Qi', 'sample']:
+                    return 'Version : 1.2\nLicenses : MIT'
+                raise AssertionError(f'Unexpected command: {args}')
+            # Simulated filesystem resolutions avoid needing Windows symlink
+            # privileges while exercising the same Path.resolve interface.
+            with patch.object(Path, 'resolve', resolve), \
+                    patch.object(support, 'command', side_effect=command), \
+                    patch.object(support, '_windows_files', None), \
+                    patch.object(support, '_packages', {}):
+                self.assertEqual(support.windows_component(target/'owned.dll')['name'], 'sample')
+                self.assertEqual(support.windows_component(alias/'owned.dll')['name'], 'sample')
+                self.assertIsNone(support.windows_component(escape/'private.dll'))
+                self.assertIsNone(support.windows_component(outside/'private.dll'))
 
 
 if __name__ == '__main__':
