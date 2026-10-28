@@ -30,12 +30,15 @@ class ChildEnvironmentTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary, ExitStack() as stack:
             root = Path(temporary)/'_internal'
             self.frozen(stack, root)
-            dirty = {'LD_LIBRARY_PATH': str(root)+':/user/lib', 'LD_LIBRARY_PATH_ORIG': '/user/lib',
-                     'PATH': str(root)+':/usr/bin', 'PATH_ORIG': '/custom/bin:'+str(root)+':/usr/bin'}
+            # Mocking sys.platform does not change pathlib's host filesystem or
+            # os.pathsep. Keep its real separators, including Windows drive colons.
+            dirty = {'LD_LIBRARY_PATH': os.pathsep.join((str(root), '/user/lib')), 'LD_LIBRARY_PATH_ORIG': '/user/lib',
+                     'PATH': os.pathsep.join((str(root), '/usr/bin')),
+                     'PATH_ORIG': os.pathsep.join(('/custom/bin', str(root), '/usr/bin'))}
             before = dirty.copy()
             clean = external.child_environment(dirty)
             self.assertEqual(clean['LD_LIBRARY_PATH'], '/user/lib')
-            self.assertEqual(clean['PATH'], '/custom/bin:/usr/bin')
+            self.assertEqual(clean['PATH'], os.pathsep.join(('/custom/bin', '/usr/bin')))
             self.assertEqual(clean['LD_LIBRARY_PATH_ORIG'], '/user/lib')
             self.assertEqual(clean['PATH_ORIG'], before['PATH_ORIG'])
             self.assertEqual(dirty, before)
@@ -43,9 +46,10 @@ class ChildEnvironmentTests(unittest.TestCase):
     def test_runtime_hook_variables_restore_user_values_and_remove_generated_cache(self):
         with tempfile.TemporaryDirectory() as temporary, ExitStack() as stack:
             root = Path(temporary)/'_internal'
+            user_path = os.pathsep.join(('/user/bin', '/usr/bin'))
             self.frozen(stack, root, original={'GI_TYPELIB_PATH': '/user/typelibs',
                 'FONTCONFIG_FILE': '/user/fonts.conf', 'GDK_PIXBUF_MODULE_FILE': None,
-                'XDG_DATA_DIRS': None, 'PATH': '/user/bin:/usr/bin'})
+                'XDG_DATA_DIRS': None, 'PATH': user_path})
             clean = external.child_environment({'LD_LIBRARY_PATH': str(root),
                 'GI_TYPELIB_PATH': str(root/'gi_typelibs'), 'FONTCONFIG_FILE': str(root/'fonts.conf'),
                 'GDK_PIXBUF_MODULE_FILE': '/tmp/generated-cache', 'XDG_DATA_DIRS': str(root/'share'),
@@ -55,14 +59,15 @@ class ChildEnvironmentTests(unittest.TestCase):
             self.assertEqual(clean['FONTCONFIG_FILE'], '/user/fonts.conf')
             self.assertNotIn('GDK_PIXBUF_MODULE_FILE', clean)
             self.assertNotIn('XDG_DATA_DIRS', clean)
-            self.assertEqual(clean['PATH'], '/user/bin:/usr/bin')
+            self.assertEqual(clean['PATH'], user_path)
 
     def test_macos_filters_frameworks_and_resources_but_keeps_system_paths(self):
         with tempfile.TemporaryDirectory() as temporary, ExitStack() as stack:
             contents = Path(temporary)/'RatioLab.app/Contents'
             self.frozen(stack, contents/'Frameworks', platform='darwin')
             clean = external.child_environment({'DYLD_LIBRARY_PATH':
-                f'{contents}/Frameworks:/user/lib:{contents}/Resources', 'PATH': '/usr/bin'})
+                os.pathsep.join((str(contents/'Frameworks'), '/user/lib', str(contents/'Resources'))),
+                'PATH': '/usr/bin'})
             self.assertEqual(clean['DYLD_LIBRARY_PATH'], '/user/lib')
 
     def test_windows_filters_semicolon_paths(self):
