@@ -122,9 +122,10 @@ quello precedente al riordino dell'interfaccia.
   sintatticamente, e workflow nativi che costruiscono dall’sdist e verificano un
   wheel installato fuori repository. Su macOS viene scelto un Python Homebrew
   che carica effettivamente la formula PyGObject; su Windows si usa solamente
-  Python UCRT64 con le relative DLL. **Windows/macOS e i nuovi workflow non
-  sono stati eseguiti qui**. Non vengono dichiarati bundle `.exe`, `.app`,
-  `.dmg` o AppImage pronti né supporto grafico già provato su quei sistemi.
+  Python UCRT64 con le relative DLL. Questa prima verifica locale precedeva
+  l’esecuzione dei workflow remoti; gli esiti nativi successivi sono documentati
+  nella sezione sugli installer. Non viene dichiarato supporto grafico già
+  provato su Windows/macOS né un AppImage.
 
 Il problema preesistente di scorrimento
 `test_panel_rebuild_keeps_scroll_and_advanced_section`, descritto nella sezione
@@ -164,14 +165,14 @@ Istruzioni ripetibili: `INSTALL.md`. Log locali:
   in un profilo temporaneo con spazi e Unicode, incluso il controllo grafico.
 - L'installazione utente Linux aggiorna/rimuove soltanto i file inventariati:
   conserva anche progetti o altri file non inventariati salvati per errore nella
-  cartella dell'applicazione. Sette test dedicati verificano installazione,
+  cartella dell'applicazione. Otto test dedicati verificano installazione,
   aggiornamento, disinstallazione e rifiuto di cartelle estranee. I launcher
   continuano a usare `local.solidcraft.reducers`.
-- Il bundle finale conta **1218 file e 84 componenti nativi**. Ripetute sul
+- Il bundle Linux della verifica locale conta **1218 file e 84 componenti nativi**. Ripetute sul
   risultato finale sia installazione/aggiornamento/rimozione `.run` sul desktop,
   sia installazione APT/rimozione `.deb` nel rootfs con GTK e Python del sistema
   mascherati: rendering e tutte le esportazioni del workspace passano.
-- Superati **58 test mirati** dopo l'ultimo delta: 13 sul lancio di programmi
+- Superati **58 test mirati** nella prima revisione locale: 13 sul lancio di programmi
   esterni, 12 su integrità/bootstrap/notices, 26 sul protocollo CAD e 7 sugli
   installer Linux. Sono provati
   ripristino di `LD_LIBRARY_PATH_ORIG` e PATH, conservazione dell'ambiente globale,
@@ -186,9 +187,10 @@ Istruzioni ripetibili: `INSTALL.md`. Log locali:
   La firma usa solo identità fornite dal manutentore; la notarizzazione richiede
   un suo profilo già configurato. Il minimo macOS è verificato sui load command
   dei Mach-O, senza attribuire a un deployment target la capacità di abbassare
-  il requisito di librerie Homebrew precompilate. **Windows, macOS, firma,
-  notarizzazione e workflow remoto non sono stati eseguiti su questo host**:
-  non esistono ancora binari Windows/macOS convalidati da consegnare.
+  il requisito di librerie Homebrew precompilate. Le successive esecuzioni
+  native su GitHub sono documentate di seguito. La firma con identità del
+  manutentore e la notarizzazione Apple richiedono credenziali reali e non
+  sono state eseguite.
 
 Evidenze Linux indipendenti: `work/installer-linux-ubuntu24-build.log`,
 `work/installer-linux-deb-real.log`, `work/installer-linux-deb-proof.json`,
@@ -198,3 +200,59 @@ Prove finali: `work/installer-linux-run-final-proof.json` e
 I problemi di scorrimento già descritti rimangono separati e non sono dichiarati
 risolti. Le prove CAD usano mock o generano file: nessun documento CAD reale
 è stato modificato.
+
+
+## Verifica nativa GitHub e pacchetti consegnati — 28 ottobre 2026
+
+Il workflow [Native installers #7](https://github.com/NoOneExceptEnderk/RatioLab/actions/runs/40617279239)
+è terminato con **tutti e quattro i job superati**, sul commit
+`461af0295a8336b3933dc3415081b2198cd994c9`. Anche il workflow
+[Portable Python distribution](https://github.com/NoOneExceptEnderk/RatioLab/actions/runs/40617279229)
+dello stesso commit supera i tre job Linux, Windows e macOS. La successiva
+revisione della documentazione non cambia il codice dei runtime o dei builder.
+
+| Runner nativo | Runtime incluso | Inventario | Prova del pacchetto scaricabile |
+|---|---|---|---|
+| Ubuntu 24.04 x86-64 | GTK 4.14.5; glibc 2.39 | 1234 file, 88 componenti nativi | `.run` installato, avviato e rimosso in percorso con spazi/Unicode; rendering OpenGL Mesa e workspace completo; runtime del `.deb` estratto e avviato |
+| Windows Server 2025 x86-64 | GTK 4.24.1; destinazione Windows 11 build 22000+ | 1053 file, 54 componenti nativi | Setup Inno 6.7.1 compilato, installato, avviato senza MSYS2 sul PATH e disinstallato; report `bundled: true` |
+| macOS 15 Apple Silicon | GTK 4.22.4; minimo macOS 15 verificato nei Mach-O | 354 file, 41 componenti nativi | DMG montato; app copiata con `ditto` in percorso con spazi/Unicode, avviata senza Homebrew sul PATH; firma ad hoc verificata con `codesign --deep --strict` |
+| macOS 15 Intel | GTK 4.22.4; minimo macOS 15 verificato nei Mach-O | 354 file, 41 componenti nativi | Stesso ciclo DMG/copia/avvio/verifica firma dell’architettura ARM, eseguito su runner Intel |
+
+Ogni runtime congelato supera tutte le nove famiglie, preferenze e
+configurazioni UTF-8, STEP e STL. La build Linux esegue 41 test di
+bundle/notices/lancio programmi/installer senza skip. Windows e ciascun macOS
+eseguono 33 test con un solo skip esplicito per i testi di licenza comuni
+Debian, assenti su quei sistemi. I controlli GUI/driver Windows e macOS non sono
+stati richiesti e **non sono considerati verificati**. Il test grafico e le
+esportazioni del workspace sono stati eseguiti su Linux; la preview 3D richiede
+un driver OpenGL desktop 3.3+ sul computer di destinazione.
+
+La suite locale mirata comprende 82 test (bundle 20, programmi esterni 13,
+protocollo 26, installer Linux 8, portabilità 15), con uno skip GUI senza
+display. Dopo l’ultima correzione delle sole fixture di percorsi, i 13 test sui
+programmi esterni sono stati ripetuti dal revisore sia normalmente sia con
+separatore Windows, senza errori. Le fixture rispettano il filesystem dell’host
+anche quando simulano un’altra piattaforma; il codice di produzione è invariato.
+
+La review indipendente delle notices MSYS2 verifica le ricette ufficiali dei
+cinque pacchetti privi dei documenti installati, SHA-256 degli archivi upstream
+e corrispondenza byte per byte degli otto testi originali selezionati. La
+build accetta soltanto nomi, versioni e dichiarazioni di licenza esatte del
+registro. `.gitattributes` conserva i byte delle notices anche su checkout
+Windows. Le typelibs macOS rigenerate sono attribuite soltanto dopo verifica
+della trasformazione esatta del GIR originale e del pacchetto proprietario.
+
+I sei installer finali del run #7 sono stati scaricati in `dist/installers`:
+`.run`, `.tar.gz`, `.deb`, Setup `.exe` e due `.dmg`. Il revisore ha verificato
+ogni SHA-256 rispetto al file prodotto dal relativo job, firme di formato e
+assenza di percorsi assoluti nei file checksum. `SHA256SUMS` riunisce i sei hash.
+Sorgenti e wheel ricostruiti dall’sdist superano il controllo di contenuti e
+assenza di cartelle private/generate.
+
+Evidenze locali: `work/final-installer-evidence.json`,
+`work/ci-40617279239-*.log`, `work/msys-notices-parent-review.json`,
+`work/external-native-path-fixtures.log`,
+`work/external-windows-path-fixtures.log`. I limiti già indicati sul problema
+UI di scorrimento e sull’integrazione CAD reale rimangono validi. Il Setup è
+privo di firma del produttore; l’app macOS ha firma ad hoc, senza identità
+Developer ID né notarizzazione Apple.

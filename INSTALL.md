@@ -163,8 +163,8 @@ macOS architectures on their native runners. It creates real installers and
 tests their installed/copied applications with package-manager runtime paths
 removed. Linux GUI/GL is mandatory; Windows/macOS GUI/driver checks are opt-in
 using `native_gui`, since runner graphics hardware may be unavailable. The
-workflow uploads build artifacts only, not a public release. Its presence does
-not mean the Windows/macOS jobs have already passed.
+workflow uploads build artifacts; publication is a separate maintainer step.
+`VERIFICA.md` records completed native runs and the checks actually performed.
 
 Build configuration follows [PyInstaller's GI hook settings](https://pyinstaller.org/en/stable/hooks-config.html),
 [PyInstaller's external program guidance](https://pyinstaller.org/en/stable/common-issues-and-pitfalls.html#launching-external-programs-from-the-frozen-application),
@@ -281,7 +281,8 @@ logged-in macOS desktop session; no XQuartz is needed for GTK's Quartz backend.
 For a wheel, source `scripts/macos-python.sh`, set
 `python=$(choose_macos_python)`, create a `--system-site-packages` environment with
 that interpreter, then use its `bin/python -m pip install --no-deps /path/to/ratiolab-0.1.0-py3-none-any.whl`.
-This release provides no signed/notarized `.app` or `.dmg`.
+For a self-contained app, use the DMGs described above. Those preview builds
+use ad-hoc signing, without a Developer ID identity or Apple notarization.
 
 ## Check the installation
 
