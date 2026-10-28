@@ -12,7 +12,7 @@ from app_paths import prepare_native_runtime
 prepare_native_runtime()
 import gi
 gi.require_version('Gtk','4.0')
-from gi.repository import Gtk, GObject
+from gi.repository import Gtk, Gdk, GLib, GObject
 from motion import build_plan,IDENTITY,wrapped_angle
 from gl_loader import load_epoxy, bind_function
 
@@ -270,6 +270,42 @@ def shader_source(source, use_es=False):
     return source
 
 
+def context_uses_es(context):
+    """Validate the realized context before choosing its GLSL dialect."""
+    api=context.get_api()
+    if api not in (Gdk.GLAPI.GL,Gdk.GLAPI.GLES):
+        raise RuntimeError('The 3D preview requires an OpenGL or OpenGL ES context')
+    use_es=api==Gdk.GLAPI.GLES
+    if tuple(context.get_version()) < ((3,0) if use_es else (3,3)):
+        raise RuntimeError('OpenGL ES 3.0 or desktop OpenGL 3.3 or newer is required')
+    return use_es
+
+
+def create_preview_context(surface, allowed_apis):
+    """Try each supported API with its own minimum, without an OS assumption.
+
+    GLArea has one required-version property for both APIs. Requesting 3.3
+    there would also request nonexistent GLES 3.3 and exclude GLES 3.0 devices.
+    Create separate candidates so a backend can reject desktop GL and still
+    provide GLES (or the reverse), while retaining both renderer requirements.
+    """
+    errors=[]
+    for api,version,name in ((Gdk.GLAPI.GL,(3,3),'OpenGL 3.3'),
+                             (Gdk.GLAPI.GLES,(3,0),'OpenGL ES 3.0')):
+        if not allowed_apis & api:continue
+        try:
+            context=surface.create_gl_context()
+            context.set_allowed_apis(api)
+            context.set_required_version(*version)
+            context.realize()
+            context_uses_es(context)
+            return context
+        except (GLib.Error,RuntimeError) as error:
+            errors.append(f'{name}: {error}')
+    message='Could not create the 3D preview context (OpenGL 3.3 / GLES 3.0): '+('; '.join(errors) or 'no API allowed')
+    raise GLib.Error.new_literal(Gdk.gl_error_quark(),message,int(Gdk.GLError.NOT_AVAILABLE))
+
+
 def framebuffer_argb32(pixels, width, height):
     """Convert bottom-up GL_RGBA bytes to Cairo's native-endian ARGB32."""
     raw=bytearray().join(pixels[row*width*4:(row+1)*width*4] for row in range(height-1,-1,-1))
@@ -284,8 +320,13 @@ def framebuffer_argb32(pixels, width, height):
 class Preview3D(Gtk.GLArea):
     __gsignals__ = {'view-changed': (GObject.SignalFlags.RUN_FIRST, None, (str,)), 'motion-state': (GObject.SignalFlags.RUN_FIRST, None, ()), 'inspection-state': (GObject.SignalFlags.RUN_FIRST, None, ()), 'component-click': (GObject.SignalFlags.RUN_FIRST, None, (float,float,bool)), 'display-state': (GObject.SignalFlags.RUN_FIRST, None, ())}
     def __init__(self, use_es=None):
-        use_es = sys.platform == 'win32' if use_es is None else use_es
-        super().__init__();self.set_required_version(3,0 if use_es else 3);self.set_use_es(use_es)
+        super().__init__()
+        # An explicit API remains useful for diagnostics; normal startup lets
+        # GTK negotiate either backend, including native Windows desktop GL.
+        self.set_allowed_apis((Gdk.GLAPI.GL|Gdk.GLAPI.GLES) if use_es is None else
+                              Gdk.GLAPI.GLES if use_es else Gdk.GLAPI.GL)
+        self.set_required_version(3,0 if use_es else 3)
+        self.use_es=None
         self.set_has_depth_buffer(True);self.set_has_stencil_buffer(True);self.set_auto_render(False)
         self.set_hexpand(True);self.set_vexpand(True);self.set_size_request(320,280)
         self.design=None;self.show_support=False;self.show_housing=False;self.exploded=False;self.section=False;self.scene=None;self.dirty=False;self.gl=None;self.failure=None;self.zoom=1.;self.yaw=radians(-35);self.tilt=radians(-55)
@@ -297,6 +338,12 @@ class Preview3D(Gtk.GLArea):
         scroll=Gtk.EventControllerScroll.new(Gtk.EventControllerScrollFlags.VERTICAL);scroll.connect('scroll',self.scroll);self.add_controller(scroll)
         self.set_tooltip_text('Drag to rotate · scroll to zoom · double click to fit')
         click=Gtk.GestureClick.new();click.set_button(1);click.connect('released',self.component_click);self.add_controller(click)
+    def do_create_context(self):
+        try:
+            return create_preview_context(self.get_native().get_surface(),self.get_allowed_apis())
+        except GLib.Error as error:
+            self.set_error(error)
+            return None
     def set_design(self,design):
         changed=design is not self.design
         keep_phase=bool(design and self.design and design.family==self.design.family and {k:v for k,v in design.values.items() if k!='input_rpm'}=={k:v for k,v in self.design.values.items() if k!='input_rpm'})
@@ -361,12 +408,12 @@ class Preview3D(Gtk.GLArea):
         self.yaw=self.drag_origin[0]+x*.008;self.tilt=max(-pi,min(pi,self.drag_origin[1]+y*.008));self.queue_render();self.emit('view-changed','custom')
     def scroll(self,c,dx,dy):self.zoom=max(.25,min(8,self.zoom*1.12**(-dy)));self.queue_render();self.emit('view-changed','custom');return True
     def on_realize(self,*args):
+        self.failure=None;self.use_es=None
         self.make_current()
         if self.get_error():self.failure=str(self.get_error());return
         try:
+            self.use_es=context_uses_es(self.get_context())
             g=self.gl=GL()
-            desktop=g.lib.epoxy_is_desktop_gl;desktop.argtypes=[];desktop.restype=C.c_bool
-            self.use_es=not desktop()
             vs=g.shader(0x8B31,shader_source(VERTEX,self.use_es));fs=g.shader(0x8B30,shader_source(FRAGMENT,self.use_es))
             self.program=g.CreateProgram();g.AttachShader(self.program,vs);g.AttachShader(self.program,fs);g.LinkProgram(self.program)
             status=C.c_int();g.GetProgramiv(self.program,0x8B82,C.byref(status));g.DeleteShader(vs);g.DeleteShader(fs)

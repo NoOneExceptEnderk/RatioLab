@@ -71,9 +71,9 @@ Choose a gear/reducer family, adjust dimensions, then use **Save** or **Exportâ€
 The interface is in English. See the [user guide](https://github.com/NoOneExceptEnderk/RatioLab/blob/main/docs/user-guide.md) and
 [example projects](https://github.com/NoOneExceptEnderk/RatioLab/blob/main/examples/) for the available operations and model limits.
 
-The preview needs a working desktop and graphics driver. Linux/macOS require
-desktop OpenGL 3.3+; Windows uses the included ANGLE runtime with OpenGL ES 3.0+
-over Direct3D. Installing separate GTK/Python packages will not repair an
+The preview needs a working desktop and graphics driver providing desktop
+OpenGL 3.3+ or OpenGL ES 3.0+. GTK negotiates an available API; Windows also
+includes ANGLE for OpenGL ES over Direct3D. Installing separate GTK/Python packages will not repair an
 unsupported graphics driver. SolidCraft is optional; STEP/STL/SVG/DXF exports
 work independently of it.
 

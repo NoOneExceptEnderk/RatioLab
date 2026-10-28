@@ -159,8 +159,8 @@ An Internet connection is needed to install dependencies, not to generate or
 export models.
 
 Required: Python 3.10 or newer, **GTK 4.12 or newer**, PyGObject, Pycairo, libepoxy and a graphics
-driver providing **desktop OpenGL 3.3+** on Linux/macOS or **OpenGL ES 3.0+**
-through ANGLE on Windows. The same Python must load the
+driver providing **desktop OpenGL 3.3+** or **OpenGL ES 3.0+**. GTK negotiates
+an available API; Windows includes ANGLE as a GLES backend. The same Python must load the
 native bindings and run RatioLab. A virtual environment uses
 `--system-site-packages` so it can see those bindings. The wheel's `py3-none-any`
 tag describes its Python code and resources, not the native runtime.
@@ -372,8 +372,10 @@ The Windows bundle explicitly includes `libEGL.dll` and `libGLESv2.dll` from
 GTK loads these dynamically, so they must be collected even without a static
 DLL import. Their dependent libraries and licenses are included by the normal
 native inventory. GPU drivers and Windows Direct3D remain OS components.
-Windows requests GLES 3.0; Linux/macOS retain desktop GL 3.3. The shader math
-is shared, with the GLSL ES header and explicit precision used for GLES.
+The preview allows both APIs and tries desktop GL 3.3, then GLES 3.0, with
+separate minimum-version requests. It validates the realized context before
+selecting GLSL 330 core or GLSL ES 300 with explicit precision. The shader math
+is shared across both APIs.
 Preview captures read portable RGBA bytes and convert to native Cairo ARGB32.
 
 The native workflow always attempts installed GUI verification on Windows and

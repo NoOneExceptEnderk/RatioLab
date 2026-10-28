@@ -12,6 +12,12 @@ from math import cos, sin, hypot, atan2, pi
 
 CSS = b'''
 window.reducers { background: #1d2229; color: #e9eef4; font-size: 14px; }
+/* Native themes can set foregrounds on child nodes (notably spinbutton text).
+   Reset those nodes to inheritance before applying our semantic colors. */
+.reducers * { color: inherit; }
+.reducers button:disabled, .reducers entry:disabled, .reducers spinbutton:disabled,
+.reducers dropdown:disabled, .reducers checkbutton:disabled, .reducers textview:disabled { color: #acb9c9; }
+.reducers selection { background: #7cc8c8; color: #102a2c; }
 .reducers headerbar { background: #1d2229; border-bottom: 1px solid #38414d; box-shadow: none; min-height: 48px; }
 .reducers headerbar windowcontrols button { background: transparent; border: 0; box-shadow: none; }
 .reducers button { background: #242b34; color: #e9eef4; border: 1px solid #38414d; border-radius: 5px; box-shadow: none; min-height: 28px; padding: 4px 10px; }
