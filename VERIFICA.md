@@ -414,3 +414,40 @@ Prove: `work/mcp-review/full-tests-result.json`, `full-tests.log`,
 `sdk-v1-wheel.log`, `sdk-v2-wheel.log`, `wheel-tests-outside.log`,
 `wheel-stdio-proof.json`, `source-artifacts.log`, `host-build.log` e
 `packaging-tests.log` nella cartella `work/mcp-review/`.
+
+### Installer MCP verificati sui quattro target
+
+Il [workflow nativo MCP](https://github.com/NoOneExceptEnderk/RatioLab/actions/runs/40693824197)
+sul commit `52b2680e08160fa33f92ac87121af89d4ef9c33b` supera **4/4 job**.
+La [distribuzione Python dello stesso codice](https://github.com/NoOneExceptEnderk/RatioLab/actions/runs/40693824402)
+supera **3/3 job**, con test della wheel eseguiti fuori dal checkout.
+I 50 moduli del codice distribuito coincidono con la suite completa da 346 test.
+
+| Sistema nativo | App installata | Companion MCP installato |
+|---|---|---|
+| Ubuntu 24.04 x86-64 | GUI completa, 9 PNG, export, installazione/rimozione `.run`, runtime `.deb` | Entrambi i protocolli, 13 tool elencati, progetti/Undo, revisioni e percorsi, STEP selettivo con hash, ricerca e interferenze |
+| Windows Server 2025 x86-64, target Windows 11 | Setup installato senza MSYS2 sul PATH, GUI ANGLE ES 3.1, 9 PNG, export e disinstallazione | Stesse prove attraverso il vero `RatioLab-MCP.exe` console, con standard streams preservati |
+| macOS 15 Apple Silicon | DMG montato, app copiata senza Homebrew sul PATH, GUI OpenGL 4.1, 9 PNG, export e firma ad hoc | Stesse prove attraverso il companion dentro `Contents/MacOS/` |
+| macOS 15 Intel | Stesso ciclo completo sul runner Intel | Stesse prove con entrambi i protocolli |
+
+Il Linux nativo supera 50 test mirati senza skip. Windows e ciascun macOS
+superano 42 test, con il solo skip dei common-license Debian. Nessuna prova
+GUI o MCP degli installer è saltata. I report del companion sono allegati
+ai job: `ratiolab-linux-verification` e i tre artifact GUI Windows/macOS.
+`build-evidence.json` riporta risultati MCP e grafici di tutti e quattro i target.
+
+Il revisore ha scaricato i sei installer, controllato hash e formati e letto
+personalmente i quattro log completi. L'SDK ufficiale 2.3.0 supera anche le
+67 chiamate al companion compilato locale. Un ulteriore audit dei sei tipi
+errati/versione futura verifica sul runtime pubblicato gli errori JSON-RPC e
+lo schema ufficiale UnsupportedProtocolVersionErrorData; nessuna modifica di
+produzione era necessaria, perché la validazione era già presente.
+
+Log: `work/ci-40693824197-*.log`, report originali sotto
+`work/final-installers-40693824197/`, `work/mcp-review/sdk-v2-frozen.log` e
+`protocol-types-parent-proof.json`. La bozza GitHub resta privata/non pubblicata;
+gli otto asset sono verificati anche contro i digest SHA-256 restituiti da GitHub.
+Le prove native usano renderer software e non coprono ogni GPU/driver personale.
+Restano il Setup Windows senza firma del produttore e la firma ad hoc macOS,
+senza notarizzazione Apple. Le successive variazioni di sola documentazione
+non cambiano i runtime compilati in questo workflow.
