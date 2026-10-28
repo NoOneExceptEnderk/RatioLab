@@ -27,7 +27,10 @@ are Adwaita and the hicolor theme definition, excluding icons of other installed
 applications. The foreign Cairo extension and Cairo typelib are explicit
 hidden imports. libepoxy's computed ctypes name and GLVND loaders are collected
 by `hook-gl_loader.py`. GPU driver implementations are deliberately excluded;
-Windows OpenGL32 and macOS OpenGL remain operating-system interfaces.
+macOS OpenGL and Windows Direct3D remain operating-system interfaces. Windows
+also includes ANGLE libEGL/libGLESv2, explicitly collected by the GTK hook
+because GTK loads them dynamically. The app uses GLES 3.0 on Windows, with
+GLSL ES headers and RGBA-to-Cairo capture; Linux/macOS retain desktop GL.
 
 `runtime.py` runs before application imports, selecting local typelibs, schemas,
 DLLs, GIO modules and relocatable fontconfig data. The approved branding is

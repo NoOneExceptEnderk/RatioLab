@@ -15,7 +15,7 @@ import gi
 gi.require_version('Gtk','4.0')
 from gi.repository import Gtk,Gio,GLib,Gdk
 from geometry import generate
-from preview3d import VERTEX,GL,IDENTITY
+from preview3d import VERTEX,FRAGMENT,GL,IDENTITY,shader_source
 from wave_geometry import map_point,unmap_point,arc_coefficients
 from special_drives import ellipse_axes
 from motion import wrapped_angle
@@ -48,9 +48,10 @@ class ProfileShaderTests(unittest.TestCase):
 
     def test_actual_gpu_wave_coordinates_match_cpu_at_zero_and_moving_phases(self):
         canvas=self.app.canvas;canvas.make_current();g=canvas.gl
-        signatures=dict(TransformFeedbackVaryings=(None,[C.c_uint,C.c_int,C.POINTER(C.c_char_p),C.c_uint]),BindBufferBase=(None,[C.c_uint,C.c_uint,C.c_uint]),BeginTransformFeedback=(None,[C.c_uint]),EndTransformFeedback=(None,[]),GetBufferSubData=(None,[C.c_uint,C.c_ssize_t,C.c_ssize_t,C.c_void_p]))
+        signatures=dict(TransformFeedbackVaryings=(None,[C.c_uint,C.c_int,C.POINTER(C.c_char_p),C.c_uint]),BindBufferBase=(None,[C.c_uint,C.c_uint,C.c_uint]),BeginTransformFeedback=(None,[C.c_uint]),EndTransformFeedback=(None,[]),MapBufferRange=(C.c_void_p,[C.c_uint,C.c_ssize_t,C.c_ssize_t,C.c_uint]),UnmapBuffer=(C.c_ubyte,[C.c_uint]))
         extra={name:bind_function(g.lib,name,*signature) for name,signature in signatures.items()}
-        shader=g.shader(0x8B31,VERTEX);program=g.CreateProgram();g.AttachShader(program,shader)
+        shader=g.shader(0x8B31,shader_source(VERTEX,canvas.use_es));fragment=g.shader(0x8B30,shader_source(FRAGMENT,canvas.use_es))
+        program=g.CreateProgram();g.AttachShader(program,shader);g.AttachShader(program,fragment)
         varying=(C.c_char_p*1)(b'world');extra['TransformFeedbackVaryings'](program,1,varying,0x8C8C);g.LinkProgram(program)
         status=C.c_int();g.GetProgramiv(program,0x8B82,C.byref(status));self.assertEqual(status.value,1)
         vao=C.c_uint();buffers=(C.c_uint*2)();g.GenVertexArrays(1,C.byref(vao));g.GenBuffers(2,buffers)
@@ -73,12 +74,14 @@ class ProfileShaderTests(unittest.TestCase):
                             g.Uniform4f(uniform('flexShape'),flex,wave,a,b)
                             g.BindBuffer(0x8C8E,buffers[1]);g.BufferData(0x8C8E,12,None,0x88E8);extra['BindBufferBase'](0x8C8E,0,buffers[1])
                             g.Enable(0x8C89);extra['BeginTransformFeedback'](0);g.DrawArrays(0,0,1);extra['EndTransformFeedback']();g.Disable(0x8C89)
-                            result=(C.c_float*3)();extra['GetBufferSubData'](0x8C8E,0,12,result)
+                            result=(C.c_float*3)();mapped=extra['MapBufferRange'](0x8C8E,0,12,1)
+                            self.assertTrue(mapped,'Transform feedback buffer could not be read')
+                            C.memmove(result,mapped,12);self.assertTrue(extra['UnmapBuffer'](0x8C8E))
                             expected=map_point(u,-3,weight,a,b,rp,flex,wave)
                             self.assertLess(hypot(result[0]-expected[0],result[1]-expected[1]),.00015,(teeth,weight,u,flex,wave,list(result),expected))
             self.assertEqual(g.GetError(),0)
         finally:
-            g.Disable(0x8C89);g.BindVertexArray(0);g.DeleteBuffers(2,buffers);g.DeleteVertexArrays(1,C.byref(vao));g.DeleteShader(shader);g.DeleteProgram(program);g.UseProgram(0)
+            g.Disable(0x8C89);g.BindVertexArray(0);g.DeleteBuffers(2,buffers);g.DeleteVertexArrays(1,C.byref(vao));g.DeleteShader(shader);g.DeleteShader(fragment);g.DeleteProgram(program);g.UseProgram(0)
         canvas.dirty=True;canvas.queue_render()
 
 if __name__=='__main__':unittest.main(verbosity=2)

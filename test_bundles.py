@@ -147,7 +147,7 @@ class NativeNoticesTests(unittest.TestCase):
         registry = json.loads((support._msys_notice_root/'registry.json').read_text(encoding='utf-8'))
         self.assertEqual({record['name'].removeprefix('mingw-w64-ucrt-x86_64-') for record in registry['components']},
                          {'gobject-introspection-runtime', 'gst-plugins-bad-libs', 'gst-plugins-base',
-                          'gstreamer', 'python-gobject'})
+                          'gstreamer', 'python-gobject', 'angleproject'})
         for record in registry['components']:
             with self.subTest(package=record['name']):
                 component = dict(name=record['name'], version=record['version'],
@@ -156,7 +156,16 @@ class NativeNoticesTests(unittest.TestCase):
                 self.assertGreater(len(paths), 0)
                 for entry, path in zip(record['license_files'], paths):
                     self.assertEqual(hashlib.sha256(path.read_bytes()).hexdigest(), entry['sha256'])
-                    self.assertIn(Path(entry['original_path']).name, ('COPYING', 'COPYING.GPL', 'COPYING.LGPL'))
+                    if record.get('source_method') == 'pinned-git-files':
+                        self.assertEqual(len(entry['source_commit']), 40)
+                        self.assertEqual(len(entry['source_blob_sha1']), 40)
+                        self.assertEqual(len(entry['source_original_sha256']), 64)
+                        self.assertIn(entry['source_commit'], entry['source_original'])
+                        start, end = entry['selection_bytes']
+                        self.assertGreater(end, start)
+                        self.assertEqual(end-start, len(path.read_bytes()))
+                    else:
+                        self.assertIn(Path(entry['original_path']).name, ('COPYING', 'COPYING.GPL', 'COPYING.LGPL'))
                     self.assertFalse({'tests', 'docs', 'sys'} & set(Path(entry['original_path']).parts))
                 source_info = (support._msys_notice_root/record['source_info']).read_bytes()
                 self.assertEqual(hashlib.sha256(source_info).hexdigest(), record['source_info_sha256'])
@@ -196,7 +205,7 @@ class NativeNoticesTests(unittest.TestCase):
         records = [dict(name=record['name'], version=record['version'], provider='MSYS2 UCRT64',
                         source='https://packages.msys2.org/packages/'+record['name'],
                         license_declarations=record['license_declarations'], _licenses=[])
-                   for record in registry['components']]
+                   for record in registry['components'] if not record.get('required_supplement')]
         builder = dict(name='builder', version='1', provider='PyPI', source='https://example.invalid',
                        license_declarations=['fixture'],
                        _licenses=[ROOT/'packaging/fonts/LICENSE-DejaVu.txt'])
@@ -215,6 +224,81 @@ class NativeNoticesTests(unittest.TestCase):
                 self.assertEqual(len(item['notice_provenance']['source_recipe_sha256']), 64)
                 for path in item['license_files']:
                     self.assertTrue((Path(temporary)/path).is_file())
+
+    def test_angle_adds_static_notices_to_installed_license_and_keeps_git_provenance(self):
+        verifier = load('angle_notices_verifier', support._msys_notice_root/'verify_angle.py')
+        record = verifier.verify_local()
+        self.assertTrue(record['required_supplement'])
+        self.assertEqual(record['version'], '2.1.r25748.890b5d8f-6')
+        self.assertEqual(len(record['license_files']), 18)
+        names = {entry['original_path'] for entry in record['license_files']}
+        self.assertIn('vulkan-loader/loader/cJSON.c', names)
+        self.assertIn('vulkan-loader/loader/loader_json.c', names)
+        self.assertIn('vulkan-loader/loader/dirent_on_windows.c', names)
+        self.assertIn('vulkan-loader/loader/dirent_on_windows.h', names)
+        self.assertFalse(any(any(word in name.lower() for word in
+                                ('swiftshader', 'rapidjson', 'ceval', '/volk/', 'astc', 'abseil'))
+                             for name in names))
+        component = dict(name=record['name'], version=record['version'], provider='MSYS2 UCRT64',
+                         source='https://packages.msys2.org/packages/'+record['name'],
+                         license_declarations=record['license_declarations'],
+                         _licenses=[support._msys_notice_root/record['license_files'][0]['path']])
+        builder_notice = dict(name='builder', version='1', provider='PyPI', source='https://example.invalid',
+                              license_declarations=['fixture'], _licenses=[ROOT/'packaging/fonts/LICENSE-DejaVu.txt'])
+        binaries = [(name, '/fixture/'+name, 'BINARY') for name in ('libEGL.dll', 'libGLESv2.dll')]
+        with tempfile.TemporaryDirectory() as temporary, \
+                patch.object(support, 'component_for_binary', return_value=component), \
+                patch.object(support, 'pip_component', return_value=builder_notice), \
+                patch.object(support.urllib.request, 'urlopen', side_effect=AssertionError('Offline build')):
+            support.write_notices(binaries, temporary)
+            report = json.loads((Path(temporary)/'components.json').read_text())
+            self.assertTrue(report['complete'])
+            angle, = [item for item in report['components'] if item['name'] == record['name']]
+            self.assertEqual(angle['bundled_files'], ['libEGL.dll', 'libGLESv2.dll'])
+            self.assertEqual(len(angle['license_files']), 19)  # Installed root plus all 18 supplements.
+            provenance = angle['notice_provenance']
+            self.assertIsNone(provenance['source_sha256'])
+            self.assertEqual(provenance['source_commit'], record['source_commit'])
+            self.assertEqual(provenance['original_files'][8]['source_blob_sha1'],
+                             record['license_files'][8]['source_blob_sha1'])
+            self.assertEqual(provenance['original_files'][8]['selection_bytes'],
+                             record['license_files'][8]['selection_bytes'])
+
+    def test_angle_unknown_version_or_license_is_rejected_despite_installed_root_license(self):
+        registry = json.loads((support._msys_notice_root/'registry.json').read_text(encoding='utf-8'))
+        record, = [item for item in registry['components'] if item.get('required_supplement')]
+        builder_notice = dict(name='builder', version='1', provider='PyPI', source='https://example.invalid',
+                              license_declarations=['fixture'], _licenses=[ROOT/'packaging/fonts/LICENSE-DejaVu.txt'])
+        for version, declarations in [('unverified', record['license_declarations']),
+                                      (record['version'], ['spdx:MIT'])]:
+            component = dict(name=record['name'], version=version, provider='MSYS2 UCRT64',
+                             source='https://packages.msys2.org', license_declarations=declarations,
+                             _licenses=[support._msys_notice_root/record['license_files'][0]['path']])
+            with self.subTest(version=version, declarations=declarations), \
+                    tempfile.TemporaryDirectory() as temporary, \
+                    patch.object(support, 'component_for_binary', return_value=component), \
+                    patch.object(support, 'pip_component', return_value=builder_notice):
+                with self.assertRaisesRegex(RuntimeError, 'Required ANGLE source notices are not verified'):
+                    support.write_notices([('libEGL.dll', '/fixture/libEGL.dll', 'BINARY')], temporary)
+
+    def test_angle_git_verifier_rejects_changed_original_blob_and_notice_range(self):
+        verifier = load('angle_git_bytes_verifier', support._msys_notice_root/'verify_angle.py')
+        original = b'header\n/* Original copyright and permission notice. */\nimplementation\n'
+        start, end = original.index(b'/*'), original.index(b'*/')+2
+        notice = original[start:end]
+        entry = dict(original_path='fixture/source.c', selection_bytes=[start, end],
+                     source_original_sha256=hashlib.sha256(original).hexdigest(),
+                     source_blob_sha1=hashlib.sha1(b'blob '+str(len(original)).encode()+b'\0'+original).hexdigest(),
+                     sha256=hashlib.sha256(notice).hexdigest())
+        self.assertEqual(verifier.verify_source_bytes(entry, original), notice)
+        for modified, data, error in [
+                (entry, original+b'changed', 'Original source SHA-256'),
+                (dict(entry, source_blob_sha1='0'*40), original, 'Git blob'),
+                (dict(entry, selection_bytes=[-1, end]), original, 'byte range'),
+                (dict(entry, selection_bytes=[start, len(original)+1]), original, 'byte range'),
+                (dict(entry, selection_bytes=[start, end-1]), original, 'Notice SHA-256')]:
+            with self.subTest(error=error), self.assertRaisesRegex(ValueError, error):
+                verifier.verify_source_bytes(modified, data)
 
     def test_typelib_without_active_analysis_stays_unmapped_without_querying_gi(self):
         # Provide only a fake config module: neither PyInstaller nor GI needs to

@@ -42,11 +42,13 @@ def self_test(gui=False):
             if generate(restored['family'], restored['parameters']).parts != design.parts:
                 raise RuntimeError('Configuration changed the generated geometry')
             features = _features_check(output, design)
+            previews = []
             if gui:
-                _workspace_check(config, output)
+                previews = _workspace_check(config, output)
             result.update(self_test='passed', families=len(FAMILIES),
                           step_files=len(list(assets.glob('*.step'))), stl_bytes=assembly.stat().st_size,
                           features=features,
+                          preview_families=previews,
                           workspace_export='passed' if gui else 'not requested')
     return result
 
@@ -178,6 +180,32 @@ def _workspace_check(config, output):
             raise RuntimeError('Workspace STEP assets missing')
         if not (package/'assembly.step').is_file() or not (package/'profiles.json').is_file():
             raise RuntimeError('Workspace standalone CAD/profile export missing')
+        import cairo
+        image = cairo.ImageSurface.create_from_png(str(next(package.glob('*.png'))))
+        pixels = bytes(image.get_data())
+        if not pixels or not any(pixels[i:i+4] != pixels[:4] for i in range(4, len(pixels), 4)):
+            raise RuntimeError('Workspace exported a blank preview image')
+        import io
+        from geometry import FAMILIES, generate
+        previews = []
+        for family in FAMILIES:
+            application.load_config_data(dict(format='solidcraft-riduttori/1', family=family,
+                                               parameters=generate(family).values))
+            wait_for(lambda: not application.pending and application.canvas.design.family == family)
+            canvas = application.canvas
+            canvas.set_motion_playing(False)
+            canvas.motion_enabled = True
+            canvas.motion_phase = 1.25
+            captured = []
+            canvas.capture_png(lambda data, error: captured.append((data, error)))
+            if not captured or captured[0][1] is not None:
+                raise RuntimeError('Animated preview capture failed: '+family)
+            image = cairo.ImageSurface.create_from_png(io.BytesIO(captured[0][0]))
+            pixels = bytes(image.get_data())
+            if not pixels or not any(pixels[i:i+4] != pixels[:4] for i in range(4, len(pixels), 4)):
+                raise RuntimeError('Animated preview is blank: '+family)
+            previews.append(family)
+        return previews
     finally:
         for window in application.get_windows():
             window.destroy()

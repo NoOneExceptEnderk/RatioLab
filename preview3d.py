@@ -2,6 +2,7 @@
 Nessuna dipendenza pip; profili e twist provengono dalla stessa geometria inviata al CAD.
 """
 import ctypes as C
+import sys
 from array import array
 from dataclasses import dataclass
 from math import sin,cos,radians,ceil,sqrt,pi
@@ -261,10 +262,28 @@ void main(){if(section>0.5 && world.y>center.y)discard;vec3 norm=normalize(n);fl
 '''
 
 
+def shader_source(source, use_es=False):
+    if use_es:
+        return source.replace('#version 330 core', '#version 300 es\nprecision highp float;\nprecision highp int;', 1)
+    return source
+
+
+def framebuffer_argb32(pixels, width, height):
+    """Convert bottom-up GL_RGBA bytes to Cairo's native-endian ARGB32."""
+    raw=bytearray().join(pixels[row*width*4:(row+1)*width*4] for row in range(height-1,-1,-1))
+    if sys.byteorder == 'little':
+        raw[0::4],raw[2::4]=raw[2::4],raw[0::4]
+    else:
+        red,green,blue,alpha=raw[0::4],raw[1::4],raw[2::4],raw[3::4]
+        raw[0::4],raw[1::4],raw[2::4],raw[3::4]=alpha,red,green,blue
+    return raw
+
+
 class Preview3D(Gtk.GLArea):
     __gsignals__ = {'view-changed': (GObject.SignalFlags.RUN_FIRST, None, (str,)), 'motion-state': (GObject.SignalFlags.RUN_FIRST, None, ()), 'inspection-state': (GObject.SignalFlags.RUN_FIRST, None, ()), 'component-click': (GObject.SignalFlags.RUN_FIRST, None, (float,float,bool)), 'display-state': (GObject.SignalFlags.RUN_FIRST, None, ())}
-    def __init__(self):
-        super().__init__();self.set_required_version(3,3);self.set_use_es(False)
+    def __init__(self, use_es=None):
+        use_es = sys.platform == 'win32' if use_es is None else use_es
+        super().__init__();self.set_required_version(3,0 if use_es else 3);self.set_use_es(use_es)
         self.set_has_depth_buffer(True);self.set_has_stencil_buffer(True);self.set_auto_render(False)
         self.set_hexpand(True);self.set_vexpand(True);self.set_size_request(320,280)
         self.design=None;self.show_support=False;self.show_housing=False;self.exploded=False;self.section=False;self.scene=None;self.dirty=False;self.gl=None;self.failure=None;self.zoom=1.;self.yaw=radians(-35);self.tilt=radians(-55)
@@ -343,7 +362,10 @@ class Preview3D(Gtk.GLArea):
         self.make_current()
         if self.get_error():self.failure=str(self.get_error());return
         try:
-            g=self.gl=GL();vs=g.shader(0x8B31,VERTEX);fs=g.shader(0x8B30,FRAGMENT)
+            g=self.gl=GL()
+            desktop=g.lib.epoxy_is_desktop_gl;desktop.argtypes=[];desktop.restype=C.c_bool
+            self.use_es=not desktop()
+            vs=g.shader(0x8B31,shader_source(VERTEX,self.use_es));fs=g.shader(0x8B30,shader_source(FRAGMENT,self.use_es))
             self.program=g.CreateProgram();g.AttachShader(self.program,vs);g.AttachShader(self.program,fs);g.LinkProgram(self.program)
             status=C.c_int();g.GetProgramiv(self.program,0x8B82,C.byref(status));g.DeleteShader(vs);g.DeleteShader(fs)
             if not status.value:raise RuntimeError('Could not initialize the 3D shader')
@@ -429,8 +451,9 @@ class Preview3D(Gtk.GLArea):
             try:
                 import cairo
                 import io
-                pixels=C.create_string_buffer(w*h*4);g.ReadPixels(0,0,w,h,0x80E1,0x1401,pixels)
-                raw=bytearray().join(pixels.raw[row*w*4:(row+1)*w*4] for row in range(h-1,-1,-1))
+                pixels=C.create_string_buffer(w*h*4);g.ReadPixels(0,0,w,h,0x1908,0x1401,pixels)
+                if g.GetError():raise RuntimeError('OpenGL framebuffer capture failed')
+                raw=framebuffer_argb32(pixels.raw,w,h)
                 surface=cairo.ImageSurface.create_for_data(raw,cairo.FORMAT_ARGB32,w,h,w*4)
                 if getattr(self,'capture_path',None):
                     surface.write_to_png(self.capture_path);self.capture_path=None

@@ -195,7 +195,7 @@ class DiagnosticGuiTests(unittest.TestCase):
         result = diagnose(gui=True)
         self.assertEqual(result['preview'], 'rendered')
         self.assertTrue(result['framebuffer_has_geometry'])
-        self.assertGreaterEqual(result['opengl_version'], 33)
+        self.assertGreaterEqual(result['opengl_version'], 30 if result['graphics_api'] == 'OpenGL ES' else 33)
 
 
 if __name__ == '__main__':

@@ -68,6 +68,7 @@ jobs:
             mingw-w64-ucrt-x86_64-python-gobject
             mingw-w64-ucrt-x86_64-python-cairo
             mingw-w64-ucrt-x86_64-libepoxy
+            mingw-w64-ucrt-x86_64-angleproject
       - name: Build through sdist with UCRT64 Python
         run: |
           /ucrt64/bin/python.exe -m build --no-isolation

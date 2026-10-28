@@ -1,5 +1,6 @@
 """GTK4 typelibs and runtime data, using PyInstaller's supported GI helpers."""
 from pathlib import Path
+import sys
 from PyInstaller.utils.hooks.gi import GiModuleInfo, collect_glib_share_files
 
 
@@ -8,6 +9,14 @@ def hook(hook_api):
     if not info.available or info.version != '4.0':
         raise RuntimeError('The native build must provide GTK4, not GTK3')
     binaries, datas, hiddenimports = info.collect_typelib_data()
+    if sys.platform == 'win32':
+        # GTK's EGL backend loads ANGLE dynamically: no PE import edge lets
+        # PyInstaller discover these two libraries automatically.
+        for name in ('libEGL.dll', 'libGLESv2.dll'):
+            source = Path(sys.base_prefix)/'bin'/name
+            if not source.is_file():
+                raise RuntimeError('Windows GTK rendering requires MSYS2 angleproject: '+name)
+            binaries.append((str(source), '.'))
     datas += collect_glib_share_files('icons', 'Adwaita')
     # hicolor is a shared directory: browsers and other installed applications
     # place their own icons here. Only the fallback theme definition belongs in

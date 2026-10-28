@@ -79,6 +79,7 @@ jobs:
             mingw-w64-ucrt-x86_64-python-gobject
             mingw-w64-ucrt-x86_64-python-cairo
             mingw-w64-ucrt-x86_64-libepoxy
+            mingw-w64-ucrt-x86_64-angleproject
       - name: Build using the native UCRT64 Python and PyInstaller
         shell: msys2 {0}
         run: |

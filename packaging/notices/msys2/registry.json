@@ -1,7 +1,7 @@
 {
   "format": "ratiolab-msys2-source-notices/1",
   "retrieved": "2026-10-28",
-  "description": "Explicitly selected, unmodified upstream COPYING texts from exact MSYS2 source-only archives. Upstream archive SHA-256 verified against included .SRCINFO before extraction. Test fixtures, documentation images and unbundled DVB plugins are excluded. New versions require a verified registry update.",
+  "description": "Explicit upstream notices for exact MSYS2 package versions. Archive-backed records verify the upstream SHA-256 from .SRCINFO; pinned-git-files records verify each original Git blob and selected byte range. No PKGBUILD code is executed. New versions require a verified registry update.",
   "components": [
     {
       "name": "mingw-w64-ucrt-x86_64-gobject-introspection-runtime",
@@ -122,6 +122,318 @@
         }
       ],
       "selection": "Root COPYING and the vendored pythoncapi-compat COPYING used by the binding; documentation-image licenses are excluded because those images are not bundled."
+    },
+    {
+      "name": "mingw-w64-ucrt-x86_64-angleproject",
+      "version": "2.1.r25748.890b5d8f-6",
+      "license_declarations": [
+        "spdx:BSD-3-Clause"
+      ],
+      "source": "https://chromium.googlesource.com/angle/angle",
+      "source_sha256": null,
+      "source_method": "pinned-git-files",
+      "source_commit": "890b5d8fa2988e3719e0d80421bf3e927db9cd5c",
+      "source_recipe": "https://raw.githubusercontent.com/msys2/MINGW-packages/086a09f64a08468d5be11c5cf9d1adaf4072a957/mingw-w64-angleproject/PKGBUILD",
+      "source_recipe_sha256": "cf5217d103e8c5b59093a80ed1dc48d6426e6cb73cf3fd8fa48d9f7f21045b4f",
+      "source_recipe_file": "angleproject-2.1.r25748.890b5d8f-6/PKGBUILD.txt",
+      "source_info": "angleproject-2.1.r25748.890b5d8f-6/SRCINFO.txt",
+      "source_info_sha256": "16d3ed9e3df42011f96c38f03c5d94594850db43d60f518c0a517eef72eb9654",
+      "source_package": "https://mirror.msys2.org/mingw/sources/mingw-w64-angleproject-2.1.r25748.890b5d8f-6.src.tar.zst",
+      "source_package_sha256": null,
+      "source_package_verification": "Only the leading recipe/SRCINFO entries were read; the complete 2.14 GB source archive was not downloaded or hashed. Individual upstream Git blobs are independently verified instead.",
+      "binary_package": "https://mirror.msys2.org/mingw/ucrt64/mingw-w64-ucrt-x86_64-angleproject-2.1.r25748.890b5d8f-6-any.pkg.tar.zst",
+      "binary_package_sha256": "3c184061a3a3ef6478055e11eb786e20c40e62c1c239a1d65bf1399b7e2e7113",
+      "required_supplement": true,
+      "license_files": [
+        {
+          "original_path": "angle/LICENSE",
+          "source_original": "https://chromium.googlesource.com/angle/angle/+/890b5d8fa2988e3719e0d80421bf3e927db9cd5c/LICENSE?format=TEXT",
+          "source_repository": "https://chromium.googlesource.com/angle/angle",
+          "source_commit": "890b5d8fa2988e3719e0d80421bf3e927db9cd5c",
+          "source_path": "LICENSE",
+          "source_blob_sha1": "0f65fd60fd68d465a2283378849f16532f5ee4f1",
+          "source_original_sha256": "bf4da21bd20bcfb5b60b7ecc67fa864a79be049e21d6178076887f178dd6c71a",
+          "selection_bytes": [
+            0,
+            1643
+          ],
+          "sha256": "bf4da21bd20bcfb5b60b7ecc67fa864a79be049e21d6178076887f178dd6c71a",
+          "path": "angleproject-2.1.r25748.890b5d8f-6/00-LICENSE-ANGLE.txt",
+          "source_mirror": "https://raw.githubusercontent.com/google/angle/890b5d8fa2988e3719e0d80421bf3e927db9cd5c/LICENSE"
+        },
+        {
+          "original_path": "angle/src/common/third_party/xxhash/LICENSE",
+          "source_original": "https://chromium.googlesource.com/angle/angle/+/890b5d8fa2988e3719e0d80421bf3e927db9cd5c/src/common/third_party/xxhash/LICENSE?format=TEXT",
+          "source_repository": "https://chromium.googlesource.com/angle/angle",
+          "source_commit": "890b5d8fa2988e3719e0d80421bf3e927db9cd5c",
+          "source_path": "src/common/third_party/xxhash/LICENSE",
+          "source_blob_sha1": "7de801ed1bc78d479419e6e4fdaf7f665e4086c1",
+          "source_original_sha256": "86ec6953794503942b70fcd4f35b565d44f63f703b7037ce44dad965c4aaae91",
+          "selection_bytes": [
+            0,
+            1314
+          ],
+          "sha256": "86ec6953794503942b70fcd4f35b565d44f63f703b7037ce44dad965c4aaae91",
+          "path": "angleproject-2.1.r25748.890b5d8f-6/01-LICENSE-xxHash.txt",
+          "source_mirror": "https://raw.githubusercontent.com/google/angle/890b5d8fa2988e3719e0d80421bf3e927db9cd5c/src/common/third_party/xxhash/LICENSE"
+        },
+        {
+          "original_path": "spirv-headers/LICENSE",
+          "source_original": "https://chromium.googlesource.com/external/github.com/KhronosGroup/SPIRV-Headers/+/c8ad050fcb29e42a2f57d9f59e97488f465c436d/LICENSE?format=TEXT",
+          "source_repository": "https://chromium.googlesource.com/external/github.com/KhronosGroup/SPIRV-Headers",
+          "source_commit": "c8ad050fcb29e42a2f57d9f59e97488f465c436d",
+          "source_path": "LICENSE",
+          "source_blob_sha1": "a63e9c620ee123267192113ab0be3814782ba909",
+          "source_original_sha256": "ea43b1de38a6f90c488800d66dec1ed671e68cda530266bc96951fb5b6307613",
+          "selection_bytes": [
+            0,
+            1361
+          ],
+          "sha256": "96edbe52ad48e33f07bf4a492a6a7a265a9ec89f044b8651d6115d4d1ff1a74b",
+          "path": "angleproject-2.1.r25748.890b5d8f-6/02-LICENSE-SPIRV-Headers.txt",
+          "source_mirror": "https://raw.githubusercontent.com/KhronosGroup/SPIRV-Headers/c8ad050fcb29e42a2f57d9f59e97488f465c436d/LICENSE"
+        },
+        {
+          "original_path": "spirv-tools/LICENSE",
+          "source_original": "https://chromium.googlesource.com/external/github.com/KhronosGroup/SPIRV-Tools/+/257a227fbadf8176ea386c7d8fb9b889cbf08640/LICENSE?format=TEXT",
+          "source_repository": "https://chromium.googlesource.com/external/github.com/KhronosGroup/SPIRV-Tools",
+          "source_commit": "257a227fbadf8176ea386c7d8fb9b889cbf08640",
+          "source_path": "LICENSE",
+          "source_blob_sha1": "d645695673349e3947e8e5ae42332d0ac3164cd7",
+          "source_original_sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+          "selection_bytes": [
+            0,
+            11358
+          ],
+          "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+          "path": "angleproject-2.1.r25748.890b5d8f-6/03-LICENSE-SPIRV-Tools.txt",
+          "source_mirror": "https://raw.githubusercontent.com/KhronosGroup/SPIRV-Tools/257a227fbadf8176ea386c7d8fb9b889cbf08640/LICENSE"
+        },
+        {
+          "original_path": "vulkan-headers/LICENSE.md",
+          "source_original": "https://chromium.googlesource.com/external/github.com/KhronosGroup/Vulkan-Headers/+/7cff847503174e2049b08253ee5f30428866fea3/LICENSE.md?format=TEXT",
+          "source_repository": "https://chromium.googlesource.com/external/github.com/KhronosGroup/Vulkan-Headers",
+          "source_commit": "7cff847503174e2049b08253ee5f30428866fea3",
+          "source_path": "LICENSE.md",
+          "source_blob_sha1": "d6a0648b652ade1defb1eb481643d2f8d14828b5",
+          "source_original_sha256": "ac24e5ea920e4318e4d02c4086ae51f53cfb03feed06c18df1019e7ada1ec7bc",
+          "selection_bytes": [
+            0,
+            458
+          ],
+          "sha256": "ac24e5ea920e4318e4d02c4086ae51f53cfb03feed06c18df1019e7ada1ec7bc",
+          "path": "angleproject-2.1.r25748.890b5d8f-6/04-LICENSE-Vulkan-Headers-overview.txt",
+          "source_mirror": "https://raw.githubusercontent.com/KhronosGroup/Vulkan-Headers/7cff847503174e2049b08253ee5f30428866fea3/LICENSE.md"
+        },
+        {
+          "original_path": "vulkan-headers/LICENSES/Apache-2.0.txt",
+          "source_original": "https://chromium.googlesource.com/external/github.com/KhronosGroup/Vulkan-Headers/+/7cff847503174e2049b08253ee5f30428866fea3/LICENSES/Apache-2.0.txt?format=TEXT",
+          "source_repository": "https://chromium.googlesource.com/external/github.com/KhronosGroup/Vulkan-Headers",
+          "source_commit": "7cff847503174e2049b08253ee5f30428866fea3",
+          "source_path": "LICENSES/Apache-2.0.txt",
+          "source_blob_sha1": "d645695673349e3947e8e5ae42332d0ac3164cd7",
+          "source_original_sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+          "selection_bytes": [
+            0,
+            11358
+          ],
+          "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+          "path": "angleproject-2.1.r25748.890b5d8f-6/05-LICENSE-Vulkan-Headers-Apache.txt",
+          "source_mirror": "https://raw.githubusercontent.com/KhronosGroup/Vulkan-Headers/7cff847503174e2049b08253ee5f30428866fea3/LICENSES/Apache-2.0.txt"
+        },
+        {
+          "original_path": "vulkan-headers/LICENSES/MIT.txt",
+          "source_original": "https://chromium.googlesource.com/external/github.com/KhronosGroup/Vulkan-Headers/+/7cff847503174e2049b08253ee5f30428866fea3/LICENSES/MIT.txt?format=TEXT",
+          "source_repository": "https://chromium.googlesource.com/external/github.com/KhronosGroup/Vulkan-Headers",
+          "source_commit": "7cff847503174e2049b08253ee5f30428866fea3",
+          "source_path": "LICENSES/MIT.txt",
+          "source_blob_sha1": "8495fe9e901b430947d54980af7c77c0bb8a6221",
+          "source_original_sha256": "1ca3502222d967f3be5751c55f6b7ee735b5383909c3b501495f54b216dbf227",
+          "selection_bytes": [
+            0,
+            1084
+          ],
+          "sha256": "1ca3502222d967f3be5751c55f6b7ee735b5383909c3b501495f54b216dbf227",
+          "path": "angleproject-2.1.r25748.890b5d8f-6/06-LICENSE-Vulkan-Headers-MIT.txt",
+          "source_mirror": "https://raw.githubusercontent.com/KhronosGroup/Vulkan-Headers/7cff847503174e2049b08253ee5f30428866fea3/LICENSES/MIT.txt"
+        },
+        {
+          "original_path": "vulkan-loader/LICENSE.txt",
+          "source_original": "https://chromium.googlesource.com/external/github.com/KhronosGroup/Vulkan-Loader/+/235d1d2cf617af03a2ecbf6e951287595138feda/LICENSE.txt?format=TEXT",
+          "source_repository": "https://chromium.googlesource.com/external/github.com/KhronosGroup/Vulkan-Loader",
+          "source_commit": "235d1d2cf617af03a2ecbf6e951287595138feda",
+          "source_path": "LICENSE.txt",
+          "source_blob_sha1": "6599e310a4c90160e93b1f260fa33df4d1424a86",
+          "source_original_sha256": "43c0a37e6a0fa7ff3c843b3ec5a4fac84b712558ddac103fbd4c1649662a9ece",
+          "selection_bytes": [
+            0,
+            11661
+          ],
+          "sha256": "43c0a37e6a0fa7ff3c843b3ec5a4fac84b712558ddac103fbd4c1649662a9ece",
+          "path": "angleproject-2.1.r25748.890b5d8f-6/07-LICENSE-Vulkan-Loader.txt",
+          "source_mirror": "https://raw.githubusercontent.com/KhronosGroup/Vulkan-Loader/235d1d2cf617af03a2ecbf6e951287595138feda/LICENSE.txt"
+        },
+        {
+          "original_path": "vulkan-loader/loader/cJSON.c",
+          "source_original": "https://chromium.googlesource.com/external/github.com/KhronosGroup/Vulkan-Loader/+/235d1d2cf617af03a2ecbf6e951287595138feda/loader/cJSON.c?format=TEXT",
+          "source_repository": "https://chromium.googlesource.com/external/github.com/KhronosGroup/Vulkan-Loader",
+          "source_commit": "235d1d2cf617af03a2ecbf6e951287595138feda",
+          "source_path": "loader/cJSON.c",
+          "source_blob_sha1": "d4eb0c93da0dd25c039911a2531cca2263f99b80",
+          "source_original_sha256": "0e8386514dc0ddfcfeb1e8c2dc32e65efc695dd62386e7cd00d6c7c125c654e7",
+          "selection_bytes": [
+            0,
+            1120
+          ],
+          "sha256": "b956744e36eb16b84337ea1062b35e52ddace01bf91c42bb3013a8031454a5b8",
+          "path": "angleproject-2.1.r25748.890b5d8f-6/08-LICENSE-Vulkan-Loader-cJSON.txt",
+          "source_mirror": "https://raw.githubusercontent.com/KhronosGroup/Vulkan-Loader/235d1d2cf617af03a2ecbf6e951287595138feda/loader/cJSON.c"
+        },
+        {
+          "original_path": "vulkan-loader/loader/dirent_on_windows.h",
+          "source_original": "https://chromium.googlesource.com/external/github.com/KhronosGroup/Vulkan-Loader/+/235d1d2cf617af03a2ecbf6e951287595138feda/loader/dirent_on_windows.h?format=TEXT",
+          "source_repository": "https://chromium.googlesource.com/external/github.com/KhronosGroup/Vulkan-Loader",
+          "source_commit": "235d1d2cf617af03a2ecbf6e951287595138feda",
+          "source_path": "loader/dirent_on_windows.h",
+          "source_blob_sha1": "cf55d614c397246f70e8f09ab96a1e1a94a06cc5",
+          "source_original_sha256": "3ac29aed7e519e45b131ef5d3b7ebdd4f616424790c462811bf50755776085bc",
+          "selection_bytes": [
+            638,
+            1226
+          ],
+          "sha256": "5717d24869c2a5ecf6defc2a6a09e06d143989718903578be2b4b5c331842b16",
+          "path": "angleproject-2.1.r25748.890b5d8f-6/09-LICENSE-Vulkan-Loader-dirent.txt",
+          "source_mirror": "https://raw.githubusercontent.com/KhronosGroup/Vulkan-Loader/235d1d2cf617af03a2ecbf6e951287595138feda/loader/dirent_on_windows.h"
+        },
+        {
+          "original_path": "vma/LICENSE.txt",
+          "source_original": "https://chromium.googlesource.com/external/github.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator/+/56300b29fbfcc693ee6609ddad3fdd5b7a449a21/LICENSE.txt?format=TEXT",
+          "source_repository": "https://chromium.googlesource.com/external/github.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator",
+          "source_commit": "56300b29fbfcc693ee6609ddad3fdd5b7a449a21",
+          "source_path": "LICENSE.txt",
+          "source_blob_sha1": "fcf8b67de1f433634963108bee518f51ddee71f5",
+          "source_original_sha256": "cdb520614db3ec62e667ece01e64e6afa21948fa51e85e748b1494597a7be907",
+          "selection_bytes": [
+            0,
+            1099
+          ],
+          "sha256": "cdb520614db3ec62e667ece01e64e6afa21948fa51e85e748b1494597a7be907",
+          "path": "angleproject-2.1.r25748.890b5d8f-6/10-LICENSE-Vulkan-Memory-Allocator.txt"
+        },
+        {
+          "original_path": "chromium/LICENSE",
+          "source_original": "https://chromium.googlesource.com/chromium/src/+/a9fc4ae13759a05e6f66569039b429aa940618c2/LICENSE?format=TEXT",
+          "source_repository": "https://chromium.googlesource.com/chromium/src",
+          "source_commit": "a9fc4ae13759a05e6f66569039b429aa940618c2",
+          "source_path": "LICENSE",
+          "source_blob_sha1": "2249a28657f86c645f8978b75babc1bd52aca318",
+          "source_original_sha256": "368cca1106be99d39ecd32a38d8305585d802a475effb66380b91ffc9bcf709b",
+          "selection_bytes": [
+            0,
+            1536
+          ],
+          "sha256": "368cca1106be99d39ecd32a38d8305585d802a475effb66380b91ffc9bcf709b",
+          "path": "angleproject-2.1.r25748.890b5d8f-6/11-LICENSE-Chromium.txt",
+          "source_mirror": "https://raw.githubusercontent.com/chromium/chromium/a9fc4ae13759a05e6f66569039b429aa940618c2/LICENSE"
+        },
+        {
+          "original_path": "zlib/google/compression_utils_portable.cc",
+          "source_original": "https://chromium.googlesource.com/chromium/src/third_party/zlib/+/bf1e8de6cc305fdab82db1b65bed76b70bd96c8b/google/compression_utils_portable.cc?format=TEXT",
+          "source_repository": "https://chromium.googlesource.com/chromium/src/third_party/zlib",
+          "source_commit": "bf1e8de6cc305fdab82db1b65bed76b70bd96c8b",
+          "source_path": "google/compression_utils_portable.cc",
+          "source_blob_sha1": "49d6bfe9ea6ed4e42788087e8f35c2bfe1e52acc",
+          "source_original_sha256": "5213dd083af3d7099251413e0fe8988ffe998b0dbee68722899910c480aea933",
+          "selection_bytes": [
+            0,
+            209
+          ],
+          "sha256": "8c22d6b232d3b79f2f245ed14bddc38c63606a5487f2f0342a8d253debb5643f",
+          "path": "angleproject-2.1.r25748.890b5d8f-6/12-LICENSE-Chromium-compression-utils.txt",
+          "source_mirror": "https://raw.githubusercontent.com/chromium/chromium/a9fc4ae13759a05e6f66569039b429aa940618c2/third_party/zlib/google/compression_utils_portable.cc"
+        },
+        {
+          "original_path": "angle/include/KHR/khrplatform.h",
+          "source_original": "https://chromium.googlesource.com/angle/angle/+/890b5d8fa2988e3719e0d80421bf3e927db9cd5c/include/KHR/khrplatform.h?format=TEXT",
+          "source_repository": "https://chromium.googlesource.com/angle/angle",
+          "source_commit": "890b5d8fa2988e3719e0d80421bf3e927db9cd5c",
+          "source_path": "include/KHR/khrplatform.h",
+          "source_blob_sha1": "dd22d9270188f2878f5dd47806497b16b34db0fe",
+          "source_original_sha256": "e206a6931f98ffe1c5c7ece69c4f94bbe1c9279243f40cbe7782848a0d3fa2de",
+          "selection_bytes": [
+            51,
+            1197
+          ],
+          "sha256": "fd7c88f69e70ffa778137ba0bc8267fa8dd83189365d9ff5a2533161432b3d0b",
+          "path": "angleproject-2.1.r25748.890b5d8f-6/13-LICENSE-Khronos-platform.txt",
+          "source_mirror": "https://raw.githubusercontent.com/google/angle/890b5d8fa2988e3719e0d80421bf3e927db9cd5c/include/KHR/khrplatform.h"
+        },
+        {
+          "original_path": "angle/include/EGL/egl.h",
+          "source_original": "https://chromium.googlesource.com/angle/angle/+/890b5d8fa2988e3719e0d80421bf3e927db9cd5c/include/EGL/egl.h?format=TEXT",
+          "source_repository": "https://chromium.googlesource.com/angle/angle",
+          "source_commit": "890b5d8fa2988e3719e0d80421bf3e927db9cd5c",
+          "source_path": "include/EGL/egl.h",
+          "source_blob_sha1": "51c1b2d4eb0393a5568a78c98c106f5d5b4fb88e",
+          "source_original_sha256": "b9669499729432653659b99ec9e92f3defed9207c480ec7926024f424e693f9a",
+          "selection_bytes": [
+            77,
+            489
+          ],
+          "sha256": "b4cd7c312248f033c355c5b144b77dbf7279288e175db93ad95330a47deb685a",
+          "path": "angleproject-2.1.r25748.890b5d8f-6/14-LICENSE-Khronos-EGL.txt",
+          "source_mirror": "https://raw.githubusercontent.com/google/angle/890b5d8fa2988e3719e0d80421bf3e927db9cd5c/include/EGL/egl.h"
+        },
+        {
+          "original_path": "angle/include/GLES3/gl3.h",
+          "source_original": "https://chromium.googlesource.com/angle/angle/+/890b5d8fa2988e3719e0d80421bf3e927db9cd5c/include/GLES3/gl3.h?format=TEXT",
+          "source_repository": "https://chromium.googlesource.com/angle/angle",
+          "source_commit": "890b5d8fa2988e3719e0d80421bf3e927db9cd5c",
+          "source_path": "include/GLES3/gl3.h",
+          "source_blob_sha1": "6bb4d8f9199bd19784fc598c4ee07d8408a14309",
+          "source_original_sha256": "b3242b203d000ff4cde1d596ca40c7ff190e1775c2c2d1dc22d5b3f4f6d659af",
+          "selection_bytes": [
+            89,
+            427
+          ],
+          "sha256": "ec1b7a05b185504e74ac1d35bc90b2007aed4cce8908ebc1572047fe49cb5209",
+          "path": "angleproject-2.1.r25748.890b5d8f-6/15-LICENSE-Khronos-GLES.txt",
+          "source_mirror": "https://raw.githubusercontent.com/google/angle/890b5d8fa2988e3719e0d80421bf3e927db9cd5c/include/GLES3/gl3.h"
+        },
+        {
+          "original_path": "vulkan-loader/loader/dirent_on_windows.c",
+          "source_original": "https://chromium.googlesource.com/external/github.com/KhronosGroup/Vulkan-Loader/+/235d1d2cf617af03a2ecbf6e951287595138feda/loader/dirent_on_windows.c?format=TEXT",
+          "source_repository": "https://chromium.googlesource.com/external/github.com/KhronosGroup/Vulkan-Loader",
+          "source_commit": "235d1d2cf617af03a2ecbf6e951287595138feda",
+          "source_path": "loader/dirent_on_windows.c",
+          "source_blob_sha1": "36d3564ea63e01728802ea26fdea17e886c1855f",
+          "source_original_sha256": "4d4181b0018d7ddc29a866aebcc0f5a1b6574de56a3ef574b20698792b325338",
+          "selection_bytes": [
+            3218,
+            3796
+          ],
+          "sha256": "6ddb8d472de532319ffa38db8428a7cc7dd1421dea90e51c081954ba3f94c8b6",
+          "path": "angleproject-2.1.r25748.890b5d8f-6/16-LICENSE-Vulkan-Loader-dirent-source.txt",
+          "source_mirror": "https://raw.githubusercontent.com/KhronosGroup/Vulkan-Loader/235d1d2cf617af03a2ecbf6e951287595138feda/loader/dirent_on_windows.c"
+        },
+        {
+          "original_path": "vulkan-loader/loader/loader_json.c",
+          "source_original": "https://chromium.googlesource.com/external/github.com/KhronosGroup/Vulkan-Loader/+/235d1d2cf617af03a2ecbf6e951287595138feda/loader/loader_json.c?format=TEXT",
+          "source_repository": "https://chromium.googlesource.com/external/github.com/KhronosGroup/Vulkan-Loader",
+          "source_commit": "235d1d2cf617af03a2ecbf6e951287595138feda",
+          "source_path": "loader/loader_json.c",
+          "source_blob_sha1": "805d278c08184937fd86f2cf58ac0734ce284bed",
+          "source_original_sha256": "f7ad6debbe082688684ece7ec2463c83d0993c12e191723dfdee5b740133b6fe",
+          "selection_bytes": [
+            0,
+            1191
+          ],
+          "sha256": "cdda45a0bd34158885d8b4d76e57c6ab8bc4d5a3f6bc4d37732891390a84569a",
+          "path": "angleproject-2.1.r25748.890b5d8f-6/17-LICENSE-Vulkan-Loader-JSON.txt",
+          "source_mirror": "https://raw.githubusercontent.com/KhronosGroup/Vulkan-Loader/235d1d2cf617af03a2ecbf6e951287595138feda/loader/loader_json.c"
+        }
+      ],
+      "selection": "For the distributed libEGL.dll/libGLESv2.dll only: ANGLE and xxHash; statically linked SPIRV validator/headers, Vulkan loader/headers and VMA; Chromium compression_utils_portable; Khronos EGL/GLES/KHR header notices. Byte ranges preserve complete original notice blocks without source code, unrelated documentation licenses or test fixtures. MSYS2 patch 002 disables ASTC on MinGW; PKGBUILD disables Abseil/OpenCL/Metal; angle_with_capture_by_default=false excludes capture-only RapidJSON and ceval; angle_shared_libvulkan=false excludes volk. SwiftShader, mock ICD, capture and secondary-command DLLs are not distributed. GPU/OS drivers are not bundled."
     }
   ]
 }

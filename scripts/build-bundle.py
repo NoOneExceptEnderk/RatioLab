@@ -130,6 +130,8 @@ def verify_bundle(bundle, *, gui=False, run=True, check_manifest=True):
         raise RuntimeError('Bundle runtime data missing: '+', '.join(missing))
     if not any(runtime.glob('*epoxy*')):
         raise RuntimeError('Bundled libepoxy is missing')
+    if sys.platform == 'win32' and any(not (runtime/name).is_file() for name in ('libEGL.dll','libGLESv2.dll')):
+        raise RuntimeError('Windows GTK EGL/ANGLE runtime is missing')
     notices = json.loads((runtime/'notices/components.json').read_text(encoding='utf-8'))
     if not notices.get('complete'):
         raise RuntimeError('Native third-party notices are incomplete')

@@ -67,8 +67,12 @@ def diagnose(gui=False):
                     version.restype = C.c_int
                     version.argtypes = []
                     result['opengl_version'] = version()
-                    if result['opengl_version'] < 33:
-                        raise RuntimeError('Desktop OpenGL 3.3 or newer is required')
+                    result['graphics_api'] = 'OpenGL ES' if self.use_es else 'OpenGL'
+                    from gl_loader import bind_function
+                    get_string = bind_function(loader, 'GetString', C.c_char_p, [C.c_uint])
+                    result['graphics_renderer'] = (get_string(0x1F01) or b'').decode('utf-8', errors='replace')
+                    if result['opengl_version'] < (30 if self.use_es else 33):
+                        raise RuntimeError('OpenGL ES 3.0 or desktop OpenGL 3.3 or newer is required')
                     result['framebuffer_has_geometry'] = True
                     completed = True
                 except Exception as error:

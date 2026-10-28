@@ -6,7 +6,8 @@ The native installers include Python, GTK 4, PyGObject, Cairo, libepoxy,
 introspection typelibs, settings schemas, icons and fonts. The destination
 computer does **not** need Python, MSYS2, Homebrew, pip or a separate GTK install.
 The operating system supplies the desktop session and graphics driver; desktop
-OpenGL 3.3+ is needed for the 3D preview.
+OpenGL 3.3+ is needed on Linux/macOS. Windows uses included ANGLE with
+OpenGL ES 3.0+ over the system Direct3D graphics stack for the 3D preview.
 
 | System | Installer | Installation and removal |
 |---|---|---|
@@ -19,8 +20,8 @@ the [installer workflow](https://github.com/NoOneExceptEnderk/RatioLab/actions/w
 Download artifacts from successful jobs or the assets of a published release.
 Each job installs or copies its downloadable package and checks the resulting
 application with the development runtime paths removed. Recorded validation
-and its limits are in `VERIFICA.md`; Windows/macOS GUI/driver checks are separate
-from the default generation/export checks.
+and its limits are in `VERIFICA.md`. Installed Windows/macOS GUI checks are
+always attempted; explicit lack of runner graphics capability is reported.
 
 For a Linux user install, if the desktop does not open `.run` files directly:
 
@@ -86,7 +87,7 @@ On Windows, use the **MSYS2 UCRT64 build environment** and its native PyInstalle
 package (not python.org Python or a PyPI PyInstaller wheel):
 
 ```sh
-pacman -S --needed mingw-w64-ucrt-x86_64-python mingw-w64-ucrt-x86_64-pyinstaller mingw-w64-ucrt-x86_64-gtk4 mingw-w64-ucrt-x86_64-python-gobject mingw-w64-ucrt-x86_64-python-cairo mingw-w64-ucrt-x86_64-libepoxy
+pacman -S --needed mingw-w64-ucrt-x86_64-python mingw-w64-ucrt-x86_64-pyinstaller mingw-w64-ucrt-x86_64-gtk4 mingw-w64-ucrt-x86_64-python-gobject mingw-w64-ucrt-x86_64-python-cairo mingw-w64-ucrt-x86_64-libepoxy mingw-w64-ucrt-x86_64-angleproject
 export PYGI_DLL_PATH="$(cygpath -w /ucrt64/bin)"
 /ucrt64/bin/python.exe scripts/build-bundle.py
 ```
@@ -161,8 +162,9 @@ Python errors to the user's RatioLab data directory under `logs/ratiolab.log`.
 `.github/workflows/installers.yml` builds Linux x86-64, Windows x86-64 and both
 macOS architectures on their native runners. It creates real installers and
 tests their installed/copied applications with package-manager runtime paths
-removed. Linux GUI/GL is mandatory; Windows/macOS GUI/driver checks are opt-in
-using `native_gui`, since runner graphics hardware may be unavailable. The
+removed. Linux GUI/GL is mandatory; Windows/macOS GUI checks are always
+attempted, with explicit lack of runner graphics capability reported separately.
+Use `native_gui=true` to require that capability as well. The
 workflow uploads build artifacts; publication is a separate maintainer step.
 `VERIFICA.md` records completed native runs and the checks actually performed.
 
@@ -183,7 +185,8 @@ An Internet connection is needed to install dependencies, not to generate or
 export models.
 
 Required: Python 3.10 or newer, **GTK 4.12 or newer**, PyGObject, Pycairo, libepoxy and a graphics
-driver providing **desktop OpenGL 3.3 or newer**. The same Python must load the
+driver providing **desktop OpenGL 3.3+** on Linux/macOS or **OpenGL ES 3.0+**
+through ANGLE on Windows. The same Python must load the
 native bindings and run RatioLab. A virtual environment uses
 `--system-site-packages` so it can see those bindings. The wheel's `py3-none-any`
 tag describes its Python code and resources, not the native runtime.
@@ -232,7 +235,7 @@ UCRT64** from the Start menu, run `pacman -Syu`, and follow any request to close
 reopen and update the terminal again. Then install one coherent native runtime:
 
 ```sh
-pacman -S --needed mingw-w64-ucrt-x86_64-python mingw-w64-ucrt-x86_64-python-pip mingw-w64-ucrt-x86_64-python-setuptools mingw-w64-ucrt-x86_64-python-wheel mingw-w64-ucrt-x86_64-gtk4 mingw-w64-ucrt-x86_64-python-gobject mingw-w64-ucrt-x86_64-python-cairo mingw-w64-ucrt-x86_64-libepoxy
+pacman -S --needed mingw-w64-ucrt-x86_64-python mingw-w64-ucrt-x86_64-python-pip mingw-w64-ucrt-x86_64-python-setuptools mingw-w64-ucrt-x86_64-python-wheel mingw-w64-ucrt-x86_64-gtk4 mingw-w64-ucrt-x86_64-python-gobject mingw-w64-ucrt-x86_64-python-cairo mingw-w64-ucrt-x86_64-libepoxy mingw-w64-ucrt-x86_64-angleproject
 ```
 
 Unpack the RatioLab source archive in a folder you own, navigate there in that
@@ -369,3 +372,30 @@ Installation recipes follow [PyGObject's platform instructions](https://pygobjec
 [Homebrew's PyGObject formula](https://formulae.brew.sh/formula/pygobject3),
 [GTK's macOS backend documentation](https://docs.gtk.org/gtk4/osx.html) and
 [libepoxy's OpenGL dispatch documentation](https://github.com/anholt/libepoxy).
+
+
+### Native GUI verification
+
+The installed self-test now checks all six new feature areas: standalone STEP
+and SVG/DXF, project history/recovery, generated tooth profiles, interference
+distances, finite combination search and component picking/selected export.
+It writes only to a disposable profile. The GUI self-test opens the three new
+tools, exports the complete workspace and decodes the resulting preview PNG
+to reject blank captures.
+
+The Windows bundle explicitly includes `libEGL.dll` and `libGLESv2.dll` from
+[MSYS2 ANGLE](https://packages.msys2.org/packages/mingw-w64-ucrt-x86_64-angleproject).
+GTK loads these dynamically, so they must be collected even without a static
+DLL import. Their dependent libraries and licenses are included by the normal
+native inventory. GPU drivers and Windows Direct3D remain OS components.
+Windows requests GLES 3.0; Linux/macOS retain desktop GL 3.3. The shader math
+is shared, with the GLSL ES header and explicit precision used for GLES.
+Preview captures read portable RGBA bytes and convert to native Cairo ARGB32.
+
+The native workflow always attempts installed GUI verification on Windows and
+macOS. Only explicit absence of a graphical desktop or GL context may be
+recorded as unavailable; missing EGL libraries, crashes, timeouts, shader
+errors and blank images fail the job. A successful renderer must also pass
+the full GUI self-test. Use `native_gui=true` to require graphics capability
+instead of allowing an explicit runner limitation. Reports are uploaded as
+separate GUI verification artifacts.

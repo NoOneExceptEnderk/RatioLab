@@ -35,6 +35,7 @@ def check(executable, folder, require=False):
         workspace = json.loads(report.read_text(encoding='utf-8'))
         if (workspace.get('self_test') != 'passed' or workspace.get('workspace_export') != 'passed'
                 or len(workspace.get('features', {})) != 6
+                or len(workspace.get('preview_families', [])) != 9
                 or any(v != 'passed' for v in workspace['features'].values())):
             raise RuntimeError('Installed GUI workspace/features check failed')
         result = dict(gui='passed', runtime=runtime, workspace=workspace)

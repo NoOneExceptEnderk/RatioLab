@@ -4,6 +4,20 @@ from math import hypot, isfinite
 from geometry import generate, Part
 from preview3d import build_scene, point
 
+
+class FramebufferTests(unittest.TestCase):
+    def test_rgba_capture_keeps_color_and_vertical_orientation_in_cairo(self):
+        import sys
+        from unittest.mock import patch
+        from preview3d import framebuffer_argb32
+        # GL bottom row red/green; top row blue/white.
+        pixels=bytes((255,0,0,255,0,255,0,255,0,0,255,255,255,255,255,255))
+        for endian in ('little','big'):
+            with self.subTest(endian=endian), patch.object(sys,'byteorder',endian):
+                raw=framebuffer_argb32(pixels,2,2)
+                words=[int.from_bytes(raw[i:i+4],endian) for i in range(0,16,4)]
+                self.assertEqual(words,[0xff0000ff,0xffffffff,0xffff0000,0xff00ff00])
+
 class PreviewTests(unittest.TestCase):
 
     def test_spur_thickness_and_bounding(self):

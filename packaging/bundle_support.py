@@ -183,10 +183,12 @@ def windows_component(path):
 
 
 def vendored_windows_notices(component):
-    """Exact source notices for MSYS2 versions that omit license text files.
+    """Exact source notices omitted from particular MSYS2 package versions.
 
-    These texts were recovered from the source-only recipe's embedded upstream
-    archive after verifying its .SRCINFO SHA-256. No PKGBUILD code is executed.
+    Archive-backed entries verify .SRCINFO checksums; pinned Git entries retain
+    per-file commit/blob/SHA-256 provenance without claiming an archive checksum.
+    ANGLE supplements its installed root LICENSE with static dependency notices.
+    No PKGBUILD code is executed.
     New versions or changed license declarations require a verified registry update.
     """
     registry = json.loads((_msys_notice_root/'registry.json').read_text(encoding='utf-8'))
@@ -208,8 +210,13 @@ def vendored_windows_notices(component):
             paths.append(path)
         component['notice_provenance'] = {key: record[key] for key in
             ('source', 'source_sha256', 'source_recipe', 'source_recipe_sha256', 'source_info_sha256')}
+        for key in ('source_method', 'source_commit', 'source_package',
+                    'source_package_sha256', 'source_package_verification'):
+            if key in record:
+                component['notice_provenance'][key] = record[key]
         component['notice_provenance']['original_files'] = [
-            dict(original_path=entry['original_path'], sha256=entry['sha256']) for entry in record['license_files']]
+            {key: value for key, value in entry.items() if key != 'path'}
+            for entry in record['license_files']]
         return paths
     return []
 
@@ -439,8 +446,17 @@ def write_notices(binaries, staging, datas=()):
     for key, component in sorted(components.items()):
         identifier = re.sub(r'[^A-Za-z0-9_.+-]', '_', key)
         paths = component.pop('_licenses')
-        if not paths and component['provider'] == 'MSYS2 UCRT64':
-            paths = vendored_windows_notices(component)
+        if component['provider'] == 'MSYS2 UCRT64':
+            # The ANGLE package installs its own BSD LICENSE, but not all
+            # notices for code statically linked into libEGL/libGLESv2. This
+            # requirement must survive a package version unknown to the registry.
+            supplement_required = component['name'] == 'mingw-w64-ucrt-x86_64-angleproject'
+            if not paths or supplement_required:
+                supplement = vendored_windows_notices(component)
+                if supplement_required and not supplement:
+                    raise RuntimeError('Required ANGLE source notices are not verified for '
+                                       f'{component["version"]}. Update the exact-version registry.')
+                paths = [*paths, *supplement]
         if not paths and component['provider'] == 'Homebrew':
             paths = collect_source_licenses(component, staging/'source-notices'/identifier)
         copied = []
