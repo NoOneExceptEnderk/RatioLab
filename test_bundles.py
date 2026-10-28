@@ -305,7 +305,7 @@ class NativeNoticesTests(unittest.TestCase):
 
     def test_msys2_index_resolves_internal_symlinks_and_rejects_external_targets(self):
         with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)/'msys2'
+            root = (Path(temporary)/'msys2').resolve()
             alias, target = root/'ucrt64/alias', root/'ucrt64/real'
             escape, outside = root/'ucrt64/escape', root.parent/'outside'
             actual_resolve = Path.resolve
