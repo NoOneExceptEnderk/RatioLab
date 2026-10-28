@@ -14,12 +14,13 @@ OpenGL 3.3+ is needed for the 3D preview.
 | Windows 11 x86-64 | `RatioLab-0.1.0-windows-x86_64-setup.exe` | Open Setup. It installs for the current user and adds a Start menu entry. Remove RatioLab from Installed apps. |
 | macOS 15+ Apple Silicon or Intel, separate builds | `RatioLab-0.1.0-macos-arm64.dmg` or `...-x86_64.dmg` | Open the disk image, drag RatioLab to Applications, then launch it from Applications. Move the app to Trash to remove it. |
 
-**Artifact status:** the Linux runtime/installers are built and checked locally.
-Windows Setup and macOS DMG have actual native build configurations and CI jobs;
-they must be built and validated on their respective systems before those
-binary downloads can be offered. No Windows/macOS installer is claimed to have
-been produced or tested on this Linux machine. There is no release upload in
-this repository change.
+Native installers are generated and tested on their own operating systems by
+the [installer workflow](https://github.com/NoOneExceptEnderk/RatioLab/actions/workflows/installers.yml).
+Download artifacts from successful jobs or the assets of a published release.
+Each job installs or copies its downloadable package and checks the resulting
+application with the development runtime paths removed. Recorded validation
+and its limits are in `VERIFICA.md`; Windows/macOS GUI/driver checks are separate
+from the default generation/export checks.
 
 For a Linux user install, if the desktop does not open `.run` files directly:
 
@@ -98,6 +99,13 @@ compiling `scripts/package-windows.iss`. Setup installs under
 An optional `-CertificateThumbprint` selects an existing code-signing
 certificate in the maintainer's CurrentUser/My certificate store to sign the
 **installer**; by default it remains unsigned.
+
+MSYS2 file ownership is read once from its installed-file inventory. For the
+specific package versions that omit license texts, verified upstream notices
+are kept in `packaging/notices/msys2/registry.json` and adjacent text files.
+The build checks their versions, license declarations and file hashes. A new
+dependency version requires reviewing its exact source archive and updating
+the registry; an unrecognized version or changed notice remains a build error.
 
 On macOS 15+, select a Homebrew Python matching the installed GI bindings:
 
@@ -351,9 +359,9 @@ path. A read-only installed package must pass these checks.
 jobs that build through the sdist and test an installed wheel outside the
 checkout. Linux includes software-rendered GUI/GL checks with Xvfb. Windows and
 macOS always check native imports/loader and data/export paths; their GUI/driver
-check is opt-in via the workflow's `native_gui` input. Adding these jobs does
-not establish that they have already run successfully. Windows/macOS and native
-bundle distribution require validation on their respective target systems.
+check is opt-in via the workflow's `native_gui` input. The workflow logs record
+which checks actually ran; a skipped GUI/driver check is not a validation of
+graphics hardware. See `VERIFICA.md` for the recorded native runs.
 
 Installation recipes follow [PyGObject's platform instructions](https://pygobject.gnome.org/getting_started.html),
 [MSYS2's Python ABI and virtual-environment documentation](https://www.msys2.org/docs/python/),

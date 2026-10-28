@@ -1,0 +1,127 @@
+{
+  "format": "ratiolab-msys2-source-notices/1",
+  "retrieved": "2026-10-28",
+  "description": "Explicitly selected, unmodified upstream COPYING texts from exact MSYS2 source-only archives. Upstream archive SHA-256 verified against included .SRCINFO before extraction. Test fixtures, documentation images and unbundled DVB plugins are excluded. New versions require a verified registry update.",
+  "components": [
+    {
+      "name": "mingw-w64-ucrt-x86_64-gobject-introspection-runtime",
+      "version": "1.86.0-4",
+      "license_declarations": [
+        "spdx:LGPL-2.0-only"
+      ],
+      "source": "https://download.gnome.org/sources/gobject-introspection/1.86/gobject-introspection-1.86.0.tar.xz",
+      "source_sha256": "920d1a3fcedeadc32acff95c2e203b319039dd4b4a08dd1a2dfd283d19c0b9ae",
+      "source_recipe": "https://mirror.msys2.org/mingw/sources/mingw-w64-gobject-introspection-1.86.0-4.src.tar.zst",
+      "source_recipe_sha256": "5248567008ccd01c1c69a96610ce63d5991018b70487667fd27791d47bc0a5d6",
+      "source_info": "gobject-introspection-1.86.0-4/SRCINFO.txt",
+      "source_info_sha256": "572c9681d8f672ee3609270e29a59ce225dc093ed1cca82a5faec730220d542f",
+      "license_files": [
+        {
+          "path": "gobject-introspection-1.86.0-4/00-COPYING.txt",
+          "sha256": "1b3275b028bcaa77e4580a302ae80473abb97139b84a0e48618be34cd65f8aaa",
+          "original_path": "gobject-introspection-1.86.0/COPYING"
+        },
+        {
+          "path": "gobject-introspection-1.86.0-4/01-COPYING.GPL.txt",
+          "sha256": "4c1cedcbb4a12ea964f1160dbbf36099e5a59b96129a99a1a1a61f2cb09271fb",
+          "original_path": "gobject-introspection-1.86.0/COPYING.GPL"
+        },
+        {
+          "path": "gobject-introspection-1.86.0-4/02-COPYING.LGPL.txt",
+          "sha256": "faa2e414bd5f91d2d2c39e85c7cc3f2ccde05c3306f96b404f8ed8cf0266c279",
+          "original_path": "gobject-introspection-1.86.0/COPYING.LGPL"
+        }
+      ],
+      "selection": "Root COPYING overview and its referenced COPYING.LGPL/COPYING.GPL companion texts, preserved verbatim; package license remains its declared LGPL-2.0-only."
+    },
+    {
+      "name": "mingw-w64-ucrt-x86_64-gst-plugins-bad-libs",
+      "version": "1.28.8-3",
+      "license_declarations": [
+        "spdx:LGPL-2.1-or-later"
+      ],
+      "source": "https://gstreamer.freedesktop.org/src/gst-plugins-bad/gst-plugins-bad-1.28.8.tar.xz",
+      "source_sha256": "670d888bde8242579b0d8e91f60cf337aa7be20ca7c315ebfbdd6e5a9218d104",
+      "source_recipe": "https://mirror.msys2.org/mingw/sources/mingw-w64-gst-plugins-bad-1.28.8-3.src.tar.zst",
+      "source_recipe_sha256": "bff63c41cb435ebbb2a8dad5f81a7c2d45c56bb2bdb6f53ca5730a90ff25688e",
+      "source_info": "gst-plugins-bad-1.28.8-3/SRCINFO.txt",
+      "source_info_sha256": "89ee182bddf7315fe6bc49802ff462c1fbef86626e770a6b4ced4c48175a2287",
+      "license_files": [
+        {
+          "path": "gst-plugins-bad-1.28.8-3/00-COPYING.txt",
+          "sha256": "dc626520dcd53a22f727af3ee42c770e56c97a64fe3adb063799d8ab032fe551",
+          "original_path": "gst-plugins-bad-1.28.8/COPYING"
+        }
+      ],
+      "selection": "Root COPYING for the shipped library package; test fixtures and notices for unbundled platform plugins are excluded."
+    },
+    {
+      "name": "mingw-w64-ucrt-x86_64-gst-plugins-base",
+      "version": "1.28.8-1",
+      "license_declarations": [
+        "spdx:LGPL-2.1-or-later"
+      ],
+      "source": "https://gstreamer.freedesktop.org//src/gst-plugins-base/gst-plugins-base-1.28.8.tar.xz",
+      "source_sha256": "ade70e3381fcbb024f1f20aa9ede9b5654aeed39d5bd70b1a98f53015e501117",
+      "source_recipe": "https://mirror.msys2.org/mingw/sources/mingw-w64-gst-plugins-base-1.28.8-1.src.tar.zst",
+      "source_recipe_sha256": "ffb5dbea35ff2e41018c519c84194f0ff7f9c63dd85e7fba6a2ce94dbeaad07a",
+      "source_info": "gst-plugins-base-1.28.8-1/SRCINFO.txt",
+      "source_info_sha256": "a1f6bcae08cea778f908e85d51c1b9053be47f1a15687b7c28624020a7f76b3e",
+      "license_files": [
+        {
+          "path": "gst-plugins-base-1.28.8-1/00-COPYING.txt",
+          "sha256": "ad2eec519ebd4b5df86ea84dff24ae3bfa2edea846a703b58902dd221ae375db",
+          "original_path": "gst-plugins-base-1.28.8/COPYING"
+        }
+      ],
+      "selection": "Root COPYING for the shipped library package; test fixtures and notices for unbundled platform plugins are excluded."
+    },
+    {
+      "name": "mingw-w64-ucrt-x86_64-gstreamer",
+      "version": "1.28.8-1",
+      "license_declarations": [
+        "spdx:LGPL-2.1-or-later"
+      ],
+      "source": "https://gstreamer.freedesktop.org//src/gstreamer/gstreamer-1.28.8.tar.xz",
+      "source_sha256": "baa8e86985ad6417cc0ad6e7b79ff2884c6779c8b1c7a6240e7121822c86e524",
+      "source_recipe": "https://mirror.msys2.org/mingw/sources/mingw-w64-gstreamer-1.28.8-1.src.tar.zst",
+      "source_recipe_sha256": "c5331bd61a2e5b4cb11d83fb82e9c5dae8748b902722c86cfffd364ecca56313",
+      "source_info": "gstreamer-1.28.8-1/SRCINFO.txt",
+      "source_info_sha256": "b28b7ce8341de54f2ec2e94f3c6338a07cca67b917523fa4999e2751e1702c7a",
+      "license_files": [
+        {
+          "path": "gstreamer-1.28.8-1/00-COPYING.txt",
+          "sha256": "ad2eec519ebd4b5df86ea84dff24ae3bfa2edea846a703b58902dd221ae375db",
+          "original_path": "gstreamer-1.28.8/COPYING"
+        }
+      ],
+      "selection": "Root COPYING for the shipped library package; test fixtures and notices for unbundled platform plugins are excluded."
+    },
+    {
+      "name": "mingw-w64-ucrt-x86_64-python-gobject",
+      "version": "3.58.1-1",
+      "license_declarations": [
+        "spdx:LGPL-2.1-or-later"
+      ],
+      "source": "https://download.gnome.org/sources/pygobject/3.58/pygobject-3.58.1.tar.gz",
+      "source_sha256": "4c80598ade17fbaa7798e01a25d0bf29ce109740786026a074c5c62bb3e79d23",
+      "source_recipe": "https://mirror.msys2.org/mingw/sources/mingw-w64-pygobject-3.58.1-1.src.tar.zst",
+      "source_recipe_sha256": "ffb59f7aea375c3c8c8a0c9b2fde107271a675da468d554257120c70efb36ed3",
+      "source_info": "pygobject-3.58.1-1/SRCINFO.txt",
+      "source_info_sha256": "f03f1514b522c8f1f078149504e45c97f0f36162d85eae2a3930341612a8091e",
+      "license_files": [
+        {
+          "path": "pygobject-3.58.1-1/00-COPYING.txt",
+          "sha256": "f4cac31434b287b10a70b81c62cfa973d250417f8f248c4c1b5566d061ecfb2f",
+          "original_path": "pygobject-3.58.1/COPYING"
+        },
+        {
+          "path": "pygobject-3.58.1-1/02-COPYING.txt",
+          "sha256": "3f2c1ffa76383a55ae0aac01c9737cd70050dff63e1f026694fbe9d662573c98",
+          "original_path": "pygobject-3.58.1/subprojects/pythoncapi-compat/COPYING"
+        }
+      ],
+      "selection": "Root COPYING and the vendored pythoncapi-compat COPYING used by the binding; documentation-image licenses are excluded because those images are not bundled."
+    }
+  ]
+}

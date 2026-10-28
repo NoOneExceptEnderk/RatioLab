@@ -20,6 +20,7 @@ import zipfile
 
 _packages = {}
 _windows_files = None
+_msys_notice_root = Path(__file__).resolve().parent/'notices/msys2'
 
 
 def command(args):
@@ -170,7 +171,7 @@ def windows_component(path):
     if not licenses:
         for candidate in inventory['common_licenses']:
             relative = candidate.as_posix().lower().split('/share/licenses/common/', 1)[1]
-            if candidate.is_file() and any(re.sub(r'[^a-z0-9]', '', label.lower().replace('-or-later', '').replace('-only', '').replace('.0', ''))
+            if candidate.is_file() and any(re.sub(r'[^a-z0-9]', '', label.lower().removeprefix('spdx:').replace('-or-later', '').replace('-only', '').replace('.0', ''))
                                           in re.sub(r'[^a-z0-9]', '', relative.replace('.0', ''))
                                           for label in declarations):
                 licenses.append(candidate)
@@ -179,6 +180,38 @@ def windows_component(path):
                      source=f'https://packages.msys2.org/packages/{package}', _licenses=licenses)
     _packages[package] = component
     return component
+
+
+def vendored_windows_notices(component):
+    """Exact source notices for MSYS2 versions that omit license text files.
+
+    These texts were recovered from the source-only recipe's embedded upstream
+    archive after verifying its .SRCINFO SHA-256. No PKGBUILD code is executed.
+    New versions or changed license declarations require a verified registry update.
+    """
+    registry = json.loads((_msys_notice_root/'registry.json').read_text(encoding='utf-8'))
+    if registry.get('format') != 'ratiolab-msys2-source-notices/1':
+        raise RuntimeError('Unknown MSYS2 source-notice registry format.')
+    for record in registry['components']:
+        if (component['name'], component['version']) != (record['name'], record['version']):
+            continue
+        normalize = lambda labels: sorted(label.removeprefix('spdx:') for label in labels)
+        if normalize(component['license_declarations']) != normalize(record['license_declarations']):
+            return []
+        paths = []
+        for entry in record['license_files']:
+            path = (_msys_notice_root/entry['path']).resolve()
+            if not path.is_relative_to(_msys_notice_root.resolve()):
+                raise RuntimeError('Unsafe path in MSYS2 source-notice registry.')
+            if not path.is_file() or hashlib.sha256(path.read_bytes()).hexdigest() != entry['sha256']:
+                raise RuntimeError(f'MSYS2 source-notice checksum mismatch: {entry["path"]}')
+            paths.append(path)
+        component['notice_provenance'] = {key: record[key] for key in
+            ('source', 'source_sha256', 'source_recipe', 'source_recipe_sha256', 'source_info_sha256')}
+        component['notice_provenance']['original_files'] = [
+            dict(original_path=entry['original_path'], sha256=entry['sha256']) for entry in record['license_files']]
+        return paths
+    return []
 
 
 def brew_component(path):
@@ -406,6 +439,8 @@ def write_notices(binaries, staging, datas=()):
     for key, component in sorted(components.items()):
         identifier = re.sub(r'[^A-Za-z0-9_.+-]', '_', key)
         paths = component.pop('_licenses')
+        if not paths and component['provider'] == 'MSYS2 UCRT64':
+            paths = vendored_windows_notices(component)
         if not paths and component['provider'] == 'Homebrew':
             paths = collect_source_licenses(component, staging/'source-notices'/identifier)
         copied = []

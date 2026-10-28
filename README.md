@@ -8,9 +8,11 @@ Python / GTK 4 desktop application for generating gears and reducers, viewing th
 
 For installation on another computer, see [INSTALL.md](INSTALL.md). Native
 installers include Python, GTK and the app's other libraries: Linux `.run`/`.deb`,
-Windows 11 Setup and macOS `.app`/`.dmg`. The Linux runtime is built and verified;
-Windows/macOS configurations require their native build jobs before binary
-downloads are available. Wheel/source installation remains available for development.
+Windows 11 Setup and macOS `.app`/`.dmg` for Intel and Apple Silicon. Native CI
+tests the installed application; downloadable artifacts are attached to successful
+jobs. See the [installer builds](https://github.com/NoOneExceptEnderk/RatioLab/actions/workflows/installers.yml)
+and the supported OS versions in `INSTALL.md`. Wheel/source installation remains
+available for development.
 
 Launch with:
 

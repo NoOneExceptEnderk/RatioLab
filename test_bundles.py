@@ -1,5 +1,6 @@
 """Bundle integrity and bootstrap tests; real native builds have separate smoke tests."""
 import importlib.util
+import hashlib
 import io
 import json
 import os
@@ -103,6 +104,79 @@ class BootstrapTests(unittest.TestCase):
 
 
 class NativeNoticesTests(unittest.TestCase):
+    def test_vendored_msys2_notices_match_exact_versions_declarations_and_hashes(self):
+        registry = json.loads((support._msys_notice_root/'registry.json').read_text(encoding='utf-8'))
+        self.assertEqual({record['name'].removeprefix('mingw-w64-ucrt-x86_64-') for record in registry['components']},
+                         {'gobject-introspection-runtime', 'gst-plugins-bad-libs', 'gst-plugins-base',
+                          'gstreamer', 'python-gobject'})
+        for record in registry['components']:
+            with self.subTest(package=record['name']):
+                component = dict(name=record['name'], version=record['version'],
+                                 license_declarations=record['license_declarations'])
+                paths = support.vendored_windows_notices(component)
+                self.assertGreater(len(paths), 0)
+                for entry, path in zip(record['license_files'], paths):
+                    self.assertEqual(hashlib.sha256(path.read_bytes()).hexdigest(), entry['sha256'])
+                    self.assertIn(Path(entry['original_path']).name, ('COPYING', 'COPYING.GPL', 'COPYING.LGPL'))
+                    self.assertFalse({'tests', 'docs', 'sys'} & set(Path(entry['original_path']).parts))
+                source_info = (support._msys_notice_root/record['source_info']).read_bytes()
+                self.assertEqual(hashlib.sha256(source_info).hexdigest(), record['source_info_sha256'])
+                self.assertEqual(component['notice_provenance']['source_sha256'], record['source_sha256'])
+                # Pacman may retain or omit the MSYS2-specific spdx: marker.
+                plain = dict(component, license_declarations=[label.removeprefix('spdx:')
+                                                             for label in record['license_declarations']])
+                self.assertEqual(support.vendored_windows_notices(plain), paths)
+                self.assertEqual(support.vendored_windows_notices(dict(component, version='unverified')), [])
+                self.assertEqual(support.vendored_windows_notices(dict(component,
+                                 license_declarations=['spdx:MIT'])), [])
+
+    def test_vendored_msys2_notices_fail_on_modified_missing_or_escaping_files(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            notice = root/'COPYING.txt'
+            notice.write_bytes(b'Original upstream notice fixture')
+            record = dict(name='sample', version='1', license_declarations=['spdx:LGPL-2.1-or-later'],
+                          license_files=[dict(path='COPYING.txt', sha256=hashlib.sha256(notice.read_bytes()).hexdigest())])
+            registry = dict(format='ratiolab-msys2-source-notices/1', components=[record])
+            (root/'registry.json').write_text(json.dumps(registry))
+            component = dict(name='sample', version='1', license_declarations=['spdx:LGPL-2.1-or-later'])
+            with patch.object(support, '_msys_notice_root', root):
+                notice.write_bytes(b'Modified notice')
+                with self.assertRaisesRegex(RuntimeError, 'checksum mismatch'):
+                    support.vendored_windows_notices(component)
+                notice.unlink()
+                with self.assertRaisesRegex(RuntimeError, 'checksum mismatch'):
+                    support.vendored_windows_notices(component)
+                record['license_files'][0]['path'] = '../outside.txt'
+                (root/'registry.json').write_text(json.dumps(registry))
+                with self.assertRaisesRegex(RuntimeError, 'Unsafe path'):
+                    support.vendored_windows_notices(component)
+
+    def test_all_five_missing_msys2_notices_produce_complete_offline_inventory(self):
+        registry = json.loads((support._msys_notice_root/'registry.json').read_text(encoding='utf-8'))
+        records = [dict(name=record['name'], version=record['version'], provider='MSYS2 UCRT64',
+                        source='https://packages.msys2.org/packages/'+record['name'],
+                        license_declarations=record['license_declarations'], _licenses=[])
+                   for record in registry['components']]
+        builder = dict(name='builder', version='1', provider='PyPI', source='https://example.invalid',
+                       license_declarations=['fixture'],
+                       _licenses=[ROOT/'packaging/fonts/LICENSE-DejaVu.txt'])
+        binaries = [(f'component{index}.dll', f'/fixture/{index}', 'BINARY') for index in range(5)]
+        with tempfile.TemporaryDirectory() as temporary, \
+                patch.object(support, 'component_for_binary', side_effect=records), \
+                patch.object(support, 'pip_component', return_value=builder), \
+                patch.object(support.urllib.request, 'urlopen', side_effect=AssertionError('No build-time download')):
+            support.write_notices(binaries, temporary)
+            report = json.loads((Path(temporary)/'components.json').read_text())
+            self.assertTrue(report['complete'])
+            msys = [item for item in report['components'] if item['provider'] == 'MSYS2 UCRT64']
+            self.assertEqual(len(msys), 5)
+            for item in msys:
+                self.assertTrue(item['notices_present'])
+                self.assertEqual(len(item['notice_provenance']['source_recipe_sha256']), 64)
+                for path in item['license_files']:
+                    self.assertTrue((Path(temporary)/path).is_file())
+
     def test_typelib_without_active_analysis_stays_unmapped_without_querying_gi(self):
         # Provide only a fake config module: neither PyInstaller nor GI needs to
         # be installed, and querying GI before checking workpath would fail.
@@ -245,7 +319,7 @@ class NativeNoticesTests(unittest.TestCase):
                             'licenses /usr/share/licenses/common/GPL2/license.txt\n'
                             'licenses /usr/share/licenses/common/LGPL2.1/license.txt')
                 if args[:2] == ['pacman', '-Qi']:
-                    return 'Version : 1.2\nLicenses : GPL-2.0-or-later LGPL-2.1-only'
+                    return 'Version : 1.2\nLicenses : spdx:GPL-2.0-or-later spdx:LGPL-2.1-only'
                 raise AssertionError(f'Unexpected command: {args}')
             with patch.object(support, 'command', side_effect=command), \
                     patch.object(support, '_windows_files', None), \

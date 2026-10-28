@@ -1,0 +1,4 @@
+# Preserve exact upstream bytes, including their original whitespace.
+packaging/notices/msys2/** -text -whitespace
+# Source archives must keep executable shell scripts usable on Unix.
+*.sh text eol=lf

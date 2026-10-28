@@ -10,8 +10,10 @@ disponibile; l'esportazione STL funziona anche senza collegarlo.
 
 Per installarlo su un altro computer, seguire [INSTALL.md](INSTALL.md). Gli
 installer nativi includono Python, GTK e le altre librerie: `.run`/`.deb` Linux,
-Setup Windows 11 e `.app`/`.dmg` macOS. Il runtime Linux è costruito e verificato;
-quelli Windows/macOS devono essere prodotti e provati dai rispettivi job nativi.
+Setup Windows 11 e `.app`/`.dmg` macOS per Intel e Apple Silicon. Le build native
+verificano l'app installata e allegano i file ai job superati: vedere le
+[build degli installer](https://github.com/NoOneExceptEnderk/RatioLab/actions/workflows/installers.yml)
+e le versioni dei sistemi supportate in `INSTALL.md`.
 Il percorso wheel/sorgenti rimane disponibile per sviluppo. Preferenze ed
 esportazioni usano cartelle dell’utente.
 

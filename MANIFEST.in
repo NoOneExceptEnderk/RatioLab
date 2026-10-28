@@ -1,4 +1,5 @@
-include README.md README.it.md INSTALL.md pyproject.toml ratiolab_build.py
+include README.md README.it.md INSTALL.md pyproject.toml ratiolab_build.py .gitattributes
+include VERIFICA.md packaging/README.md
 include avvia.sh RatioLab.desktop catalogo-cuscinetti.json catalogo-hardware.json
 include CALCOLI.md CINEMATICA.md HARDWARE.md MODELLI-IO.md PRINTED-SHAFT.md VARIANTI.md
 include assets/branding/brand.json assets/branding/*.png
