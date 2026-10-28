@@ -549,3 +549,37 @@ The native GUI runner retains the 180-second pass/fail deadline. On macOS only,
 a timeout now collects a bounded native process sample before killing the child,
 in separate files alongside the JSON report. Four additional regressions cover
 success, nonzero exits, sampling before kill, sampling errors and cleanup.
+
+### Final public preview verification — 28 October 2026
+
+Runtime commit: `b76ab88652cb5609e8e7a845bac4d45ec43e1320`.
+[All four native installer jobs passed](https://github.com/NoOneExceptEnderk/RatioLab/actions/runs/40717034840):
+Linux x86-64, Windows x86-64, macOS Apple Silicon and macOS Intel. The parent
+read each job log and checked the installed-app results: nine nonblank family
+previews, six feature areas, complete workspace exports and 13 MCP tools over
+both supported protocol versions. Intel macOS passed within the unchanged
+180-second workspace deadline. No graphics checks were skipped or relaxed.
+
+The full source suite passed **362 tests, zero failures, errors or skips**, in
+295.087 seconds under isolated Ubuntu24.04/GTK4.14.5/Xvfb/Mesa. All 50 runtime
+module SHA256 values matched the immutable tested sources and the native commit;
+all 247 tracked publication files also matched that source snapshot. The parent
+separately ran the real installer entrypoint and parsed its clean successful
+JSON report. Independent review passed 23 publication-gate cases and seven
+native GUI-runner/gate tests; the native builds ran 63 packaging/runtime tests
+on Linux and 55 on each Windows/macOS target.
+
+The six downloadable installer hashes are recorded in `SHA256SUMS` and the
+release's `build-evidence.json`. Publication requires a fresh successful Python
+distribution workflow at the release commit, four successful native jobs at
+the runtime commit, exact local/server asset digests and the matching source
+tag. Any changes after the native commit are restricted to Markdown documents.
+The evidence file identifies both commits and the completed workflow runs.
+
+The first-party license is GNU GPL version 3 only, with copyright credit to
+NoOneExceptEnderk. Bundled first-party license/copyright files are required and
+compared with the source; dependency licenses remain separate. All 51 renamed
+example configurations were regenerated successfully and old project schemas
+remain compatible. Windows uses a hosted Windows Server 2025 runner, so testing on the
+user's Windows 11 machine remains a useful additional check. Setup is unsigned;
+macOS uses ad-hoc signing without Apple notarization.
