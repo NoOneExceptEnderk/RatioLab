@@ -8,6 +8,7 @@ import plistlib
 import runpy
 import sys
 import tempfile
+from types import ModuleType
 import unittest
 from unittest.mock import patch
 
@@ -102,6 +103,24 @@ class BootstrapTests(unittest.TestCase):
 
 
 class NativeNoticesTests(unittest.TestCase):
+    def test_typelib_without_active_analysis_stays_unmapped_without_querying_gi(self):
+        # Provide only a fake config module: neither PyInstaller nor GI needs to
+        # be installed, and querying GI before checking workpath would fail.
+        package = ModuleType('PyInstaller')
+        package.__path__ = []
+        config = ModuleType('PyInstaller.config')
+        for configuration in ({}, {'workpath': ''}, {'workpath': None}):
+            config.CONF = configuration
+            with self.subTest(configuration=configuration), patch.dict(sys.modules, {
+                    'PyInstaller': package, 'PyInstaller.config': config,
+                    'PyInstaller.compat': None, 'PyInstaller.utils.hooks.gi': None}):
+                self.assertIsNone(support._typelib_build_inputs('Gtk', '4.0'))
+                with patch.object(support.sys, 'platform', 'darwin'):
+                    self.assertIsNone(support.derived_typelib_component(
+                        'gi_typelibs/Gtk-4.0.typelib', '/untrusted/Gtk-4.0.typelib'))
+        with patch.dict(sys.modules, {'PyInstaller': None, 'PyInstaller.config': None}):
+            self.assertIsNone(support._typelib_build_inputs('Gtk', '4.0'))
+
     def test_darwin_recompiled_typelib_requires_exact_source_recipe_and_owner(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

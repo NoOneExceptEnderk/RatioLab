@@ -225,13 +225,21 @@ def component_for_binary(path):
 
 
 def _typelib_build_inputs(namespace, version):
+    try:
+        from PyInstaller.config import CONF
+    except ImportError:
+        return None
+    # Attribution can also run outside Analysis (unit tests or tooling). No
+    # active work directory means there is no trusted generated-file origin.
+    workpath = CONF.get('workpath')
+    if not workpath:
+        return None
     from PyInstaller.compat import base_prefix
-    from PyInstaller.config import CONF
     from PyInstaller.utils.hooks.gi import GiModuleInfo
     info = GiModuleInfo(namespace, version)
     if not info.available or not info.typelib:
         return None
-    return Path(info.typelib), Path(base_prefix), Path(CONF['workpath'])
+    return Path(info.typelib), Path(base_prefix), Path(workpath)
 
 
 def _relocated_gir(text):
