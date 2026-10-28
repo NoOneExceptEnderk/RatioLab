@@ -526,3 +526,26 @@ machine-readable report. The isolated ToolWorkspaceTests pass 7/7, including
 the dock width, three text scales and scroll tests whose fixed-delay checks
 were affected by the shared desktop display. No layout assertions were removed
 or weakened. Final source-suite/native results are recorded below.
+
+### Single-workspace GUI verification and native timeout diagnostics
+
+Run 40713248331 passed Linux, Windows and Apple Silicon native installers and
+all three Python distribution jobs, but the Intel macOS workspace process still
+reached the existing 180-second limit. Its separate OpenGL diagnostic succeeded.
+The GUI self-test now performs dependency checks without creating a preliminary
+window, then obtains graphics metadata directly from the actual workspace after
+all nine nonblank family captures and the full package export. This avoids a
+second GTK/Cocoa window lifecycle in one process; the earlier Intel timeout had
+no native stack, so that lifecycle remains a hypothesis rather than a proven cause.
+
+Four focused regressions preserve the single-workspace path, actual-context
+metadata, minimum desktop/ES versions and graphics errors. The independent
+xHigh agent ran the real Ubuntu24/Xvfb self-test through the unchanged installer
+entrypoint in 5.892 seconds: clean JSON, nine previews, six feature checks and
+workspace export passed. The standalone GUI diagnostic remains unchanged.
+The parent reviewed the code and passed 63 packaging/runtime tests.
+
+The native GUI runner retains the 180-second pass/fail deadline. On macOS only,
+a timeout now collects a bounded native process sample before killing the child,
+in separate files alongside the JSON report. Four additional regressions cover
+success, nonzero exits, sampling before kill, sampling errors and cleanup.

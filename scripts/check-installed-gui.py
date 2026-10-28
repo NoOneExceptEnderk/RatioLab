@@ -9,6 +9,34 @@ import argparse
 import json
 from pathlib import Path
 import subprocess
+import sys
+
+
+def _run_workspace(command, report):
+    """Preserve a native stack on macOS when the workspace exceeds its deadline."""
+    process = subprocess.Popen(command)
+    try:
+        returncode = process.wait(timeout=180)
+    except subprocess.TimeoutExpired:
+        try:
+            if sys.platform == 'darwin':
+                # Sample before killing: a Python traceback cannot show a Cocoa
+                # or graphics-driver wait inside a frozen application.
+                sample = Path(report).with_suffix('.sample.txt')
+                log = sample.with_suffix('.log')
+                try:
+                    result = subprocess.run(
+                        ['/usr/bin/sample', str(process.pid), '1', '-file', str(sample)],
+                        stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                        text=True, timeout=10, check=False)
+                    log.write_text(result.stdout or '', encoding='utf-8')
+                except (OSError, subprocess.TimeoutExpired) as error:
+                    log.write_text(str(error), encoding='utf-8')
+        finally:
+            process.kill()
+            process.wait(timeout=10)
+        raise
+    subprocess.CompletedProcess(command, returncode).check_returncode()
 
 
 def check(executable, folder, require=False):
@@ -32,8 +60,7 @@ def check(executable, folder, require=False):
         if not runtime.get('bundled') or runtime.get('preview') != 'rendered':
             raise RuntimeError('Installed GUI probe did not prove the bundled renderer')
         report = folder/'gui-workspace.json'
-        subprocess.run([str(executable), '--self-test-gui', '--report', str(report)],
-                       timeout=180, check=True)
+        _run_workspace([str(executable), '--self-test-gui', '--report', str(report)], report)
         workspace = json.loads(report.read_text(encoding='utf-8'))
         if (workspace.get('self_test') != 'passed' or workspace.get('workspace_export') != 'passed'
                 or len(workspace.get('features', {})) != 6

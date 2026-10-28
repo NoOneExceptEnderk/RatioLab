@@ -14,7 +14,8 @@ def self_test(gui=False):
     from geometry import FAMILIES, generate
     from ratiolab_cli import diagnose
     import stl_export
-    result = diagnose(gui=gui)
+    # The real workspace supplies the GUI proof; do not create a second window first.
+    result = diagnose(gui=False)
     with tempfile.TemporaryDirectory(prefix='ratiolab-check-') as temporary:
         profile = Path(temporary)
         environment = dict(XDG_CONFIG_HOME=str(profile/'config'),
@@ -46,7 +47,7 @@ def self_test(gui=False):
             features = _features_check(output, design)
             previews = []
             if gui:
-                previews = _workspace_check(config, output)
+                previews = _workspace_check(config, output, runtime=result)
             result.update(self_test='passed', families=len(FAMILIES),
                           step_files=len(list(assets.glob('*.step'))), stl_bytes=assembly.stat().st_size,
                           features=features,
@@ -179,9 +180,33 @@ def _wait_for_frame(canvas, context, timeout=30):
         clock.disconnect(handler)
 
 
-def _workspace_check(config, output):
+def _canvas_runtime(canvas):
+    """Read GL metadata from the same current context that rendered the workspace."""
+    import ctypes as C
+    from gl_loader import bind_function
+    canvas.make_current()
+    if canvas.failure or canvas.get_error() or not canvas.gl:
+        raise RuntimeError(str(canvas.failure or canvas.get_error() or 'OpenGL did not initialize'))
+    if canvas.gl.GetError():
+        raise RuntimeError('The OpenGL preview reported an error')
+    loader = canvas.gl.lib
+    version = loader.epoxy_gl_version
+    version.restype = C.c_int
+    version.argtypes = []
+    number = version()
+    if number < (30 if canvas.use_es else 33):
+        raise RuntimeError('OpenGL ES 3.0 or desktop OpenGL 3.3 or newer is required')
+    get_string = bind_function(loader, 'GetString', C.c_char_p, [C.c_uint])
+    return dict(opengl_version=number,
+                graphics_api='OpenGL ES' if canvas.use_es else 'OpenGL',
+                graphics_renderer=(get_string(0x1F01) or b'').decode('utf-8', errors='replace'))
+
+
+def _workspace_check(config, output, runtime=None):
+    from gi.repository import Gdk, Gio, GLib, Gtk
+    if not Gtk.init_check() or Gdk.Display.get_default() is None:
+        raise RuntimeError('A graphical desktop session is required for --self-test-gui')
     from app import ReducerApp
-    from gi.repository import Gio, GLib
     application = ReducerApp()
     application.set_flags(Gio.ApplicationFlags.NON_UNIQUE)
     application.register(None)
@@ -247,6 +272,9 @@ def _workspace_check(config, output):
             if not pixels or not any(pixels[i:i+4] != pixels[:4] for i in range(4, len(pixels), 4)):
                 raise RuntimeError('Animated preview is blank: '+family)
             previews.append(family)
+        metadata = _canvas_runtime(application.canvas)
+        if runtime is not None:
+            runtime.update(metadata, preview='rendered', framebuffer_has_geometry=True)
         return previews
     finally:
         for window in application.get_windows():

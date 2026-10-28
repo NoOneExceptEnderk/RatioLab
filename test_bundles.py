@@ -30,6 +30,74 @@ support = load('bundle_support_test', ROOT/'packaging/bundle_support.py')
 gui_check = load('bundle_gui_check_test', ROOT/'scripts/check-installed-gui.py')
 
 
+class WorkspaceRuntimeTests(unittest.TestCase):
+    def test_gui_self_test_uses_only_the_workspace_for_rendering(self):
+        from geometry import FAMILIES
+        from ratiolab_checks import self_test
+        runtime = {'gtk': 'fixture'}
+        def workspace(config, output, runtime):
+            self.assertEqual(config['family'], 'helical')
+            self.assertTrue(output.is_dir())
+            runtime.update(opengl_version=45, graphics_api='OpenGL',
+                           graphics_renderer='fixture', preview='rendered',
+                           framebuffer_has_geometry=True)
+            return list(FAMILIES)
+        with patch('ratiolab_cli.diagnose', return_value=runtime) as diagnose, \
+                patch('ratiolab_checks._workspace_check', side_effect=workspace) as check:
+            result = self_test(gui=True)
+        diagnose.assert_called_once_with(gui=False)
+        check.assert_called_once()
+        self.assertIs(check.call_args.kwargs['runtime'], runtime)
+        self.assertEqual(result['preview_families'], list(FAMILIES))
+        self.assertEqual(len(result['features']), 6)
+        self.assertTrue(all(value == 'passed' for value in result['features'].values()))
+        self.assertEqual(result['preview'], 'rendered')
+        self.assertTrue(result['framebuffer_has_geometry'])
+
+    def canvas(self, version=45, use_es=False):
+        canvas = unittest.mock.Mock(failure=None, use_es=use_es)
+        canvas.get_error.return_value = None
+        canvas.gl.GetError.return_value = 0
+        canvas.gl.lib.epoxy_gl_version.return_value = version
+        return canvas
+
+    def test_runtime_metadata_comes_from_the_current_workspace_context(self):
+        from ratiolab_checks import _canvas_runtime
+        for version, use_es, api in ((33, False, 'OpenGL'), (30, True, 'OpenGL ES')):
+            with self.subTest(api=api):
+                canvas = self.canvas(version, use_es)
+                def get_string(name):
+                    canvas.make_current.assert_called_once()
+                    self.assertEqual(name, 0x1F01)
+                    return b'Actual workspace renderer'
+                with patch('gl_loader.bind_function', return_value=get_string):
+                    result = _canvas_runtime(canvas)
+                self.assertEqual(result, dict(opengl_version=version, graphics_api=api,
+                                              graphics_renderer='Actual workspace renderer'))
+
+    def test_workspace_runtime_rejects_insufficient_gl_versions(self):
+        from ratiolab_checks import _canvas_runtime
+        for version, use_es in ((32, False), (29, True)):
+            with self.subTest(version=version), self.assertRaisesRegex(RuntimeError, 'or newer is required'):
+                _canvas_runtime(self.canvas(version, use_es))
+
+    def test_workspace_runtime_preserves_context_and_gl_error_checks(self):
+        from ratiolab_checks import _canvas_runtime
+        for failure in ('renderer', 'context', 'missing GL', 'GL error'):
+            canvas = self.canvas()
+            if failure == 'renderer':
+                canvas.failure = 'Renderer failure'
+            elif failure == 'context':
+                canvas.get_error.return_value = 'Context failure'
+            elif failure == 'missing GL':
+                canvas.gl = None
+            else:
+                canvas.gl.GetError.return_value = 0x0502
+            with self.subTest(failure=failure), self.assertRaises(RuntimeError):
+                _canvas_runtime(canvas)
+            canvas.make_current.assert_called_once()
+
+
 class GuiEventLoopTests(unittest.TestCase):
     def frame_fixture(self, width=640):
         clock = unittest.mock.Mock()
@@ -140,11 +208,16 @@ class NativeGuiChecksTests(unittest.TestCase):
             folder = Path(temporary)
             def run(command, **kwargs):
                 report = Path(command[-1])
-                value = {'bundled': True, 'preview': 'rendered'} if '--diagnose-gui' in command else {'self_test': 'passed', 'workspace_export': 'passed'}
-                report.write_text(json.dumps(value), encoding='utf-8')
+                report.write_text(json.dumps({'bundled': True, 'preview': 'rendered'}), encoding='utf-8')
                 return type('Result', (), {'returncode': 0})()
-            with patch.object(gui_check.subprocess, 'run', side_effect=run), self.assertRaises(RuntimeError):
+            def workspace(command, report):
+                self.assertIn('--self-test-gui', command)
+                report.write_text(json.dumps({'self_test': 'passed', 'workspace_export': 'passed'}), encoding='utf-8')
+            with patch.object(gui_check.subprocess, 'run', side_effect=run), \
+                    patch.object(gui_check, '_run_workspace', side_effect=workspace) as work, \
+                    self.assertRaises(RuntimeError):
                 gui_check.check(Path('RatioLab.exe'), folder)
+            work.assert_called_once()
 
 
 class BundleIntegrityTests(unittest.TestCase):
