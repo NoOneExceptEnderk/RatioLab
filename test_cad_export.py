@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2026 NoOneExceptEnderk
+# SPDX-License-Identifier: GPL-3.0-only
 """Standalone CAD/profile exports and their failure/publication boundaries."""
 import base64
 from dataclasses import asdict

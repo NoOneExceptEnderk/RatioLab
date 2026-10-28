@@ -1,3 +1,5 @@
+; SPDX-FileCopyrightText: 2026 NoOneExceptEnderk
+; SPDX-License-Identifier: GPL-3.0-only
 ; Compile with scripts/package-windows.ps1 after the native bundle passes checks.
 #ifndef BundleDir
   #error BundleDir must name a verified native RatioLab onedir bundle

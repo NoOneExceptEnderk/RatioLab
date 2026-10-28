@@ -1,7 +1,9 @@
-"""Geometria e statica nominale. Unità: mm, N, N·m, rpm, W.
+# SPDX-FileCopyrightText: 2026 NoOneExceptEnderk
+# SPDX-License-Identifier: GPL-3.0-only
+"""Nominal geometry and statics. Units: mm, N, N·m, rpm and W.
 
-Fonti, convenzioni e dominio delle formule in CALCOLI.md.
-Nessuna verifica ISO/AGMA di resistenza o distribuzione elastica del load.
+Sources, conventions and formula domains are in CALCULATIONS.md.
+No ISO/AGMA strength verification or elastic load-distribution analysis.
 """
 from math import pi, sin, cos, tan, atan, acos, sqrt, radians, degrees
 LOAD_FIELDS = [('input_rpm', 'Input speed [rpm]', 1500, 0, 100000, 50), ('input_torque', 'Input torque [N·m]', 1, 0, 10000, 0.1), ('efficiency', 'Assumed overall efficiency [%]', 90, 1, 100, 1)]
@@ -38,7 +40,7 @@ def geometry_warnings(design):
 
 
 def mesh(z1, z2, m, pressure=20, beta=0, width=10, x=0, center_extra=0, internal=False, gap=0, strict=True, backlash=0):
-    """Correzione bilanciata x1=x, x2=-x solo esterni; centre distance di lavoro esplicito."""
+    """Balance x1=x, x2=-x for external pairs only; use explicit working distance."""
     a1 = gear_dimensions(z1, m, pressure, beta, x, backlash=backlash)
     a2 = gear_dimensions(z2, m, pressure, beta, 0 if internal else -x, backlash=backlash)
     if internal:
@@ -170,5 +172,5 @@ def report_text(d):
         q=r['wheel_geometry'];lines.append(f"Wheel: {q['method']} · cylinder R {q['radius_mm']:.6f} mm · edge sag {q['max_radial_sag_mm']:.6f} mm · axial chord threshold {q['axial_chord_threshold_mm']:g} mm; no conjugate flank solution.")
     if 'forces' in r:
         lines.append('Reference forces: ' + ', '.join((f'{k} = {v:.3f}' for k, v in r['forces'].items())))
-    lines += ['', 'ASSUMPTIONS AND LIMITATIONS'] + d.notes + ['', 'Sources and formulas: CALCOLI.md. No result is an allowable load or ISO/AGMA certification.']
+    lines += ['', 'ASSUMPTIONS AND LIMITATIONS'] + d.notes + ['', 'Sources and formulas: CALCULATIONS.md. No result is an allowable load or ISO/AGMA certification.']
     return '\n'.join(lines) + '\n'

@@ -1,5 +1,8 @@
+# SPDX-FileCopyrightText: 2026 NoOneExceptEnderk
+# SPDX-License-Identifier: GPL-3.0-only
 """Poses for the local viewer. No changes to design geometry or CAD commands.
-Phase is the reference angle; the viewer advances it at the input operating RPM.
+Phase is the reference angle in radians; the viewer advances it at the input
+operating RPM. Matrices are column-major, with translation in world millimetres.
 """
 from dataclasses import dataclass, field
 from math import sin, cos, sqrt, pi, atan2, remainder
@@ -51,6 +54,11 @@ def part_axis(p):
 
 @dataclass
 class MotionPlan:
+    """Display poses keyed by zero-based positions in the complete Design.parts.
+
+    rates records every labelled spin/orbit needed by the interference period;
+    tooth symmetry must not shorten that orientation period.
+    """
     supported: bool = True
     message: str = 'Ratios and directions of the selected arrangement at the configured input RPM.'
     poses: dict = field(default_factory=dict)

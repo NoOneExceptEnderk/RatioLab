@@ -1,4 +1,10 @@
-"""Porti cinematici separati dalle varianti costruttive. Vedi MODELLI-IO.md."""
+# SPDX-FileCopyrightText: 2026 NoOneExceptEnderk
+# SPDX-License-Identifier: GPL-3.0-only
+"""Kinematic ports independent of construction variants. See IO-MODELS.md.
+
+Speeds use rpm; signed ratio is input speed / output speed. This stage completes
+the selected I/O mounting and ports after family/catalog/hardware construction.
+"""
 from itertools import permutations
 TRIPLES = {'planetary': {'sun': 'Sun', 'carrier': 'Planet carrier', 'ring': 'Ring'}, 'cycloidal': {'eccentric': 'Eccentric', 'output': 'Pin flange', 'ring': 'Ring / housing'}, 'harmonic': {'wave': 'Wave generator', 'flex': 'Flexspline', 'circular': 'Circular spline'}}
 PAIRS = {'parallel': ('Pinion', 'Wheel'), 'internal': ('Pinion', 'Ring'), 'worm': ('Worm', 'Wheel')}

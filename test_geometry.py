@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2026 NoOneExceptEnderk
+# SPDX-License-Identifier: GPL-3.0-only
 """Verifiche geometriche; non sostituiscono una verifica meccanica del riduttore."""
 import unittest
 import json

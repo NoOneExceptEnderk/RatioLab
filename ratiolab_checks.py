@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2026 NoOneExceptEnderk
+# SPDX-License-Identifier: GPL-3.0-only
 """Exercise a downloaded bundle without touching the user's preferences or CAD."""
 import json
 import os
@@ -173,7 +175,7 @@ def _workspace_check(config, output):
         application.export()
         wait_for(lambda: not application.busy and list(application.output_dir.glob('*.package/manifest.json')))
         package = next(application.output_dir.glob('*.package'))
-        for suffix in ('.config.json', '.script.json', '.stl', '.png', '.bom.json', '.calcoli.txt'):
+        for suffix in ('.config.json', '.script.json', '.stl', '.png', '.bom.json', '.calculations.txt'):
             if not list(package.glob('*'+suffix)):
                 raise RuntimeError('Workspace export missing '+suffix)
         if not list(package.glob('assets/*.step')):

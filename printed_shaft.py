@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2026 NoOneExceptEnderk
+# SPDX-License-Identifier: GPL-3.0-only
 """Printable cycloidal eccentric stack clamped by two off-axis M3 tie bolts.
 
 The asymmetric bolt pattern provides a positive rotational constraint and

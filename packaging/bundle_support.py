@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2026 NoOneExceptEnderk
+# SPDX-License-Identifier: GPL-3.0-only
 """Bundle provenance and installed license texts collected from native packages.
 
 The notices inventory is generated from Analysis.binaries and native icon/

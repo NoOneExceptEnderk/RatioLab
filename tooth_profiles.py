@@ -1,7 +1,10 @@
+# SPDX-FileCopyrightText: 2026 NoOneExceptEnderk
+# SPDX-License-Identifier: GPL-3.0-only
 """Rack envelopes and constructed internal fillets, in millimetres.
 
 No CAD dependency. Coordinates use a tooth centred on +X. See
- design/implementation-review/03-PROFILES.md for frame, domain and references.
+CALCULATIONS.md for profile conventions, domains and references, and VARIANTS.md
+for the separate worm and strain wave study geometry.
 """
 from math import sin, cos, tan, atan, atan2, acos, sqrt, hypot, pi, radians
 

@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2026 NoOneExceptEnderk
+# SPDX-License-Identifier: GPL-3.0-only
 """Immutable application resources and writable, per-user RatioLab data.
 
 This module deliberately needs no GTK, so installers and diagnostics can use it.
@@ -10,6 +12,8 @@ import tempfile
 
 APP_ID = 'local.solidcraft.reducers'
 MIN_GTK = (4, 12, 0)
+PREFERENCES_FILENAME = 'ui-preferences.json'
+LEGACY_PREFERENCES_FILENAME = 'preferenze-ui.json'
 SOURCE_ROOT = Path(__file__).resolve().parent
 _dll_directories = []
 
@@ -60,7 +64,8 @@ def resource_path(relative):
         raise ValueError('Resource paths must stay inside the resource directory')
     path = root()/relative
     if (not path.exists() and relative.as_posix() in
-            ('catalogo-cuscinetti.json', 'catalogo-hardware.json', 'INSTALL.md', 'MCP.md')):
+            ('bearing-catalog.json', 'hardware-catalog.json', 'INSTALL.md', 'MCP.md',
+             'LICENSE', 'COPYRIGHT')):
         path = SOURCE_ROOT/relative
     if not path.is_file() and not path.is_dir():
         raise FileNotFoundError(f'RatioLab resource missing: {relative}')
@@ -68,11 +73,16 @@ def resource_path(relative):
 
 
 def load_preferences(legacy_root=None):
-    path = config_dir()/'preferenze-ui.json'
-    # Only the source checkout can supply old preferences. Distributions never
-    # include them, and a present (even invalid) new file takes precedence.
-    if not path.exists() and legacy_root is not None:
-        path = Path(legacy_root)/'preferenze-ui.json'
+    path = config_dir()/PREFERENCES_FILENAME
+    # Read an earlier installation before consulting a legacy source checkout.
+    # A present but invalid new file still takes precedence; otherwise stale
+    # settings could silently reappear after a user intentionally resets them.
+    if not path.exists():
+        previous = config_dir()/LEGACY_PREFERENCES_FILENAME
+        if previous.exists():
+            path = previous
+        elif legacy_root is not None:
+            path = Path(legacy_root)/LEGACY_PREFERENCES_FILENAME
     try:
         data = json.loads(path.read_text(encoding='utf-8'))
         return data if isinstance(data, dict) else {}
@@ -97,7 +107,7 @@ def save_preferences(*, legacy_root=None, **changes):
     data.update(changes)
     folder = config_dir()
     folder.mkdir(parents=True, exist_ok=True)
-    target = folder/'preferenze-ui.json'
+    target = folder/PREFERENCES_FILENAME
     # A same-directory atomic replacement leaves the previous preference intact
     # if writing fails or the app closes during a write.
     fd, temporary = tempfile.mkstemp(prefix='.preferences-', dir=folder)

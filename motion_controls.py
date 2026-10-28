@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2026 NoOneExceptEnderk
+# SPDX-License-Identifier: GPL-3.0-only
 """Single viewport transport bar and a speed-adjustment popover."""
 import gi
 gi.require_version('Gtk', '4.0')

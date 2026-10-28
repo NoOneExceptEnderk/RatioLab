@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2026 NoOneExceptEnderk
+# SPDX-License-Identifier: GPL-3.0-only
 """Surface picking and dimensions on the shared sampled geometry, in mm.
 
 Camera is orthographic, as in preview3d.VERTEX. No AABB is a pick surface.

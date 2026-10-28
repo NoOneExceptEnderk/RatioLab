@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2026 NoOneExceptEnderk
+# SPDX-License-Identifier: GPL-3.0-only
 """Workspace tool dock: shared presentation, independent controller lifetimes."""
 import gi
 gi.require_version('Gtk', '4.0')

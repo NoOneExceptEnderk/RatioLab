@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2026 NoOneExceptEnderk
+# SPDX-License-Identifier: GPL-3.0-only
 """Real GTK integration for the dock, explicit export scope and compact layout."""
 import os
 from pathlib import Path

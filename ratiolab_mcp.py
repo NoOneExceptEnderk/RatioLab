@@ -1,4 +1,11 @@
-"""Offline MCP stdio adapter: 2026-07-28 and legacy 2025-11-25, tools only."""
+# SPDX-FileCopyrightText: 2026 NoOneExceptEnderk
+# SPDX-License-Identifier: GPL-3.0-only
+"""Offline MCP stdio adapter: 2026-07-28 and legacy 2025-11-25, tools only.
+
+Stdout is reserved for newline-delimited JSON-RPC; diagnostics belong on stderr.
+The reader stays available for cancellation while bounded workers run headless
+service operations. Geometry validation remains in the shared core.
+"""
 import argparse
 import inspect
 import json

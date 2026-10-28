@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2026 NoOneExceptEnderk
+# SPDX-License-Identifier: GPL-3.0-only
 """GTK finite search controller. Worker input and every callback belong to one revision."""
 from copy import deepcopy
 from math import isfinite
@@ -307,6 +309,8 @@ class Controller:
         self.thread.start()
 
     def current(self, serial):
+        # Cancellation is cooperative: an old worker can finish after a new run.
+        # Check both document history and raw fields still awaiting normalization.
         app = self.app
         return (self.alive and app.project_alive and serial == self.serial and self.snapshot is not None and app.document.token == self.revision and app.design is not None and equivalent(app.project_snapshot(), self.snapshot))
 

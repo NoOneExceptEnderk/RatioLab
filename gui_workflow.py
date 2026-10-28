@@ -1,4 +1,6 @@
-"""Navigazione e azioni della GUI; non modifica geometria o cinematica."""
+# SPDX-FileCopyrightText: 2026 NoOneExceptEnderk
+# SPDX-License-Identifier: GPL-3.0-only
+"""GUI navigation and actions; geometry and kinematics remain in their modules."""
 from pathlib import Path
 import json
 import gi
@@ -517,7 +519,7 @@ def install_shortcuts(app):
     app.win.add_controller(controller)
 
 def show_report(app, title, content):
-    """Report consultabile con ricerca, selezione e copia del testo."""
+    """Browsable report with text search, selection and copying."""
     win = Gtk.Window(title=title, transient_for=app.win, application=app)
     win.set_default_size(850, 650)
     win.add_css_class('reducers')

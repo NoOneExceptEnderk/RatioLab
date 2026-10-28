@@ -1,4 +1,6 @@
 #!/bin/sh
+# SPDX-FileCopyrightText: 2026 NoOneExceptEnderk
+# SPDX-License-Identifier: GPL-3.0-only
 # Source this file to choose a Homebrew Python supported by installed pygobject3.
 # Homebrew can build its bindings for multiple Python formulae; the user's
 # python3 on PATH can be another version entirely.

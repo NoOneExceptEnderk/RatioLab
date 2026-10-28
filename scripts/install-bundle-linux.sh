@@ -1,4 +1,6 @@
 #!/bin/sh
+# SPDX-FileCopyrightText: 2026 NoOneExceptEnderk
+# SPDX-License-Identifier: GPL-3.0-only
 # Installs only the bundled application. No root access or package manager needed.
 set -eu
 source_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)

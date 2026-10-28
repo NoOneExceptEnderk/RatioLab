@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2026 NoOneExceptEnderk
+# SPDX-License-Identifier: GPL-3.0-only
 """Frozen entrypoint: GUI launches log silently; CI can request a JSON report."""
 import contextlib
 import os

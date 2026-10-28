@@ -1,4 +1,6 @@
-"""Distinta riproducibile e metadati SolidCraft, senza codici commerciali inventati."""
+# SPDX-FileCopyrightText: 2026 NoOneExceptEnderk
+# SPDX-License-Identifier: GPL-3.0-only
+"""Reproducible BOM and SolidCraft metadata, without invented commercial codes."""
 import csv,hashlib,json,re
 from pathlib import Path
 from math import hypot
@@ -104,8 +106,8 @@ def export(design,stem):
         w=csv.DictWriter(f,fieldnames=fields);w.writeheader()
         for r in bom['rows']:w.writerow({k:('; '.join(r['positions']) if k=='positions' else r.get(k,'')) for k in fields})
     if bom['machining']:
-        Path(str(stem)+'.lavorazioni.json').write_text(json.dumps(bom['machining'],indent=2,ensure_ascii=False)+'\n',encoding='utf-8')
+        Path(str(stem)+'.machining.json').write_text(json.dumps(bom['machining'],indent=2,ensure_ascii=False)+'\n',encoding='utf-8')
     from engineering import report_text
-    Path(str(stem)+'.calcoli.json').write_text(json.dumps(design.analysis,indent=2,ensure_ascii=False)+'\n',encoding='utf-8')
-    Path(str(stem)+'.calcoli.txt').write_text(('SELECTED COMPONENTS ONLY. Calculations below describe the SOURCE configuration.\n\n' if hasattr(design,'export_scope') else '')+report_text(design),encoding='utf-8')
+    Path(str(stem)+'.calculations.json').write_text(json.dumps(design.analysis,indent=2,ensure_ascii=False)+'\n',encoding='utf-8')
+    Path(str(stem)+'.calculations.txt').write_text(('SELECTED COMPONENTS ONLY. Calculations below describe the SOURCE configuration.\n\n' if hasattr(design,'export_scope') else '')+report_text(design),encoding='utf-8')
     return bom

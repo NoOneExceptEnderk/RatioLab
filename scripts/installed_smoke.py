@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2026 NoOneExceptEnderk
+# SPDX-License-Identifier: GPL-3.0-only
 """Run from a neutral directory with an installed RatioLab, never the checkout.
 
 Checks resources, geometry/STL and preferences under a disposable user profile.
@@ -28,7 +30,7 @@ def main():
     before = {}
     for filename in ('branding/ratiolab-icon.png', 'branding/ratiolab-logo-dark.png',
                      'branding/ratiolab-logo-light.png', 'branding/brand.json',
-                     'catalogo-cuscinetti.json', 'catalogo-hardware.json'):
+                     'bearing-catalog.json', 'hardware-catalog.json'):
         path = app_paths.resource_path(filename)
         if args.forbid_root and path.resolve().is_relative_to(forbidden):
             raise AssertionError(f'Resource depends on source checkout: {path}')
@@ -92,7 +94,7 @@ def main():
                 assert json.loads(saved[-1].read_text(encoding='utf-8'))['format'] == 'solidcraft-riduttori/1'
                 for window in application.get_windows():
                     window.destroy()
-            assert (app_paths.config_dir()/'preferenze-ui.json').is_file()
+            assert (app_paths.config_dir()/'ui-preferences.json').is_file()
             print(json.dumps(dict(installed_smoke='passed', runtime=result,
                                   stl_bytes=assembly.stat().st_size, step_files=len(list(assets.glob('*.step')))), indent=2))
     for path, digest in before.items():

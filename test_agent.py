@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2026 NoOneExceptEnderk
+# SPDX-License-Identifier: GPL-3.0-only
 """Headless contract, geometry, persistence and publication safety regressions."""
 from dataclasses import replace
 import hashlib

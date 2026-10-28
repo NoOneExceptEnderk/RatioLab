@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2026 NoOneExceptEnderk
+# SPDX-License-Identifier: GPL-3.0-only
 """Complete package: publish after geometry, reports and preview all succeed."""
 from pathlib import Path
 import hashlib

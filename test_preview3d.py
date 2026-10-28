@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2026 NoOneExceptEnderk
+# SPDX-License-Identifier: GPL-3.0-only
 """Controlli della geometria 3D relative to quote, twist e assi del CAD."""
 import unittest
 from math import hypot, isfinite

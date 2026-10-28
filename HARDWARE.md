@@ -13,7 +13,7 @@ Nel pannello **Hardware e montaggio** scegli **Montaggio con componenti standard
 | Rasamenti | KIPP K1151, DIN 988; spessori 0,1 / 0,2 / 0,5 / 1 mm | Quote e quantità collegate agli arresti. Il diametro interno disponibile viene scelto per non interferire con l’albero |
 | Distanziali tubolari | Parti da realizzare, con codice interno SC-… | Colmano gli spazi fra ingranaggio e anelli interni dei cuscinetti, mantengono i rasamenti fuori dagli occhielli dei Seeger, oppure separano le flange dei tiranti |
 
-I dati sono in `catalogo-hardware.json`, con fonti e data di verifica. I codici Springmasters, American Ring e KIPP identificano le rispettive voci di catalogo. Le sigle DIN/ISO delle linguette e della viteria sono **designazioni dimensionali**, non SKU di un produttore: materiale, classe di resistenza e finitura devono ancora essere selezionati. Le lunghezze delle viti sono una serie nominale del generatore; disponibilità del prodotto completo da verificare presso il fornitore scelto.
+I dati sono in `hardware-catalog.json`, con fonti e data di verifica. I codici Springmasters, American Ring e KIPP identificano le rispettive voci di catalogo. Le sigle DIN/ISO delle linguette e della viteria sono **designazioni dimensionali**, non SKU di un produttore: materiale, classe di resistenza e finitura devono ancora essere selezionati. Le lunghezze delle viti sono una serie nominale del generatore; disponibilità del prodotto completo da verificare presso il fornitore scelto.
 
 Le gole interne seguono le quote del catalogo metrico American Ring indicato, comprese le cifre arrotondate pubblicate; non rappresentano una tabella DIN universale valida per qualsiasi fornitore. Il margine di estremità adottato dal generatore per queste gole è indicato nei dati ed è da verificare sotto carico. Non vengono copiate le capacità di carico di un anello su un’altra geometria.
 
@@ -35,9 +35,9 @@ Gole, cave e fori sono presenti nei solidi, nella preview e nel CAD. Le parti mo
 
 Gli anelli sono sagome montate a C, senza occhielli; viti e dadi hanno gli ingombri principali ma non filetti fisici o impronte dettagliate. Non usare queste sagome per produrre la viteria: sono componenti da acquistare. I distanziali terminali tengono i rasamenti grandi fuori dai piani dei Seeger interni. I distanziali e i rasamenti non modellano le piste dei cuscinetti: verificare l’appoggio sul solo anello previsto.
 
-La distinta distingue **ACQUISTARE**, **REALIZZARE** e **DA DEFINIRE**. Nel TXT appare la sezione **Lavorazioni presenti nel modello**; il JSON include le operazioni e viene affiancato da `.lavorazioni.json`. Le quote Z delle lavorazioni sono locali alla rispettiva parte. Gole, cave e fori compaiono anche nei metadati del componente CAD `local.solidcraft.machining`; le quantità sono aggregate nella distinta nativa.
+La distinta distingue **ACQUISTARE**, **REALIZZARE** e **DA DEFINIRE**. Nel TXT appare la sezione **Lavorazioni presenti nel modello**; il JSON include le operazioni e viene affiancato da `.machining.json`. Le quote Z delle lavorazioni sono locali alla rispettiva parte. Gole, cave e fori compaiono anche nei metadati del componente CAD `local.solidcraft.machining`; le quantità sono aggregate nella distinta nativa.
 
-Esempi completi: `esempi/doppia-elica-hardware.config.json`, `esempi/planetary-hardware.config.json`, `esempi/cycloidal-hardware.config.json`, con distinte e documenti in `esempi/cad/`.
+Esempi completi: `examples/double-helical-hardware.config.json`, `examples/planetary-hardware.config.json`, `examples/cycloidal-hardware.config.json`, con distinte e documenti in `examples/cad/`.
 
 ## Fonti primarie
 

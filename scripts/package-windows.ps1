@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2026 NoOneExceptEnderk
+# SPDX-License-Identifier: GPL-3.0-only
 <#! Build a real per-user Inno Setup installer from a verified native GTK bundle. #>
 [CmdletBinding()]
 param(

@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2026 NoOneExceptEnderk
+# SPDX-License-Identifier: GPL-3.0-only
 """Explicit, nominal subset exports. Original source indices are 1-based.
 
 Never call generate on a selected design: that would silently add components.
@@ -23,6 +25,7 @@ def scope(design):return deepcopy(getattr(design,'export_scope',None))
 
 
 def subset(design,indices,revision=None):
+    """Copy zero-based current positions while retaining one-based source identity."""
     indices=tuple(indices)
     if any(type(i) is not int for i in indices):raise ValueError('Component selection requires source positions.')
     indices=tuple(sorted(set(indices)))

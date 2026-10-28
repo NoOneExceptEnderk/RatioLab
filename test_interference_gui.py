@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2026 NoOneExceptEnderk
+# SPDX-License-Identifier: GPL-3.0-only
 """Real GTK/GL worker, revision invalidation and temporary inspection views."""
 import os
 from pathlib import Path

@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2026 NoOneExceptEnderk
+# SPDX-License-Identifier: GPL-3.0-only
 """STL: fori aperti, superficie chiusa, volume e coordinate di montaggio."""
 import struct
 import tempfile

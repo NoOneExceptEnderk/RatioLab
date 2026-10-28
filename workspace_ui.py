@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2026 NoOneExceptEnderk
+# SPDX-License-Identifier: GPL-3.0-only
 """Technical workspace composition. Geometry and file operations live in app.py."""
 from pathlib import Path
 import gi

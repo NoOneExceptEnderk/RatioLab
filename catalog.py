@@ -1,4 +1,8 @@
-'Catalog locale verificato sulle pagine ufficiali NSK. Quote in mm.\nVersioni aperte: nessuna equivalenza automatica con ZZ, 2RS, C3 o altre marche.\n'
+# SPDX-FileCopyrightText: 2026 NoOneExceptEnderk
+# SPDX-License-Identifier: GPL-3.0-only
+"""Local catalog checked against official NSK pages. Dimensions are in mm.
+Open bearings only: no automatic equivalence with ZZ, 2RS, C3 or other brands.
+"""
 from dataclasses import dataclass,asdict
 from math import isfinite
 

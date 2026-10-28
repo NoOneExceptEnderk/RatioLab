@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2026 NoOneExceptEnderk
+# SPDX-License-Identifier: GPL-3.0-only
 """Revision-bound GTK controller. Analysis worker never accesses widgets."""
 from copy import deepcopy
 from dataclasses import asdict
@@ -137,6 +139,8 @@ class Controller:
         self.thread=Thread(target=worker,name='RatioLab interference',daemon=True);self.thread.start()
 
     def current(self,serial):
+        # A cancelled worker may still return. Neither a reused controller nor
+        # identical geometry can substitute for the captured revision and fields.
         return self.alive and serial==self.serial and self.app.document.token==self.revision and self.snapshot is not None and equivalent(self.app.project_snapshot(),self.snapshot) and self.app.design is not None
 
     def progress_update(self,serial,message,fraction):

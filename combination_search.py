@@ -1,4 +1,11 @@
-"""Finite geometric combination search; standard library only, no document mutation."""
+# SPDX-FileCopyrightText: 2026 NoOneExceptEnderk
+# SPDX-License-Identifier: GPL-3.0-only
+"""Finite geometric combination search; standard library only, no document mutation.
+
+Only explicit grids vary. Every accepted candidate is regenerated and checked
+against its normalized locked baseline; ranking has no continuous/global optimum
+claim. Cancellation and time budgets are observed between core operations.
+"""
 from copy import deepcopy
 from dataclasses import dataclass, field
 from itertools import product

@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2026 NoOneExceptEnderk
+# SPDX-License-Identifier: GPL-3.0-only
 """Verifiche delle costruzioni a doppia elica, ZA/ZI e involucri strain wave."""
 import math, unittest
 from geometry import *

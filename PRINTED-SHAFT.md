@@ -68,9 +68,9 @@ The motor coupling is not universal: design it for the printed Ø17 mm input jou
 
 ## Files and verification
 
-- `esempi/cycloidal-fdm-single.config.json` and `esempi/cycloidal-fdm-dual.config.json`: reopenable configurations.
+- `examples/cycloidal-fdm-single.config.json` and `examples/cycloidal-fdm-dual.config.json`: reopenable configurations.
 - `outputs/cycloidal-fdm-single/` and `outputs/cycloidal-fdm-dual/`: assembly and individual STL files, printed shaft kits, CAD command scripts/STEP assets, BOM and nominal calculations.
-- `esempi/cycloidal-fdm-housing-single.config.json` and `esempi/cycloidal-fdm-housing-dual.config.json`: housing-output examples, with matching complete exports under `outputs/cycloidal-fdm-housing-single/` and `outputs/cycloidal-fdm-housing-dual/`.
+- `examples/cycloidal-fdm-housing-single.config.json` and `examples/cycloidal-fdm-housing-dual.config.json`: housing-output examples, with matching complete exports under `outputs/cycloidal-fdm-housing-single/` and `outputs/cycloidal-fdm-housing-dual/`.
 - `outputs/fdm-housing-output.png`: housing-output preview.
 - `outputs/fdm-eccentric-shaft.png`: rendered shaft detail.
 - `outputs/verification-fdm-shaft.json`: generated dimensions and solid checks.

@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2026 NoOneExceptEnderk
+# SPDX-License-Identifier: GPL-3.0-only
 """Installer lifecycle and frozen paths; runtime bundles have separate real GL tests."""
 import os
 from pathlib import Path

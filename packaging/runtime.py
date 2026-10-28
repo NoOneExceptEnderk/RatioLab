@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2026 NoOneExceptEnderk
+# SPDX-License-Identifier: GPL-3.0-only
 """Executed by PyInstaller before GI and the application are imported.
 
 Paths refer only to the bundle. No MSYS2/Homebrew/GTK installation on the target

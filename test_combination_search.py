@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2026 NoOneExceptEnderk
+# SPDX-License-Identifier: GPL-3.0-only
 """Generator-backed search with brute-force enumeration and shared-surface bounds oracles."""
 from copy import deepcopy
 from itertools import product

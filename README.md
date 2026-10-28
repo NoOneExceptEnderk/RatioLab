@@ -4,6 +4,12 @@
 
 **Parametric gear and reducer generator.**
 
+**First public preview · GPL-3.0-only.** Download the bundled app from
+[GitHub Releases](https://github.com/NoOneExceptEnderk/RatioLab/releases).
+See [INSTALL.md](INSTALL.md) for supported systems and installation instructions,
+and [MCP.md](MCP.md) to connect an agent. Feedback and reproducible bug reports
+are welcome in [Issues](https://github.com/NoOneExceptEnderk/RatioLab/issues).
+
 Python / GTK 4 desktop application for generating gears and reducers, viewing them in an OpenGL 3D preview and exporting their geometry. STEP, STL and SVG/DXF export work independently of SolidCraft; CAD integration creates bodies in a connected SolidCraft document.
 
 For installation on another computer, see [INSTALL.md](INSTALL.md). Native
@@ -17,12 +23,12 @@ available for development.
 Launch with:
 
 ```bash
-./avvia.sh
+./launch.sh
 # or
 /usr/bin/python3 app.py
 ```
 
-The desktop shortcut launches this project directly through `avvia.sh`. Source edits are picked up the next time the application starts; no installation copy or manual update is required. The old desktop installation is retained for existing exports and data. Run `/usr/bin/python3 install_desktop.py` to register RatioLab in the user's application menu and update the desktop shortcut. The installed filename matches GTK's application ID so GNOME can show the correct name and icon in its application bar. `RatioLab.desktop` records the launcher identity. The selected compact RL identity, application icon and logos for light/dark backgrounds are saved in `assets/branding/`; `brand.json` records the chosen design and palette for the GitHub release.
+The desktop shortcut launches this project directly through `launch.sh`. Source edits are picked up the next time the application starts; no installation copy or manual update is required. The old desktop installation is retained for existing exports and data. Run `/usr/bin/python3 install_desktop.py` to register RatioLab in the user's application menu and update the desktop shortcut. The installed filename matches GTK's application ID so GNOME can show the correct name and icon in its application bar. `RatioLab.desktop` records the launcher identity. The selected compact RL identity, application icon and logos for light/dark backgrounds are saved in `assets/branding/`; `brand.json` records the chosen design and palette for the GitHub release.
 
 All application labels, parameter descriptions, validation messages, calculation reports and bill of materials are in English. Saved configuration format identifiers and parameter keys are retained so existing JSON configurations remain compatible. Previously exported documents are independent snapshots; regenerate them to obtain English descriptions.
 
@@ -192,7 +198,7 @@ locked baseline, budgets, coverage and retained proposals.
 
 **Motion → Drive · input and output** selects which member is driven, which delivers motion, and which is fixed. Planetary, cycloidal and strain wave drives offer all six physical member combinations. The planetary two-stage variants have independent connections for each stage.
 
-Parallel shaft, internal gear and worm drives offer forward/reverse operation. Reverse kinematics do not guarantee worm backdrivability. Role colors and nominal mounting interfaces follow the selected arrangement; see [MODELLI-IO.md](MODELLI-IO.md).
+Parallel shaft, internal gear and worm drives offer forward/reverse operation. Reverse kinematics do not guarantee worm backdrivability. Role colors and nominal mounting interfaces follow the selected arrangement; see [IO-MODELS.md](IO-MODELS.md).
 
 ## Printed cycloidal eccentric shaft
 
@@ -226,7 +232,7 @@ Keyboard shortcuts: Ctrl+N (New), Ctrl+O (Open), Ctrl+S (Save), Ctrl+Shift+S (Sa
 - **STEP for CAD:** a `.step-export/` folder with `assembly.step`, one STEP per component in `step-parts/`, and approximation details in `step-info.json`. All nine families and their variants are supported without a SolidCraft installation.
 - **SVG / DXF profiles:** a `.profiles-export/` folder with closed outer contours and holes, in local section coordinates. `profiles.json` records axial positions, rotations and world placement. Helical and deformed parts are explicitly labelled **sections only**, rather than complete extrusion profiles or manufacturing developments.
 - **Complete package:** one `.package/` folder containing standalone assembly/component STEP, SVG/DXF profiles, STL files, parameter JSON, CAD script and required assets, preview PNG, BOM and calculation reports. `manifest.json` lists checksums for every exported file.
-- **BOM and calculations:** TXT, CSV and JSON component lists plus `.calcoli.txt` and `.calcoli.json` reports.
+- **BOM and calculations:** TXT, CSV and JSON component lists plus `.calculations.txt` and `.calculations.json` reports.
 
 STL coordinates are in **millimetres**; select mm in the importer because STL has no unit field. The header export actions include all parts, including hidden supports, housing and nominal commercial components; use the component window for an explicit subset. Individual parts retain assembly coordinates and can be arranged on the slicer bed. STL export does not require SolidCraft.
 
@@ -291,3 +297,19 @@ Development priorities are recorded in [TODO.md](TODO.md): simplify the feature 
 | `cad_export.py`, `profile_export.py`, `package_export.py`, `export_transaction.py` | Standalone STEP, plane SVG/DXF, complete packages and safe publication |
 | `connection.py` | Authenticated local CAD protocol and rollback |
 
+
+## License and contributing
+
+Copyright (C) 2026 NoOneExceptEnderk. RatioLab is distributed under the
+[GNU GPL version 3 only](LICENSE) (`GPL-3.0-only`). Commercial use, modification
+and forks are allowed. Redistributed covered versions must retain the copyright
+and license notices, remain under GPLv3, and provide the corresponding source
+under its terms. There is no warranty. Third-party components retain their own
+licenses; native bundles include their notices separately. See [COPYRIGHT](COPYRIGHT).
+
+The application license does not automatically apply to independently created
+user designs or generated geometry. It does not require credit on physical
+products made using the application.
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the module map, design conventions
+and validation workflow, and [CHANGELOG.md](CHANGELOG.md) for release changes.

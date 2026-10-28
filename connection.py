@@ -1,4 +1,6 @@
-"""Client del protocollo SolidCraft: localhost, autenticazione, batch atomico."""
+# SPDX-FileCopyrightText: 2026 NoOneExceptEnderk
+# SPDX-License-Identifier: GPL-3.0-only
+"""SolidCraft protocol client: localhost, authentication and atomic batches."""
 import json
 import os
 import shutil

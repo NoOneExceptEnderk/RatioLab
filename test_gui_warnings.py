@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2026 NoOneExceptEnderk
+# SPDX-License-Identifier: GPL-3.0-only
 """Warning decisions can be checked without creating widgets or opening CAD."""
 from types import SimpleNamespace
 import unittest

@@ -1,5 +1,7 @@
-"""Viewport OpenGL 3.3 via GTK: depth buffer e cap con stencil pari/dispari.
-Nessuna dipendenza pip; profili e twist provengono dalla stessa geometria inviata al CAD.
+# SPDX-FileCopyrightText: 2026 NoOneExceptEnderk
+# SPDX-License-Identifier: GPL-3.0-only
+"""OpenGL viewport through GTK: depth buffer and even/odd stencil section caps.
+Profiles and twist use the shared geometry sent to CAD; no pip GL dependency.
 """
 import ctypes as C
 import sys
@@ -77,7 +79,7 @@ def build_scene(design,show_support=False,show_housing=False,exploded=False):
             parts.append(MeshPart((begin,len(data)//6-begin),(len(data)//6,0),[],color,index))
             continue
         sections=profile_sections(p)
-        # Every loft section carries corresponding vertices. Circular holes remain exact in CAD.
+    # Corresponding section vertices keep the preview on the shared faceted surface.
         def loops_at(outer,z):return section_loops(p,outer,z)
         begin=len(data)//6;first_z,first_a,first_outer=sections[0]
         prev=[[point(p,q,first_z,radians(first_a)) for q in loop] for loop in loops_at(first_outer,first_z)]

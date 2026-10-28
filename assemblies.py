@@ -1,4 +1,9 @@
-'Assiemi dimensionali: dentature, alberi, flange, sedi e housing.\nAccoppiamenti geometrici di riferimento: non include calcolo strutturale o cuscinetti di catalogo.\n'
+# SPDX-FileCopyrightText: 2026 NoOneExceptEnderk
+# SPDX-License-Identifier: GPL-3.0-only
+"""Dimensional assemblies: teeth, shafts, flanges, seats and housings.
+Reference geometry only; catalog bearings are applied by standard_parts.
+No structural sizing is performed.
+"""
 from math import pi,sin,cos,hypot,radians
 from geometry import Part,circle,polar,transformed,gear_part,cycloid,TAU
 
@@ -72,7 +77,7 @@ def planetary(d):
         active=(w-v.get('gap',0))/2 if variant in ('double','two_stage_double') else w
         for a,b,internal in [(zs,zp,False),(zp,zs+2*zp,True)]:
             q=mesh(a,b,m,pa,beta,active,internal=internal,strict=False,backlash=backlash)
-            # Coppia per satellite non dedotta dividendo per n: manca il fattore di ripartizione.
+    # Do not divide torque by planet count: the load-sharing factor is unknown.
             q['torque_factor']=None;d.analysis['meshes'].append(q)
     d.notes.append('Contact ratio calculated for both meshes of each stage. Forces per planet are not estimated: actual load sharing requires stiffness and load distribution factors.')
     d.notes.extend(['Fixed ring; sun input and carrier output. In two stage models, the first stage output drives the second stage sun.',

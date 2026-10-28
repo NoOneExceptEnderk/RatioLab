@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2026 NoOneExceptEnderk
+# SPDX-License-Identifier: GPL-3.0-only
 """Exercise the actual GTK popup filter and its selection mapping (needs a display)."""
 import unittest
 import gi

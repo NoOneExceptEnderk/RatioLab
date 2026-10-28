@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2026 NoOneExceptEnderk
+# SPDX-License-Identifier: GPL-3.0-only
 """Real GTK search/apply/history/lifecycle integration; isolated user profiles."""
 import os
 from pathlib import Path

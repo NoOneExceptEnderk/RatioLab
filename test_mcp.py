@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2026 NoOneExceptEnderk
+# SPDX-License-Identifier: GPL-3.0-only
 """MCP transport regressions, using portable reader threads rather than pipe select."""
 import io
 import json

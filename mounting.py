@@ -1,5 +1,7 @@
-"""Interfacce assiali nominali, collegate ai members cinematici selezionati.
-Le quote sono geometriche: non sono giunti o cuscinetti dimensionati a load.
+# SPDX-FileCopyrightText: 2026 NoOneExceptEnderk
+# SPDX-License-Identifier: GPL-3.0-only
+"""Nominal axial interfaces linked to the selected kinematic members.
+Dimensions describe geometry, not load-rated joints or bearings.
 """
 from math import hypot, pi, cos, sin
 from geometry import Part, circle

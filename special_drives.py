@@ -1,4 +1,8 @@
-'Viti cilindriche ZA/ZI e involucri strain wave. Fonti in VARIANTI.md.\nLe ruote vite e le dentature strain wave restano approssimazioni di concept.\n'
+# SPDX-FileCopyrightText: 2026 NoOneExceptEnderk
+# SPDX-License-Identifier: GPL-3.0-only
+"""Cylindrical ZA/ZI worms and strain wave envelopes. Sources are in VARIANTS.md.
+Worm wheels and strain wave teeth remain concept approximations.
+"""
 from math import pi,sin,cos,tan,atan,acos,atan2,sqrt,hypot,radians,degrees,ceil
 from geometry import CircleProfile,Part,gear_part,involute,circle,circle_info,polar,clean,sample_curve,TAU
 
@@ -46,7 +50,7 @@ def worm(d):
     if v['variant']=='za':outline=za_profile(starts,m,D,v['pressure'],v['backlash'])
     else:
         beta=pi/2-gamma;at=degrees(atan(tan(radians(an))/cos(beta)))
-        # Lo spessore assiale deve diventare trasversale mediante cot(gamma).
+    # Axial tooth thickness becomes transverse thickness through cot(gamma).
         outline=zi_profile(starts,m,D,at,v['backlash']/tan(gamma))
     radius=D/2+m;step=min(6,degrees(2*acos(max(0,1-.02/radius))))
     turns=length/lead;n=max(1,ceil(360*turns/step))
@@ -62,7 +66,7 @@ def worm(d):
         q=jl+length*j/n;level(q,rotated(q))
     if jl:level(jl+length,rotated(jl+length,jr));level(2*jl+length,rotated(jl+length,jr))
     if hand<0:
-        # Riflessione esatta anche delle facce triangolate, senza dipendenza dalla diagonale scelta.
+    # Mirror the triangulated faces too, preserving volume regardless of the diagonal.
         mirror=lambda loop:[(x,-y) for x,y in reversed(loop)]
         outline=mirror(outline);hole=[mirror(h) for h in hole]
         stations=[dict(z=s['z'],outer=mirror(s['outer']),holes=hole) for s in stations]
@@ -102,7 +106,7 @@ def worm(d):
     d.requirements.append('Design worm/wheel supports, bearings, retainers, fasteners and lubrication; a conjugate wheel profile is not included.')
 
 def ellipse_axes(radius,amplitude):
-    """Perimetro numerico della linea primitiva conservato (quadratura periodica)."""
+    """Preserve the numerical pitch-line perimeter using periodic quadrature."""
     a=radius+amplitude;lo=radius*.1;hi=radius
     def perimeter(b):
         return sum(hypot(a*sin(TAU*(j+.5)/1024),b*cos(TAU*(j+.5)/1024)) for j in range(1024))*TAU/1024
@@ -135,8 +139,8 @@ def harmonic(d):
     gear=gear_part('Flexspline_'+variant,z,m,v['pressure'],v['backlash'],w)
     flange=v.get('flange_width',0);base_radius=root+flange
     reference=refine_angles(gear.outer,max(base_radius,rp+m+amp))
-    # I bordi radiali diventano vertici coincidenti nel corpo circolare.
-    # Normalizzarli evita microfacce da arrotondamenti dei punti del profilo.
+    # Radial edges become coincident vertices in the circular body. Normalize
+    # them to avoid tiny faces caused by rounded profile coordinates.
     angles=[];radii=[]
     for x,y in reference:
         theta=atan2(y,x)
@@ -164,7 +168,7 @@ def harmonic(d):
             material_holes=[material(hole if hole_reference is None else hole_reference)]))
     level(0,base_outer,bottom_hole);level(t,base_outer,bottom_hole)
     level(t,outer_body,inner_round)
-    # Transizione assiale dal corpo circolare alla sezione deformata della dentatura.
+    # Blend axially from the circular body to the deformed tooth section.
     for j in range(1,7):
         f=j/6;h=t+(L-t)*f
         out=deform(outer_body,f)
@@ -173,14 +177,14 @@ def harmonic(d):
     level(L,toothed,inner_deformed,reference,inner_round,1);level(L+w,toothed,inner_deformed,reference,inner_round,1)
     p=Part('Flexspline_'+variant,toothed,[inner_deformed],L+w,-L,stations=stations);d.parts.append(p)
     ring=gear_part('Circular_spline_concept',z+2,m,v['pressure'],v['backlash'],w,phase=pi/(z+2),internal=True,rim=v['rim']);ring.color=(.69,.59,.86);d.parts.append(ring)
-    # Il cuscinetto è un involucro deformato, non una sigla di catalogo.
+    # The bearing is a deformed envelope, not an identified catalog part.
     outer=[polar(hypot(x,y)-clearance,atan2(y,x)) for x,y in inner_deformed]
     bore=[polar(hypot(x,y)-clearance-bearing,atan2(y,x)) for x,y in inner_deformed]
     cam=[polar(hypot(x,y)-2*clearance-bearing,atan2(y,x)) for x,y in inner_deformed]
     d.parts.append(Part('Bearing_wave_envelope',outer,[bore],w,role='support',color=(.52,.61,.7)))
     d.parts.append(Part('Generator_wave_concept',cam,[round_loop(v['bore']/2)] if v['bore'] else [],w,color=(.95,.65,.3)))
-    # Anche corona, camma e cuscinetto attraversano il percorso geometrico condiviso;
-    # il kernel non ricostruisce separatamente i profili della dentatura deformata.
+    # Ring, cam and bearing use the same shared geometry path; the CAD kernel
+    # does not independently reconstruct the deformed tooth profiles.
     ring.outer=round_loop(circle_info(ring.outer)[2])
     for q in d.parts[1:]:q.stations=[dict(z=0,outer=q.outer,holes=q.holes),dict(z=q.width,outer=q.outer,holes=q.holes)]
     circular=v['harmonic_output']=='circular';ratio=(z+2)/2 if circular else -z/2

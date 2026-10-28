@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2026 NoOneExceptEnderk
+# SPDX-License-Identifier: GPL-3.0-only
 import json, tempfile, unittest
 from pathlib import Path
 from math import hypot, radians

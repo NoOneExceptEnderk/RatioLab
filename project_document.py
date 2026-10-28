@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2026 NoOneExceptEnderk
+# SPDX-License-Identifier: GPL-3.0-only
 """Document history and local persistence; no GTK or geometry dependencies."""
 from copy import deepcopy
 import json
@@ -65,6 +67,11 @@ class Document:
 
     @property
     def token(self):
+        """Bind delayed answers to this document and edit, including undo/redo.
+
+        Identity distinguishes newly opened documents with identical contents;
+        revision advances even when history returns to an earlier snapshot.
+        """
         return self.identity, self.revision
 
     def barrier(self):

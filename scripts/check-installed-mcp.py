@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2026 NoOneExceptEnderk
+# SPDX-License-Identifier: GPL-3.0-only
 """Verify an actual agent subprocess, both MCP eras, and its real exported files."""
 import argparse
 import hashlib

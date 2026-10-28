@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2026 NoOneExceptEnderk
+# SPDX-License-Identifier: GPL-3.0-only
 """Numerical oracles independent of the envelope construction.
 
 The rack oracle time-steps a solid cutter in the blank frame and queries its

@@ -1,4 +1,6 @@
-"""Accoppiamenti di catalogo; gli involucri dei cuscinetti sono semplificati."""
+# SPDX-FileCopyrightText: 2026 NoOneExceptEnderk
+# SPDX-License-Identifier: GPL-3.0-only
+"""Catalog-based fits; bearing envelopes are simplified."""
 from math import hypot
 from geometry import Part,circle,circle_info
 from catalog import selected

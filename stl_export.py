@@ -1,7 +1,9 @@
-"""STL binari in millimetri dalle superfici condivise con il CAD.
+# SPDX-FileCopyrightText: 2026 NoOneExceptEnderk
+# SPDX-License-Identifier: GPL-3.0-only
+"""Binary STL in millimetres from the surfaces shared with CAD.
 
-I contorni interni vengono triangolati come fori reali; le opzioni di vista
-(esploso, sezione, visibilità) non cambiano i componenti esportati.
+Inner contours are triangulated as real holes; display options (explosion,
+section and visibility) do not change the exported components.
 """
 from math import sqrt
 from pathlib import Path

@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2026 NoOneExceptEnderk
+# SPDX-License-Identifier: GPL-3.0-only
 """Try installed GUI/GL on a native runner; only explicit display/GL absence is optional.
 
 An initialized renderer must pass the full workspace test. Missing reports,

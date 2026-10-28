@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2026 NoOneExceptEnderk
+# SPDX-License-Identifier: GPL-3.0-only
 """Bundle integrity and bootstrap tests; real native builds have separate smoke tests."""
 import importlib.util
 import hashlib
@@ -98,9 +100,12 @@ class BundleIntegrityTests(unittest.TestCase):
 
     def test_inventory_rejects_personal_data(self):
         with tempfile.TemporaryDirectory() as temporary:
-            (Path(temporary)/'preferenze-ui.json').write_text('{}')
-            with self.assertRaisesRegex(RuntimeError, 'Personal data'):
-                builder.inventory(temporary)
+            for name in ('ui-preferences.json', 'preferenze-ui.json'):
+                path = Path(temporary)/name
+                path.write_text('{}')
+                with self.assertRaisesRegex(RuntimeError, 'Personal data'):
+                    builder.inventory(temporary)
+                path.unlink()
 
     def test_smoke_environment_cannot_find_developer_python_gtk(self):
         dirty = dict(PATH='/developer/msys2/bin', PYTHONPATH='/checkout',

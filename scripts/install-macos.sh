@@ -1,4 +1,6 @@
 #!/bin/sh
+# SPDX-FileCopyrightText: 2026 NoOneExceptEnderk
+# SPDX-License-Identifier: GPL-3.0-only
 # Install Homebrew pygobject3 and gtk4 first; see INSTALL.md.
 set -eu
 root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)

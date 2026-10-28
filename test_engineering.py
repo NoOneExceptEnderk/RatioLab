@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2026 NoOneExceptEnderk
+# SPDX-License-Identifier: GPL-3.0-only
 """Controprove numeriche, cinematiche e di integrazione del calcolo nominale."""
 import json, math, tempfile, unittest
 from pathlib import Path
@@ -118,8 +120,8 @@ class EngineeringTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             stem = Path(folder) / 'parallel'
             export(d, stem)
-            self.assertEqual(json.loads(Path(str(stem) + '.calcoli.json').read_text())['signed_ratio'], -3)
-            self.assertIn('ASSUMPTIONS AND LIMITATIONS', Path(str(stem) + '.calcoli.txt').read_text())
+            self.assertEqual(json.loads(Path(str(stem) + '.calculations.json').read_text())['signed_ratio'], -3)
+            self.assertIn('ASSUMPTIONS AND LIMITATIONS', Path(str(stem) + '.calculations.txt').read_text())
         meta = next((c for c in d.commands() if c['command'] == 'component.metadata.set'))
         self.assertEqual(meta['params']['values']['local.solidcraft.riduttori']['analysis']['signed_ratio'], -3)
         for f in ('parallel', 'internal'):

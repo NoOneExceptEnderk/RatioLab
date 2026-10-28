@@ -1,4 +1,6 @@
-'Assembly standard: componenti acquistabili e lavorazioni geometriche collegate.'
+# SPDX-FileCopyrightText: 2026 NoOneExceptEnderk
+# SPDX-License-Identifier: GPL-3.0-only
+"""Standard assembly hardware: purchasable parts and associated geometric machining."""
 from math import sin,cos,asin,sqrt,pi,hypot,radians,acos,ceil
 from geometry import Part,circle,circle_info,polar,transformed,profile_sections,section_holes,TAU
 from hardware_catalog import *

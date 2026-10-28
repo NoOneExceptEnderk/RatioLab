@@ -1,4 +1,6 @@
-"""Reducers cilindrici ad assi fissi: geometria evolvente e alberi nominali."""
+# SPDX-FileCopyrightText: 2026 NoOneExceptEnderk
+# SPDX-License-Identifier: GPL-3.0-only
+"""Fixed-axis cylindrical reducers: involute geometry and nominal shafts."""
 from math import pi, hypot
 from geometry import gear_part, Part, circle
 from engineering import mesh

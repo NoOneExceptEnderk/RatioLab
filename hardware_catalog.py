@@ -1,4 +1,6 @@
-"""Quote nominali verificate su cataloghi primari, mm. Nessun prezzo o SKU inventato."""
+# SPDX-FileCopyrightText: 2026 NoOneExceptEnderk
+# SPDX-License-Identifier: GPL-3.0-only
+"""Nominal dimensions checked against primary catalogs, in mm; no invented prices or SKUs."""
 from math import isfinite
 VERIFIED='2026-10-23'
 SUPPORTED={'spur','helical','double','planetary','cycloidal','parallel','internal'}

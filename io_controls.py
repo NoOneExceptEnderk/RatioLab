@@ -1,4 +1,6 @@
-"""Controlli GTK per scegliere i members fisici senza decifrare le permutazioni."""
+# SPDX-FileCopyrightText: 2026 NoOneExceptEnderk
+# SPDX-License-Identifier: GPL-3.0-only
+"""GTK controls for selecting physical members without decoding permutations."""
 import gi
 gi.require_version('Gtk', '4.0')
 from gi.repository import Gtk

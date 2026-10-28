@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2026 NoOneExceptEnderk
+# SPDX-License-Identifier: GPL-3.0-only
 """Use upstream GI collection without copying every desktop schema on the host."""
 from PyInstaller.compat import is_win
 from PyInstaller.utils.hooks.gi import GiModuleInfo

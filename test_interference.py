@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2026 NoOneExceptEnderk
+# SPDX-License-Identifier: GPL-3.0-only
 """Behavior tests on closed surfaces, holes, 3D frames and discrete motion."""
 from math import pi,cos,sin
 from threading import Event

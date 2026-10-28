@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2026 NoOneExceptEnderk
+# SPDX-License-Identifier: GPL-3.0-only
 """Fixed-axis shaft supports; no annular ring output bearing is inferred.
 
 The same parts and machined sections feed preview, CAD, STL and BOM. Common

@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2026 NoOneExceptEnderk
+# SPDX-License-Identifier: GPL-3.0-only
 """ctypes cannot discover libepoxy's computed library name automatically."""
 import ctypes.util
 import sys

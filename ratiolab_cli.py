@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2026 NoOneExceptEnderk
+# SPDX-License-Identifier: GPL-3.0-only
 """Installed command and diagnostics; GTK is imported only when needed."""
 import argparse
 import ctypes as C
@@ -32,7 +34,7 @@ def diagnose(gui=False):
                   icon=str(resource_path('branding/ratiolab-icon.png')),
                   config_dir=str(config_dir()), data_dir=str(data_dir()),
                   default_exports=str(default_output_dir()))
-    for name in ('catalogo-cuscinetti.json', 'catalogo-hardware.json'):
+    for name in ('bearing-catalog.json', 'hardware-catalog.json'):
         json.loads(resource_path(name).read_text(encoding='utf-8'))
     if gui:
         from gi.repository import Gdk, GLib

@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2026 NoOneExceptEnderk
+# SPDX-License-Identifier: GPL-3.0-only
 """Exercise CAD failures without sockets, real credentials or document mutations."""
 import json
 from pathlib import Path

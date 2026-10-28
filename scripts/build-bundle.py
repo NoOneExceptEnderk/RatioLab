@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# SPDX-FileCopyrightText: 2026 NoOneExceptEnderk
+# SPDX-License-Identifier: GPL-3.0-only
 """Build and verify a native onedir GTK4/Python application with PyInstaller.
 
 Requires the native build dependencies documented in INSTALL.md. Cross-building
@@ -65,9 +67,9 @@ def inventory(bundle):
         elif path.is_file():
             records.append(dict(path=relative, kind='file', size=path.stat().st_size,
                                 sha256=hashlib.sha256(path.read_bytes()).hexdigest()))
-        if set(Path(relative).parts) & {'work', 'design', 'outputs', 'generati', '.git', '.aws', '.codex', '.agents'}:
+        if set(Path(relative).parts) & {'work', 'design', 'outputs', 'generated', 'generati', '.git', '.aws', '.codex', '.agents'}:
             raise RuntimeError(f'Private/generated directory in bundle: {relative}')
-        if path.name in ('preferenze-ui.json', 'materiali-custom.json') or path.suffix == '.token':
+        if path.name in ('ui-preferences.json', 'preferenze-ui.json', 'custom-materials.json', 'materiali-custom.json') or path.suffix == '.token':
             raise RuntimeError(f'Personal data in bundle: {relative}')
     return records
 
@@ -129,14 +131,20 @@ def verify_bundle(bundle, *, gui=False, run=True, check_manifest=True):
     required = ['gi_typelibs/Gtk-4.0.typelib', 'gi_typelibs/Gdk-4.0.typelib',
                 'share/glib-2.0/schemas/gschemas.compiled',
                 'ratiolab_resources/branding/ratiolab-icon.png',
-                'ratiolab_resources/catalogo-cuscinetti.json',
-                'ratiolab_resources/catalogo-hardware.json',
+                'ratiolab_resources/bearing-catalog.json',
+                'ratiolab_resources/hardware-catalog.json',
                 'ratiolab_resources/MCP.md',
+                'ratiolab_resources/LICENSE', 'ratiolab_resources/COPYRIGHT',
                 'etc/fonts/fonts.conf', 'share/fonts/DejaVuSans.ttf',
                 'notices/components.json', 'notices/THIRD-PARTY-NOTICES.txt']
     missing = [name for name in required if not (runtime/name).is_file()]
     if missing:
         raise RuntimeError('Bundle runtime data missing: '+', '.join(missing))
+    # Installer assets must carry the project's actual license and attribution,
+    # independently of the dependency notices collected below.
+    for name in ('LICENSE', 'COPYRIGHT'):
+        if (runtime/'ratiolab_resources'/name).read_bytes() != (ROOT/name).read_bytes():
+            raise RuntimeError(f'Bundle project notice differs from source: {name}')
     if not any(runtime.glob('*epoxy*')):
         raise RuntimeError('Bundled libepoxy is missing')
     if sys.platform == 'win32' and any(not (runtime/name).is_file() for name in ('libEGL.dll','libGLESv2.dll')):

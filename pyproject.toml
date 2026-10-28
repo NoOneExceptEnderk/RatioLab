@@ -8,6 +8,9 @@ version = "0.1.0"
 description = "Parametric gears and reducers with a GTK 4 and OpenGL preview"
 readme = "README.md"
 requires-python = ">=3.10"
+license = "GPL-3.0-only"
+license-files = ["LICENSE", "COPYRIGHT"]
+authors = [{name = "NoOneExceptEnderk"}]
 # GTK, PyGObject, Cairo and libepoxy are installed together by the native
 # package manager. Declaring PyGObject as a pip dependency would select a
 # different ABI or attempt an unsupported native build on Windows.
@@ -21,6 +24,10 @@ classifiers = [
   "Programming Language :: Python :: 3",
   "Topic :: Multimedia :: Graphics :: 3D Modeling",
 ]
+
+[project.urls]
+Homepage = "https://github.com/NoOneExceptEnderk/RatioLab"
+Issues = "https://github.com/NoOneExceptEnderk/RatioLab/issues"
 
 [project.scripts]
 ratiolab = "ratiolab_cli:main"

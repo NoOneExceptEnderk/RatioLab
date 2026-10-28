@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2026 NoOneExceptEnderk
+# SPDX-License-Identifier: GPL-3.0-only
 """Independent geometric expectations and subset/publication regressions."""
 from copy import deepcopy
 from pathlib import Path
@@ -58,7 +60,7 @@ class ComponentTests(unittest.TestCase):
                 target=se.export(d,[1],kind,Path(temp)/kind,revision=('identity',12))
                 scope=json.loads((target/'selection.json').read_text());self.assertEqual(scope['source_indices'],[2]);self.assertFalse(scope['complete_assembly'])
                 bill=json.loads((target/'selected.bom.json').read_text());self.assertEqual(sum(r['quantity'] for r in bill['rows']),1);self.assertEqual(bill['rows'][0]['source_indices'],[2])
-                self.assertIn('SELECTED COMPONENTS ONLY',(target/'selected.calcoli.txt').read_text())
+                self.assertIn('SELECTED COMPONENTS ONLY',(target/'selected.calculations.txt').read_text())
                 manifest=json.loads((target/'manifest.json').read_text())
                 for entry in manifest['files']:self.assertEqual(hashlib.sha256((target/entry['path']).read_bytes()).hexdigest(),entry['sha256'])
                 if kind=='step':

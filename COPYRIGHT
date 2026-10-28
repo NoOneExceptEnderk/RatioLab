@@ -1,0 +1,15 @@
+RatioLab
+Copyright (C) 2026 NoOneExceptEnderk
+https://github.com/NoOneExceptEnderk/RatioLab
+
+RatioLab is free software: you can redistribute it and/or modify it under
+the terms of the GNU General Public License as published by the Free
+Software Foundation, version 3 only (SPDX: GPL-3.0-only).
+
+RatioLab is distributed in the hope that it will be useful, but WITHOUT
+ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+FITNESS FOR A PARTICULAR PURPOSE. See LICENSE for the complete terms.
+
+Third-party libraries, fonts and notice documents retain their respective
+copyright holders and licenses. See packaging/README.md and the native
+bundle's notices/components.json and THIRD-PARTY-NOTICES.txt.

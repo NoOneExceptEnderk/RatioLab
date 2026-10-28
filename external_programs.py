@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2026 NoOneExceptEnderk
+# SPDX-License-Identifier: GPL-3.0-only
 """Launch system programs without exporting the frozen app's private GTK runtime.
 
 PyInstaller documents restoring LD_LIBRARY_PATH_ORIG on Unix, filtering bundle

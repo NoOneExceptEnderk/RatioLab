@@ -1,4 +1,11 @@
-"""Geometria in millimetri, senza dipendenze esterne. Vedi README per i limiti."""
+# SPDX-FileCopyrightText: 2026 NoOneExceptEnderk
+# SPDX-License-Identifier: GPL-3.0-only
+"""Shared dimensional geometry in millimetres, with no external dependencies.
+
+Input pressure/helix angles and stored section twist use degrees. Low-level
+trigonometric helpers and profile phase use radians; convert at those boundaries.
+See README.md and CALCULATIONS.md for model limits.
+"""
 from dataclasses import dataclass, field
 from math import sin, cos, tan, acos, atan, atan2, sqrt, pi, radians, degrees, hypot, isfinite, ceil
 import uuid
@@ -85,6 +92,12 @@ def defaults(family, variant=None):
     return v
 
 def validate(family, supplied):
+    """Resolve linked options before validating the resulting physical dimensions.
+
+    I/O compatibility and printed-shaft preparation precede variant/style
+    normalization. Bearing dimensions then feed hardware preparation, so numeric
+    and geometric checks see the final bores, widths and assembly choices.
+    """
     if family not in FAMILIES:
         raise ValueError('Unknown family')
     from kinematics import prepare as prepare_io, options as io_options
@@ -305,7 +318,7 @@ def involute(z, m, pressure=20, backlash=0.15, internal=False, samples=4, depth_
     return clean(points)
 
 def cycloid(n, R, e, pin, clearance=0, samples=None, tolerance=0.01):
-    """Offset interno della traiettoria dei centri rollers nel riferimento disco."""
+    """Inward offset of the roller-centre trajectory in the disc frame."""
     if e * n >= R * 0.9:
         raise ValueError('Eccentricity eccessiva: usare e × N / R < 0,90.')
     count = max(4096, n * 64)
@@ -335,6 +348,12 @@ def cycloid(n, R, e, pin, clearance=0, samples=None, tolerance=0.01):
 
 @dataclass
 class Part:
+    """One nominal solid, with local XY contours and local Z section levels.
+
+    Dimensions are mm; twist is degrees. solid_geometry.point() applies placement
+    after section rotation. Adjacent sections must keep corresponding vertices;
+    explicit mesh faces provide an alternative to section construction.
+    """
     name: str
     outer: list
     holes: list = field(default_factory=list)
@@ -361,7 +380,11 @@ class Part:
     profile_metadata: dict = field(default_factory=dict)
 
 def profile_sections(p):
-    """Cross-sections of ONE continuous solid. Shared by CAD loft and preview."""
+    """Return (local Z mm, twist degrees, outer contour) for one continuous solid.
+
+    The continuous core and groove transitions belong to this shared geometry;
+    exporters and preview must not invent separate lofts for the two helices.
+    """
     if p.stations:
         return [(s['z'], 0, s['outer']) for s in p.stations]
     if not p.double:
@@ -406,6 +429,11 @@ def section_holes(p, z, outer=None):
 
 @dataclass
 class Design:
+    """Validated parameters, ordered nominal parts and their shared analysis.
+
+    Internal motion/picking indices are zero-based positions in parts. Export
+    source_indices, when present, retain one-based positions from the full model.
+    """
     family: str
     values: dict
     parts: list = field(default_factory=list)
@@ -418,7 +446,7 @@ class Design:
     def asset_folder(self, asset_dir=None):
         from pathlib import Path
         from app_paths import default_output_dir
-        return Path(asset_dir) if asset_dir else default_output_dir() / 'solidi' / self.token
+        return Path(asset_dir) if asset_dir else default_output_dir() / 'solids' / self.token
 
     def prepare_assets(self, asset_dir=None):
         from solid_geometry import step, signature
@@ -501,6 +529,7 @@ class Design:
         return cmds
 
 def gear_part(name, z, m, pressure, backlash, width, bore=0, center=(0, 0), phase=0, helix=0, internal=False, rim=5, zoff=0, shift=0, ha=1, hf=1.25):
+    """Build from normal module/pressure; pressure and helix are degrees, phase radians."""
     mt = m / cos(radians(helix))
     at = degrees(atan(tan(radians(pressure)) / cos(radians(helix))))
     profile_info = {}
@@ -512,6 +541,7 @@ def gear_part(name, z, m, pressure, backlash, width, bore=0, center=(0, 0), phas
     return Part(name, outer, holes, width, zoff, center, degrees(width * tan(radians(helix)) / (mt * z / 2)), internal=internal, profile_metadata={'tooth_profile': profile_info})
 
 def generate(family, supplied=None):
+    """Normalize once, construct the assembly, then finalize kinematics and reports."""
     v = validate(family, supplied or {})
     d = Design(family, v)
     w = v['width']
@@ -560,6 +590,8 @@ def generate(family, supplied=None):
     apply_hardware(d)
     from printed_shaft import apply as apply_printed_shaft
     apply_printed_shaft(d)
+    # Finalize I/O mounting and ports after catalog/hardware/printed additions;
+    # reports, motion and exports must describe the same completed assembly.
     from kinematics import apply as apply_kinematics
     apply_kinematics(d)
     from engineering import attach_report

@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2026 NoOneExceptEnderk
+# SPDX-License-Identifier: GPL-3.0-only
 """Publish a whole export directory in one rename, without replacing results."""
 from contextlib import contextmanager
 from pathlib import Path

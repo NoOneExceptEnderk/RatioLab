@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2026 NoOneExceptEnderk
+# SPDX-License-Identifier: GPL-3.0-only
 """Headless, workspace-confined RatioLab operations; standard library only.
 
 This module deliberately imports no UI, GTK, preferences or network helpers.

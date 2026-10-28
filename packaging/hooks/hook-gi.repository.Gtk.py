@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2026 NoOneExceptEnderk
+# SPDX-License-Identifier: GPL-3.0-only
 """GTK4 typelibs and runtime data, using PyInstaller's supported GI helpers."""
 from pathlib import Path
 import sys

@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2026 NoOneExceptEnderk
+# SPDX-License-Identifier: GPL-3.0-only
 """Standalone STEP, retaining sampled teeth and promoting proven circles only.
 
 No native CAD kernel or SolidCraft installation is needed. Circular construction

@@ -1,7 +1,13 @@
+# SPDX-FileCopyrightText: 2026 NoOneExceptEnderk
+# SPDX-License-Identifier: GPL-3.0-only
 """Discrete kinematic interference analysis, independent from GTK.
 
 Public entry point: analyze(design, settings=Settings(), cancel=Event(),
 progress=callable, plan=None) -> Analysis. Inputs are never mutated.
+
+Checks use the shared sampled surfaces over labelled orientation periods, not
+continuous swept volumes. Expected interfaces only annotate findings; unknown
+poses, unsupported deformation and unfinished coverage remain explicit.
 """
 from dataclasses import dataclass, field, asdict
 from fractions import Fraction

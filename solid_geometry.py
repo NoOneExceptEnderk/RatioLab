@@ -1,4 +1,11 @@
-"""Superfici esplicite condivise da preview e solido STEP, senza loft interpolati."""
+# SPDX-FileCopyrightText: 2026 NoOneExceptEnderk
+# SPDX-License-Identifier: GPL-3.0-only
+"""Explicit surfaces shared by preview and faceted STEP, without interpolated lofts.
+
+point() is the placement boundary from local sections to world XYZ millimetres.
+faces() preserves corresponding section vertices and outward face winding;
+STL, picking and interference consume this same sampled surface.
+"""
 from math import cos,sin,radians,sqrt,pi,acos,ceil
 from geometry import profile_sections,section_holes,circle_info,circle
 
@@ -71,7 +78,7 @@ def signature(p):
 
 
 def step(p,name):
-    """ISO 10303-21 FACETED_BREP: ogni lato usa gli stessi due triangoli della preview."""
+    """ISO 10303-21 FACETED_BREP with the same side triangles as the preview."""
     fs=faces(p);entities=[];points={}
     def add(value):entities.append(value);return len(entities)
     def ref(i):return '#'+str(i)

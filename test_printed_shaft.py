@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2026 NoOneExceptEnderk
+# SPDX-License-Identifier: GPL-3.0-only
 """Assembly, torque indexing and printable solids for the bolted eccentric shaft."""
 import json
 import unittest

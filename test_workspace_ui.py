@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2026 NoOneExceptEnderk
+# SPDX-License-Identifier: GPL-3.0-only
 """Technical workspace behavior and calculated results; widget tests need GTK."""
 from pathlib import Path
 from tempfile import TemporaryDirectory

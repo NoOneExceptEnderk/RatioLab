@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2026 NoOneExceptEnderk
+# SPDX-License-Identifier: GPL-3.0-only
 """Kinematic pose checks independent of the rendering buffers."""
 import unittest, json
 from math import pi, cos, sin, isfinite, hypot

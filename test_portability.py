@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2026 NoOneExceptEnderk
+# SPDX-License-Identifier: GPL-3.0-only
 """Portable paths and GL dispatch; no display or live CAD required."""
 import ctypes as C
 import json
@@ -59,10 +61,39 @@ class UserPathsTests(unittest.TestCase):
                 self.assertNotIn('mode', app_paths.load_preferences())
                 self.assertEqual((legacy/'preferenze-ui.json').read_text(), original)
 
+    def test_installed_legacy_preferences_migrate_on_every_platform(self):
+        source = self.root/'source'
+        source.mkdir()
+        (source/'preferenze-ui.json').write_text('{"output_dir": "/obsolete-source"}')
+        for platform in ('linux', 'win32', 'darwin'):
+            with self.subTest(platform=platform), patch('app_paths.sys.platform', platform):
+                folder = app_paths.config_dir()
+                folder.mkdir(parents=True, exist_ok=True)
+                old = folder/'preferenze-ui.json'
+                original = json.dumps({'output_dir': str(self.root/'existing exports'),
+                                       'font_scale': 1.25})
+                old.write_text(original)
+                self.assertEqual(app_paths.saved_output_dir(source), self.root/'existing exports')
+                app_paths.save_preferences(legacy_root=source, output_dir=str(self.root/'next exports'))
+                self.assertEqual(app_paths.load_preferences()['font_scale'], 1.25)
+                self.assertEqual(app_paths.saved_output_dir(source), self.root/'next exports')
+                self.assertTrue((folder/'ui-preferences.json').is_file())
+                self.assertEqual(old.read_text(), original)
+
+    def test_present_new_preferences_take_precedence_even_if_invalid(self):
+        folder = app_paths.config_dir()
+        folder.mkdir(parents=True)
+        (folder/'preferenze-ui.json').write_text('{"font_scale": 1.5}')
+        new = folder/'ui-preferences.json'
+        new.write_text('{"font_scale": 1.25}')
+        self.assertEqual(app_paths.load_preferences(), {'font_scale': 1.25})
+        new.write_text('invalid JSON')
+        self.assertEqual(app_paths.load_preferences(), {})
+
     def test_invalid_preferences_and_failed_atomic_replace(self):
         app_paths.save_preferences(output_dir='relative')
         self.assertEqual(app_paths.saved_output_dir(), app_paths.default_output_dir())
-        target = app_paths.config_dir()/'preferenze-ui.json'
+        target = app_paths.config_dir()/'ui-preferences.json'
         previous = target.read_bytes()
         with patch('app_paths.os.replace', side_effect=OSError('read only')):
             with self.assertRaises(OSError):
@@ -77,7 +108,7 @@ class UserPathsTests(unittest.TestCase):
         try:
             os.chdir(self.root)
             self.assertTrue(app_paths.resource_path('branding/ratiolab-icon.png').is_file())
-            self.assertIsInstance(json.loads(app_paths.resource_path('catalogo-cuscinetti.json').read_text()), (dict,list))
+            self.assertIsInstance(json.loads(app_paths.resource_path('bearing-catalog.json').read_text()), (dict,list))
             for path in ('../preferenze-ui.json', str(self.root/'absolute')):
                 with self.assertRaises(ValueError):
                     app_paths.resource_path(path)
@@ -87,7 +118,7 @@ class UserPathsTests(unittest.TestCase):
     def test_asset_default_is_user_data(self):
         from geometry import generate
         design = generate('helical')
-        self.assertEqual(design.asset_folder(), app_paths.default_output_dir()/'solidi'/design.token)
+        self.assertEqual(design.asset_folder(), app_paths.default_output_dir()/'solids'/design.token)
 
     @patch('connection.sys.platform', 'win32')
     def test_nonlinux_cad_requires_explicit_control_location(self):

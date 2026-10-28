@@ -1,18 +1,21 @@
 __pycache__/
 *.py[cod]
 generati/
+generated/
 work/
 .backup*/
 *.bak
 *.token
-# Generated exports stay local; keep the screenshot referenced by VERIFICA.md.
+# Generated exports stay local; keep the screenshot referenced by VERIFICATION.md.
 outputs/*
 !outputs/ui-nine-reducers.png
 core
 core.*
 
 preferenze-ui.json
+ui-preferences.json
 materiali-custom.json
+custom-materials.json
 build/
 dist/
 *.egg-info/

@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2026 NoOneExceptEnderk
+# SPDX-License-Identifier: GPL-3.0-only
 """Retired material/process settings must not affect the reducer generator."""
 import json
 from pathlib import Path
@@ -47,7 +49,7 @@ class ProjectScopeTests(unittest.TestCase):
         d=generate('cycloidal',LEGACY)
         with TemporaryDirectory() as folder:
             stem=Path(folder)/'reducer';bom.export(d,stem)
-            data=json.loads(Path(str(stem)+'.calcoli.json').read_text())
+            data=json.loads(Path(str(stem)+'.calculations.json').read_text())
             assembly=json.loads(Path(str(stem)+'.bom.json').read_text())
             self.assertNotIn('material_stress',data)
             self.assertNotIn('manufacturing_process',data)

@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2026 NoOneExceptEnderk
+# SPDX-License-Identifier: GPL-3.0-only
 """Real GTK/GL integration: surface clicks, list, view state and snapshot export."""
 import os,json,math,time,unittest
 from pathlib import Path

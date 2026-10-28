@@ -445,9 +445,33 @@ produzione era necessaria, perché la validazione era già presente.
 
 Log: `work/ci-40693824197-*.log`, report originali sotto
 `work/final-installers-40693824197/`, `work/mcp-review/sdk-v2-frozen.log` e
-`protocol-types-parent-proof.json`. La bozza GitHub resta privata/non pubblicata;
+`protocol-types-parent-proof.json`. Al momento di queste prove il repository e la bozza erano ancora privati/non pubblicati;
 gli otto asset sono verificati anche contro i digest SHA-256 restituiti da GitHub.
 Le prove native usano renderer software e non coprono ogni GPU/driver personale.
 Restano il Setup Windows senza firma del produttore e la firma ad hoc macOS,
 senza notarizzazione Apple. Le successive variazioni di sola documentazione
 non cambiano i runtime compilati in questo workflow.
+
+### English filenames and first public preview preparation — 2026-10-28
+
+The repository owner made the repository public and selected GPL-3.0-only.
+`LICENSE`, `COPYRIGHT`, source-file SPDX notices and package metadata now
+attribute the project to NoOneExceptEnderk. Dependency notices keep their own
+licenses. Wheel and native resource allowlists include the exact project notices;
+artifact verification rejects missing notices and inconsistent wheel metadata.
+
+Repository documents, launch script, catalogs and examples use English names.
+Exports use `.calculations.json`, `.calculations.txt` and `.machining.json`;
+generated STEP assets use `solids/`. Existing configuration identifiers, parameter
+keys and user exports are retained. `ui-preferences.json` takes precedence, with
+fallback to the previous user preference file before a legacy source checkout;
+new saves preserve older files. Tests exercise migration on all three OS paths
+and verify that an invalid present new file does not resurrect stale settings.
+
+An xHigh subagent translated runtime comments/docstrings and wrote
+`CONTRIBUTING.md`. The parent compared executable ASTs against the prior public
+source: all 49 runtime modules other than the deliberately changed preference
+helper match after the approved filename substitutions and docstring removal.
+The parent also repaired the local Linux shortcuts after detecting their old
+source-launcher path. Full source-suite and refreshed native evidence follow
+when those checks complete.

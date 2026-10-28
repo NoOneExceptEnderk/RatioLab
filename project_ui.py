@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2026 NoOneExceptEnderk
+# SPDX-License-Identifier: GPL-3.0-only
 """GTK project lifecycle. All asynchronous answers belong to one document revision."""
 from copy import deepcopy
 import json
@@ -211,6 +213,8 @@ class ProjectActions:
             self.status_text(f'Project ready; recent files could not be updated: {error}')
 
     def current_answer(self, token):
+        # Record any uncommitted widget edit before comparing a dialog's token.
+        # Equal saved parameters cannot make a reply from another revision current.
         self.project_changed()
         if not self.project_alive or self.document.token != token or self.busy:
             self.status_text('The document changed while the dialog was open. Please try again.')

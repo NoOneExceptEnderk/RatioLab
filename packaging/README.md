@@ -54,8 +54,9 @@ license texts, it uses the installed formula's source URL/SHA-256, verifies the
 upstream archive and copies only notice documents. Archive code is not executed.
 Unknown provenance or missing documents stops the build. `components.json`
 records the installed versions, source references, bundled filenames and copied
-documents; it never records local build paths. It does not assign a license to
-RatioLab or substitute an invented publisher identity.
+documents; it never records local build paths. RatioLab's separate `LICENSE`
+and `COPYRIGHT` are bundled under `ratiolab_resources/` and checked against the
+source files. Third-party components retain their respective licenses.
 
 Windows ownership uses one exact MSYS2 file index rather than spawning a process
 for each resource. `notices/msys2/registry.json` supplies verified upstream texts

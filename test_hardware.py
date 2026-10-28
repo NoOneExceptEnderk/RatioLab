@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2026 NoOneExceptEnderk
+# SPDX-License-Identifier: GPL-3.0-only
 import unittest, json, tempfile
 from pathlib import Path
 from math import hypot
@@ -99,7 +101,7 @@ class HardwareTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             stem = Path(folder) / 'hardware'
             export(d, stem)
-            self.assertTrue(Path(str(stem) + '.lavorazioni.json').exists())
+            self.assertTrue(Path(str(stem) + '.machining.json').exists())
             self.assertIn('DIN472-019', Path(str(stem) + '.bom.csv').read_text(encoding='utf-8-sig'))
         legacy = generate('spur')
         self.assertEqual(len(legacy.parts), 1)

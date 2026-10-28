@@ -1,5 +1,7 @@
 #!/usr/bin/python3
-"""Companion desktop GTK 4 con anteprima 3D locale e aggiornamento automatico."""
+# SPDX-FileCopyrightText: 2026 NoOneExceptEnderk
+# SPDX-License-Identifier: GPL-3.0-only
+"""GTK 4 desktop companion with a local 3D preview and automatic updates."""
 import json
 from pathlib import Path
 from datetime import datetime

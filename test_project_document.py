@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2026 NoOneExceptEnderk
+# SPDX-License-Identifier: GPL-3.0-only
 """GTK-free project history, atomic persistence and recovery contracts."""
 from copy import deepcopy
 import json

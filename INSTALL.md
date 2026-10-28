@@ -34,7 +34,7 @@ the [installer workflow](https://github.com/NoOneExceptEnderk/RatioLab/actions/w
 Download artifacts from successful jobs or the assets of a published release.
 Each job installs or copies its downloadable package and checks the resulting
 application with the development runtime paths removed. Recorded validation
-and its limits are in `VERIFICA.md`. Installed Windows/macOS GUI checks are
+and its limits are in `VERIFICATION.md`. Installed Windows/macOS GUI checks are
 always attempted; explicit lack of runner graphics capability is reported.
 
 For a Linux user install, if the desktop does not open `.run` files directly:
@@ -180,7 +180,7 @@ removed. Linux GUI/GL is mandatory; Windows/macOS GUI checks are always
 attempted, with explicit lack of runner graphics capability reported separately.
 Use `native_gui=true` to require that capability as well. The
 workflow uploads build artifacts; publication is a separate maintainer step.
-`VERIFICA.md` records completed native runs and the checks actually performed.
+`VERIFICATION.md` records completed native runs and the checks actually performed.
 
 Build configuration follows [PyInstaller's GI hook settings](https://pyinstaller.org/en/stable/hooks-config.html),
 [PyInstaller's external program guidance](https://pyinstaller.org/en/stable/common-issues-and-pitfalls.html#launching-external-programs-from-the-frozen-application),
@@ -312,8 +312,8 @@ Remote desktop, virtual machines and CI runners can have different graphics
 capabilities from a local session.
 
 After installation you can remove or move the original checkout/source archive.
-Launch the installed environment's `ratiolab`, not its former `avvia.sh`.
-Source development remains supported with `./avvia.sh` or `python3 app.py`;
+Launch the installed environment's `ratiolab`, not its former `launch.sh`.
+Source development remains supported with `./launch.sh` or `python3 app.py`;
 `python3 install_desktop.py` registers that particular checkout instead.
 
 ## User data and existing configurations
@@ -325,13 +325,23 @@ Source development remains supported with `./avvia.sh` or `python3 app.py`;
 | macOS | `~/Library/Application Support/RatioLab` | `~/Library/Application Support/RatioLab/exports` |
 
 The UI's **Change folder…** overrides the export location. Preferences are UTF-8
-JSON, saved atomically, and never written into the installed code/resources.
-A source checkout reads its old `preferenze-ui.json` if no new user preference
-exists; the next preference save migrates it to the user directory. For a fresh
+JSON in `ui-preferences.json`, saved atomically, and never written into the
+installed code/resources. If that file does not exist, RatioLab reads the old
+`preferenze-ui.json` in the user directory, then the source checkout's old file
+if needed. The next preference save writes the English filename, preserving
+the original file and settings. A present but invalid new file takes precedence
+over legacy files. For a fresh
 installation, select an existing export folder in the UI. Previously generated
 files are not copied, moved or deleted by installation/uninstallation. The
 `solidcraft-riduttori/1` configuration format and `local.solidcraft.reducers`
 application ID are preserved.
+
+Repository resources now use `bearing-catalog.json`, `hardware-catalog.json`,
+`launch.sh` and `examples/`. Generated reports use `.calculations.json`,
+`.calculations.txt` and `.machining.json`; generated STEP assets default to a
+`solids/` subdirectory. These names do not change project-format identifiers,
+parameter keys or the ability to reopen earlier configurations. Existing user
+exports are retained as saved.
 
 ## Optional SolidCraft connection
 
@@ -379,7 +389,7 @@ checkout. Linux includes software-rendered GUI/GL checks with Xvfb. Windows and
 macOS always check native imports/loader and data/export paths; their GUI/driver
 check is opt-in via the workflow's `native_gui` input. The workflow logs record
 which checks actually ran; a skipped GUI/driver check is not a validation of
-graphics hardware. See `VERIFICA.md` for the recorded native runs.
+graphics hardware. See `VERIFICATION.md` for the recorded native runs.
 
 Installation recipes follow [PyGObject's platform instructions](https://pygobject.gnome.org/getting_started.html),
 [MSYS2's Python ABI and virtual-environment documentation](https://www.msys2.org/docs/python/),

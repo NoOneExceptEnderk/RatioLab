@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2026 NoOneExceptEnderk
+# SPDX-License-Identifier: GPL-3.0-only
 """Inextensible pitch-line study mapping; no elastic/contact solution.
 
 Uniform material angle is ellipse arc length / reference pitch radius. Tooth

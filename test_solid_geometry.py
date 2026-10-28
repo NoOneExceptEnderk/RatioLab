@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2026 NoOneExceptEnderk
+# SPDX-License-Identifier: GPL-3.0-only
 """Il solido trasferito deve avere esattamente le facce visibili nella preview."""
 import unittest, tempfile, json
 from pathlib import Path

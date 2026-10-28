@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2026 NoOneExceptEnderk
+# SPDX-License-Identifier: GPL-3.0-only
 """Real OpenGL shader checks for the arc-length wave mapping.
 
 Requires a desktop display. Transform feedback measures shader coordinates;

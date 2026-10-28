@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2026 NoOneExceptEnderk
+# SPDX-License-Identifier: GPL-3.0-only
 """Verifiche dimensionali e cinematiche delle nuove varianti."""
 import unittest
 from math import pi, hypot, radians, cos, sin

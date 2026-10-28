@@ -1,4 +1,6 @@
 #!/usr/bin/python3
+# SPDX-FileCopyrightText: 2026 NoOneExceptEnderk
+# SPDX-License-Identifier: GPL-3.0-only
 """Register RatioLab's launcher with the current user's Linux desktop."""
 import argparse
 import os
@@ -29,7 +31,7 @@ def launcher():
     if getattr(sys, 'frozen', False):
         arguments = [sys.executable]
     else:
-        arguments = [sys.executable, str(ROOT/'app.py')] if (ROOT/'avvia.sh').is_file() else [sys.executable, '-m', 'ratiolab_cli']
+        arguments = [sys.executable, str(ROOT/'app.py')] if (ROOT/'launch.sh').is_file() else [sys.executable, '-m', 'ratiolab_cli']
     def quote(argument):
         for character in ('\\', '"', '`', '$'):
             argument = argument.replace(character, '\\'+character)

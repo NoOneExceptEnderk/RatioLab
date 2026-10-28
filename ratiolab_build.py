@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2026 NoOneExceptEnderk
+# SPDX-License-Identifier: GPL-3.0-only
 """Stage the existing resource tree into the wheel without moving source assets."""
 from pathlib import Path
 from setuptools.command.build_py import build_py
@@ -11,10 +13,12 @@ class BuildPy(build_py):
         # Explicit allowlist: no preferences, generated exports, work/design,
         # personal data or Git metadata can enter the wheel.
         resources = [
+            (root/'LICENSE', target/'LICENSE'),
+            (root/'COPYRIGHT', target/'COPYRIGHT'),
             (root/'INSTALL.md', target/'INSTALL.md'),
             (root/'MCP.md', target/'MCP.md'),
-            (root/'catalogo-cuscinetti.json', target/'catalogo-cuscinetti.json'),
-            (root/'catalogo-hardware.json', target/'catalogo-hardware.json'),
+            (root/'bearing-catalog.json', target/'bearing-catalog.json'),
+            (root/'hardware-catalog.json', target/'hardware-catalog.json'),
         ]
         resources.extend((root/'assets/branding'/name, target/'branding'/name)
                          for name in (

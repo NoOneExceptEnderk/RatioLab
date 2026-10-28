@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2026 NoOneExceptEnderk
+# SPDX-License-Identifier: GPL-3.0-only
 """System programs must not inherit the frozen application's private GTK ABI."""
 from contextlib import ExitStack
 import ctypes

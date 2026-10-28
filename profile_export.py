@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2026 NoOneExceptEnderk
+# SPDX-License-Identifier: GPL-3.0-only
 """Unit-preserving SVG/DXF cross-sections, without fitting sampled tooth curves."""
 from pathlib import Path
 from xml.sax.saxutils import escape

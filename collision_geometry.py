@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2026 NoOneExceptEnderk
+# SPDX-License-Identifier: GPL-3.0-only
 """Closed triangle surfaces in mm. Standard-library BVH, no CAD/native runtime.
 
 The mesh is the STL/shared faceted surface (analytic STEP circles can differ).

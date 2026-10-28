@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2026 NoOneExceptEnderk
+# SPDX-License-Identifier: GPL-3.0-only
 """The supported catalog is a generator boundary, not just a menu filter."""
 from pathlib import Path
 import unittest

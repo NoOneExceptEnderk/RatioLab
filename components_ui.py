@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2026 NoOneExceptEnderk
+# SPDX-License-Identifier: GPL-3.0-only
 """Revision-bound component inspection; view operations never enter history."""
 from copy import deepcopy
 from datetime import datetime

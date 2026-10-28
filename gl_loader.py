@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2026 NoOneExceptEnderk
+# SPDX-License-Identifier: GPL-3.0-only
 """Typed access to libepoxy's current-context OpenGL dispatch pointers.
 
 GTK itself uses libepoxy. Its dispatch handles EGL, GLX, WGL and macOS; opening

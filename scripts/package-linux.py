@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2026 NoOneExceptEnderk
+# SPDX-License-Identifier: GPL-3.0-only
 """Package a verified native onedir bundle as a .run, tar.gz and Debian package."""
 import argparse
 import gzip
