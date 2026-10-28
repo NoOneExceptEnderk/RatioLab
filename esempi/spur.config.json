@@ -1,0 +1,12 @@
+{
+  "format": "solidcraft-riduttori/1",
+  "family": "spur",
+  "parameters": {
+    "module": 2.0,
+    "width": 10.0,
+    "bore": 6.0,
+    "pressure": 20.0,
+    "backlash": 0.15,
+    "teeth": 24
+  }
+}

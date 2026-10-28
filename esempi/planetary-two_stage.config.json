@@ -1,0 +1,23 @@
+{
+  "format": "solidcraft-riduttori/1",
+  "family": "planetary",
+  "parameters": {
+    "bearing_mode": "manual",
+    "module": 2.0,
+    "width": 10.0,
+    "bore": 6.0,
+    "pressure": 20.0,
+    "backlash": 0.15,
+    "sun": 18.0,
+    "planet": 18.0,
+    "planets": 3.0,
+    "rim": 5.0,
+    "plate": 3.0,
+    "assembly_clearance": 0.2,
+    "helix": 20.0,
+    "sun2": 18.0,
+    "planet2": 18.0,
+    "width2": 10.0,
+    "variant": "two_stage"
+  }
+}

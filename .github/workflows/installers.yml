@@ -1,0 +1,167 @@
+name: Native installers with GTK included
+
+on:
+  workflow_dispatch:
+    inputs:
+      native_gui:
+        description: Also require a real GPU/desktop GL check on Windows and macOS
+        type: boolean
+        default: false
+  push:
+    paths:
+      - '**.py'
+      - 'packaging/**'
+      - 'scripts/**'
+      - 'assets/branding/**'
+      - 'pyproject.toml'
+      - '.github/workflows/installers.yml'
+  pull_request:
+    paths:
+      - '**.py'
+      - 'packaging/**'
+      - 'scripts/**'
+      - 'assets/branding/**'
+      - 'pyproject.toml'
+      - '.github/workflows/installers.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  linux:
+    runs-on: ubuntu-24.04
+    env:
+      LIBGL_ALWAYS_SOFTWARE: '1'
+      GSK_RENDERER: cairo
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install native build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y python3-venv libpython3.12 python3-gi python3-gi-cairo gir1.2-gtk-4.0 gir1.2-girepository-2.0 libepoxy0 libgl1 libegl1 libgl1-mesa-dri libglx-mesa0 libegl-mesa0 fontconfig binutils dpkg-dev xvfb xauth
+          /usr/bin/python3 -m venv --system-site-packages "$RUNNER_TEMP/bundle-env"
+          "$RUNNER_TEMP/bundle-env/bin/python" -m pip install -r packaging/requirements-build.txt
+      - name: Build the native bundle and verify real rendering
+        run: |
+          xvfb-run -a "$RUNNER_TEMP/bundle-env/bin/python" scripts/build-bundle.py --gui
+          "$RUNNER_TEMP/bundle-env/bin/python" -m unittest test_bundles test_external_programs test_installers_linux -v
+      - name: Create actual Linux installers
+        run: |
+          "$RUNNER_TEMP/bundle-env/bin/python" scripts/package-linux.py --bundle dist/bundles/linux-x86_64/RatioLab --deb
+      - name: Install from the downloadable run file and test the installed app
+        run: |
+          sh dist/installers/RatioLab-*-linux-x86_64.run --yes --no-desktop --destination "$RUNNER_TEMP/RatioLab installed Ω"
+          xvfb-run -a "$RUNNER_TEMP/RatioLab installed Ω/RatioLab" --self-test-gui --report "$RUNNER_TEMP/linux-installed.json"
+          cat "$RUNNER_TEMP/linux-installed.json"
+          sh "$RUNNER_TEMP/RatioLab installed Ω/uninstall.sh"
+          test ! -d "$RUNNER_TEMP/RatioLab installed Ω"
+          mkdir -p "$RUNNER_TEMP/deb-extracted"
+          dpkg-deb -x dist/installers/ratiolab_*_amd64.deb "$RUNNER_TEMP/deb-extracted"
+          "$RUNNER_TEMP/deb-extracted/opt/ratiolab/RatioLab" --self-test --report "$RUNNER_TEMP/deb-runtime.json"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ratiolab-linux-x86_64-installers
+          path: dist/installers/*
+          if-no-files-found: error
+
+  windows:
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@v4
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          install: >-
+            mingw-w64-ucrt-x86_64-python
+            mingw-w64-ucrt-x86_64-pyinstaller
+            mingw-w64-ucrt-x86_64-gtk4
+            mingw-w64-ucrt-x86_64-python-gobject
+            mingw-w64-ucrt-x86_64-python-cairo
+            mingw-w64-ucrt-x86_64-libepoxy
+      - name: Build using the native UCRT64 Python and PyInstaller
+        shell: msys2 {0}
+        run: |
+          export PYGI_DLL_PATH="$(cygpath -w /ucrt64/bin)"
+          /ucrt64/bin/python.exe scripts/build-bundle.py
+          /ucrt64/bin/python.exe -m unittest test_bundles test_external_programs -v
+      - name: Compile the real per-user Inno Setup installer
+        shell: pwsh
+        run: ./scripts/package-windows.ps1
+      - name: Install, test and uninstall without MSYS2 on PATH
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $installer = (Get-ChildItem dist/installers/*-setup.exe | Select-Object -First 1).FullName
+          $destination = Join-Path $env:RUNNER_TEMP 'RatioLab installed Ω'
+          $process = Start-Process -FilePath $installer -ArgumentList @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', ('/DIR="' + $destination + '"')) -Wait -PassThru
+          if ($process.ExitCode -ne 0) { throw 'Installer failed' }
+          $env:PATH = "$env:SystemRoot\System32;$env:SystemRoot"
+          Remove-Item Env:GI_TYPELIB_PATH, Env:PYGI_DLL_PATH, Env:PYTHONPATH, Env:PYTHONHOME -ErrorAction SilentlyContinue
+          $report = Join-Path $env:RUNNER_TEMP 'windows-installed.json'
+          $process = Start-Process -FilePath "$destination\RatioLab.exe" -ArgumentList @('--self-test', '--report', ('"' + $report + '"')) -Wait -PassThru
+          if ($process.ExitCode -ne 0) { throw 'Installed runtime failed' }
+          $result = Get-Content $report -Raw -Encoding UTF8 | ConvertFrom-Json
+          if ($result.self_test -ne 'passed' -or -not $result.bundled) { throw 'Installed app did not prove bundled GTK' }
+          Get-Content $report
+          if ('${{ inputs.native_gui }}' -eq 'true') {
+            $process = Start-Process -FilePath "$destination\RatioLab.exe" -ArgumentList @('--self-test-gui', '--report', ('"' + $report + '"')) -Wait -PassThru
+            if ($process.ExitCode -ne 0) { throw 'Native GUI/GL check failed' }
+          }
+          $process = Start-Process -FilePath "$destination\unins000.exe" -ArgumentList @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART') -Wait -PassThru
+          if ($process.ExitCode -ne 0) { throw 'Uninstall failed' }
+          if (Test-Path "$destination\RatioLab.exe") { throw 'Uninstall left the application executable' }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ratiolab-windows-x86_64-installer
+          path: dist/installers/*
+          if-no-files-found: error
+
+  macos:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            arch: arm64
+          - runner: macos-15-intel
+            arch: x86_64
+    runs-on: ${{ matrix.runner }}
+    env:
+      MACOSX_DEPLOYMENT_TARGET: '15.0'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install a coherent Homebrew native build runtime
+        run: |
+          brew install pygobject3 gtk4 gobject-introspection
+          . scripts/macos-python.sh
+          python=$(choose_macos_python)
+          "$python" -m venv --system-site-packages "$RUNNER_TEMP/bundle-env"
+          "$RUNNER_TEMP/bundle-env/bin/python" -m pip install -r packaging/requirements-build.txt
+      - name: Build and check the native app bundle
+        run: |
+          "$RUNNER_TEMP/bundle-env/bin/python" scripts/build-bundle.py
+          "$RUNNER_TEMP/bundle-env/bin/python" -m unittest test_bundles test_external_programs -v
+          codesign --verify --deep --strict dist/bundles/macos-${{ matrix.arch }}/RatioLab.app
+      - name: Build the actual drag-to-Applications DMG
+        env:
+          RATIOLAB_BUILD_PYTHON: ${{ runner.temp }}/bundle-env/bin/python
+        run: sh scripts/package-macos.sh
+      - name: Mount, copy and test without Homebrew on PATH
+        run: |
+          mkdir -p "$RUNNER_TEMP/dmg-mount" "$RUNNER_TEMP/installed app Ω"
+          hdiutil attach -readonly -nobrowse -mountpoint "$RUNNER_TEMP/dmg-mount" dist/installers/*-${{ matrix.arch }}.dmg
+          trap 'hdiutil detach "$RUNNER_TEMP/dmg-mount" || true' EXIT
+          ditto "$RUNNER_TEMP/dmg-mount/RatioLab.app" "$RUNNER_TEMP/installed app Ω/RatioLab.app"
+          env -u PYTHONPATH -u PYTHONHOME -u GI_TYPELIB_PATH -u DYLD_LIBRARY_PATH -u DYLD_FALLBACK_LIBRARY_PATH PATH=/usr/bin:/bin:/usr/sbin:/sbin "$RUNNER_TEMP/installed app Ω/RatioLab.app/Contents/MacOS/RatioLab" --self-test --report "$RUNNER_TEMP/macos-installed.json"
+          cat "$RUNNER_TEMP/macos-installed.json"
+          if [ '${{ inputs.native_gui }}' = true ]; then
+            env PATH=/usr/bin:/bin:/usr/sbin:/sbin "$RUNNER_TEMP/installed app Ω/RatioLab.app/Contents/MacOS/RatioLab" --self-test-gui --report "$RUNNER_TEMP/macos-gui.json"
+          fi
+          codesign --verify --deep --strict "$RUNNER_TEMP/installed app Ω/RatioLab.app"
+          rm -rf "$RUNNER_TEMP/installed app Ω/RatioLab.app"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ratiolab-macos-${{ matrix.arch }}-dmg
+          path: dist/installers/*
+          if-no-files-found: error

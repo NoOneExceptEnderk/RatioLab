@@ -1,0 +1,59 @@
+# Native bundle contract
+
+`scripts/build-bundle.py` executes `RatioLab.spec` with the native Python that
+can load GTK 4.12+, Pycairo and the GI Cairo converter. Use Ubuntu 24.04 for the
+Linux glibc 2.39 distribution baseline, UCRT64 PyInstaller/Python/GTK on Windows,
+and one coherent Homebrew architecture on macOS. Build tools are pinned in
+`requirements-build.txt`; Windows uses the MSYS2-native PyInstaller package and
+its matching bootloader instead of a CPython/PyPI Windows wheel.
+
+The onedir output is `RatioLab/RatioLab[.exe]` plus `_internal/`. On macOS,
+PyInstaller BUNDLE creates `RatioLab.app/Contents/MacOS/RatioLab` and its linked
+Frameworks/Resources layout. App data are never written into either layout.
+The Linux packager consumes the folder and its root `bundle-manifest.json`.
+For macOS the manifest is external to the signed `.app`, avoiding seal changes.
+
+The custom hooks use PyInstaller's `GiModuleInfo.collect_typelib_data()`, which
+also collects GI overrides and transitive namespaces. Gtk/Gdk versions are
+explicitly 4.0. Schemas are limited to GTK4 and compiled by PyInstaller; icons
+are Adwaita/hicolor. The foreign Cairo extension and Cairo typelib are explicit
+hidden imports. libepoxy's computed ctypes name and GLVND loaders are collected
+by `hook-gl_loader.py`. GPU driver implementations are deliberately excluded;
+Windows OpenGL32 and macOS OpenGL remain operating-system interfaces.
+
+`runtime.py` runs before application imports, selecting local typelibs, schemas,
+DLLs, GIO modules and relocatable fontconfig data. The approved branding is
+collected by an explicit allowlist. Native icons are format conversions of that
+same approved image; `icons/source.json` records its hash. The three unmodified
+DejaVu fonts have provenance and hashes in `fonts/SOURCE.json` and their complete
+font license/author notices adjacent to them.
+
+`bundle_support.py` inventories the actual native binaries, typelibs and icon
+resources from PyInstaller's analysis. It attributes each to dpkg, MSYS2, Homebrew or Python distribution
+metadata, copies the installed license documents and includes Debian common
+license texts referenced by copyright files. For a Homebrew bottle omitting
+license texts, it uses the installed formula's source URL/SHA-256, verifies the
+upstream archive and copies only notice documents. Archive code is not executed.
+Unknown provenance or missing documents stops the build. `components.json`
+records the installed versions, source references, bundled filenames and copied
+documents; it never records local build paths. It does not assign a license to
+RatioLab or substitute an invented publisher identity.
+
+After building, integrity and self-tests run the frozen executable with a clean
+runtime search environment. `--gui` requires a real rendered framebuffer and
+full workspace exports. The test report is kept outside the distributed app;
+`--report` works with Windows/macOS windowed executables. CI then exercises the
+actual `.run`/Inno Setup/DMG install path and the resulting application.
+
+Windows/macOS binaries must be created on those systems. Unsigned or ad hoc
+signed development output is not advertised as an authenticated public release.
+Signing options use only a maintainer-supplied identity/profile.
+
+`external_programs.py` restores the pre-bootstrap GTK/font/data settings for
+external processes, restores `LD_LIBRARY_PATH_ORIG`, and removes private bundle
+paths from the child's PATH and DYLD variables. Gio uses a child launch context;
+the frozen Linux folder action invokes the desktop's system `xdg-open`, because
+Gio's in-process desktop-file lookup otherwise sees only the private XDG tree.
+Windows resets the inherited DLL directory only during launch under a lock and
+restores the actual previous value even when process creation raises. No global
+environment variable is changed for an external launch.

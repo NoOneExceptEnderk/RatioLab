@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=RatioLab
+Comment=Parametric gear and reducer generator
+Comment[it]=Generatore parametrico di ingranaggi e riduttori
+Exec=ratiolab
+Icon=ratiolab-icon
+Terminal=false
+StartupNotify=true
+StartupWMClass=local.solidcraft.reducers
+Categories=Graphics;Engineering;

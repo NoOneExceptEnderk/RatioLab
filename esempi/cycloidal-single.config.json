@@ -1,0 +1,23 @@
+{
+  "format": "solidcraft-riduttori/1",
+  "family": "cycloidal",
+  "parameters": {
+    "bearing_mode": "manual",
+    "pins": 16.0,
+    "radius": 40.0,
+    "pin_radius": 3.0,
+    "eccentric": 1.2,
+    "width": 8.0,
+    "bore": 12.0,
+    "output_count": 6.0,
+    "output_radius": 22.0,
+    "output_pin": 2.0,
+    "clearance": 0.1,
+    "plate": 3.0,
+    "assembly_clearance": 0.2,
+    "input_shaft": 4.0,
+    "output_shaft": 8.0,
+    "housing_wall": 4.0,
+    "variant": "single"
+  }
+}

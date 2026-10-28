@@ -1,0 +1,19 @@
+include README.md README.it.md INSTALL.md pyproject.toml ratiolab_build.py
+include avvia.sh RatioLab.desktop catalogo-cuscinetti.json catalogo-hardware.json
+include CALCOLI.md CINEMATICA.md HARDWARE.md MODELLI-IO.md PRINTED-SHAFT.md VARIANTI.md
+include assets/branding/brand.json assets/branding/*.png
+include ratiolab_resources/__init__.py
+include scripts/*.py scripts/*.sh scripts/*.ps1 scripts/*.iss
+include .github/workflows/portable.yml .github/workflows/installers.yml
+recursive-include packaging *.py *.spec *.conf *.txt *.json *.ttf *.ico *.icns
+include test_*.py
+include esempi/*.config.json
+prune work
+prune design
+prune outputs
+prune generati
+prune .git
+prune .codex
+prune .agents
+prune .aws
+global-exclude *.py[cod] __pycache__ *.token preferenze-ui.json materiali-custom.json

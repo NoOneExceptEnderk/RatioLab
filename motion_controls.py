@@ -1,0 +1,153 @@
+"""Single viewport transport bar and a speed-adjustment popover."""
+import gi
+gi.require_version('Gtk', '4.0')
+from gi.repository import Gtk
+from math import log1p, expm1, isfinite
+
+
+def install(app, container):
+    row = Gtk.Box(spacing=9)
+    container.append(row)
+    play = Gtk.Button(label='Start motion')
+    app.motion_play = app.quick_play = play
+    row.append(play)
+    def toggle(_):
+        if not app.canvas.motion_playing and app.view_options['exploded'].get_active():
+            app.view_options['exploded'].set_active(False)
+        app.canvas.set_motion_playing(not app.canvas.motion_playing)
+    play.connect('clicked', toggle)
+    caption = Gtk.Label(label='Input speed', css_classes=['muted'])
+    app.motion_caption = caption
+    row.append(caption)
+    entry = Gtk.Entry(css_classes=['motion-rate'])
+    entry.set_width_chars(8)
+    entry.set_max_width_chars(10)
+    entry.set_alignment(1)
+    entry.set_input_purpose(Gtk.InputPurpose.NUMBER)
+    entry.set_tooltip_text('Precise input speed. Press Enter or leave the field to apply; decimals and decimal commas are accepted.')
+    row.append(entry)
+    app.motion_speed_text = entry
+    unit = Gtk.Label(label='rpm', css_classes=['muted'])
+    app.motion_unit = unit
+    row.append(unit)
+    button = Gtk.MenuButton(label='Adjust')
+    app.motion_button = button
+    row.append(button)
+    popup = Gtk.Popover(css_classes=['motion-palette'])
+    button.set_popover(popup)
+    content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+    content.set_size_request(290, -1)
+    content.append(Gtk.Label(label='Input speed · progressive scale', xalign=0, css_classes=['step-title']))
+    slider_row = Gtk.Box(spacing=8)
+    content.append(slider_row)
+    slider = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, 0, log1p(100000), .01)
+    slider.set_draw_value(False)
+    slider.set_hexpand(True)
+    app.motion_speed = slider
+    info = Gtk.Label(xalign=0, wrap=True, css_classes=['muted'])
+    info.set_max_width_chars(34)
+    content.append(info)
+    app.motion_info = info
+    popup.set_child(content)
+    reset = Gtk.Button(label='Initial pose')
+    app.motion_reset = reset
+    row.append(reset)
+    reset.connect('clicked', lambda _: app.canvas.reset_motion())
+    status = Gtk.Label(xalign=1, hexpand=True, css_classes=['muted'])
+    row.append(status)
+    app.playback_hint = status
+    error = Gtk.Label(xalign=0, wrap=True, css_classes=['motion-input-error'])
+    error.set_visible(False)
+    container.append(error)
+    app.motion_rate_error = error
+    app.motion_rate_editing = False
+    app.motion_input_invalid = False
+    def show_value(value):
+        app.motion_syncing = True
+        entry.set_text(format(value, '.12g'))
+        app.motion_syncing = False
+    def apply_rate(value):
+        low, high = getattr(app, 'motion_rate_limits', (0, 100000))
+        if not isfinite(value) or not low <= value <= high:
+            raise ValueError(f'Enter a value between {low:g} and {high:g} {unit.get_text()}.')
+        app.motion_rate_editing = False
+        app.motion_input_invalid = False
+        entry.remove_css_class('field-error')
+        error.set_visible(False)
+        app.motion_syncing = True
+        slider.set_value(log1p(value))
+        app.motion_syncing = False
+        show_value(value)
+        if hasattr(app, 'motion_rpm'):
+            app.motion_rpm = value
+            app.changed()
+        else:
+            app.canvas.set_motion_speed(value / 12)
+    def commit(*args):
+        if not app.motion_rate_editing:
+            return
+        try:
+            try:
+                value = float(entry.get_text().strip().replace(',', '.'))
+            except ValueError:
+                raise ValueError('Enter a valid number, for example 125.5.')
+            apply_rate(value)
+            if hasattr(app, 'motion_rpm'):
+                app.refresh()
+        except ValueError as exc:
+            app.motion_input_invalid = True
+            entry.add_css_class('field-error')
+            error.set_text(str(exc))
+            error.set_visible(True)
+            app.refresh()
+    def editing(*args):
+        if not getattr(app, 'motion_syncing', False):
+            app.motion_rate_editing = True
+    entry.connect('changed', editing)
+    entry.connect('activate', commit)
+    focus = Gtk.EventControllerFocus()
+    focus.connect('leave', commit)
+    entry.add_controller(focus)
+    slider.connect('value-changed', lambda w: apply_rate(round(expm1(w.get_value())))
+                   if not getattr(app, 'motion_syncing', False) else None)
+    for title, delta in [('−1', -1), ('+1', 1)]:
+        step = Gtk.Button(label=title)
+        step.set_tooltip_text(f'Change input speed by {delta:+d} rpm')
+        step.connect('clicked', lambda _, d=delta: apply_rate(max(app.motion_rate_limits[0],
+            min(app.motion_rate_limits[1], (app.motion_rpm if hasattr(app, 'motion_rpm')
+                else 12*app.canvas.motion_speed) + d))))
+        slider_row.append(step)
+        if delta < 0:
+            slider_row.append(slider)
+    def update(*args):
+        c = app.canvas
+        plan = c.motion_plan
+        available = bool(plan and plan.supported and c.motion_valid and not c.failure and not app.busy)
+        play.set_sensitive(available)
+        reset.set_sensitive(c.design is not None and not app.busy)
+        entry.set_sensitive(not app.busy)
+        slider.set_sensitive(not app.busy)
+        play.set_label('Pause' if c.motion_playing else 'Resume motion' if c.motion_enabled and c.motion_phase else 'Start motion')
+        status.set_text('Playing' if c.motion_playing else '' if available else 'Animation unavailable')
+        if not app.motion_rate_editing:
+            show_value(app.motion_rpm if hasattr(app, 'motion_rpm') else 12*c.motion_speed)
+        info.set_text('Correct the parameters to restart the animation.' if not c.motion_valid
+                      else plan.message if plan else 'Choose a model to see its motion.')
+    app.canvas.connect('motion-state', update)
+    app.update_motion_controls = app.update_playback_bar = update
+    update()
+
+
+def configure(app,values,specs):
+ """Bind the single RPM control to the saved input, including loaded configs."""
+ app.motion_syncing=True;app.motion_rate_editing=False;app.motion_input_invalid=False;app.motion_speed_text.remove_css_class('field-error');app.motion_rate_error.set_visible(False)
+ rpm_spec=next((s for s in specs if s[0]=='input_rpm'),None)
+ speed=app.motion_speed;speed.clear_marks()
+ if rpm_spec:
+  _,_,default,low,high,_=rpm_spec;app.motion_rate_limits=(low,high);app.motion_unit.set_text('rpm');app.motion_rpm=values.get('input_rpm',default)
+  speed.set_range(log1p(low),log1p(high));speed.set_value(log1p(app.motion_rpm))
+  for rpm in (0,100000):
+   if low<=rpm<=high:speed.add_mark(log1p(rpm),Gtk.PositionType.BOTTOM,'100k' if rpm==100000 else str(rpm))
+  app.motion_caption.set_text('Input speed · stage 1' if app.family=='planetary' and values.get('variant') in ('two_stage','two_stage_double') else 'Input speed')
+  speed.set_tooltip_text('Actual input RPM · progressive scale 0–100,000. Also updates calculations and configuration. Use the arrows to adjust.')
+ app.motion_syncing=False

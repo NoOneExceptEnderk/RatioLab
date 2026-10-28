@@ -1,0 +1,21 @@
+{
+  "name": "RatioLab",
+  "description_en": "Parametric gear and reducer generator.",
+  "description_it": "Generatore parametrico di ingranaggi e riduttori.",
+  "selected_design": "B — Bicolore, compact RL monogram",
+  "revision": "2026-10-28: longer horizontal L foot requested by the owner",
+  "palette": {
+    "background": "#1D2229",
+    "foreground": "#E9EEF4",
+    "accent": "#7CC8C8"
+  },
+  "assets": {
+    "app_icon": "ratiolab-icon.png",
+    "logo_on_dark": "ratiolab-logo-dark.png",
+    "logo_on_light": "ratiolab-logo-light.png",
+    "selected_reference": "ratiolab-approved-board.png",
+    "monochrome_reference": "ratiolab-monochrome-reference.png"
+  },
+  "provenance": "../../design/branding/production-2026-10-28/",
+  "generation_tool": "image_gen built-in"
+}

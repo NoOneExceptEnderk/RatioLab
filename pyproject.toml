@@ -1,0 +1,42 @@
+[build-system]
+requires = ["setuptools>=77", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ratiolab"
+version = "0.1.0"
+description = "Parametric gears and reducers with a GTK 4 and OpenGL preview"
+readme = "README.md"
+requires-python = ">=3.10"
+# GTK, PyGObject, Cairo and libepoxy are installed together by the native
+# package manager. Declaring PyGObject as a pip dependency would select a
+# different ABI or attempt an unsupported native build on Windows.
+dependencies = []
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Environment :: X11 Applications :: GTK",
+  "Operating System :: POSIX :: Linux",
+  "Operating System :: Microsoft :: Windows :: Windows 11",
+  "Operating System :: MacOS :: MacOS X",
+  "Programming Language :: Python :: 3",
+  "Topic :: Multimedia :: Graphics :: 3D Modeling",
+]
+
+[project.scripts]
+ratiolab = "ratiolab_cli:main"
+ratiolab-install-desktop = "install_desktop:main"
+
+[tool.setuptools]
+include-package-data = false
+packages = ["ratiolab_resources"]
+py-modules = [
+  "app", "app_paths", "assemblies", "bom", "catalog", "connection",
+  "engineering", "external_programs", "geartrains", "geometry", "gl_loader", "gui_workflow",
+  "hardware", "hardware_catalog", "install_desktop", "io_controls",
+  "kinematics", "motion", "motion_controls", "mounting", "preview3d",
+  "printed_shaft", "ratiolab_checks", "ratiolab_cli", "result_controls", "solid_geometry",
+  "special_drives", "standard_parts", "stl_export", "workspace_ui",
+]
+
+[tool.setuptools.cmdclass]
+build_py = "ratiolab_build.BuildPy"

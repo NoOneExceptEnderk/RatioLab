@@ -1,0 +1,111 @@
+{
+  "manufacturer": "NSK",
+  "units": "mm",
+  "verified": "2026-10-23",
+  "bearings": [
+    {
+      "code": "624",
+      "d": 4,
+      "D": 13,
+      "B": 5,
+      "da_min": 5.6,
+      "Da_max": 11.4,
+      "ra_max": 0.2,
+      "url": "https://www.nsk.com/am-en/engineering/products/bearings/ball-bearings/deep-groove-ball-bearings/extra-small-ball-bearings-and-miniature-ball-bearings-metric-series/624-esm-md.html",
+      "manufacturer": "NSK",
+      "closure": "Open, without seals",
+      "verified": "2026-10-23"
+    },
+    {
+      "code": "625",
+      "d": 5,
+      "D": 16,
+      "B": 5,
+      "da_min": 7,
+      "Da_max": 14,
+      "ra_max": 0.3,
+      "url": "https://www.nsk.com/engineering/products/bearings/ball-bearings/deep-groove-ball-bearings/extra-small-ball-bearings-and-miniature-ball-bearings-metric-series/625-esm-md.html",
+      "manufacturer": "NSK",
+      "closure": "Open, without seals",
+      "verified": "2026-10-23"
+    },
+    {
+      "code": "626",
+      "d": 6,
+      "D": 19,
+      "B": 6,
+      "da_min": 8,
+      "Da_max": 17,
+      "ra_max": 0.3,
+      "url": "https://www.nsk.com/engineering/products/bearings/ball-bearings/deep-groove-ball-bearings/extra-small-ball-bearings-and-miniature-ball-bearings-metric-series/626-esm-md.html",
+      "manufacturer": "NSK",
+      "closure": "Open, without seals",
+      "verified": "2026-10-23"
+    },
+    {
+      "code": "608",
+      "d": 8,
+      "D": 22,
+      "B": 7,
+      "da_min": 10,
+      "Da_max": 20,
+      "ra_max": 0.3,
+      "url": "https://www.nsk.com/engineering/products/bearings/ball-bearings/deep-groove-ball-bearings/extra-small-ball-bearings-and-miniature-ball-bearings-metric-series/608-esm-md.html",
+      "manufacturer": "NSK",
+      "closure": "Open, without seals",
+      "verified": "2026-10-23"
+    },
+    {
+      "code": "6000",
+      "d": 10,
+      "D": 26,
+      "B": 8,
+      "da_min": 12,
+      "Da_max": 24,
+      "ra_max": 0.3,
+      "url": "https://www.nsk.com/engineering/products/bearings/ball-bearings/deep-groove-ball-bearings/single-row-deep-groove-ball-bearings/6000-dgbb-sr.html",
+      "manufacturer": "NSK",
+      "closure": "Open, without seals",
+      "verified": "2026-10-23"
+    },
+    {
+      "code": "6001",
+      "d": 12,
+      "D": 28,
+      "B": 8,
+      "da_min": 14,
+      "Da_max": 26,
+      "ra_max": 0.3,
+      "url": "https://www.nsk.com/engineering/products/bearings/ball-bearings/deep-groove-ball-bearings/single-row-deep-groove-ball-bearings/6001-dgbb-sr.html",
+      "manufacturer": "NSK",
+      "closure": "Open, without seals",
+      "verified": "2026-10-23"
+    },
+    {
+      "code": "6200",
+      "d": 10,
+      "D": 30,
+      "B": 9,
+      "da_min": 14,
+      "Da_max": 26,
+      "ra_max": 0.6,
+      "url": "https://www.nsk.com/engineering/products/bearings/ball-bearings/deep-groove-ball-bearings/single-row-deep-groove-ball-bearings/6200-dgbb-sr.html",
+      "manufacturer": "NSK",
+      "closure": "Open, without seals",
+      "verified": "2026-10-23"
+    },
+    {
+      "code": "6201",
+      "d": 12,
+      "D": 32,
+      "B": 10,
+      "da_min": 16,
+      "Da_max": 28,
+      "ra_max": 0.6,
+      "url": "https://www.nsk.com/engineering/products/bearings/ball-bearings/deep-groove-ball-bearings/single-row-deep-groove-ball-bearings/6201-dgbb-sr.html",
+      "manufacturer": "NSK",
+      "closure": "Open, without seals",
+      "verified": "2026-10-23"
+    }
+  ]
+}

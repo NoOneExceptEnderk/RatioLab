@@ -1,0 +1,10 @@
+{
+  "name": "DejaVu fonts",
+  "version": "2.37",
+  "source": "https://github.com/dejavu-fonts/dejavu-fonts/releases/tag/version_2_37",
+  "files": {
+    "DejaVuSans-Bold.ttf": "e1d733afbbfce842a1b43dced0c9885a76a4e67290dc7e690c4e9b76ebfc7d23",
+    "DejaVuSans.ttf": "b4c632e3cdf9acc7f28758fb5a323c8524d7fc6660d46904d9b6cbe2809c419c",
+    "DejaVuSansMono.ttf": "a54dca07c76d6289e717e75e0a58c0128f6d7269ef3faf76417c9d7d3bba37ab"
+  }
+}
