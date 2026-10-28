@@ -4,7 +4,7 @@
 
 **Design gears and reducers, explore their motion, and export models for CAD or 3D printing.**
 
-[Download](#download-and-install) · [User guide](docs/user-guide.md) · [Italiano](README.it.md) · [Report a problem](https://github.com/NoOneExceptEnderk/RatioLab/issues)
+[Download](#download-and-install) · [User guide](docs/user-guide.md) · [Italiano](README.it.md) · [Report a problem](https://github.com/NoOneExceptEnderk/RatioLab/issues) · [Discord](https://discord.gg/G8NVHNg6J)
 
 ![RatioLab workspace](assets/screenshots/workspace.png)
 
@@ -52,6 +52,10 @@ strength, service life or manufacturing readiness. Interference checks and
 measurements use sampled surfaces; worm and strain-wave constructions remain
 study models. Read the [accuracy and limitations](docs/user-guide.md#accuracy-and-limitations)
 before using exported designs.
+
+## Community
+
+Join the [RatioLab Discord](https://discord.gg/G8NVHNg6J) for questions, feedback and project discussions.
 
 ## Contribute
 

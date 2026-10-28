@@ -4,7 +4,7 @@
 
 **Progetta ingranaggi e riduttori, osservane il movimento ed esporta i modelli per CAD o stampa 3D.**
 
-[Download](#scarica-e-installa) · [Manuale in inglese](docs/user-guide.md) · [English](README.md) · [Segnala un problema](https://github.com/NoOneExceptEnderk/RatioLab/issues)
+[Download](#scarica-e-installa) · [Manuale in inglese](docs/user-guide.md) · [English](README.md) · [Segnala un problema](https://github.com/NoOneExceptEnderk/RatioLab/issues) · [Discord](https://discord.gg/G8NVHNg6J)
 
 ![Area di lavoro di RatioLab](assets/screenshots/workspace.png)
 
@@ -53,6 +53,10 @@ RatioLab produce modelli di studio geometrici e cinematici: non certifica
 resistenza, durata o idoneità alla produzione. Misure e interferenze usano
 superfici campionate; vite senza fine e strain wave restano modelli di studio.
 Consulta i [limiti documentati](docs/user-guide.md#accuracy-and-limitations).
+
+## Community
+
+Entra nel [Discord di RatioLab](https://discord.gg/G8NVHNg6J) per domande, feedback e discussioni sul progetto.
 
 ## Contribuire e licenza
 
