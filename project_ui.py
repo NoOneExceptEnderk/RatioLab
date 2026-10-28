@@ -106,6 +106,7 @@ class ProjectActions:
             return
         d = self.document
         name = d.path.name if d.path else 'Untitled'
+        self.project_title.set_text('RatioLab · '+name)
         self.win.set_title(f'{"• " if d.dirty else ""}{name} — RatioLab')
         self.undo_button.set_sensitive(d.index > 0 and not self.busy)
         self.redo_button.set_sensitive(d.index+1 < len(d.states) and not self.busy)
@@ -115,7 +116,7 @@ class ProjectActions:
         except (OSError, ValueError) as error:
             self.recovery_error = str(error)
             self.status_text(f'Session recovery could not be updated: {error}')
-        label = f'{"Unsaved changes · " if d.dirty else ""}{d.path or "Untitled · not saved"}'
+        label = f'{"Unsaved changes · " if d.dirty else "Saved · " if d.path else ""}{d.path or "Untitled · not saved"}'
         if self.recovery_error:
             label += ' · Recovery unavailable'
         self.document_label.set_text(label)
@@ -378,16 +379,29 @@ class ProjectActions:
         if self.busy or self.project_dialog:
             return
         paths = self.project_store.recent()
-        popup = Gtk.Window(title='Recent projects', transient_for=self.win, modal=True)
+        from gi.repository import Pango
+        popup = Gtk.Window(title='Recent projects', application=self, transient_for=self.win, modal=True,
+                           default_width=560, default_height=420)
+        popup.add_css_class('reducers')
+        scroll = Gtk.ScrolledWindow(vexpand=True)
+        scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        popup.set_child(scroll)
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8,
                       margin_top=16, margin_bottom=16, margin_start=16, margin_end=16)
-        popup.set_child(box)
+        scroll.set_child(box)
         if self.project_store.recent_error:
             box.append(Gtk.Label(label='Recent files could not be read: '+self.project_store.recent_error, wrap=True))
         elif not paths:
             box.append(Gtk.Label(label='No recent projects'))
         for path in paths:
-            button = Gtk.Button(label=path+(' (missing)' if not Path(path).is_file() else ''))
+            button = Gtk.Button()
+            content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
+            content.append(Gtk.Label(label=Path(path).name+(' · Missing' if not Path(path).is_file() else ''),
+                                     xalign=0, ellipsize=Pango.EllipsizeMode.MIDDLE, css_classes=['action-title']))
+            content.append(Gtk.Label(label=path, xalign=0, max_width_chars=55,
+                                     ellipsize=Pango.EllipsizeMode.MIDDLE, css_classes=['muted']))
+            button.set_child(content)
+            button.set_tooltip_text(path)
             button.connect('clicked', lambda _, p=path: (popup.destroy(), self.open_project_path(p)))
             box.append(button)
         popup.present()

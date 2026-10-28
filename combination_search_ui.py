@@ -9,11 +9,12 @@ gi.require_version('Gtk', '4.0')
 from gi.repository import Gtk, GLib, Gio
 from geometry import generate, INTEGER
 from project_document import equivalent
+from workspace_tools import actions, details
 from combination_search import FAMILIES, COUNT_KEYS, Settings, variables, parse_grid, search
 
 
 def label(text):
-    return Gtk.Label(label=text, xalign=0, wrap=True, selectable=True)
+    return Gtk.Label(label=text, xalign=0, wrap=True, selectable=False)
 
 
 class Controller:
@@ -30,13 +31,10 @@ class Controller:
         self.alive = True
         self.page = 0
         self.form_key = None
-        row = Gtk.Box(spacing=8)
-        container.append(row)
         self.button = Gtk.Button(label='Find combinations…')
         self.button.connect('clicked', lambda _: self.open())
-        row.append(self.button)
         self.summary = label('Finite ratio and nominal envelope search')
-        row.append(self.summary)
+        container.register('search', self)
         app.win.connect('unrealize', lambda *_: self.close())
 
     def key(self, design):
@@ -81,44 +79,48 @@ class Controller:
         if self.window:
             self.window.present()
             return
-        win = Gtk.Window(title='Find geometric combinations', transient_for=self.app.win, default_width=1040, default_height=780)
+        win = self.app.tools.panel('search')
         self.window = win
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8, margin_top=12, margin_bottom=12, margin_start=12, margin_end=12)
         win.set_child(box)
-        box.append(label('Search the selected assembly family. Ratio magnitude = |input speed / output speed|; direction uses the signed ratio and displayed member axes. Tolerance is relative percent.'))
+        box.append(label('Find combinations for this reducer.'))
+        details(box,'Ratio, envelope & search limits','Ratio = |input speed / output speed|. Direction follows the signed ratio and displayed member axes. Relative tolerance in percent. Nominal world XYZ bounds include ALL components, including hidden parts, in export pose on sampled facets; analytic STEP circles can extend slightly beyond them. No motion sweep or global optimum claim. Grids accept comma-separated values or inclusive low:high:step. All other parameters stay locked.')
+        setup = Gtk.Box(orientation=Gtk.Orientation.VERTICAL,spacing=9)
+        self.setup = details(box,'Search settings & parameter grids',setup)
+        self.setup.set_expanded(True)
         grid = Gtk.Grid(column_spacing=10, row_spacing=6)
-        box.append(grid)
+        setup.append(grid)
         self.fields = {}
-        for n, (key, title, value) in enumerate((('target', 'Target ratio magnitude', '3'), ('tolerance', 'Tolerance ± [%]', '1'), ('x', 'Max X [mm]', '1000'), ('y', 'Max Y [mm]', '1000'), ('z', 'Max Z [mm]', '1000'), ('budget', 'Candidate budget [1–1000000]', '50000'), ('seconds', 'Time budget [s, ≤3600]', '30'))):
-            grid.attach(label(title), (n % 4)*2, (n//4), 1, 1)
-            entry = Gtk.Entry(text=value, width_chars=10)
-            grid.attach(entry, (n % 4)*2+1, n//4, 1, 1)
+        for n, (key, title, value) in enumerate((('target', 'Target |ratio|', '3'), ('tolerance', 'Tolerance ± [%]', '1'), ('x', 'Max X [mm]', '1000'), ('y', 'Max Y [mm]', '1000'), ('z', 'Max Z [mm]', '1000'), ('budget', 'Max candidates', '50000'), ('seconds', 'Time limit [s]', '30'))):
+            grid.attach(label(title), 0, n, 1, 1)
+            entry = Gtk.Entry(text=value, width_chars=8, hexpand=True)
+            grid.attach(entry, 1, n, 1, 1)
             self.fields[key] = entry
             entry.connect('changed', lambda *_: self.request_changed())
-        grid.attach(label('Direction'), 6, 1, 1, 1)
+        grid.attach(label('Direction'), 0, 7, 1, 1)
         self.direction = Gtk.DropDown.new_from_strings(['Either sign', 'Same (+)', 'Opposite (−)'])
-        grid.attach(self.direction, 7, 1, 1, 1)
+        grid.attach(self.direction, 1, 7, 1, 1)
         self.direction.connect('notify::selected', lambda *_: self.request_changed())
-        box.append(label('Nominal world XYZ extents of ALL generated components, supports, housing and hardware, including hidden parts; export pose, nominal sampled shared surface facets. STEP analytic circles may extend slightly beyond this bound. These limits do not bound motion sweep.'))
+        setup.append(label('Nominal envelope · all components · no motion sweep'))
         self.scope = label('')
-        box.append(self.scope)
+        setup.append(self.scope)
         self.axes_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=5)
         scroller = Gtk.ScrolledWindow(vexpand=True)
         scroller.set_min_content_height(120)
         scroller.set_child(self.axes_box)
-        box.append(scroller)
-        actions = Gtk.Box(spacing=8)
-        box.append(actions)
-        self.reload_button = Gtk.Button(label='Use current model / reset grids')
+        setup.append(scroller)
+        buttons = actions(box)
+        self.reload_button = Gtk.Button(label='Reset grids')
         self.reload_button.connect('clicked', lambda _: self.populate())
-        actions.append(self.reload_button)
+        buttons.append(self.reload_button)
         self.run_button = Gtk.Button(label='Search')
         self.run_button.connect('clicked', lambda _: self.start())
-        actions.append(self.run_button)
+        buttons.append(self.run_button)
         self.cancel_button = Gtk.Button(label='Cancel')
         self.cancel_button.connect('clicked', lambda _: self.stop())
         self.cancel_button.set_sensitive(False)
-        actions.append(self.cancel_button)
+        buttons.append(self.cancel_button)
+        run_actions = buttons
         self.status = label(self.summary.get_text())
         box.append(self.status)
         self.progress = Gtk.ProgressBar()
@@ -129,19 +131,20 @@ class Controller:
         scroll.set_min_content_height(140)
         scroll.set_child(self.list)
         box.append(scroll)
-        buttons = Gtk.Box(spacing=8)
-        box.append(buttons)
-        for title, delta in (('Previous 25', -1), ('Next 25', 1)):
+        buttons = actions(box)
+        for title, delta in (('Previous', -1), ('Next', 1)):
             button = Gtk.Button(label=title)
             button.connect('clicked', lambda _, d=delta: self.change_page(d))
             buttons.append(button)
         self.page_label = label('')
         buttons.append(self.page_label)
-        self.apply_button = Gtk.Button(label='Apply selected · one Undo step')
+        self.apply_button = Gtk.Button(label='Apply selected')
         self.apply_button.connect('clicked', lambda _: self.apply_selected())
         self.apply_button.set_sensitive(False)
+        self.apply_button.set_tooltip_text('Apply this candidate as one Undo step')
+        self.apply_button.add_css_class('primary')
         buttons.append(self.apply_button)
-        self.save_button = Gtk.Button(label='Save search report…')
+        self.save_button = Gtk.Button(label='Save report…')
         self.save_button.connect('clicked', lambda _: self.save())
         self.save_button.set_sensitive(False)
         buttons.append(self.save_button)
@@ -149,14 +152,16 @@ class Controller:
         report_scroll = Gtk.ScrolledWindow()
         report_scroll.set_min_content_height(100)
         report_scroll.set_child(self.report)
-        box.append(report_scroll)
+        details(box,'Full search report',report_scroll)
         def close(*_):
             self.invalidate('Search window closed')
             self.window = None
             return False
         win.connect('close-request', close)
         self.populate()
+        win.pin(self.status,self.progress,run_actions)
         win.present()
+        self.fields['target'].grab_focus()
 
     def request_changed(self):
         if getattr(self, 'populating', False):
@@ -184,7 +189,7 @@ class Controller:
         else:
             values = app.design.values
             for key, title, _, lo, hi, step in variables(app.family, values):
-                row = Gtk.Box(spacing=8)
+                row = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
                 self.axes_box.append(row)
                 locked = Gtk.CheckButton(label='Locked')
                 locked.set_active(key not in COUNT_KEYS[app.family] or key == 'planets')
@@ -220,7 +225,8 @@ class Controller:
             axes = self.read_axes()
             from math import prod
             count = prod(map(len, axes.values()))
-            self.scope.set_text(f'{app.family} / {app.design.values.get("variant", "standard")} · I/O {app.design.values.get("io_scheme", "fixed")}' + (f' / S2 {app.design.values["io_scheme2"]}' if 'io_scheme2' in app.design.values else '') + f' · {count:,} finite candidates before budgets. Unlocked grids: '+(', '.join(axes) or 'none (current model only)')+'. Use numbers separated by commas or inclusive low:high:step. All other parameters, variants, stages and I/O stay locked. Grids are discrete; no continuous/global optimum.')
+            self.scope.set_tooltip_text(f'{app.family} / {app.design.values.get("variant", "standard")} · I/O {app.design.values.get("io_scheme", "fixed")}' + (f' / S2 {app.design.values["io_scheme2"]}' if 'io_scheme2' in app.design.values else '') + f' · {count:,} finite candidates before budgets. Unlocked grids: '+(', '.join(axes) or 'none (current model only)')+'. Use numbers separated by commas or inclusive low:high:step. All other parameters, variants, stages and I/O stay locked. Grids are discrete; no continuous/global optimum.')
+            self.scope.set_text(f'{count:,} finite candidates · {len(axes)} unlocked grids')
             self.run_button.set_sensitive(self.cancel is None)
         except ValueError as error:
             self.scope.set_text(str(error))
@@ -297,6 +303,7 @@ class Controller:
                 result, error = None, f'Search failed: {type(exc).__name__}: {exc}'
             GLib.idle_add(self.finished, serial, result, error)
         self.thread = Thread(target=worker, name='RatioLab combinations', daemon=True)
+        self.setup.set_expanded(False)
         self.thread.start()
 
     def current(self, serial):
@@ -419,7 +426,7 @@ class Controller:
         if self.result is None or not self.current(self.serial):
             return
         text, serial = self.result.text(), self.serial
-        dialog = Gtk.FileChooserNative(title='Save search report', transient_for=self.window, action=Gtk.FileChooserAction.SAVE, accept_label='Save', cancel_label='Cancel')
+        dialog = Gtk.FileChooserNative(title='Save search report', transient_for=self.app.win, action=Gtk.FileChooserAction.SAVE, accept_label='Save', cancel_label='Cancel')
         dialog.set_current_name('combination-search.txt')
         def response(widget, code):
             file = widget.get_file() if code == Gtk.ResponseType.ACCEPT else None

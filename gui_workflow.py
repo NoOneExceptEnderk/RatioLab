@@ -3,7 +3,7 @@ from pathlib import Path
 import json
 import gi
 gi.require_version('Gtk', '4.0')
-from gi.repository import Gtk, Gio
+from gi.repository import Gtk, Gio, Gdk
 CATALOG = {'spur': ('Spur gear', 'A single gear: choose the tooth count, module and bore.'), 'helical': ('Helical gear', 'A single gear with an adjustable helix angle.'), 'double': ('Double helical gear', 'Two opposing helices, joined or separated by a groove.'), 'planetary': ('Planetary gearbox', 'Sun, planets and ring gear. One or two reduction stages.'), 'cycloidal': ('Cycloidal reducer', 'Eccentric discs and rollers, with one or two discs.'), 'harmonic': ('Strain wave reducer', 'A flexible gear deformed by a wave generator. Concept model.'), 'worm': ('Worm and wheel', 'Transmission with perpendicular axes. Concept gear pair.'), 'parallel': ('Parallel shaft reducer', 'A gear pair with input and output shafts.'), 'internal': ('Internal gear reducer', 'A pinion inside an internal gear, with fixed axes.')}
 ADVANCED = {'pressure', 'backlash', 'profile_shift', 'addendum', 'dedendum', 'clearance', 'assembly_clearance', 'output_clearance', 'profile_tolerance', 'wave_clearance', 'wave_factor'}
 
@@ -49,6 +49,17 @@ def install_sections(app, left):
         scroll.set_child(body)
         app.fields.add_named(scroll, key)
         app.pages[key], app.page_scrolls[key] = body, scroll
+        # A pending layout restoration must yield to a real user gesture.
+        events = Gtk.EventControllerLegacy()
+        events.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
+        def user_navigation(controller, event):
+            if event.get_event_type() in (Gdk.EventType.SCROLL, Gdk.EventType.BUTTON_PRESS,
+                                         Gdk.EventType.TOUCH_BEGIN, Gdk.EventType.KEY_PRESS):
+                app.panel_revision = getattr(app,'panel_revision',0) + 1
+                app._scroll_restore_positions = None
+            return False
+        events.connect('event', user_navigation)
+        scroll.add_controller(events)
     app.parameter_error = text('', 'error')
     app.parameter_error.set_margin_start(18)
     app.parameter_error.set_margin_end(18)
@@ -112,8 +123,18 @@ def install_cad(app):
 
 def preserve_scroll(app):
     """Keep positions through GTK's measure/allocate and expander animations."""
-    positions = getattr(app, '_scroll_restore_positions', None) or {
-        k: w.get_vadjustment().get_value() for k, w in app.page_scrolls.items()}
+    current = {k: w.get_vadjustment().get_value() for k,w in app.page_scrolls.items()}
+    pending = getattr(app, '_scroll_restore_positions', None)
+    positions = dict(pending or current)
+    if pending:
+        for key,value in current.items():
+            adj = app.page_scrolls[key].get_vadjustment()
+            limit = max(adj.get_lower(),adj.get_upper()-adj.get_page_size())
+            # Positive movement beyond the old request cannot be a clamp.
+            # Preserve a new position inside the range too, but retain an old
+            # request while GTK temporarily clamps it at a smaller boundary.
+            if value > 0 and (value > positions[key] or value < limit-1):
+                positions[key] = value
     app._scroll_restore_positions = positions
     app.panel_revision = getattr(app, 'panel_revision', 0) + 1
     revision = app.panel_revision
@@ -245,7 +266,8 @@ def geometry_groups(app, specs):
             derived = Gtk.Box(spacing=8)
             title = 'Ring teeth · derived' if key=='planets' else 'Disc lobes · derived'
             derived.append(Gtk.Label(label=title, xalign=0, hexpand=True, css_classes=['muted']))
-            value_label = Gtk.Label(selectable=True, css_classes=['field-label'])
+            value_label = Gtk.Label(selectable=True, xalign=1, css_classes=['derived-output'])
+            value_label.set_tooltip_text('Calculated from the current tooth counts; edit the source geometry above.')
             derived.append(value_label)
             target.append(derived)
             app.geometry_derived[key] = value_label
@@ -377,10 +399,48 @@ def install_exports(app):
     for setter in (body.set_margin_start, body.set_margin_end, body.set_margin_top, body.set_margin_bottom):
         setter(12)
     popup.set_child(body)
+    scroll = Gtk.ScrolledWindow(max_content_height=620, propagate_natural_height=True)
+    scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+    popup.set_child(scroll)
+    scroll.set_child(body)
     app.export_menu.set_popover(popup)
-    for title, description, fn in [('STEP for CAD', 'Standalone assembly and one solid file per component · mm.', app.export_step), ('SVG / DXF profiles', 'Plane contours and holes · mm. Helical/deformed parts: sections only, not extrusion profiles.', app.export_profiles), ('STL for 3D printing', 'Complete assembly and one file per component.', app.export_stl), ('Complete package', 'STEP, STL, SVG/DXF, CAD script, preview, parameters, BOM and calculations.', app.export), ('BOM and calculations', 'TXT, CSV and JSON for components and nominal calculations.', app.export_bom)]:
-        b = action(body, title, description, lambda _, fn=fn: (popup.popdown(), fn()))
+    body.append(text('Export scope', 'step-title'))
+    app.export_scope = Gtk.DropDown.new_from_strings(['Complete assembly', 'Selected components'])
+    body.append(app.export_scope)
+    app.export_count = text('')
+    body.append(app.export_count)
+    body.append(text('Nominal assembly coordinates · visibility does not change scope.'))
+    export_actions = []
+    for kind, title, description, fn in [
+        ('step', 'STEP for CAD', 'Combined model and component solids · mm.', app.export_step),
+        ('stl', 'STL for 3D printing', 'Combined model and component meshes · mm.', app.export_stl),
+        ('profiles', 'SVG / DXF profiles', 'Planar contours · deformed/helical parts are sections.', app.export_profiles),
+        ('package', 'Export package', 'Geometry, preview, parameters, BOM and calculations.', app.export),
+        ('bom', 'BOM and calculations', 'TXT, CSV and JSON · nominal source calculations.', app.export_bom)]:
+        def run(_, kind=kind, fn=fn):
+            popup.popdown()
+            if app.export_scope.get_selected() == 1:
+                app.components.export(kind)
+            else:
+                fn()
+        b = action(body, title, description, run)
+        export_actions.append((kind, b))
         app.file_buttons.append(b)
+    def update_scope(*_):
+        c = getattr(app, 'components', None)
+        selected = c and c.current() and c.selected
+        count = len(selected) if selected else 0
+        total = len(app.design.parts) if app.design else 0
+        subset = app.export_scope.get_selected() == 1
+        app.export_count.set_text(f'{count} selected / {total} components · BOM included with geometry exports' if subset else f'All {total} components · complete assembly')
+        for kind, button in export_actions:
+            enabled = bool(app.design and not app.busy and (not subset or count and kind != 'bom'))
+            button.set_sensitive(enabled)
+            button.set_tooltip_text('Selected BOM is included in each selected geometry export or package.' if subset and kind=='bom'
+                                    else 'Select current components in Tools → Components.' if subset and not count else None)
+    app.update_export_scope = update_scope
+    app.export_scope.connect('notify::selected', update_scope)
+    popup.connect('show', update_scope)
     body.append(Gtk.Separator())
     body.append(text('Destination folder', 'field-label'))
     app.output_label = text(str(app.output_dir))

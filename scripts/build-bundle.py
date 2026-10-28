@@ -13,6 +13,7 @@ from pathlib import Path
 import platform
 import plistlib
 import re
+import runpy
 import shutil
 import subprocess
 import sys
@@ -42,6 +43,11 @@ def bundle_paths(bundle):
     if bundle.suffix == '.app':
         return bundle/'Contents/MacOS/RatioLab', bundle/'Contents/Frameworks', bundle.parent/'bundle-manifest.json'
     return bundle/('RatioLab.exe' if (bundle/'RatioLab.exe').is_file() else 'RatioLab'), bundle/'_internal', bundle/'bundle-manifest.json'
+
+
+def agent_executable(bundle):
+    executable, _, _ = bundle_paths(bundle)
+    return executable.with_name('RatioLab-MCP.exe' if executable.suffix == '.exe' else 'RatioLab-MCP')
 
 
 def inventory(bundle):
@@ -116,6 +122,8 @@ def verify_bundle(bundle, *, gui=False, run=True, check_manifest=True):
     bundle = Path(bundle).resolve()
     if not executable.is_file() or not runtime.is_dir():
         raise RuntimeError(f'Not a complete RatioLab onedir bundle: {bundle}')
+    if not agent_executable(bundle).is_file():
+        raise RuntimeError('The MCP console companion is missing from the bundle')
     # On macOS PyInstaller cross-links data and libraries between Resources and
     # Frameworks; both are inside the signed application and are acceptable.
     required = ['gi_typelibs/Gtk-4.0.typelib', 'gi_typelibs/Gdk-4.0.typelib',
@@ -123,6 +131,7 @@ def verify_bundle(bundle, *, gui=False, run=True, check_manifest=True):
                 'ratiolab_resources/branding/ratiolab-icon.png',
                 'ratiolab_resources/catalogo-cuscinetti.json',
                 'ratiolab_resources/catalogo-hardware.json',
+                'ratiolab_resources/MCP.md',
                 'etc/fonts/fonts.conf', 'share/fonts/DejaVuSans.ttf',
                 'notices/components.json', 'notices/THIRD-PARTY-NOTICES.txt']
     missing = [name for name in required if not (runtime/name).is_file()]
@@ -160,6 +169,8 @@ def verify_bundle(bundle, *, gui=False, run=True, check_manifest=True):
                                    ('self_test', 'families', 'gtk', 'cairo', 'stl_bytes', 'step_files',
                                     'workspace_export', 'opengl_version', 'framebuffer_has_geometry')
                                    if key in runtime_report}
+            check_agent = runpy.run_path(str(ROOT/'scripts/check-installed-mcp.py'))['check']
+            result['mcp'] = check_agent(agent_executable(bundle), environment=sanitized_environment(bundle))
     return result
 
 
@@ -219,6 +230,8 @@ def build(args):
     manifest = dict(format='ratiolab-bundle/1', application_id='local.solidcraft.reducers',
                     name='RatioLab', version=version(), system=host_system(), arch=architecture(),
                     executable=executable.relative_to(bundle).as_posix(),
+                    agent_executable=agent_executable(bundle).relative_to(bundle).as_posix(),
+                    mcp_protocols=['2026-07-28', '2025-11-25'],
                     min_glibc=platform.libc_ver()[1] if sys.platform.startswith('linux') else None,
                     built_at=datetime.now(timezone.utc).isoformat(), python_version=platform.python_version(),
                     pyinstaller_version=PyInstaller.__version__, notices_complete=True,

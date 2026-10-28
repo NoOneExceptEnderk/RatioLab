@@ -4,6 +4,13 @@
 
 **Generatore parametrico di ingranaggi e riduttori.**
 
+Include anche un server **MCP locale per gli agenti**, con 13 strumenti per
+progetti, parametri, Undo/Redo, componenti/BOM, ricerca, interferenze ed export.
+Gli installer contengono il programma `RatioLab-MCP` (`.exe` su Windows):
+non richiede dipendenze aggiuntive e lavora senza aprire la GUI. Progetti e
+file restano nella cartella assegnata; le revisioni impediscono modifiche
+basate su uno stato superato. Collegamento a Codex e altri client in [MCP.md](MCP.md).
+
 Applicazione autonoma per generare ingranaggi e riduttori, visualizzarli ed
 esportarne la geometria per i software CAD. SolidCraft è un'integrazione
 disponibile; l'esportazione STL funziona anche senza collegarlo.

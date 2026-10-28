@@ -346,3 +346,71 @@ originali: `work/final-installers-40680620191/`. Hash, dimensioni, job e
 risultati grafici sintetici: `work/final-installer-evidence.json` e
 `dist/installers/build-evidence.json`. I sei file della bozza e i due allegati
 di verifica vengono confrontati con i digest SHA-256 restituiti da GitHub.
+
+## Integrazione GUI del workspace — 28 ottobre 2026
+
+- Intestazione con nome/stato del progetto, file, Undo/Redo, Export primario e CAD secondario; recenti scorrevoli con percorsi leggibili. Identità B conservata. Documenti e profili usati nelle prove sono temporanei.
+- Componenti/misure, ricerca e interferenze sono nel pannello Tools ridimensionabile e richiudibile. Non aggiungono più tre righe permanenti alla barra di animazione. Parts/Measure separa la lista dalle coordinate e dalla distanza; risultati e report lunghi si aprono su richiesta. Il controllo interferenze mantiene copertura, pose e passo visibili durante l’ispezione.
+- Export distingue ambito completo/selezionato e quantità, indipendentemente dalla visibilità. Le quote derivate hanno una casella riconoscibile. View permette testo al 100/125/150%; tastiera, focus e limiti dei pulsanti verificati anche al 150%.
+- Corretta la corsa dello scorrimento tra aggiornamenti ravvicinati: una posizione appena scelta prevale sulla precedente richiesta ancora pendente, mentre gli eventi dell’utente interrompono il ripristino. Conservati pagina, sezioni, testo numerico incompleto, precisione e quote collegate.
+- Smoke reale su tutte le nove famiglie e tre pagine, con Save, Undo/Redo, picking A/B e distanza 14.142136 mm, selezione/ispezione, ricerca con Apply unico Undo, interferenze e annullamento, sostituzione del documento durante entrambi i worker, pannelli lunghi e input invalido. Le prove a 1920×1080 impongono esplicitamente l’allocazione della finestra perché il window manager limita normalmente l’area utile a 1920×1048; l’intestazione rimane presente nelle catture. Verificate anche le azioni GTK di avanzamento del focus.
+- Schermate, log macchina e resoconto dei flussi: [design/GUI-WORKSPACE.md](design/GUI-WORKSPACE.md), `outputs/gui-integration/`, `work/gui-integration-20261028/visual-verification.json` e `visual-verification.log`. Aggiornato `outputs/ui-nine-reducers.png`; la versione precedente è conservata nella cartella `before` delle prove.
+- Nuovo modulo `workspace_tools.py` incluso in `pyproject.toml`. Sdist e wheel locali ricostruiti in una cartella distinta; **48 moduli** confrontati byte per byte con i sorgenti correnti e logo verificato. Installazione della wheel in venv temporaneo e prove da cartella neutra. Prove e checksum in `package-check/`, `package-check.log`, `wheel-install.log`, `installed-tests.log` e `tested-runtime.json` sotto la cartella delle verifiche.
+- Nessuna modifica a generatori, algoritmi, writer, schema dei progetti o renderer: confronto con la copia iniziale in `source-preservation.json`. Rimangono i limiti preesistenti di campionamento, ricerca finita e modelli di studio. Esecuzione nativa Windows 11/ANGLE e macOS da verificare sui rispettivi sistemi; percorso OpenGL ES e conversione RGBA invariati. Push e aggiornamento delle release rimangono una fase separata.
+- **Esito conclusivo: 320 test superati, zero skip, 280,277 s** dal sorgente; **67 test superati, zero skip, 111,353 s** dalla wheel realmente installata. Log: `final-tests.log` e `installed-tests.log`. Sette nuovi test coprono ciclo di vita del dock, conservazione di moduli/selezione, scroll sovrapposto, modalità, ambito export, copertura durante l’ispezione e layout/focus ingranditi. I due test del package mantengono le verifiche precedenti cercando la nuova etichetta “Export package”. I log intermedi sono conservati: comprendono l’adattamento delle etichette e una correzione del nuovo test, che ora confronta la copertura con il risultato reale anche quando il budget temporale è esaurito.
+
+## MCP locale per agenti — 28 ottobre 2026
+
+RatioLab espone 13 strumenti MCP locali per catalogo, progetti/revisioni,
+Undo/Redo, componenti/BOM, ricerca finita, interferenze discrete ed export.
+Il servizio usa gli stessi generatori e writer della GUI, senza nuove dipendenze
+runtime. Supporta stdio MCP 2026-07-28 e la negoziazione legacy 2025-11-25.
+I file sono confinati alla cartella esplicitamente assegnata, le modifiche
+richiedono la revisione corrente e i risultati esistenti sono preservati.
+La guida distribuibile e i contratti sono in [MCP.md](MCP.md).
+
+Implementazione delegata all'agente con reasoning xHigh, seguita da lettura
+diretta del codice e prove indipendenti del coordinatore. La review ha fatto
+correggere il roundtrip dei parametri double_style, i campi cache del protocollo
+moderno, gli errori JSON-RPC con id nullo, i file speciali/FIFO, i tipi numerici
+booleani e l'esecuzione dei test da una wheel fuori dal checkout.
+
+- Suite completa finale: **346 test, zero errori, zero skip**, 336,143 s,
+  con preview forzate su OpenGL ES reale. I 50 moduli runtime sono rimasti
+  byte-identici durante la suite. Comprende 23 regressioni MCP su tutte le
+  famiglie/varianti e 3 nuove verifiche del lanciatore/standard streams.
+- Client SDK ufficiali **1.30.0 e 2.3.0**: ciascuno supera **67 chiamate**, con
+  12 errori attesi verificati. Prove ripetute con la wheel realmente installata
+  e processo server avviato da cartella neutra; gli interpreti non hanno GTK.
+  Verificati tutti i 13 tool, nove famiglie, preset FDM, Undo/Redo, aggiornamenti
+  superati, conflitti su file modificati, scope del secondo componente,
+  STEP/STL/SVG/DXF, pacchetti e hash, ricerca e copertura incompleta.
+- Wheel installata in un ulteriore venv senza GTK/SDK: 23 test MCP superati
+  da cartella esterna al checkout. Il verifier stdio supera entrambi i
+  protocolli, salvataggio/apertura ed export reali. Sdist e wheel ricostruita
+  dall'sdist: 267 e 66 membri verificati; documentazione MCP inclusa.
+- Build frozen locale Linux: GUI completa, nove anteprime, sei aree funzionali
+  e companion console MCP superati; runtime e inventario immutati dopo i test.
+  La build locale usa le librerie dell'host: i pacchetti distribuibili devono
+  essere ricostruiti sui quattro runner nativi con la baseline documentata.
+- 50 controlli mirati di bundle/lancio programmi/installer Linux superati.
+  Un errore nel nuovo verifier che risolveva il symlink di Python del venv è
+  stato corretto prima del rilascio; ora conserva l'interprete configurato.
+
+Il companion `RatioLab-MCP[.exe]` condivide il runtime dell'app e conserva
+stdin/stdout anche su Windows. Le build e le prove dei pacchetti installati
+eseguono `scripts/check-installed-mcp.py` con entrambi i protocolli e file veri.
+Nessuna configurazione personale di Codex o altri client viene modificata.
+I progetti del server sono indipendenti dalla finestra GUI e si scambiano JSON
+compatibili. I pacchetti headless dichiarano l'assenza di screenshot.
+
+Le risorse sono limitate in modo cooperativo: una singola operazione geometrica
+può completarsi prima di osservare l'annullamento. La validazione dei percorsi
+non costituisce un sandbox contro un proprietario ostile del filesystem.
+Rimangono i limiti geometrici/campionati e di assenza di certificazione già
+indicati dal prodotto. Nessun documento CAD personale usato nelle prove.
+
+Prove: `work/mcp-review/full-tests-result.json`, `full-tests.log`,
+`sdk-v1-wheel.log`, `sdk-v2-wheel.log`, `wheel-tests-outside.log`,
+`wheel-stdio-proof.json`, `source-artifacts.log`, `host-build.log` e
+`packaging-tests.log` nella cartella `work/mcp-review/`.

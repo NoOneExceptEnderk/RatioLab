@@ -6,22 +6,24 @@ import gi
 gi.require_version('Gtk','4.0')
 from gi.repository import Gtk
 from project_document import equivalent
+from workspace_tools import actions, details
 import component_geometry as geometry
 import selected_export
 
 
 def label(text=''):
-    return Gtk.Label(label=text,xalign=0,wrap=True,selectable=True)
+    return Gtk.Label(label=text,xalign=0,wrap=True,selectable=False)
 
 
 class Controller:
     def __init__(self,app,container):
         self.app=app;self.window=None;self.snapshot=None;self.revision=None;self.selected=();self.saved_filters=None;self.points=[];self.cache={};self.syncing=False;self.pose=None;self.alive=True
-        row=Gtk.Box(spacing=8);container.append(row)
-        self.button=Gtk.Button(label='Components / measure…');self.button.connect('clicked',lambda _:self.open());row.append(self.button)
-        self.summary=label('Click a visible surface to select · Ctrl/Shift adds');self.summary.set_hexpand(True);row.append(self.summary)
+        self.button=Gtk.Button(label='Components / measure…');self.button.connect('clicked',lambda _:self.open())
+        self.summary=label('Click a visible surface to select · Ctrl/Shift adds');self.summary.set_hexpand(True)
         self.markers=Gtk.DrawingArea(hexpand=True,vexpand=True);self.markers.set_can_target(False);self.markers.set_draw_func(self.draw);app.preview_overlay.add_overlay(self.markers)
-        app.canvas.connect('component-click',self.clicked)
+        container.register('components', self)
+        self.summary.connect('notify::label',lambda w,*_:app.status_text(w.get_text()) if 'unavailable' in w.get_text().lower() else None)
+        app.canvas.connect('component-click',lambda *args:self.clicked(*args) if app.pick_mode.get_selected()!=0 else None)
         app.canvas.connect('view-changed',lambda *_:self.markers.queue_draw())
         app.canvas.connect('display-state',self.display_changed)
         app.canvas.connect('motion-state',self.display_changed)
@@ -58,32 +60,50 @@ class Controller:
     def open(self):
         if self.window:self.window.present();return
         if hasattr(self.app,'document') and self.app.design and self.revision is None:self.refreshed(self.app.design)
-        win=Gtk.Window(title='Components · sampled surface inspection',transient_for=self.app.win,default_width=760,default_height=650)
+        win=self.app.tools.panel('components')
         self.window=win;body=Gtk.Box(orientation=Gtk.Orientation.VERTICAL,spacing=9,margin_start=14,margin_end=14,margin_top=14,margin_bottom=14);win.set_child(body)
-        body.append(label('Pick a visible surface in the preview or select rows below. Ctrl/Shift adds components. Empty click clears selection. Source indices are stable within this document revision; duplicate names are distinct.'))
+        body.append(self.summary)
+        self.inspector_stack=Gtk.Stack();self.inspector_stack.set_hhomogeneous(False);self.inspector_stack.set_vhomogeneous(False)
+        tabs=Gtk.StackSwitcher(stack=self.inspector_stack);body.append(tabs);body.append(self.inspector_stack)
+        parts_body=Gtk.Box(orientation=Gtk.Orientation.VERTICAL,spacing=9)
+        measure_body=Gtk.Box(orientation=Gtk.Orientation.VERTICAL,spacing=9)
+        self.inspector_stack.add_titled(parts_body,'parts','Parts')
+        self.inspector_stack.add_titled(measure_body,'measure','Measure')
+        body=parts_body
         self.list=Gtk.ListBox(selection_mode=Gtk.SelectionMode.MULTIPLE);self.list.connect('selected-rows-changed',self.rows_changed)
         scroll=Gtk.ScrolledWindow(vexpand=True);scroll.set_min_content_height(150);scroll.set_child(self.list);body.append(scroll)
-        actions=Gtk.Box(spacing=8);body.append(actions)
-        self.isolate_button=Gtk.Button(label='Isolate selected');self.isolate_button.connect('clicked',lambda _:self.isolate());actions.append(self.isolate_button)
-        self.restore_button=Gtk.Button(label='Restore filters');self.restore_button.connect('clicked',lambda _:self.restore());actions.append(self.restore_button)
-        clear=Gtk.Button(label='Clear selection');clear.connect('clicked',lambda _:self.select(()));actions.append(clear)
-        self.detail=label();detail_scroll=Gtk.ScrolledWindow(min_content_height=45,max_content_height=115,propagate_natural_height=True);detail_scroll.set_child(self.detail);body.append(detail_scroll)
-        measure_row=Gtk.Box(spacing=8);body.append(measure_row)
-        self.measure=Gtk.CheckButton(label='Measure two surface points');measure_row.append(self.measure)
-        self.measure.connect('toggled',lambda *_:self.clear_points())
+        buttons=actions(body)
+        self.isolate_button=Gtk.Button(label='Isolate');self.isolate_button.connect('clicked',lambda _:self.isolate());buttons.append(self.isolate_button)
+        self.restore_button=Gtk.Button(label='Restore view');self.restore_button.connect('clicked',lambda _:self.restore());buttons.append(self.restore_button)
+        clear=Gtk.Button(label='Clear');clear.connect('clicked',lambda _:self.select(()));buttons.append(clear)
+        self.detail=label();self.detail.set_selectable(True);detail_scroll=Gtk.ScrolledWindow(min_content_height=45,max_content_height=115,propagate_natural_height=True);detail_scroll.set_child(self.detail);details(body,'Nominal component bounds · mm',detail_scroll)
+        measure_row=actions(measure_body)
+        self.measure=Gtk.CheckButton(label='Measure surfaces')
+        self.measure.connect('toggled',self.measure_mode_changed)
+        self.inspector_stack.connect('notify::visible-child-name',lambda stack,*_:self.measure.set_active(stack.get_visible_child_name()=='measure'))
+        measure_body.prepend(label('Pick point A, then point B on visible surfaces.'))
         reset=Gtk.Button(label='Clear points');reset.connect('clicked',lambda _:self.clear_points());measure_row.append(reset)
         nominal=Gtk.Button(label='Use nominal pose');nominal.connect('clicked',lambda _:self.nominal());measure_row.append(nominal)
-        body.append(label('Surface coordinates and straight point-to-point distance in mm, on shared preview/STL facets. First click pauses the displayed pose. Six decimals are display precision. No snapping, analytic diameter, closest-surface distance or CAD tolerance claim. Nominal component bounds use sampled world XYZ; rotated parts need not align with those axes. Nonrigid animated flex/warp picking is unavailable: use nominal pose.'))
-        self.measure_text=label();body.append(self.measure_text)
-        self.export_text=label('Export selected only · nominal assembly coordinates, all selected rows even if hidden. Supports, housing and hardware are included only when explicitly selected.');body.append(self.export_text)
-        exports=Gtk.Box(spacing=8);body.append(exports);self.export_buttons=[]
-        for kind,title in [('step','STEP'),('stl','STL'),('profiles','DXF / SVG'),('package','Selected package')]:
+        measure_body.append(label('Sampled surfaces · mm · first pick pauses motion.'))
+        details(measure_body,'Measurement accuracy & pose','Straight point-to-point distance on preview/STL facets. Six decimals are display precision. No snapping, analytic diameter, closest-surface or CAD tolerance claim. Nominal bounds use world XYZ. Animated nonrigid flex/warp picking is unavailable: use nominal pose.')
+        self.measure_text=label();self.measure_text.set_selectable(True);self.measure_text.add_css_class('measurement');measure_body.append(self.measure_text)
+        body.append(Gtk.Separator());self.export_text=label();body.append(self.export_text)
+        exports=actions(body);self.export_buttons=[]
+        for kind,title in [('step','STEP'),('stl','STL'),('profiles','DXF / SVG'),('package','Package')]:
             b=Gtk.Button(label=title);b.connect('clicked',lambda _,k=kind:self.export(k));exports.append(b);self.export_buttons.append(b)
         win.connect('close-request',self.window_closed)
         self.populate();self.update();win.present();self.list.grab_focus()
 
+    def measure_mode_changed(self, widget):
+        self.clear_points()
+        self.inspector_stack.set_visible_child_name('measure' if widget.get_active() else 'parts')
+        if widget.get_active():self.app.pick_mode.set_selected(2)
+        elif self.app.pick_mode.get_selected()==2:self.app.pick_mode.set_selected(1)
+
     def window_closed(self,*_):
-        self.restore();self.clear_points();self.window=None;return False
+        self.restore();self.clear_points();self.window=None
+        if self.app.pick_mode.get_selected()==2:self.app.pick_mode.set_selected(1)
+        return False
 
     def populate(self):
         if not self.window:return
@@ -111,6 +131,7 @@ class Controller:
         self.update()
 
     def update(self):
+        if hasattr(self.app,'update_export_scope'):self.app.update_export_scope()
         current=self.current();n=len(self.selected)
         if self.revision is not None:
             names=', '.join(f'{i+1:03d} {self.app.design.parts[i].name}' for i in self.selected[:2]) if current else ''
@@ -124,6 +145,7 @@ class Controller:
             for i in self.selected:
                 p=self.app.design.parts[i];dims=geometry.dimensions(p)
                 descriptions.append(f'{i+1:03d} {p.name} · nominal sampled XYZ bounds: '+ ' × '.join(f'{q:.6g}' for q in dims['size_mm'])+' mm'+f' · min {self.xyz(dims["min_mm"])} · max {self.xyz(dims["max_mm"])}')
+        self.export_text.set_text(f'Export {n} selected components · nominal pose · includes hidden selections')
         self.detail.set_text('\n'.join(descriptions) or 'No current selection')
         if not self.points:self.measure_text.set_text('No measurement · click two visible surface points in Measure mode')
 

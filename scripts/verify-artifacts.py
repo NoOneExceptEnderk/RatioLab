@@ -16,6 +16,7 @@ def verify(folder):
                 files = set(archive.namelist())
                 payloads = {name: archive.read(name) for name in files if not name.endswith('/')}
             required = {'app.py', 'app_paths.py', 'geometry.py', 'gl_loader.py', 'ratiolab_cli.py',
+                        'ratiolab_agent.py', 'ratiolab_mcp.py', 'ratiolab_resources/MCP.md',
                         'ratiolab_resources/branding/ratiolab-icon.png',
                         'ratiolab_resources/branding/brand.json',
                         'ratiolab_resources/INSTALL.md',
@@ -27,7 +28,9 @@ def verify(folder):
                 names = archive.getnames()
                 payloads = {name: archive.extractfile(name).read() for name in names if archive.getmember(name).isfile()}
             files = {'/'.join(PurePosixPath(name).parts[1:]) for name in names}
-            assert {'pyproject.toml', 'ratiolab_build.py', 'INSTALL.md', 'assets/branding/ratiolab-icon.png'} <= files
+            assert {'pyproject.toml', 'ratiolab_build.py', 'INSTALL.md', 'MCP.md',
+                    'packaging/mcp_entrypoint.py', 'scripts/check-installed-mcp.py',
+                    'assets/branding/ratiolab-icon.png'} <= files
         for name in files:
             path = PurePosixPath(name)
             assert not set(path.parts) & {'work', 'design', 'outputs', 'generati', '.git', '.aws', '.codex', '.agents', '__pycache__'}, name

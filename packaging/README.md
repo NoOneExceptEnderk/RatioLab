@@ -7,9 +7,16 @@ and one coherent Homebrew architecture on macOS. Build tools are pinned in
 `requirements-build.txt`; Windows uses the MSYS2-native PyInstaller package and
 its matching bootloader instead of a CPython/PyPI Windows wheel.
 
-The onedir output is `RatioLab/RatioLab[.exe]` plus `_internal/`. On macOS,
+The onedir output contains `RatioLab/RatioLab[.exe]`, the `RatioLab-MCP[.exe]`
+console companion and a shared `_internal/` runtime. Analysis includes both
+entrypoints; each EXE executes only its own script after the shared runtime
+hooks. A console bootloader preserves the MCP stdin/stdout contract on Windows
+while the desktop executable remains windowed. On macOS,
 PyInstaller BUNDLE creates `RatioLab.app/Contents/MacOS/RatioLab` and its linked
 Frameworks/Resources layout. App data are never written into either layout.
+Both launchers reside in `Contents/MacOS/`. `MCP.md` is bundled with the app
+resources and Python wheel. No MCP SDK or web stack is added to the runtime:
+the tools service and its stdio adapter use the standard library.
 The Linux packager consumes the folder and its root `bundle-manifest.json`.
 For macOS the manifest is external to the signed `.app`, avoiding seal changes.
 
@@ -63,6 +70,10 @@ runtime search environment. `--gui` requires a real rendered framebuffer and
 full workspace exports. The test report is kept outside the distributed app;
 `--report` works with Windows/macOS windowed executables. CI then exercises the
 actual `.run`/Inno Setup/DMG install path and the resulting application.
+`check-installed-mcp.py` exercises the actual console companion without a
+display, using both MCP protocol revisions and real project/export files.
+It verifies Undo, stale revisions, path confinement, selected STEP checksums,
+finite search and incomplete interference reporting before accepting a build.
 
 Windows/macOS binaries must be created on those systems. Unsigned or ad hoc
 signed development output is not advertised as an authenticated public release.

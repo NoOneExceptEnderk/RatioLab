@@ -11,7 +11,7 @@ version = os.environ['RATIOLAB_VERSION']
 datas = [(str(root/'packaging/fonts.conf'), 'etc/fonts')]
 datas += [(str(path), 'share/fonts') for path in (root/'packaging/fonts').glob('*.ttf')]
 a = Analysis(
-    [str(root/'packaging/entrypoint.py')], pathex=[str(root)],
+    [str(root/'packaging/entrypoint.py'), str(root/'packaging/mcp_entrypoint.py')], pathex=[str(root)],
     binaries=[], datas=datas,
     hiddenimports=['app', 'ratiolab_checks', 'ratiolab_resources', 'cairo', 'gi._gi_cairo',
                    'gi.repository.Gtk', 'gi.repository.Gdk', 'gi.repository.Gio',
@@ -26,8 +26,14 @@ a = Analysis(
 for source, destination in write_notices(a.binaries, metadata, datas=a.datas):
     a.datas.append((destination, str(source), 'DATA'))
 pyz = PYZ(a.pure)
+# Each launcher executes its own entrypoint after the shared runtime hooks.
+# Both executables share a single native runtime in the COLLECT directory.
+gui_script = (root/'packaging/entrypoint.py').resolve()
+mcp_script = (root/'packaging/mcp_entrypoint.py').resolve()
+gui_scripts = [row for row in a.scripts if Path(row[1]).resolve() != mcp_script]
+mcp_scripts = [row for row in a.scripts if Path(row[1]).resolve() != gui_script]
 exe = EXE(
-    pyz, a.scripts, [], exclude_binaries=True,
+    pyz, gui_scripts, [], exclude_binaries=True,
     name='RatioLab', debug=False, bootloader_ignore_signals=False,
     strip=False, upx=False, console=(sys.platform != 'win32' and sys.platform != 'darwin'),
     disable_windowed_traceback=False, contents_directory='_internal',
@@ -36,7 +42,16 @@ exe = EXE(
     codesign_identity=os.environ.get('RATIOLAB_CODESIGN_IDENTITY') or None,
     entitlements_file=os.environ.get('RATIOLAB_ENTITLEMENTS') or None,
 )
-collection = COLLECT(exe, a.binaries, a.datas, strip=False, upx=False, name='RatioLab')
+mcp_exe = EXE(
+    pyz, mcp_scripts, [], exclude_binaries=True,
+    name='RatioLab-MCP', debug=False, bootloader_ignore_signals=False,
+    strip=False, upx=False, console=True, contents_directory='_internal',
+    icon=str(root/'packaging/icons/RatioLab.ico') if sys.platform == 'win32' else None,
+    target_arch=None,
+    codesign_identity=os.environ.get('RATIOLAB_CODESIGN_IDENTITY') or None,
+    entitlements_file=os.environ.get('RATIOLAB_ENTITLEMENTS') or None,
+)
+collection = COLLECT(exe, mcp_exe, a.binaries, a.datas, strip=False, upx=False, name='RatioLab')
 if sys.platform == 'darwin':
     app = BUNDLE(
         collection, name='RatioLab.app', icon=str(root/'packaging/icons/RatioLab.icns'),

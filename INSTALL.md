@@ -1,5 +1,19 @@
 # Installing RatioLab
 
+## Connect a local agent
+
+Native installers also include a console companion, `RatioLab-MCP` on Linux
+and macOS or `RatioLab-MCP.exe` beside the Windows desktop executable. On
+macOS it is inside `RatioLab.app/Contents/MacOS/`. Configure your MCP client
+to launch it with `--workspace` and an explicit absolute projects directory.
+It works without opening a graphical desktop and needs no extra installation.
+
+An installed Python wheel provides `ratiolab-mcp --workspace /absolute/projects`;
+the headless service needs no GTK, Cairo or OpenGL. Source use is
+`python -m ratiolab_mcp --workspace /absolute/projects`. See [MCP.md](MCP.md)
+for client examples, all tools, file/revision protections and geometric limits.
+The service works on its own projects and exchanges JSON files with the GUI.
+
 ## Installers with GTK and Python included
 
 The native installers include Python, GTK 4, PyGObject, Cairo, libepoxy,

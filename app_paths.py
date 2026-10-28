@@ -60,7 +60,7 @@ def resource_path(relative):
         raise ValueError('Resource paths must stay inside the resource directory')
     path = root()/relative
     if (not path.exists() and relative.as_posix() in
-            ('catalogo-cuscinetti.json', 'catalogo-hardware.json', 'INSTALL.md')):
+            ('catalogo-cuscinetti.json', 'catalogo-hardware.json', 'INSTALL.md', 'MCP.md')):
         path = SOURCE_ROOT/relative
     if not path.is_file() and not path.is_dir():
         raise FileNotFoundError(f'RatioLab resource missing: {relative}')

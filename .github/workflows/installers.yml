@@ -53,11 +53,20 @@ jobs:
           sh dist/installers/RatioLab-*-linux-x86_64.run --yes --no-desktop --destination "$RUNNER_TEMP/RatioLab installed Ω"
           xvfb-run -a "$RUNNER_TEMP/RatioLab installed Ω/RatioLab" --self-test-gui --report "$RUNNER_TEMP/linux-installed.json"
           cat "$RUNNER_TEMP/linux-installed.json"
+          "$RUNNER_TEMP/bundle-env/bin/python" scripts/check-installed-mcp.py "$RUNNER_TEMP/RatioLab installed Ω/RatioLab-MCP" --report "$RUNNER_TEMP/linux-mcp.json"
           sh "$RUNNER_TEMP/RatioLab installed Ω/uninstall.sh"
           test ! -d "$RUNNER_TEMP/RatioLab installed Ω"
           mkdir -p "$RUNNER_TEMP/deb-extracted"
           dpkg-deb -x dist/installers/ratiolab_*_amd64.deb "$RUNNER_TEMP/deb-extracted"
           "$RUNNER_TEMP/deb-extracted/opt/ratiolab/RatioLab" --self-test --report "$RUNNER_TEMP/deb-runtime.json"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ratiolab-linux-verification
+          path: |
+            ${{ runner.temp }}/linux-installed.json
+            ${{ runner.temp }}/linux-mcp.json
+          if-no-files-found: ignore
       - uses: actions/upload-artifact@v4
         with:
           name: ratiolab-linux-x86_64-installers
@@ -112,6 +121,8 @@ jobs:
           if ('${{ inputs.native_gui }}' -eq 'true') { $guiArguments += '--require' }
           & $python @guiArguments
           if ($LASTEXITCODE -ne 0) { throw 'Installed GUI verification failed' }
+          & $python scripts/check-installed-mcp.py "$destination\RatioLab-MCP.exe" --report "$env:RUNNER_TEMP\installed-gui-check\mcp-result.json"
+          if ($LASTEXITCODE -ne 0) { throw 'Installed MCP verification failed' }
           $process = Start-Process -FilePath "$destination\unins000.exe" -ArgumentList @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART') -Wait -PassThru
           if ($process.ExitCode -ne 0) { throw 'Uninstall failed' }
           if (Test-Path "$destination\RatioLab.exe") { throw 'Uninstall left the application executable' }
@@ -169,6 +180,7 @@ jobs:
           require_gui=''
           if [ '${{ inputs.native_gui }}' = true ]; then require_gui='--require'; fi
           env -u PYTHONPATH -u PYTHONHOME -u GI_TYPELIB_PATH -u DYLD_LIBRARY_PATH -u DYLD_FALLBACK_LIBRARY_PATH PATH=/usr/bin:/bin:/usr/sbin:/sbin "$RUNNER_TEMP/bundle-env/bin/python" scripts/check-installed-gui.py "$RUNNER_TEMP/installed app Ω/RatioLab.app/Contents/MacOS/RatioLab" "$RUNNER_TEMP/installed-gui-check" $require_gui
+          env -u PYTHONPATH -u PYTHONHOME -u GI_TYPELIB_PATH -u DYLD_LIBRARY_PATH -u DYLD_FALLBACK_LIBRARY_PATH PATH=/usr/bin:/bin:/usr/sbin:/sbin "$RUNNER_TEMP/bundle-env/bin/python" scripts/check-installed-mcp.py "$RUNNER_TEMP/installed app Ω/RatioLab.app/Contents/MacOS/RatioLab-MCP" --report "$RUNNER_TEMP/installed-gui-check/mcp-result.json"
           codesign --verify --deep --strict "$RUNNER_TEMP/installed app Ω/RatioLab.app"
           rm -rf "$RUNNER_TEMP/installed app Ω/RatioLab.app"
       - uses: actions/upload-artifact@v4

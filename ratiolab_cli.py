@@ -114,7 +114,18 @@ def main(argv=None):
     parser.add_argument('--self-test', action='store_true', help='Check runtime, preferences and model exports in a temporary profile')
     parser.add_argument('--self-test-gui', action='store_true', help='Also check the complete graphical workspace and exports')
     parser.add_argument('--install-desktop', action='store_true', help='Register this installation in the Linux application menu')
+    parser.add_argument('--mcp', action='store_true', help='Serve local agent tools over MCP stdio without opening GTK')
+    parser.add_argument('--workspace', type=Path, help='Explicit working directory for MCP projects and exports')
     args = parser.parse_args(argv)
+    if args.mcp:
+        if args.workspace is None:
+            parser.error('--mcp requires --workspace')
+        if any((args.install_desktop, args.self_test, args.self_test_gui, args.diagnose, args.diagnose_gui)):
+            parser.error('--mcp cannot be combined with GUI or diagnostic commands')
+        from ratiolab_mcp import main as serve
+        return serve(['--workspace', str(args.workspace)])
+    if args.workspace is not None:
+        parser.error('--workspace is only used with --mcp')
     if args.install_desktop:
         from install_desktop import main as install
         return install([])

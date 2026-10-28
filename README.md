@@ -46,6 +46,22 @@ Invalid input remains visible, with a field message when the generator identifie
 
 Saved configurations from earlier versions still load their geometry and kinematics. Obsolete material, stress and production settings are ignored and omitted from newly saved configurations and reports. Previously exported files remain independent snapshots.
 
+## Agent integration
+
+RatioLab includes an offline **MCP server** with 13 tools for discovering the
+catalog, creating/editing/saving projects, Undo/Redo, inspecting components and
+BOMs, searching combinations, checking discrete interference and exporting
+STEP/STL/SVG/DXF or headless packages. The same generators and validators are
+used by the desktop app. Files stay in an explicitly configured workspace;
+project revisions prevent stale edits and existing outputs are preserved.
+
+Native installers include the `RatioLab-MCP` console companion (`.exe` on
+Windows). Python installations provide `ratiolab-mcp`; headless use needs no
+GTK/OpenGL session, CAD application, API key or additional Python packages.
+See [MCP.md](MCP.md) for commands, Codex/client configuration, tool contracts
+and limits. MCP projects exchange compatible JSON files with the GUI; the
+server maintains its own project handles rather than controlling an open window.
+
 ## Active catalog
 
 Only these nine families are available, in this order:

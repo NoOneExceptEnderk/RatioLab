@@ -87,7 +87,7 @@ class ExportGuiTests(unittest.TestCase):
         a=self.app
         a.view_options['exploded'].set_active(True)
         a.view_options['section'].set_active(True)
-        self.click('Complete package')
+        self.click('Export package')
         folder=next(a.output_dir.glob('*.package'))
         png=(folder/'preview.png').read_bytes()
         self.assertTrue(png.startswith(b'\x89PNG\r\n\x1a\n'))
@@ -100,7 +100,7 @@ class ExportGuiTests(unittest.TestCase):
 
     def test_failed_background_export_publishes_nothing_and_restores_actions(self):
         with patch('package_export.bom.export',side_effect=OSError('Injected export failure')):
-            self.click('Complete package')
+            self.click('Export package')
         self.assertFalse(list(self.app.output_dir.iterdir()))
         self.assertTrue(self.app.export_menu.get_sensitive())
         self.assertFalse(self.app.busy)

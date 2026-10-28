@@ -117,6 +117,34 @@ class BundleIntegrityTests(unittest.TestCase):
 
 
 class BootstrapTests(unittest.TestCase):
+    def test_agent_command_dispatches_before_any_gtk_runtime_setup(self):
+        import ratiolab_cli
+        module = ModuleType('ratiolab_mcp')
+        calls = []
+        module.main = lambda args: calls.append(args) or 0
+        with patch.dict(sys.modules, {'ratiolab_mcp': module}), \
+                patch.object(ratiolab_cli, 'prepare_native_runtime') as prepare:
+            self.assertEqual(ratiolab_cli.main(['--mcp', '--workspace', '/agent workspace']), 0)
+        prepare.assert_not_called()
+        self.assertEqual(calls, [['--workspace', '/agent workspace']])
+
+    def test_frozen_agent_stream_is_never_redirected_to_a_log_or_report(self):
+        entry = load('bundle_entrypoint_agent_test', ROOT/'packaging/entrypoint.py')
+        output = io.StringIO()
+        with patch('ratiolab_cli.main', side_effect=lambda args: print('{"jsonrpc":"2.0"}') or 0), \
+                patch.object(sys, 'argv', ['RatioLab', '--mcp', '--workspace', '/agent']), \
+                patch.object(sys, 'stdin', io.StringIO()), patch.object(sys, 'stdout', output):
+            self.assertEqual(entry.main(), 0)
+        self.assertEqual(json.loads(output.getvalue()), {'jsonrpc': '2.0'})
+
+    def test_windowed_windows_agent_launch_without_streams_fails_immediately(self):
+        entry = load('bundle_entrypoint_agent_no_console_test', ROOT/'packaging/entrypoint.py')
+        with patch.object(sys, 'argv', ['RatioLab.exe', '--mcp', '--workspace', '/agent']), \
+                patch.object(sys, 'stdin', None), patch.object(sys, 'stdout', None), \
+                patch.object(sys, 'stderr', None), patch('ratiolab_cli.main') as run:
+            self.assertEqual(entry.main(), 2)
+        run.assert_not_called()
+
     def test_runtime_hook_uses_bundle_paths_only(self):
         with tempfile.TemporaryDirectory() as temporary, \
                 patch.object(sys, 'frozen', True, create=True), \

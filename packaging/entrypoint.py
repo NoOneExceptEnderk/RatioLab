@@ -10,6 +10,12 @@ def main():
     from app_paths import data_dir
     from ratiolab_cli import main as run
     args = sys.argv[1:]
+    if '--mcp' in args:
+        if sys.stdin is None or sys.stdout is None:
+            if sys.stderr is not None:
+                print('Use the RatioLab-MCP console companion for agent tools.', file=sys.stderr)
+            return 2
+        return run(args)
     report = None
     if '--report' in args:
         index = args.index('--report')

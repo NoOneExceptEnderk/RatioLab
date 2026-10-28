@@ -12,6 +12,7 @@ class BuildPy(build_py):
         # personal data or Git metadata can enter the wheel.
         resources = [
             (root/'INSTALL.md', target/'INSTALL.md'),
+            (root/'MCP.md', target/'MCP.md'),
             (root/'catalogo-cuscinetti.json', target/'catalogo-cuscinetti.json'),
             (root/'catalogo-hardware.json', target/'catalogo-hardware.json'),
         ]

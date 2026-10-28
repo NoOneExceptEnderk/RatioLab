@@ -25,6 +25,7 @@ classifiers = [
 [project.scripts]
 ratiolab = "ratiolab_cli:main"
 ratiolab-install-desktop = "install_desktop:main"
+ratiolab-mcp = "ratiolab_mcp:main"
 
 [tool.setuptools]
 include-package-data = false
@@ -34,8 +35,8 @@ py-modules = [
   "engineering", "external_programs", "geartrains", "geometry", "gl_loader", "gui_workflow",
   "hardware", "hardware_catalog", "install_desktop", "io_controls",
   "component_geometry", "components_ui", "selected_export", "pair_assembly", "combination_search", "combination_search_ui", "collision_geometry", "interference", "interference_ui", "kinematics", "motion", "motion_controls", "mounting", "preview3d",
-  "project_document", "project_ui", "package_export", "printed_shaft", "profile_export", "ratiolab_checks", "ratiolab_cli", "result_controls", "solid_geometry",
-  "special_drives", "wave_geometry", "tooth_profiles", "standard_parts", "stl_export", "workspace_ui",
+  "project_document", "project_ui", "package_export", "printed_shaft", "profile_export", "ratiolab_agent", "ratiolab_mcp", "ratiolab_checks", "ratiolab_cli", "result_controls", "solid_geometry",
+  "special_drives", "wave_geometry", "tooth_profiles", "standard_parts", "stl_export", "workspace_ui", "workspace_tools",
 ]
 
 [tool.setuptools.cmdclass]

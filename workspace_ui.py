@@ -59,6 +59,7 @@ window.reducers { background: #1d2229; color: #e9eef4; font-size: 14px; }
 .reducers .study { color: #efbf79; font-size: 12px; }
 .reducers .error { color: #ffb1a5; font-size: 12px; }
 .reducers .derived { background: #27313b; }
+.reducers .derived-output { background: #151b22; border: 1px solid #38414d; border-left: 2px solid #7cc8c8; border-radius: 4px; padding: 4px 8px; font-size: 16px; min-width: 42px; }
 .reducers .field-error { border-color: #f1a596; }
 .reducers .field-feedback { padding: 2px 0 3px; }
 .reducers .io-role { padding: 6px 7px; background: #242b34; border-left: 2px solid #718499; }
@@ -73,6 +74,17 @@ window.reducers { background: #1d2229; color: #e9eef4; font-size: 14px; }
 .reducers .connected { color: #a9cdbb; }
 .reducers .motion-input-error { color: #ffb1a5; font-size: 12px; }
 .reducers popover > contents { background: #1d2229; color: #e9eef4; border: 1px solid #38414d; border-radius: 7px; padding: 12px; }
+.reducers .tool-dock { background: #242b34; border-left: 1px solid #38414d; }
+.reducers .tool-nav { padding: 7px; border-bottom: 1px solid #38414d; }
+.reducers .tool-nav button { padding: 3px 7px; font-size: 12px; }
+.reducers .tool-nav button:checked { border-color: #7cc8c8; background: #30434a; }
+.reducers .tool-dock list { background: #151b22; border: 1px solid #38414d; border-radius: 4px; }
+.reducers .tool-dock row { padding: 8px; border-bottom: 1px solid #38414d; }
+.reducers .tool-dock row:selected { background: #30434a; color: #e9eef4; }
+.reducers textview text { background: #151b22; color: #e9eef4; }
+.reducers .tool-dock flowboxchild { padding: 0; }
+.reducers .measurement { background: #151b22; border: 1px solid #38414d; border-radius: 5px; padding: 10px; font-variant-numeric: tabular-nums; }
+.reducers .document-name { font-weight: 600; }
 .reducers .motion-palette scale trough { min-height: 4px; background: #3c4754; }
 .reducers .motion-palette scale highlight { background: #7cc8c8; }
 .reducers .motion-palette scale slider { min-width: 18px; min-height: 18px; margin: -7px 0; padding: 0; background: #d2dce6; }
@@ -129,6 +141,7 @@ def build(app, labels):
     app.win.set_default_size(1600, 1000)
     provider = Gtk.CssProvider()
     provider.load_from_data(CSS)
+    app.workspace_style = provider
     Gtk.StyleContext.add_provider_for_display(Gdk.Display.get_default(), provider,
                                               Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
     root = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
@@ -138,22 +151,43 @@ def build(app, labels):
     logo = Gtk.Image.new_from_gicon(Gio.FileIcon.new(Gio.File.new_for_path(str(brand_dir/'ratiolab-icon.png'))))
     logo.set_pixel_size(28)
     brand.append(logo)
-    brand.append(Gtk.Label(label='RatioLab', css_classes=['title']))
+    title_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=1)
+    app.project_title = Gtk.Label(label='RatioLab', xalign=0, max_width_chars=28, ellipsize=Pango.EllipsizeMode.MIDDLE, css_classes=['document-name'])
+    title_box.append(app.project_title)
+    app.document_label = Gtk.Label(xalign=0, ellipsize=Pango.EllipsizeMode.MIDDLE,
+                                  max_width_chars=28, css_classes=['muted'])
+    title_box.append(app.document_label)
+    brand.append(title_box)
     header.set_title_widget(brand)
-    for title, callback in [('New', app.new_project), ('Open…', app.load_dialog), ('Save', app.save_dialog), ('Save As…', app.save_as_dialog), ('Recent…', app.show_recent)]:
-        b = Gtk.Button(label=title, css_classes=['flat'])
-        b.set_tooltip_text({'New':'Start a new project (Ctrl+N)',
-                            'Open…':'Open a parameter configuration (Ctrl+O)',
-                            'Save':'Save the current project (Ctrl+S)',
-                            'Save As…':'Save this project to another file (Ctrl+Shift+S)',
-                            'Recent…':'Open a recent project'}[title])
-        b.connect('clicked', callback)
-        header.pack_start(b)
-        app.file_buttons.append(b)
-    for title, name, callback in [('Undo', 'undo_button', app.undo_project), ('Redo', 'redo_button', app.redo_project)]:
-        button = Gtk.Button(label=title, css_classes=['flat'])
+    for icon, title, callback in [('document-new-symbolic', 'New project · Ctrl+N', app.new_project),
+                                   ('document-open-symbolic', 'Open project · Ctrl+O', app.load_dialog)]:
+        button = Gtk.Button(icon_name=icon, css_classes=['flat'])
+        button.set_tooltip_text(title)
         button.connect('clicked', callback)
-        button.set_tooltip_text('Undo the last edit (Ctrl+Z)' if title=='Undo' else 'Redo the last edit (Ctrl+Shift+Z / Ctrl+Y)')
+        header.pack_start(button)
+        app.file_buttons.append(button)
+    save = Gtk.Button(label='Save', css_classes=['flat'])
+    save.set_tooltip_text('Save project · Ctrl+S')
+    save.connect('clicked', app.save_dialog)
+    header.pack_start(save)
+    app.file_buttons.append(save)
+    project_menu = Gtk.MenuButton(icon_name='view-more-symbolic', css_classes=['flat'])
+    project_menu.set_tooltip_text('Project · Save As and recent files')
+    project_popup = Gtk.Popover()
+    project_menu.set_popover(project_popup)
+    commands = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+    project_popup.set_child(commands)
+    for title, callback in [('Save As…', app.save_as_dialog), ('Recent projects…', app.show_recent)]:
+        button = Gtk.Button(label=title)
+        button.connect('clicked', lambda b, fn=callback: (project_popup.popdown(), fn(b)))
+        commands.append(button)
+        app.file_buttons.append(button)
+    header.pack_start(project_menu)
+    for icon, name, callback, hint in [('edit-undo-symbolic', 'undo_button', app.undo_project, 'Undo · Ctrl+Z'),
+                                       ('edit-redo-symbolic', 'redo_button', app.redo_project, 'Redo · Ctrl+Shift+Z / Ctrl+Y')]:
+        button = Gtk.Button(icon_name=icon, css_classes=['flat'])
+        button.connect('clicked', callback)
+        button.set_tooltip_text(hint)
         header.pack_start(button)
         setattr(app, name, button)
     gui_workflow.install_exports(app)
@@ -168,12 +202,6 @@ def build(app, labels):
     content.set_resize_start_child(False)
     content.set_vexpand(True)
     app.workspace_paned = content
-    app.document_label = Gtk.Label(xalign=0, ellipsize=Pango.EllipsizeMode.MIDDLE, css_classes=['muted'])
-    app.document_label.set_margin_start(14)
-    app.document_label.set_margin_end(14)
-    app.document_label.set_margin_top(4)
-    app.document_label.set_margin_bottom(4)
-    root.append(app.document_label)
     root.append(content)
     left = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, css_classes=['sidebar'])
     left.set_size_request(310, -1)
@@ -229,20 +257,45 @@ def build(app, labels):
     fit.set_tooltip_text('Fit model and restore the isometric view')
     fit.connect('clicked', lambda _: app.select_view('iso'))
     views.append(fit)
-    spacer = Gtk.Box(hexpand=True)
-    toolbar.append(spacer)
+    toolbar.append(Gtk.Box(hexpand=True))
+    app.pick_mode = Gtk.DropDown.new_from_strings(['Navigate', 'Select', 'Measure'])
+    app.pick_mode.set_selected(1)
+    app.pick_mode.set_tooltip_text('Navigate: orbit and zoom. Select: click surfaces; Ctrl/Shift adds. Measure: pick two surface points.')
+    toolbar.append(app.pick_mode)
+    visibility = Gtk.MenuButton(label='View')
+    toolbar.append(visibility)
+    popup = Gtk.Popover()
+    visibility.set_popover(popup)
+    view_body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=9)
+    popup.set_child(view_body)
+    view_body.append(Gtk.Label(label='Text size', xalign=0, css_classes=['muted']))
+    app.text_size = Gtk.DropDown.new_from_strings(['100%', '125%', '150%'])
+    view_body.append(app.text_size)
+    def text_size_changed(widget, *_):
+        import re
+        factor = (1, 1.25, 1.5)[widget.get_selected()]
+        scaled = re.sub(rb'font-size: (\d+)px', lambda m: f'font-size: {int(m[1])*factor:g}px'.encode(), CSS)
+        app.workspace_style.load_from_data(scaled)
+    app.text_size.connect('notify::selected', text_size_changed)
+    view_body.append(Gtk.Separator())
     app.view_options = {}
     for key, title in [('support','Supports'), ('housing','Housing'), ('exploded','Exploded'), ('section','Section')]:
         check = Gtk.CheckButton(label=title)
-        check.set_tooltip_text('View only; export uses the nominal assembly pose.' if key in ('section','exploded')
-                               else 'Component visibility in the preview and initially in CAD.')
+        check.set_tooltip_text('Preview only. Export always uses nominal coordinates and its explicit component scope.')
         check.connect('toggled', app.change_view_options)
-        toolbar.append(check)
+        view_body.append(check)
         app.view_options[key] = check
     overlay = Gtk.Overlay(css_classes=['preview-frame'])
     overlay.set_child(app.canvas)
     overlay.set_vexpand(True)
-    right.append(overlay)
+    app.viewport_paned = Gtk.Paned(orientation=Gtk.Orientation.HORIZONTAL, vexpand=True)
+    app.viewport_paned.set_start_child(overlay)
+    app.viewport_paned.set_shrink_start_child(False)
+    app.viewport_paned.set_shrink_end_child(False)
+    app.viewport_paned.set_resize_start_child(True)
+    right.append(app.viewport_paned)
+    from workspace_tools import Dock
+    app.tools = Dock(app, app.viewport_paned, toolbar)
     app.preview_overlay = overlay
     app.empty = Gtk.Label(label='Generating geometry…', css_classes=['preview-state'])
     app.empty.set_halign(Gtk.Align.START)
@@ -260,11 +313,18 @@ def build(app, labels):
     right.append(playback)
     motion_controls.install(app, playback)
     from interference_ui import Controller
-    app.interference = Controller(app, playback)
+    app.interference = Controller(app, app.tools)
     from combination_search_ui import Controller as SearchController
-    app.combination_search = SearchController(app, playback)
+    app.combination_search = SearchController(app, app.tools)
     from components_ui import Controller as ComponentsController
-    app.components = ComponentsController(app, playback)
+    app.components = ComponentsController(app, app.tools)
+    def pick_mode_changed(*_):
+        mode = app.pick_mode.get_selected()
+        if mode == 2:
+            app.components.open()
+        if app.components.window:
+            app.components.measure.set_active(mode == 2)
+    app.pick_mode.connect('notify::selected', pick_mode_changed)
     app.metric_cards = Gtk.FlowBox(css_classes=['results-strip'])
     app.metric_cards.set_selection_mode(Gtk.SelectionMode.NONE)
     app.metric_cards.set_column_spacing(12)
