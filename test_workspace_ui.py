@@ -2,6 +2,8 @@
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import time
+import os
+from unittest.mock import patch
 import unittest
 import gi
 gi.require_version('Gtk', '4.0')
@@ -47,10 +49,13 @@ class WorkspaceTests(unittest.TestCase):
         if not Gtk.init_check() or Gdk.Display.get_default() is None:
             raise unittest.SkipTest('GTK display required')
         cls.folder = TemporaryDirectory()
+        cls.environment = patch.dict(os.environ, dict(XDG_CONFIG_HOME=str(Path(cls.folder.name)/'config'), XDG_DATA_HOME=str(Path(cls.folder.name)/'data'), APPDATA=str(Path(cls.folder.name)/'roaming'), LOCALAPPDATA=str(Path(cls.folder.name)/'local')))
+        cls.environment.start()
         cls.original_base, cls.original_generated = module.BASE, module.GENERATED
         module.BASE = Path(cls.folder.name)
         module.GENERATED = module.BASE/'exports'
         cls.app = module.ReducerApp()
+        cls.app.set_application_id(f'local.solidcraft.reducers.workspacetests.p{os.getpid()}')
         cls.app.set_flags(Gio.ApplicationFlags.NON_UNIQUE)
         cls.app.register(None)
         cls.app.activate()
@@ -61,6 +66,7 @@ class WorkspaceTests(unittest.TestCase):
         for window in cls.app.get_windows():
             window.destroy()
         module.BASE, module.GENERATED = cls.original_base, cls.original_generated
+        cls.environment.stop()
         cls.folder.cleanup()
 
     def setUp(self):
@@ -148,7 +154,11 @@ class WorkspaceTests(unittest.TestCase):
         a = self.app
         a.load_config_data({'format':'solidcraft-riduttori/1','family':'cycloidal',
                             'parameters':generate('cycloidal',{'variant':'dual'}).values})
-        a.win.set_default_size(1280,800)
+        # Remap to a known size: changing the default on a mapped window is
+        # only a WM hint. Verify the resulting actual viewport still overflows.
+        a.win.set_visible(False)
+        a.win.set_default_size(1280,740)
+        a.win.present()
         a.advanced_expander.set_expanded(True)
         pump(.2)
         adj=a.page_scrolls['geometry'].get_vadjustment()

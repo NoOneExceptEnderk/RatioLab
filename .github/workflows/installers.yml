@@ -85,6 +85,7 @@ jobs:
           export PYGI_DLL_PATH="$(cygpath -w /ucrt64/bin)"
           /ucrt64/bin/python.exe scripts/build-bundle.py
           /ucrt64/bin/python.exe -m unittest test_bundles test_external_programs -v
+          echo "RATIOLAB_NATIVE_PYTHON=$(cygpath -w /ucrt64/bin/python.exe)" >> "$GITHUB_ENV"
       - name: Compile the real per-user Inno Setup installer
         shell: pwsh
         run: ./scripts/package-windows.ps1
@@ -103,14 +104,22 @@ jobs:
           if ($process.ExitCode -ne 0) { throw 'Installed runtime failed' }
           $result = Get-Content $report -Raw -Encoding UTF8 | ConvertFrom-Json
           if ($result.self_test -ne 'passed' -or -not $result.bundled) { throw 'Installed app did not prove bundled GTK' }
+          if (@($result.features.PSObject.Properties).Count -ne 6 -or @($result.features.PSObject.Properties | Where-Object Value -ne 'passed').Count -ne 0) { throw 'Installed new features failed' }
           Get-Content $report
-          if ('${{ inputs.native_gui }}' -eq 'true') {
-            $process = Start-Process -FilePath "$destination\RatioLab.exe" -ArgumentList @('--self-test-gui', '--report', ('"' + $report + '"')) -Wait -PassThru
-            if ($process.ExitCode -ne 0) { throw 'Native GUI/GL check failed' }
-          }
+          $python = $env:RATIOLAB_NATIVE_PYTHON
+          $guiArguments = @('scripts/check-installed-gui.py', "$destination\RatioLab.exe", "$env:RUNNER_TEMP\installed-gui-check")
+          if ('${{ inputs.native_gui }}' -eq 'true') { $guiArguments += '--require' }
+          & $python @guiArguments
+          if ($LASTEXITCODE -ne 0) { throw 'Installed GUI verification failed' }
           $process = Start-Process -FilePath "$destination\unins000.exe" -ArgumentList @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART') -Wait -PassThru
           if ($process.ExitCode -ne 0) { throw 'Uninstall failed' }
           if (Test-Path "$destination\RatioLab.exe") { throw 'Uninstall left the application executable' }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ratiolab-windows-gui-verification
+          path: ${{ runner.temp }}/installed-gui-check/*
+          if-no-files-found: ignore
       - uses: actions/upload-artifact@v4
         with:
           name: ratiolab-windows-x86_64-installer
@@ -155,11 +164,18 @@ jobs:
           ditto "$RUNNER_TEMP/dmg-mount/RatioLab.app" "$RUNNER_TEMP/installed app Ω/RatioLab.app"
           env -u PYTHONPATH -u PYTHONHOME -u GI_TYPELIB_PATH -u DYLD_LIBRARY_PATH -u DYLD_FALLBACK_LIBRARY_PATH PATH=/usr/bin:/bin:/usr/sbin:/sbin "$RUNNER_TEMP/installed app Ω/RatioLab.app/Contents/MacOS/RatioLab" --self-test --report "$RUNNER_TEMP/macos-installed.json"
           cat "$RUNNER_TEMP/macos-installed.json"
-          if [ '${{ inputs.native_gui }}' = true ]; then
-            env PATH=/usr/bin:/bin:/usr/sbin:/sbin "$RUNNER_TEMP/installed app Ω/RatioLab.app/Contents/MacOS/RatioLab" --self-test-gui --report "$RUNNER_TEMP/macos-gui.json"
-          fi
+          "$RUNNER_TEMP/bundle-env/bin/python" -c 'import json,sys; r=json.load(open(sys.argv[1])); assert len(r["features"]) == 6 and set(r["features"].values()) == {"passed"}' "$RUNNER_TEMP/macos-installed.json"
+          require_gui=''
+          if [ '${{ inputs.native_gui }}' = true ]; then require_gui='--require'; fi
+          env -u PYTHONPATH -u PYTHONHOME -u GI_TYPELIB_PATH -u DYLD_LIBRARY_PATH -u DYLD_FALLBACK_LIBRARY_PATH PATH=/usr/bin:/bin:/usr/sbin:/sbin "$RUNNER_TEMP/bundle-env/bin/python" scripts/check-installed-gui.py "$RUNNER_TEMP/installed app Ω/RatioLab.app/Contents/MacOS/RatioLab" "$RUNNER_TEMP/installed-gui-check" $require_gui
           codesign --verify --deep --strict "$RUNNER_TEMP/installed app Ω/RatioLab.app"
           rm -rf "$RUNNER_TEMP/installed app Ω/RatioLab.app"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ratiolab-macos-${{ matrix.arch }}-gui-verification
+          path: ${{ runner.temp }}/installed-gui-check/*
+          if-no-files-found: ignore
       - uses: actions/upload-artifact@v4
         with:
           name: ratiolab-macos-${{ matrix.arch }}-dmg

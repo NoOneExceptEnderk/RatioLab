@@ -45,20 +45,23 @@ def part_info(p):
 
 def build(design):
     grouped={}
-    for p in design.parts:
+    indices=getattr(design,'source_indices',list(range(1,len(design.parts)+1)))
+    for source_index,p in zip(indices,design.parts):
         info=part_info(p);key=info['code']
-        if key not in grouped:grouped[key]=dict(info,quantity=0,positions=[])
+        if key not in grouped:grouped[key]=dict(info,quantity=0,positions=[],**({'source_indices':[]} if hasattr(design,'export_scope') else {}))
         grouped[key]['quantity']+=1;grouped[key]['positions'].append(p.name)
+        if hasattr(design,'export_scope'):grouped[key]['source_indices'].append(source_index)
     requirements=['Design and dimension axial stops and bearing shoulders.','Define keys, threaded fasteners, seals, lubricant and their codes/quantities for the assembly.','Envelopes are not selected commercial parts; the purchase list is incomplete while TO BE DEFINED items remain.']
     if design.values.get('hardware_mode')=='standard':requirements=['Define materials, manufacturing tolerances, load checks and service life.','Listed machining operations are present in the model; remaining connections and envelopes must be completed.']
     requirements+=design.requirements
-    ports=[dict(position=p.name,**p.port) for p in design.parts if p.port]
-    machining=[dict(position=p.name,operation=op) for p in design.parts for op in p.machining]
-    return dict(format='solidcraft-riduttori-bom/1',family=design.family,parameters=design.values,analysis=design.analysis,ports=ports,rows=list(grouped.values()),machining=machining,requirements=requirements)
+    ports=[dict(position=p.name,**({'source_index':i} if hasattr(design,'export_scope') else {}),**p.port) for i,p in zip(indices,design.parts) if p.port]
+    machining=[dict(position=p.name,operation=op,**({'source_index':i} if hasattr(design,'export_scope') else {})) for i,p in zip(indices,design.parts) for op in p.machining]
+    return dict(format='solidcraft-riduttori-bom/1',family=design.family,parameters=design.values,analysis=design.analysis,**({'export_scope':design.export_scope} if hasattr(design,'export_scope') else {}),ports=ports,rows=list(grouped.values()),machining=machining,requirements=requirements)
 
 
 def as_text(bom):
     lines=['BILL OF MATERIALS · SOLIDCRAFT REDUCERS',f'Model: {bom["family"]}','Dimensions in mm; strength and service life are not verified.','']
+    if bom.get('export_scope'):lines += ['SELECTED COMPONENTS ONLY · not a complete assembly','Source indices: '+', '.join(map(str,bom['export_scope']['source_indices'])),'Calculations describe the source configuration.','']
     for category in ('PURCHASE','MANUFACTURE','TO BE DEFINED'):
         lines.append(category)
         rows=[r for r in bom['rows'] if r['category']==category]
@@ -66,6 +69,7 @@ def as_text(bom):
         for r in rows:
             lines.append(f'  {r["quantity"]} × {r["code"]} — {r["description"]} — {r["dimensions"]}')
             lines.append('    Positions: '+', '.join(r['positions']))
+            if 'source_indices' in r:lines.append('    Source indices: '+', '.join(map(str,r['source_indices'])))
             if r['source']:lines.append('    Catalog: '+r['source'])
         lines.append('')
     if bom.get('machining'):
@@ -95,13 +99,13 @@ def export(design,stem):
     stem=Path(stem);stem.parent.mkdir(parents=True,exist_ok=True);bom=build(design)
     Path(str(stem)+'.bom.txt').write_text(as_text(bom),encoding='utf-8')
     Path(str(stem)+'.bom.json').write_text(json.dumps(bom,indent=2,ensure_ascii=False)+'\n',encoding='utf-8')
-    fields=['category','code','description','quantity','dimensions','manufacturer','source','standard','positions']
+    fields=(['source_indices'] if hasattr(design,'export_scope') else [])+['category','code','description','quantity','dimensions','manufacturer','source','standard','positions']
     with Path(str(stem)+'.bom.csv').open('w',newline='',encoding='utf-8-sig') as f:
         w=csv.DictWriter(f,fieldnames=fields);w.writeheader()
-        for r in bom['rows']:w.writerow(dict(r,positions='; '.join(r['positions'])))
+        for r in bom['rows']:w.writerow({k:('; '.join(r['positions']) if k=='positions' else r.get(k,'')) for k in fields})
     if bom['machining']:
         Path(str(stem)+'.lavorazioni.json').write_text(json.dumps(bom['machining'],indent=2,ensure_ascii=False)+'\n',encoding='utf-8')
     from engineering import report_text
     Path(str(stem)+'.calcoli.json').write_text(json.dumps(design.analysis,indent=2,ensure_ascii=False)+'\n',encoding='utf-8')
-    Path(str(stem)+'.calcoli.txt').write_text(report_text(design),encoding='utf-8')
+    Path(str(stem)+'.calcoli.txt').write_text(('SELECTED COMPONENTS ONLY. Calculations below describe the SOURCE configuration.\n\n' if hasattr(design,'export_scope') else '')+report_text(design),encoding='utf-8')
     return bom

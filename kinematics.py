@@ -123,9 +123,9 @@ def apply(d):
             name = p.name
             member = ''
             if f == 'parallel':
-                member = 'A' if any((k in name for k in ('Pinion', 'Shaft_input'))) else 'B' if any((k in name for k in ('Wheel', 'Shaft_output'))) else ''
+                member = p.port.get('member','') if p.port.get('member') in ('A','B') else 'A' if any((k in name for k in ('Pinion', 'Shaft_input'))) else 'B' if any((k in name for k in ('Wheel', 'Shaft_output'))) else ''
             if f == 'internal':
-                member = 'A' if 'input' in name else 'B' if 'Ring' in name else ''
+                member = p.port.get('member','') if p.port.get('member') in ('A','B') else 'A' if 'input' in name else 'B' if 'Ring' in name else ''
             if f == 'worm':
                 member = 'A' if name.startswith('Screw_') else 'B' if name.startswith('Wheel_') else ''
             if member:

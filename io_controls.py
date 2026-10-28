@@ -35,15 +35,7 @@ def build(app, values, variant, choice):
     app.option_values['io_scheme'] = active
 
     def commit(changes):
-        try:
-            current = app.read_values()
-        except ValueError as e:
-            app.parameter_error.set_text(str(e))
-            app.parameter_error.set_visible(True)
-            return
-        current.update(changes)
-        app.values[app.family] = current
-        app.make_fields()
+        app.rebuild_options(changes)
     if app.family in TRIPLES:
         names = TRIPLES[app.family]
         two = app.family == 'planetary' and variant in ('two_stage', 'two_stage_double')

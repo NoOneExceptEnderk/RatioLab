@@ -245,6 +245,9 @@ def apply_hardware(d):
             if bearings:d.requirements.append('Check that shims and spacers contact only the intended bearing ring; internal raceways are not modelled.')
         elif v['hardware_shims']:
             t=float(v['hardware_shim']);shim(d,shaft,-t,'Shim_lower');shim(d,shaft,gear.width,'Shim_upper')
+    elif d.family in ('parallel','internal'):
+        from pair_assembly import hardware
+        hardware(d)
     elif d.family=='planetary':
         if v['hardware_keys']:
             suns=[p for p in d.parts if p.name.endswith('_Sun')]

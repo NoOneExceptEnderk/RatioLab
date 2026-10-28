@@ -15,6 +15,13 @@ def searchable_dropdown(labels):
     dropdown.set_enable_search(True)
     return dropdown
 
+def roundtrip_text(value, digits=2):
+    """Use ordinary UI decimals only when they roundtrip to the same float."""
+    value = float(value)
+    text = format(value, f'.{digits}f')
+    return text if float(text) == value else repr(value)
+
+
 def text(value, style='muted'):
     widget = Gtk.Label(label=value, xalign=0, wrap=True, css_classes=[style])
     widget.set_max_width_chars(40)
@@ -104,17 +111,28 @@ def install_cad(app):
 
 
 def preserve_scroll(app):
-    """Restore a rebuilt panel after GTK has measured its new contents."""
-    positions = {k: w.get_vadjustment().get_value() for k, w in app.page_scrolls.items()}
+    """Keep positions through GTK's measure/allocate and expander animations."""
+    positions = getattr(app, '_scroll_restore_positions', None) or {
+        k: w.get_vadjustment().get_value() for k, w in app.page_scrolls.items()}
+    app._scroll_restore_positions = positions
     app.panel_revision = getattr(app, 'panel_revision', 0) + 1
     revision = app.panel_revision
-    def restore(*args):
-        if revision == app.panel_revision:
-            for key, value in positions.items():
-                adj = app.page_scrolls[key].get_vadjustment()
-                adj.set_value(min(value, max(adj.get_lower(), adj.get_upper()-adj.get_page_size())))
-        return False
-    app.win.add_tick_callback(lambda *_: restore())
+    frames = 0
+    def restore(widget, clock):
+        nonlocal frames
+        if revision != app.panel_revision:
+            return False
+        frames += 1
+        for key, value in positions.items():
+            adj = app.page_scrolls[key].get_vadjustment()
+            adj.set_value(min(value, max(adj.get_lower(), adj.get_upper()-adj.get_page_size())))
+        # Tick callbacks precede layout. Retain the request across subsequent
+        # allocations, including the expander's short reveal transition.
+        if frames >= 12:
+            app._scroll_restore_positions = None
+            return False
+        return True
+    app.win.add_tick_callback(restore)
 
 
 def geometry_groups(app, specs):
@@ -169,27 +187,37 @@ def geometry_groups(app, specs):
         row.append(name)
         spin = Gtk.SpinButton.new_with_range(low, high, step)
         value = app.field_values.get(key, default)
-        decimals = len(f'{value:.6f}'.rstrip('0').partition('.')[2])
-        spin.set_digits(0 if key in INTEGER else max(2, decimals))
+        from decimal import Decimal
+        decimals = max(0, -Decimal(str(value)).as_tuple().exponent)
+        spin.set_digits(0 if key in INTEGER else min(12, max(2, decimals)))
         spin.set_numeric(False)
+        spin.set_enable_undo(False)
         spin.set_value(value)
         spin.set_width_chars(6)
         spin.set_max_width_chars(8)
         spin.set_alignment(1)
         spin.set_tooltip_text(label)
-        def preserve_invalid_text(widget, low=low, high=high):
-            # GTK normally replaces an invalid entry on focus loss. Keep the
-            # user's text so validation can explain it instead of silently
-            # substituting the previous or clamped value.
+        last_adjustment = [spin.get_value()]
+        def preserve_entry_text(widget, low=low, high=high, last=last_adjustment):
+            # GTK's default output rounds valid edits to set_digits(). Preserve
+            # the entered float through update/focus-out as well as incomplete
+            # input. Arrow buttons have a new adjustment value and need output.
+            current = widget.get_value()
+            previous, last[0] = last[0], current
             if app.building:
-                return False
+                return True  # The caller supplies its exact intended float.
             try:
                 from math import isfinite
                 number = float(widget.get_text().strip().replace(',', '.'))
-                return not isfinite(number) or not low <= number <= high
+                if not isfinite(number) or not low <= number <= high:
+                    return True
             except ValueError:
                 return True
-        spin.connect('output', preserve_invalid_text)
+            if number != current and current != previous:
+                widget.set_text(roundtrip_text(current, widget.get_digits()))
+            return True
+        spin.connect('output', preserve_entry_text)
+        spin.set_text(roundtrip_text(value, spin.get_digits()))
         spin.connect('value-changed', app.changed)
         spin.connect('changed', app.changed)
         name.set_mnemonic_widget(spin)
@@ -298,8 +326,12 @@ def update_family(app):
     app.family_hint.set_text('Geometric study · illustrative profiles')
     app.family_hint.set_visible(app.family in ('harmonic', 'worm'))
     app.eccentric_section.set_visible(app.family=='cycloidal')
-    enabled = app.sections['bearings'][0].get_visible() or app.sections['hardware'][0].get_visible()
-    app.mount_help.set_text('Linked dimensions update automatically.' if enabled else 'This family does not use the automatic catalog. Adjust flanges, shafts and clearances in Dimensions; interfaces follow the choices in Motion.')
+    from catalog import SUPPORTED
+    printed=app.family=='cycloidal' and app.option_values.get('eccentric_design')=='fdm_bolted'
+    enabled=app.family in SUPPORTED and not printed
+    message='Linked dimensions update automatically.' if enabled else 'Automatic catalog unavailable for this construction. See the disabled controls and reasons below; adjust the dedicated geometry and interfaces.'
+    if app.family=='internal':message='Linked catalog dimensions cover the pinion shaft only. The ring output needs a dedicated annular support.'
+    app.mount_help.set_text(message)
     if not app.io_frame.get_visible():
         app.motion_help.set_text('This is a single gear. Use Start motion in the motion bar to see it rotate and set speed and torque.')
     else:
@@ -346,7 +378,7 @@ def install_exports(app):
         setter(12)
     popup.set_child(body)
     app.export_menu.set_popover(popup)
-    for title, description, fn in [('STL for 3D printing', 'Complete assembly and one file per component.', app.export_stl), ('Complete package', 'STL, CAD script, preview, parameters, BOM and calculations.', app.export), ('BOM and calculations', 'TXT, CSV and JSON for components and nominal calculations.', app.export_bom)]:
+    for title, description, fn in [('STEP for CAD', 'Standalone assembly and one solid file per component · mm.', app.export_step), ('SVG / DXF profiles', 'Plane contours and holes · mm. Helical/deformed parts: sections only, not extrusion profiles.', app.export_profiles), ('STL for 3D printing', 'Complete assembly and one file per component.', app.export_stl), ('Complete package', 'STEP, STL, SVG/DXF, CAD script, preview, parameters, BOM and calculations.', app.export), ('BOM and calculations', 'TXT, CSV and JSON for components and nominal calculations.', app.export_bom)]:
         b = action(body, title, description, lambda _, fn=fn: (popup.popdown(), fn()))
         app.file_buttons.append(b)
     body.append(Gtk.Separator())
@@ -371,7 +403,13 @@ def choose_output(app):
 
     def response(d, r):
         if r == Gtk.ResponseType.ACCEPT:
-            folder = Path(d.get_file().get_path())
+            selected=d.get_file()
+            local_path=selected.get_path() if selected else None
+            if not local_path:
+                app.status_text('No local destination folder selected.')
+                d.destroy()
+                return
+            folder = Path(local_path)
             app.output_dir = folder
             app.output_label.set_text(str(folder))
             try:
@@ -401,11 +439,22 @@ def open_link(app, uri):
     return True  # Suppress Gtk.LinkButton's default unsanitized launch handler.
 
 def install_shortcuts(app):
-    for name, accelerator, callback in [('open', '<Control>o', app.load_dialog), ('save', '<Control>s', app.save_dialog), ('export', '<Control>e', lambda _: app.export_menu.popup())]:
+    for name, accelerator, callback in [('new', '<Control>n', app.new_project), ('open', '<Control>o', app.load_dialog), ('save', '<Control>s', app.save_dialog), ('save-as', '<Control><Shift>s', app.save_as_dialog), ('undo', '<Control>z', app.undo_project), ('redo', '<Control><Shift>z', app.redo_project), ('close', '<Control>w', app.close_project), ('export', '<Control>e', lambda _: app.export_menu.popup())]:
         action = Gio.SimpleAction.new(name, None)
         action.connect('activate', lambda _, parameter, fn=callback: fn(None) if not app.busy else None)
         app.add_action(action)
         app.set_accels_for_action('app.' + name, [accelerator])
+    # Capture history shortcuts before GtkEntry's local text editor can consume
+    # Ctrl+Z. The document restores text, options and family in one operation.
+    controller = Gtk.ShortcutController()
+    controller.set_scope(Gtk.ShortcutScope.GLOBAL)
+    controller.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
+    app.history_shortcuts = []
+    for trigger, name in [('<Control>z', 'undo'), ('<Control><Shift>z', 'redo'), ('<Control>y', 'redo')]:
+        shortcut = Gtk.Shortcut.new(Gtk.ShortcutTrigger.parse_string(trigger), Gtk.NamedAction.new('app.'+name))
+        controller.add_shortcut(shortcut)
+        app.history_shortcuts.append(shortcut)
+    app.win.add_controller(controller)
 
 def show_report(app, title, content):
     """Report consultabile con ricerca, selezione e copia del testo."""

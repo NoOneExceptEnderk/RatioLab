@@ -1,7 +1,7 @@
 """Quote nominali verificate su cataloghi primari, mm. Nessun prezzo o SKU inventato."""
 from math import isfinite
 VERIFIED='2026-10-23'
-SUPPORTED={'spur','helical','double','planetary','cycloidal'}
+SUPPORTED={'spur','helical','double','planetary','cycloidal','parallel','internal'}
 MODES={'none':'No additional hardware','standard':'Assembly with standard components'}
 KEY_SOURCE='https://www.ganternorm.com/fileadmin/user_upload/downloads/technischer%20anhang/technical_information/6885-1.pdf'
 KEY_PRODUCT='https://gardette.com/en/catalog/parallel-key-b'
@@ -38,9 +38,12 @@ def options(family,supplied):
     if screw not in FASTENERS or shim not in SHIM_THICKNESSES:raise ValueError('Hardware size is not in the catalog')
     out=dict(hardware_mode=mode,hardware_screw=screw,hardware_shim=shim)
     for k in ('retaining','keys','bolts','shims'):
-        value=supplied.get('hardware_'+k,True)
+        value=supplied.get('hardware_'+k,False if family in ('parallel','internal') and k=='bolts' else True)
         if not isinstance(value,bool):raise ValueError('Hardware options require yes/no')
         out['hardware_'+k]=value
+    if family in ('parallel','internal') and mode=='standard' and out['hardware_bolts']:
+        from pair_assembly import BOLT_REASON
+        raise ValueError(BOLT_REASON)
     return out
 
 

@@ -13,6 +13,13 @@ Frameworks/Resources layout. App data are never written into either layout.
 The Linux packager consumes the folder and its root `bundle-manifest.json`.
 For macOS the manifest is external to the signed `.app`, avoiding seal changes.
 
+Standalone STEP and SVG/DXF export use only Python's standard library. The
+`cad_export`, `profile_export`, `package_export` and `export_transaction` modules
+are imported by the application and collected by PyInstaller; they are also
+explicitly listed in the wheel's `py-modules`. No OpenCascade, SolidCraft or DXF
+library is required by the installed exporter. OpenCascade/ezdxf used in review
+are external test readers and must not be bundled into the application.
+
 The custom hooks use PyInstaller's `GiModuleInfo.collect_typelib_data()`, which
 also collects GI overrides and transitive namespaces. Gtk/Gdk versions are
 explicitly 4.0. Schemas are limited to GTK4 and compiled by PyInstaller; icons

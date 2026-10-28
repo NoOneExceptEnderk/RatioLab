@@ -60,5 +60,5 @@ def build_train(d):
             d.metrics = [f'Parallel shafts · reduction −{r1:.5g}:1', f'Centre distance {a1:.3f} mm · opposite rotation direction']
     if double:
         d.notes.append('Double helix: εβ is calculated on one active half, excluding the groove. Axial thrust cancellation assumes symmetric load sharing; Fa is the full torque reference for a single helix.')
-    d.requirements.append('Nominal shafts without keys or retainers; supports, bearings, fasteners and housing must be designed. The automatic catalog does not yet apply to these two families.')
-    d.notes.append('Total nominal pair backlash is shared between the two profiles. External profile shift is balanced, x1 = −x2; additional centre distance further increases backlash. No tool generated trochoidal fillets.')
+    d.requirements.append('Nominal shafts without keys or retainers; supports, bearings, fasteners and housing must be designed. The optional shaft-support catalog covers both parallel shafts, or only the internal pair pinion; an internal ring needs a dedicated annular support.')
+    d.notes.append('Total nominal pair backlash is shared between the two profiles. External profile shift is balanced, x1 = −x2; additional centre distance further increases backlash. External roots use a rounded normal rack envelope with undercut trimming. Internal ring roots use a tangent circular construction, not a pinion-cutter envelope; manufacturing and cutter interference remain unverified.')

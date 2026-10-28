@@ -140,12 +140,22 @@ def build(app, labels):
     brand.append(logo)
     brand.append(Gtk.Label(label='RatioLab', css_classes=['title']))
     header.set_title_widget(brand)
-    for title, callback in [('Open…', app.load_dialog), ('Save…', app.save_dialog)]:
+    for title, callback in [('New', app.new_project), ('Open…', app.load_dialog), ('Save', app.save_dialog), ('Save As…', app.save_as_dialog), ('Recent…', app.show_recent)]:
         b = Gtk.Button(label=title, css_classes=['flat'])
-        b.set_tooltip_text('Open a parameter configuration' if title=='Open…' else 'Save the current configuration')
+        b.set_tooltip_text({'New':'Start a new project (Ctrl+N)',
+                            'Open…':'Open a parameter configuration (Ctrl+O)',
+                            'Save':'Save the current project (Ctrl+S)',
+                            'Save As…':'Save this project to another file (Ctrl+Shift+S)',
+                            'Recent…':'Open a recent project'}[title])
         b.connect('clicked', callback)
         header.pack_start(b)
         app.file_buttons.append(b)
+    for title, name, callback in [('Undo', 'undo_button', app.undo_project), ('Redo', 'redo_button', app.redo_project)]:
+        button = Gtk.Button(label=title, css_classes=['flat'])
+        button.connect('clicked', callback)
+        button.set_tooltip_text('Undo the last edit (Ctrl+Z)' if title=='Undo' else 'Redo the last edit (Ctrl+Shift+Z / Ctrl+Y)')
+        header.pack_start(button)
+        setattr(app, name, button)
     gui_workflow.install_exports(app)
     header.pack_end(app.export_menu)
     gui_workflow.install_cad(app)
@@ -158,6 +168,12 @@ def build(app, labels):
     content.set_resize_start_child(False)
     content.set_vexpand(True)
     app.workspace_paned = content
+    app.document_label = Gtk.Label(xalign=0, ellipsize=Pango.EllipsizeMode.MIDDLE, css_classes=['muted'])
+    app.document_label.set_margin_start(14)
+    app.document_label.set_margin_end(14)
+    app.document_label.set_margin_top(4)
+    app.document_label.set_margin_bottom(4)
+    root.append(app.document_label)
     root.append(content)
     left = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, css_classes=['sidebar'])
     left.set_size_request(310, -1)
@@ -243,6 +259,12 @@ def build(app, labels):
     playback = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, css_classes=['playback-bar'])
     right.append(playback)
     motion_controls.install(app, playback)
+    from interference_ui import Controller
+    app.interference = Controller(app, playback)
+    from combination_search_ui import Controller as SearchController
+    app.combination_search = SearchController(app, playback)
+    from components_ui import Controller as ComponentsController
+    app.components = ComponentsController(app, playback)
     app.metric_cards = Gtk.FlowBox(css_classes=['results-strip'])
     app.metric_cards.set_selection_mode(Gtk.SelectionMode.NONE)
     app.metric_cards.set_column_spacing(12)

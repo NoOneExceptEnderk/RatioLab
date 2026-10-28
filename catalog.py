@@ -34,12 +34,15 @@ for code,d,D,B,da,Da,ra in [
 
 MODES={'manual':'Free dimensions / no catalog','gear':'Bearing in bore','shaft':'Shaft support bearings'}
 FITS={'nominal':'Nominal catalog dimensions','custom':'Custom clearance / interference'}
-SUPPORTED={'spur','helical','double','planetary','cycloidal'}
+SUPPORTED={'spur','helical','double','planetary','cycloidal','parallel','internal'}
 
 def options(family,supplied):
     mode=supplied.get('bearing_mode','manual');fit=supplied.get('fit','nominal')
     if mode not in MODES or fit not in FITS:raise ValueError('Unknown bearing or fit mode')
-    if mode!='manual' and family not in SUPPORTED:raise ValueError('Catalog unavailable for this concept model')
+    if mode!='manual' and family not in SUPPORTED:raise ValueError('Automatic catalog unavailable for study frames and deformation.')
+    if mode=='gear' and family in ('parallel','internal'):
+        from pair_assembly import GEAR_REASON
+        raise ValueError(GEAR_REASON)
     code=str(supplied.get('bearing','608' if family=='cycloidal' else '626'))
     if code not in BEARINGS:raise ValueError('Bearing designation is not in the verified catalog')
     result={'bearing_mode':mode,'bearing':code,'fit':fit}
@@ -61,6 +64,9 @@ def prepare(family,supplied):
     if family in ('spur','helical','double'):
         s['bore']=seat if mode=='gear' else shaft
         s['width']=max(float(s.get('width',10)),b.B+2*margin if mode=='gear' else 1)
+    elif family in ('parallel','internal'):
+        s['bore']=shaft
+        if family=='parallel':s['output_bore']=shaft
     elif family=='planetary':
         if mode=='shaft':s['bore']=shaft;s['plate']=max(float(s.get('plate',3)),b.B+margin)
         else:

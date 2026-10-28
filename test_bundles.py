@@ -25,6 +25,45 @@ def load(name, path):
 
 builder = load('bundle_builder_test', ROOT/'scripts/build-bundle.py')
 support = load('bundle_support_test', ROOT/'packaging/bundle_support.py')
+gui_check = load('bundle_gui_check_test', ROOT/'scripts/check-installed-gui.py')
+
+
+class NativeGuiChecksTests(unittest.TestCase):
+    def probe(self, folder, message, code, require=False):
+        def run(*args, **kwargs):
+            (folder/'gui-diagnostic.json').write_text(message, encoding='utf-8')
+            return type('Result', (), {'returncode': code})()
+        with patch.object(gui_check.subprocess, 'run', side_effect=run), patch('builtins.print'):
+            return gui_check.check(Path('RatioLab.exe'), folder, require)
+
+    def test_explicit_display_absence_is_recorded_without_claiming_a_gui_pass(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            folder = Path(temporary)
+            message = 'RatioLab runtime check failed: A graphical desktop session is required for --diagnose-gui'
+            self.probe(folder, message, 1)
+            self.assertEqual(json.loads((folder/'gui-result.json').read_text())['gui'], 'unavailable_on_runner')
+            with self.assertRaises(RuntimeError):
+                self.probe(folder, message, 1, require=True)
+
+    def test_application_errors_and_crashes_cannot_be_treated_as_missing_gpu(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            folder = Path(temporary)
+            for message, code in (('The OpenGL preview produced a blank framebuffer', 1),
+                                  ('shader compilation failed', 1),
+                                  ('gdk-gl-error-quark: No GL implementation is available', -11)):
+                with self.subTest(message=message), self.assertRaises(RuntimeError):
+                    self.probe(folder, message, code)
+
+    def test_renderer_success_requires_complete_workspace_and_feature_proof(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            folder = Path(temporary)
+            def run(command, **kwargs):
+                report = Path(command[-1])
+                value = {'bundled': True, 'preview': 'rendered'} if '--diagnose-gui' in command else {'self_test': 'passed', 'workspace_export': 'passed'}
+                report.write_text(json.dumps(value), encoding='utf-8')
+                return type('Result', (), {'returncode': 0})()
+            with patch.object(gui_check.subprocess, 'run', side_effect=run), self.assertRaises(RuntimeError):
+                gui_check.check(Path('RatioLab.exe'), folder)
 
 
 class BundleIntegrityTests(unittest.TestCase):

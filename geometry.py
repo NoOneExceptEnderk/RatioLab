@@ -151,7 +151,7 @@ def validate(family, supplied):
         z = values.get('teeth', values.get('sun', 24))
         if family in ('spur', 'helical', 'double'):
             from engineering import gear_dimensions
-            root = gear_dimensions(z, m, values['pressure'], values.get('helix', 0), values['profile_shift'], values['addendum'], values['dedendum'])['root_radius']
+            root = gear_dimensions(z, m, values['pressure'], values.get('helix', 0), values['profile_shift'], values['addendum'], values['dedendum'], backlash=values['backlash'])['root_radius']
         else:
             root = m * (z / 2 - 1.25)
         if family not in ('parallel', 'internal', 'worm') and values['bore'] / 2 >= root - 0.25:
@@ -190,12 +190,33 @@ def validate(family, supplied):
 def polar(r, a):
     return (r * cos(a), r * sin(a))
 
+class CircleProfile(list):
+    """Sampled circle with explicit construction provenance, for CAD export.
+
+    This remains a normal list for preview/STL. Exporters may promote it only
+    while the coordinates still match the original, immutable snapshot.
+    Arbitrary equiradial polygons deliberately carry no such provenance.
+    """
+    def __init__(self, points=(), radius=None, center=None):
+        super().__init__(points)
+        self.radius = radius
+        self.center = tuple(center) if center is not None else None
+        self.samples = tuple(tuple(q) for q in self)
+
+    def intact(self):
+        return self.radius is not None and self.center is not None and tuple(tuple(q) for q in self) == self.samples
+
+
 def circle(r, n=96, center=(0, 0)):
-    return [(center[0] + r * cos(TAU * i / n), center[1] + r * sin(TAU * i / n)) for i in range(n)]
+    return CircleProfile([(center[0] + r * cos(TAU * i / n), center[1] + r * sin(TAU * i / n)) for i in range(n)], r, center)
 
 def transformed(points, center=(0, 0), angle=0):
     c, s = (cos(angle), sin(angle))
-    return [(center[0] + x * c - y * s, center[1] + x * s + y * c) for x, y in points]
+    result = [(center[0] + x * c - y * s, center[1] + x * s + y * c) for x, y in points]
+    if isinstance(points, CircleProfile) and points.intact():
+        x, y = points.center
+        return CircleProfile(result, points.radius, (center[0]+x*c-y*s, center[1]+x*s+y*c))
+    return result
 
 def circle_info(points):
     if len(points) < 16:
@@ -250,52 +271,37 @@ def sample_curve(fn, a, b, tolerance=0.015, depth=0):
         return [start, end]
     return sample_curve(fn, a, mid, tolerance, depth + 1)[:-1] + sample_curve(fn, mid, b, tolerance, depth + 1)
 
-def involute(z, m, pressure=20, backlash=0.15, internal=False, samples=4, depth_module=None, shift=0, normal_pressure=None, ha=1, hf=1.25):
-    """Sampled involute flanks; radial root fillet without a generating tool."""
-    rp = m * z / 2
-    rb = rp * cos(radians(pressure))
-    pitch = TAU / z
-    inv = lambda r: sqrt(max(0, (r / rb) ** 2 - 1)) - atan(sqrt(max(0, (r / rb) ** 2 - 1)))
-    ip = inv(rp)
+def involute(z, m, pressure=20, backlash=0.15, internal=False, samples=4, depth_module=None, shift=0, normal_pressure=None, ha=1, hf=1.25, metadata=None):
+    """Involute with a rack-generated external root or constructed ring blend.
+
+    ``samples`` remains a compatibility argument. All curves use the shared
+    adaptive 0.015 mm chord threshold. Metadata is optional, never a second
+    geometry path.
+    """
+    from tooth_profiles import external_half, internal_half
     depth = m if depth_module is None else depth_module
-    half = pi / (2 * z) - backlash / (4 * rp) + 2 * shift * tan(radians(pressure if normal_pressure is None else normal_pressure)) / z
-    if half <= 0 or half >= pitch / 2:
-        raise ValueError('Invalid tooth thickness: check profile shift and backlash.')
-    points = []
-    if not internal:
-        root = max(0.1, rp - depth * (hf - shift))
-        tip = rp + depth * (ha + shift)
-        start = max(root, rb)
-        if tip <= start:
-            raise ValueError('Insufficient tooth height for an involute flank.')
-        angle = lambda r: half + ip - inv(r)
-        if angle(tip) <= 0:
-            raise ValueError('Pointed tooth: increase tooth count or reduce backlash.')
-        for k in range(z):
-            a = k * pitch
-            ar = angle(start)
-            at = angle(tip)
-            points.extend([polar(root, a - pitch / 2), polar(root, a - ar)])
-            points.extend(sample_curve(lambda r: polar(r, a - angle(r)), start, tip))
-            points.extend(sample_curve(lambda q: polar(tip, a + q), -at, at))
-            points.extend(sample_curve(lambda r: polar(r, a + angle(r)), tip, start))
-            points.append(polar(root, a + ar))
+    if internal:
+        if shift:
+            raise ValueError('Shifted internal rings require a dedicated shaping cutter model.')
+        flank, info = internal_half(z, m, pressure, backlash, depth, ha, hf, sample_curve)
     else:
-        root = rp + hf * depth
-        tip = rp - ha * depth
-        if tip <= rb:
-            raise ValueError('Ring: too few teeth for an unshifted internal involute.')
-        angle = lambda r: half + inv(r) - ip
-        if angle(tip) <= 0 or angle(root) >= pitch / 2:
-            raise ValueError('Internal ring requires profile shift.')
-        for k in range(z):
-            a = k * pitch
-            ar = angle(root)
-            at = angle(tip)
-            points.extend([polar(root, a - pitch / 2), polar(root, a - ar)])
-            points.extend(sample_curve(lambda r: polar(r, a - angle(r)), root, tip))
-            points.extend(sample_curve(lambda q: polar(tip, a + q), -at, at))
-            points.extend(sample_curve(lambda r: polar(r, a + angle(r)), tip, root))
+        flank, info = external_half(z, m, pressure, backlash, depth, shift, normal_pressure, ha, hf, sample_curve)
+    if metadata is not None:
+        metadata.update(info)
+    pitch = TAU/z
+    root = info['root_radius_mm']; tip = info['tip_radius_mm']
+    at = atan2(flank[0 if internal else -1][1], flank[0 if internal else -1][0])
+    ar = atan2(flank[-1 if internal else 0][1], flank[-1 if internal else 0][0])
+    right = flank if internal else list(reversed(flank))
+    points=[]
+    for k in range(z):
+        a=k*pitch
+        local=sample_curve(lambda q:polar(root,q),-pitch/2,-ar)[:-1]
+        local += [(x,-y) for x,y in reversed(right)]
+        local += sample_curve(lambda q:polar(tip,q),-at,at)[1:-1]
+        local += right
+        local += sample_curve(lambda q:polar(root,q),ar,pitch/2)[1:]
+        points.extend(transformed(local,angle=a))
     return clean(points)
 
 def cycloid(n, R, e, pin, clearance=0, samples=None, tolerance=0.01):
@@ -352,6 +358,7 @@ class Part:
     frame: tuple = ()
     port: dict = field(default_factory=dict)
     manufacturing: dict = field(default_factory=dict)
+    profile_metadata: dict = field(default_factory=dict)
 
 def profile_sections(p):
     """Cross-sections of ONE continuous solid. Shared by CAD loft and preview."""
@@ -415,13 +422,14 @@ class Design:
 
     def prepare_assets(self, asset_dir=None):
         from solid_geometry import step, signature
+        from export_transaction import write_text
         folder = self.asset_folder(asset_dir)
-        for idx, p in enumerate(self.parts):
+        for idx, p in zip((i-1 for i in getattr(self,'source_indices',range(1,len(self.parts)+1))),self.parts):
             if p.mesh or p.frame or p.stations or p.double or (abs(p.twist) > 1e-08):
                 signature(p)
                 folder.mkdir(parents=True, exist_ok=True)
                 base = f'{self.token}_{idx}_{p.name}'
-                (folder / (base + '.step')).write_text(step(p, base + '_body'), encoding='utf-8')
+                write_text(folder / (base + '.step'), step(p, base + '_body'))
         return folder
 
     def commands(self, asset_dir=None):
@@ -434,7 +442,7 @@ class Design:
         add('component.create', name=group)
         from bom import build
         add('component.metadata.set', component=group, values={'local.solidcraft.riduttori': build(self)})
-        for idx, p in enumerate(self.parts):
+        for idx, p in zip((i-1 for i in getattr(self,'source_indices',range(1,len(self.parts)+1))),self.parts):
             base = f'{self.token}_{idx}_{p.name}'
             explicit = p.mesh or p.frame or p.stations or p.double or (abs(p.twist) > 1e-08)
             if explicit:
@@ -444,10 +452,13 @@ class Design:
             from bom import part_info, port_properties
             info = part_info(p)
             metadata = {}
+            if hasattr(self,'export_scope'):metadata['local.ratiolab.selection']={'source_index':idx+1,'scope':self.export_scope}
             if p.port:
                 metadata['local.solidcraft.kinematic_port'] = p.port
             if p.manufacturing:
                 metadata['local.solidcraft.manufacturing'] = p.manufacturing
+            if p.profile_metadata:
+                metadata['local.solidcraft.profile_geometry'] = p.profile_metadata
             add('component.metadata.set', component=base, part_number=info['code'], description=info['description'], values=metadata, properties={'Procurement': info['category'], 'Manufacturer': info.get('manufacturer', ''), 'Dimensions': info['dimensions'], 'Source': info.get('source', ''), 'Standard': info.get('standard', ''), **port_properties(p)})
             if p.machining:
                 add('component.metadata.set', component=base, values={'local.solidcraft.machining': {'operations': p.machining}})
@@ -492,12 +503,13 @@ class Design:
 def gear_part(name, z, m, pressure, backlash, width, bore=0, center=(0, 0), phase=0, helix=0, internal=False, rim=5, zoff=0, shift=0, ha=1, hf=1.25):
     mt = m / cos(radians(helix))
     at = degrees(atan(tan(radians(pressure)) / cos(radians(helix))))
-    outline = transformed(involute(z, mt, at, backlash, internal, depth_module=m, shift=shift, normal_pressure=pressure, ha=ha, hf=hf), angle=phase)
+    profile_info = {}
+    outline = transformed(involute(z, mt, at, backlash, internal, depth_module=m, shift=shift, normal_pressure=pressure, ha=ha, hf=hf, metadata=profile_info), angle=phase)
     if not internal and bore / 2 >= min((hypot(x, y) for x, y in outline)) - 0.25:
         raise ValueError(f'{name}: bore too large for the tooth root diameter.')
     outer = circle(mt * z / 2 + hf * m + rim) if internal else outline
     holes = [outline] if internal else [circle(bore / 2)] if bore > 0 else []
-    return Part(name, outer, holes, width, zoff, center, degrees(width * tan(radians(helix)) / (mt * z / 2)), internal=internal)
+    return Part(name, outer, holes, width, zoff, center, degrees(width * tan(radians(helix)) / (mt * z / 2)), internal=internal, profile_metadata={'tooth_profile': profile_info})
 
 def generate(family, supplied=None):
     v = validate(family, supplied or {})
@@ -524,7 +536,7 @@ def generate(family, supplied=None):
                 raise ValueError('Bore too large for the continuous hub below the groove.')
         d.metrics = [f'Pitch diameter: {m * z / cos(radians(beta)):.3f} mm', f'Teeth: {z} · normal module: {m:g} mm', f'Total twist: {p.twist:.2f}°']
         from engineering import gear_dimensions, force_components, gear_warnings
-        g = gear_dimensions(z, m, pa, beta, v['profile_shift'], v['addendum'], v['dedendum'])
+        g = gear_dimensions(z, m, pa, beta, v['profile_shift'], v['addendum'], v['dedendum'], backlash=b)
         d.analysis['gear'] = g
         d.analysis['forces'] = force_components(v['input_torque'], 2 * g['pitch_radius'], g['alpha_t'], beta)
         d.metrics.append(f"Tip Ø {2 * g['tip_radius']:.3f} · Root Ø {2 * g['root_radius']:.3f} mm · αt {g['alpha_t']:.3f}°")
@@ -554,5 +566,6 @@ def generate(family, supplied=None):
     attach_report(d)
     if any((p.mesh or p.frame or p.stations or p.double or (abs(p.twist) > 1e-08) for p in d.parts)):
         d.notes.append('Faithful preview export: faceted STEP BRep solids for parts with shared surfaces. Extruded profile circles are sampled with a maximum radial deviation of 0.002 mm; tubes and freeform surfaces use the sampling specified in the guide. Edit dimensions in the generator and regenerate the group. This is not a smooth parametric loft.')
-    d.notes.append('Adaptively sampled involute flanks (0.015 mm threshold at midpoint and quarter samples); the root fillet remains simplified. Generator dimensions can be saved as JSON; regenerate a new group to change them. Strength, lubrication and tolerances are not verified.')
+    d.analysis['tooth_profiles'] = [dict(part=p.name, **p.profile_metadata['tooth_profile']) for p in d.parts if 'tooth_profile' in p.profile_metadata]
+    d.notes.append('External cylindrical roots use a rounded normal rack envelope with undercut trimming; internal roots use a tangent circular construction, not a shaping cutter envelope. Adaptive chord threshold 0.015 mm; tool geometry and domain are in the calculation JSON. Strength, lubrication and manufacturing tolerances are not verified.')
     return d

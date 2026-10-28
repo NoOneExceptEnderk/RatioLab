@@ -20,6 +20,7 @@ def install(app, container):
     app.motion_caption = caption
     row.append(caption)
     entry = Gtk.Entry(css_classes=['motion-rate'])
+    entry.set_enable_undo(False)
     entry.set_width_chars(8)
     entry.set_max_width_chars(10)
     entry.set_alignment(1)
@@ -64,7 +65,7 @@ def install(app, container):
     app.motion_input_invalid = False
     def show_value(value):
         app.motion_syncing = True
-        entry.set_text(format(value, '.12g'))
+        entry.set_text(str(int(value)) if float(value).is_integer() else repr(float(value)))
         app.motion_syncing = False
     def apply_rate(value):
         low, high = getattr(app, 'motion_rate_limits', (0, 100000))
@@ -103,6 +104,8 @@ def install(app, container):
     def editing(*args):
         if not getattr(app, 'motion_syncing', False):
             app.motion_rate_editing = True
+            if not app.building:
+                app.project_changed((app.family, 'input_rpm'))
     entry.connect('changed', editing)
     entry.connect('activate', commit)
     focus = Gtk.EventControllerFocus()
@@ -145,6 +148,7 @@ def configure(app,values,specs):
  speed=app.motion_speed;speed.clear_marks()
  if rpm_spec:
   _,_,default,low,high,_=rpm_spec;app.motion_rate_limits=(low,high);app.motion_unit.set_text('rpm');app.motion_rpm=values.get('input_rpm',default)
+  app.motion_speed_text.set_text(str(int(app.motion_rpm)) if float(app.motion_rpm).is_integer() else repr(float(app.motion_rpm)))
   speed.set_range(log1p(low),log1p(high));speed.set_value(log1p(app.motion_rpm))
   for rpm in (0,100000):
    if low<=rpm<=high:speed.add_mark(log1p(rpm),Gtk.PositionType.BOTTOM,'100k' if rpm==100000 else str(rpm))

@@ -39,6 +39,9 @@ def apply_catalog(d):
             for tag,z in [('lower',-sw-2+(sw-b.B)/2),('upper',p.width+2+(sw-b.B)/2)]:
                 bearing(d,b,'Support_'+tag+'_NSK_'+b.code,z)
                 d.parts.append(Part('BearingBlock_'+tag,circle(b.D/2+max(3,margin)),[circle(seat)],sw,z-(sw-b.B)/2,role='housing'))
+    elif d.family in ('parallel','internal'):
+        from pair_assembly import catalog
+        catalog(d,b)
     elif d.family=='planetary':
         if mode=='gear':
             for p in list(d.parts):

@@ -10,13 +10,14 @@ prepare_native_runtime()
 import gi
 gi.require_version('Gtk','4.0')
 from gi.repository import Gtk, GObject
-from motion import build_plan,IDENTITY
+from motion import build_plan,IDENTITY,wrapped_angle
 from gl_loader import load_epoxy, bind_function
 
 
 
 
 from solid_geometry import point,section_loops,PALETTE
+from component_geometry import displayed_part
 
 
 def normal(a,b,c):
@@ -52,6 +53,7 @@ class Scene:
     center: tuple
     radius: float
     bounds: tuple
+    materials: array
 
 
 def build_scene(design,show_support=False,show_housing=False,exploded=False):
@@ -62,11 +64,7 @@ def build_scene(design,show_support=False,show_housing=False,exploded=False):
     for index,source in enumerate(design.parts):
         if source.role=='support' and not show_support:continue
         if source.role=='housing' and not show_housing:continue
-        p=source
-        if exploded:
-            offset=(p.z+p.width/2-mid)*1.1
-            if p.role!='gear':offset+=(8 if p.z+p.width/2>=mid else -8)
-            p=replace(p,z=p.z+offset,center=tuple(v*1.12 for v in p.center))
+        p=displayed_part(design,index,exploded)
         if p.mesh:
             from solid_geometry import faces
             begin=len(data)//6
@@ -129,7 +127,29 @@ def build_scene(design,show_support=False,show_housing=False,exploded=False):
     for j in range(-int(extent/step),int(extent/step)+1):
         off=j*step
         for a,b in [((cx+off,cy-extent,ground),(cx+off,cy+extent,ground)),((cx-extent,cy+off,ground),(cx+extent,cy+off,ground))]:vertex(data,a,(0,0,1));vertex(data,b,(0,0,1))
-    return Scene(data,parts,(begin,len(data)//6-begin),center,max(radius,1),(mins,maxs))
+    materials=array('f',[0.0])*(len(data)//2)
+    if design.family=='harmonic' and not exploded and any(p.name.startswith('Flexspline') for p in design.parts):
+        from wave_geometry import unmap_point
+        rp=design.values['module']*design.values['teeth']/2
+        from special_drives import ellipse_axes
+        a,b=design.analysis.get('pitch_ellipse_semiaxes_mm',ellipse_axes(rp,design.values['module']*design.values['wave_factor']))
+        length=design.values['cup_length'];diaphragm=design.values['diaphragm'];cache={}
+        for part in parts:
+            source=design.parts[part.source_index]
+            if not source.name.startswith('Flexspline'):continue
+            for station in source.stations:
+                references=[station.get('material_outer',[])]+station.get('material_holes',[])
+                for loop,reference in zip([station['outer']]+station['holes'],references):
+                    for xy,material in zip(loop,reference):
+                        xyz=tuple(array('f',point(source,xy,station['z'],0)))
+                        cache[xyz]=material
+            for i in range(part.side[0],part.edges[0]+part.edges[1]):
+                xyz=tuple(data[6*i:6*i+3])
+                if xyz not in cache:
+                    x,y,z=xyz;weight=max(0,min(1,(z+length-diaphragm)/(length-diaphragm)))
+                    cache[xyz]=unmap_point(x,y,weight,a,b,rp)
+                materials[3*i:3*i+3]=array('f',cache[xyz])
+    return Scene(data,parts,(begin,len(data)//6-begin),center,max(radius,1),(mins,maxs),materials)
 
 
 class GL:
@@ -163,6 +183,7 @@ class GL:
 VERTEX='''#version 330 core
 layout(location=0) in vec3 position;
 layout(location=1) in vec3 normal;
+layout(location=2) in vec3 material;
 uniform vec3 center;
 uniform vec2 orbit;
 uniform vec3 projection;
@@ -170,6 +191,8 @@ uniform float edge;
 uniform mat4 model;
 uniform vec4 flexShape; // flex material angle, wave angle, ellipse a,b
 uniform vec4 flexBody;  // pitch radius, body length, diaphragm, enabled
+uniform vec4 arcFirst;
+uniform vec4 arcSecond;
 uniform vec4 ropeShape; // mode, cx,cy,left-end y
 uniform vec2 ropeEnds;  // right-end y, right-end x
 uniform vec3 ropeLeft;
@@ -178,13 +201,37 @@ uniform vec3 ropeWheel;
 out vec3 n;
 out vec3 world;
 vec3 rotate(vec3 p){float c=cos(orbit.x),s=sin(orbit.x),a=cos(orbit.y),b=sin(orbit.y);vec3 q=vec3(c*p.x-s*p.y,s*p.x+c*p.y,p.z);return vec3(q.x,a*q.y-b*q.z,b*q.y+a*q.z);}
-float rho(float a){return flexShape.z*flexShape.w/length(vec2(flexShape.w*cos(a),flexShape.z*sin(a)));}
-vec3 deform(vec3 p){
- if(flexBody.w>0.5){
-  float theta=atan(p.y,p.x),r=length(p.xy),weight=clamp((p.z+flexBody.y-flexBody.z)/(flexBody.y-flexBody.z),0.0,1.0);
-  float rest=r-weight*(rho(theta)-flexBody.x),angle=theta+flexShape.x;
-  r=rest+weight*(rho(angle-flexShape.y)-flexBody.x);p.xy=r*vec2(cos(angle),sin(angle));
+// Explicit range reduction avoids implementation-dependent native trig
+// precision on wave material coordinates (verified by transform feedback).
+float waveSin(float angle){
+ float x=mod(angle+3.141592653589793,6.283185307179586)-3.141592653589793;
+ if(x>1.570796326794897)x=3.141592653589793-x;
+ if(x< -1.570796326794897)x= -3.141592653589793-x;
+ float q=x*x;
+ return x*(1.0+q*(-0.166666666666667+q*(0.008333333333333+q*(-0.000198412698413+q*(0.000002755731922+q*(-0.000000025052108+q*0.000000000160590))))));
+}
+float waveCos(float angle){return waveSin(angle+1.570796326794897);}
+float arcCoeff(int k){return k<4?arcFirst[k]:arcSecond[k-4];}
+vec2 waveFrame(float u,float d,float w,float flex,float wave,out vec2 tangent){
+ float angle=u+flex-wave,t=angle;
+ for(int j=0;j<4;j++){
+  float f=t-angle,der=1.0;
+  for(int k=0;k<8;k++){float h=2.0*float(k+1);f+=arcCoeff(k)*waveSin(h*t);der+=h*arcCoeff(k)*waveCos(h*t);}
+  t-=f/der;
  }
+ float ct=waveCos(t),st=waveSin(t),cu=waveCos(u+flex),su=waveSin(u+flex);
+ vec2 E=vec2(flexShape.z*ct,flexShape.w*st);
+ vec2 N=normalize(vec2(ct/flexShape.z,st/flexShape.w));
+ vec2 T=vec2(-flexShape.z*st,flexShape.w*ct);float speed=length(T);
+ float curvature=flexShape.z*flexShape.w/(speed*speed*speed);
+ T*=flexBody.x*(1.0+d*curvature)/speed;
+ E+=d*N;float c=waveCos(wave),s=waveSin(wave);mat2 rotation=mat2(c,s,-s,c);E=rotation*E;
+ tangent=normalize(mix((flexBody.x+d)*vec2(-su,cu),rotation*T,w));
+ return mix((flexBody.x+d)*vec2(cu,su),E,w);
+}
+vec2 wavePoint(float u,float d,float w,float flex,float wave){vec2 tangent;return waveFrame(u,d,w,flex,wave,tangent);}
+vec3 deform(vec3 p){
+ if(flexBody.w>0.5)p.xy=wavePoint(material.x,material.y,material.z,flexShape.x,flexShape.y);
  if(ropeShape.x>0.5){
   bool left=p.x<ropeShape.y;
   bool arc=ropeShape.x<1.5 ? p.y>=ropeShape.z : ropeShape.x<2.5 ? p.y<=ropeShape.z : p.y>=ropeShape.z && p.x<=ropeShape.y;
@@ -200,7 +247,7 @@ vec3 deform(vec3 p){
  }
  return p;
 }
-void main(){world=(model*vec4(deform(position),1.0)).xyz;vec3 p=rotate(world-center);gl_Position=vec4(p.x*projection.x,p.y*projection.y,-p.z*projection.z-edge*0.00005,1);vec3 nn=normal;if(flexBody.w>0.5){float c=cos(flexShape.x),s=sin(flexShape.x);nn.xy=mat2(c,s,-s,c)*nn.xy;}n=rotate(mat3(model)*nn);}
+void main(){world=(model*vec4(deform(position),1.0)).xyz;vec3 p=rotate(world-center);gl_Position=vec4(p.x*projection.x,p.y*projection.y,-p.z*projection.z-edge*0.00005,1);vec3 nn=normal;if(flexBody.w>0.5){vec2 oldT,newT;waveFrame(material.x,material.y,material.z,0.0,0.0,oldT);waveFrame(material.x,material.y,material.z,flexShape.x,flexShape.y,newT);vec2 oldN=vec2(oldT.y,-oldT.x),newN=vec2(newT.y,-newT.x);nn.xy=dot(nn.xy,oldT)*newT+dot(nn.xy,oldN)*newN;}n=rotate(mat3(model)*nn);}
 '''
 FRAGMENT='''#version 330 core
 in vec3 n;
@@ -215,21 +262,24 @@ void main(){if(section>0.5 && world.y>center.y)discard;vec3 norm=normalize(n);fl
 
 
 class Preview3D(Gtk.GLArea):
-    __gsignals__ = {'view-changed': (GObject.SignalFlags.RUN_FIRST, None, (str,)), 'motion-state': (GObject.SignalFlags.RUN_FIRST, None, ())}
+    __gsignals__ = {'view-changed': (GObject.SignalFlags.RUN_FIRST, None, (str,)), 'motion-state': (GObject.SignalFlags.RUN_FIRST, None, ()), 'inspection-state': (GObject.SignalFlags.RUN_FIRST, None, ()), 'component-click': (GObject.SignalFlags.RUN_FIRST, None, (float,float,bool)), 'display-state': (GObject.SignalFlags.RUN_FIRST, None, ())}
     def __init__(self):
         super().__init__();self.set_required_version(3,3);self.set_use_es(False)
         self.set_has_depth_buffer(True);self.set_has_stencil_buffer(True);self.set_auto_render(False)
         self.set_hexpand(True);self.set_vexpand(True);self.set_size_request(320,280)
         self.design=None;self.show_support=False;self.show_housing=False;self.exploded=False;self.section=False;self.scene=None;self.dirty=False;self.gl=None;self.failure=None;self.zoom=1.;self.yaw=radians(-35);self.tilt=radians(-55)
+        self.inspection_phase=None;self.inspection_indices=()
+        self.selected_indices=();self.isolated_indices=None;self.drag_distance=0.;self.rendered_phase=0.
         self.motion_plan=None;self.motion_enabled=False;self.motion_playing=False;self.motion_speed=1.;self.motion_phase=0.;self.motion_tick=0;self.motion_last=None;self.motion_valid=True
         self.connect('realize',self.on_realize);self.connect('unrealize',self.on_unrealize);self.connect('render',self.on_render)
         drag=Gtk.GestureDrag.new();drag.set_button(1);drag.connect('drag-begin',self.drag_begin);drag.connect('drag-update',self.drag_update);self.add_controller(drag)
         scroll=Gtk.EventControllerScroll.new(Gtk.EventControllerScrollFlags.VERTICAL);scroll.connect('scroll',self.scroll);self.add_controller(scroll)
         self.set_tooltip_text('Drag to rotate · scroll to zoom · double click to fit')
-        click=Gtk.GestureClick.new();click.connect('pressed',lambda _,n,x,y:self.view('iso') if n==2 else None);self.add_controller(click)
+        click=Gtk.GestureClick.new();click.set_button(1);click.connect('released',self.component_click);self.add_controller(click)
     def set_design(self,design):
         changed=design is not self.design
         keep_phase=bool(design and self.design and design.family==self.design.family and {k:v for k,v in design.values.items() if k!='input_rpm'}=={k:v for k,v in self.design.values.items() if k!='input_rpm'})
+        if self.design is not None and (not design or design.family!=self.design.family or design.values!=self.design.values):self.clear_inspection()
         self.design=design;self.scene=build_scene(design,self.show_support,self.show_housing,self.exploded) if design else None;self.dirty=True
         if changed:
             self.motion_plan=build_plan(design) if design else None
@@ -238,7 +288,17 @@ class Preview3D(Gtk.GLArea):
             if not self.motion_plan or not self.motion_plan.supported:self.set_motion_playing(False)
             self.emit('motion-state')
         self.queue_render()
+    def show_inspection(self,phase,indices):
+        self.set_motion_playing(False)
+        self.inspection_phase=float(phase);self.inspection_indices=tuple(indices)
+        self.queue_render();self.emit('motion-state');self.emit('inspection-state')
+    def clear_inspection(self):
+        changed=self.inspection_phase is not None
+        self.inspection_phase=None;self.inspection_indices=()
+        self.queue_render()
+        if changed:self.emit('inspection-state')
     def set_motion_playing(self,playing):
+        if playing:self.clear_inspection()
         playing=bool(playing and self.motion_valid and self.motion_plan and self.motion_plan.supported and not self.exploded and not self.failure)
         self.motion_playing=playing
         if playing:
@@ -253,23 +313,32 @@ class Preview3D(Gtk.GLArea):
         if self.motion_last is not None:self.motion_phase+=max(0,now-self.motion_last)*2*pi/60*((self.motion_plan.reference_rpm if self.design.values.get('input_rpm',0) or self.design.values.get('secondary_rpm',0) else 0) if self.design and 'input_rpm' in self.design.values else 12*self.motion_speed)
         self.motion_last=now;self.queue_render();return True
     def reset_motion(self):
-        self.set_motion_playing(False);self.motion_phase=0.;self.motion_enabled=False;self.queue_render();self.emit('motion-state')
+        self.clear_inspection();self.set_motion_playing(False);self.motion_phase=0.;self.motion_enabled=False;self.queue_render();self.emit('motion-state')
     def invalidate_motion(self):
-        self.motion_valid=False;self.set_motion_playing(False)
+        self.clear_inspection();self.motion_valid=False;self.set_motion_playing(False)
     def set_motion_speed(self,speed):
         self.motion_speed=max(0.,min(5.,float(speed)));self.emit('motion-state')
     def set_options(self,support,housing,exploded,section):
+        if exploded or section:self.clear_inspection()
         if exploded:self.set_motion_playing(False)
-        self.show_support=support;self.show_housing=housing;self.exploded=exploded;self.section=section;self.set_design(self.design)
+        self.show_support=support;self.show_housing=housing;self.exploded=exploded;self.section=section;self.set_design(self.design);self.emit('display-state')
     def view(self,name):
         if name=='top':self.yaw=0;self.tilt=0
         elif name=='front':self.yaw=0;self.tilt=-pi/2
         else:self.yaw=radians(-35);self.tilt=radians(-55)
         self.zoom=1.;self.queue_render();self.emit('view-changed',name)
-    def drag_begin(self,g,x,y):self.drag_origin=(self.yaw,self.tilt)
+    def component_click(self,gesture,n,x,y):
+        if self.drag_distance>4:return
+        if n==2:self.view('iso');return
+        from gi.repository import Gdk
+        modifiers=gesture.get_current_event_state()
+        self.emit('component-click',x,y,bool(modifiers & (Gdk.ModifierType.CONTROL_MASK|Gdk.ModifierType.SHIFT_MASK)))
+    def drag_begin(self,g,x,y):self.drag_origin=(self.yaw,self.tilt);self.drag_distance=0.
     def drag_update(self,g,x,y):
+        self.drag_distance=max(self.drag_distance,sqrt(x*x+y*y))
+        if self.drag_distance<=4:return
         self.yaw=self.drag_origin[0]+x*.008;self.tilt=max(-pi,min(pi,self.drag_origin[1]+y*.008));self.queue_render();self.emit('view-changed','custom')
-    def scroll(self,c,dx,dy):self.zoom=max(.25,min(8,self.zoom*1.12**(-dy)));self.queue_render();return True
+    def scroll(self,c,dx,dy):self.zoom=max(.25,min(8,self.zoom*1.12**(-dy)));self.queue_render();self.emit('view-changed','custom');return True
     def on_realize(self,*args):
         self.make_current()
         if self.get_error():self.failure=str(self.get_error());return
@@ -278,28 +347,50 @@ class Preview3D(Gtk.GLArea):
             self.program=g.CreateProgram();g.AttachShader(self.program,vs);g.AttachShader(self.program,fs);g.LinkProgram(self.program)
             status=C.c_int();g.GetProgramiv(self.program,0x8B82,C.byref(status));g.DeleteShader(vs);g.DeleteShader(fs)
             if not status.value:raise RuntimeError('Could not initialize the 3D shader')
-            self.locations={k:g.GetUniformLocation(self.program,k.encode()) for k in ['center','orbit','projection','color','lit','edge','section','model','flexShape','flexBody','ropeShape','ropeEnds','ropeLeft','ropeRight','ropeWheel']}
+            self.locations={k:g.GetUniformLocation(self.program,k.encode()) for k in ['center','orbit','projection','color','lit','edge','section','model','flexShape','flexBody','arcFirst','arcSecond','ropeShape','ropeEnds','ropeLeft','ropeRight','ropeWheel']}
             self.vao=C.c_uint();self.vbo=C.c_uint();g.GenVertexArrays(1,C.byref(self.vao));g.GenBuffers(1,C.byref(self.vbo));g.BindVertexArray(self.vao.value);g.BindBuffer(0x8892,self.vbo.value)
             for index,offset in [(0,0),(1,12)]:g.EnableVertexAttribArray(index);g.VertexAttribPointer(index,3,0x1406,0,24,C.c_void_p(offset))
+            self.material_vbo=C.c_uint();g.GenBuffers(1,C.byref(self.material_vbo));g.BindBuffer(0x8892,self.material_vbo.value);g.EnableVertexAttribArray(2);g.VertexAttribPointer(2,3,0x1406,0,12,C.c_void_p(0))
             self.dirty=True;self.queue_render()
         except Exception as e:self.failure=str(e);__import__('traceback').print_exc()
     def on_unrealize(self,*args):
         self.set_motion_playing(False)
         if self.gl and not self.get_error() and hasattr(self,'vbo'):
-            self.make_current();self.gl.DeleteBuffers(1,C.byref(self.vbo));self.gl.DeleteVertexArrays(1,C.byref(self.vao));self.gl.DeleteProgram(self.program)
+            self.make_current();self.gl.DeleteBuffers(1,C.byref(self.vbo));self.gl.DeleteBuffers(1,C.byref(self.material_vbo));self.gl.DeleteVertexArrays(1,C.byref(self.vao));self.gl.DeleteProgram(self.program)
         self.gl=None
     def save_png(self,path):
         if self.failure or self.get_error():raise RuntimeError('3D preview unavailable')
         self.capture_path=str(path);self.queue_render()
+    def capture_png(self,callback):
+        """Capture complete bytes on GTK's main thread; callback(data, error).
+
+        GLArea.attach_buffers explicitly supports rendering outside its render
+        signal. Capture synchronously so compositor throttling of an occluded
+        window cannot leave an otherwise complete export waiting for a frame.
+        """
+        if self.failure or self.get_error() or not self.gl or not self.scene:
+            raise RuntimeError('3D preview unavailable')
+        if getattr(self,'capture_callback',None):
+            raise RuntimeError('A preview capture is already pending')
+        self.make_current()
+        if self.get_error():raise RuntimeError('3D preview context unavailable')
+        self.attach_buffers()
+        self.capture_callback=callback
+        try:self.on_render(self,None)
+        except Exception:
+            self.capture_callback=None
+            raise
     def motion_uniforms(self,index):
-        g=self.gl;loc=self.locations;plan=self.motion_plan if self.motion_enabled and not self.exploded else None
-        matrix=plan.matrix(index,self.motion_phase) if plan and index is not None else IDENTITY
+        g=self.gl;loc=self.locations;phase=self.inspection_phase if self.inspection_phase is not None else self.motion_phase
+        plan=self.motion_plan if (self.motion_enabled or self.inspection_phase is not None) and not self.exploded else None
+        matrix=plan.matrix(index,phase) if plan and index is not None else IDENTITY
         g.UniformMatrix4fv(loc['model'],1,0,(C.c_float*16)(*matrix))
-        flex=plan.deformation(index,self.motion_phase) if plan and index is not None else None
+        flex=plan.deformation(index,phase) if plan and index is not None else None
         if flex:
-            a,b,c,d,e,f,t=flex;g.Uniform4f(loc['flexShape'],a,b,c,d);g.Uniform4f(loc['flexBody'],e,f,t,1)
+            a,b,c,d,e,f,t=flex;a=wrapped_angle(a);b=wrapped_angle(b);g.Uniform4f(loc['flexShape'],a,b,c,d);g.Uniform4f(loc['flexBody'],e,f,t,1)
+            coefficients=self.design.analysis['wave_mapping']['arc_coefficients'];g.Uniform4f(loc['arcFirst'],*coefficients[:4]);g.Uniform4f(loc['arcSecond'],*coefficients[4:])
         else:g.Uniform4f(loc['flexBody'],0,1,0,0)
-        rope=plan.warp(index,self.motion_phase) if plan and index is not None else None
+        rope=plan.warp(index,phase) if plan and index is not None else None
         if rope:
             mode,cx,cy,ly,ry,rx,lx,ld,rdx,rdy,wx,wy=rope
             g.Uniform4f(loc['ropeShape'],mode,cx,cy,ly);g.Uniform2f(loc['ropeEnds'],ry,rx)
@@ -312,7 +403,8 @@ class Preview3D(Gtk.GLArea):
         if not self.scene:return True
         s=self.scene;g.UseProgram(self.program);g.BindVertexArray(self.vao.value);g.BindBuffer(0x8892,self.vbo.value)
         if self.dirty:
-            raw=s.vertices.tobytes();buf=C.create_string_buffer(raw);g.BufferData(0x8892,len(raw),buf,0x88E8);self.dirty=False
+            raw=s.vertices.tobytes();buf=C.create_string_buffer(raw);g.BufferData(0x8892,len(raw),buf,0x88E8)
+            g.BindBuffer(0x8892,self.material_vbo.value);raw=s.materials.tobytes();buf=C.create_string_buffer(raw);g.BufferData(0x8892,len(raw),buf,0x88E8);g.BindBuffer(0x8892,self.vbo.value);self.dirty=False
         loc=self.locations
         g.Uniform1f(loc['section'],float(self.section))
         g.Uniform3f(loc['center'],*s.center);g.Uniform2f(loc['orbit'],self.yaw,self.tilt)
@@ -321,18 +413,31 @@ class Preview3D(Gtk.GLArea):
         self.motion_uniforms(None)
         g.Uniform1f(loc['edge'],0);g.Enable(0x0B71);g.DepthFunc(0x0203);g.Disable(0x0B90)
         g.Uniform1f(loc['lit'],0);g.Uniform3f(loc['color'],.12,.16,.205);g.DrawArrays(1,*s.grid)
+        self.rendered_phase=self.inspection_phase if self.inspection_phase is not None else self.motion_phase
         for part in s.parts:
+            if self.isolated_indices is not None and part.source_index not in self.isolated_indices:continue
             self.motion_uniforms(part.source_index)
-            g.Uniform1f(loc['lit'],1);g.Uniform3f(loc['color'],*part.color);g.Enable(0x8037);g.PolygonOffset(1,1);g.DrawArrays(4,*part.side)
+            color=((1.,.42,.08) if part.source_index==self.inspection_indices[0] else (.95,.12,.65)) if part.source_index in self.inspection_indices else (.28,.32,.37) if self.inspection_phase is not None else (1.,.78,.18) if part.source_index in self.selected_indices else part.color
+            g.Uniform1f(loc['lit'],1);g.Uniform3f(loc['color'],*color);g.Enable(0x8037);g.PolygonOffset(1,1);g.DrawArrays(4,*part.side)
             for cap in part.caps:
                 g.StencilMask(1);g.Clear(0x0400);g.Enable(0x0B90);g.Disable(0x0B71);g.DepthMask(0);g.ColorMask(0,0,0,0)
                 g.StencilFunc(0x0207,0,1);g.StencilOp(0x1E00,0x1E00,0x150A);g.DrawArrays(4,*cap.fan)
                 g.ColorMask(1,1,1,1);g.DepthMask(1);g.Enable(0x0B71);g.StencilMask(0);g.StencilFunc(0x0202,1,1);g.StencilOp(0x1E00,0x1E00,0x1E00);g.DrawArrays(4,*cap.plane);g.Disable(0x0B90)
-            g.Disable(0x8037);g.Uniform1f(loc['lit'],0);g.Uniform1f(loc['edge'],1);g.Uniform3f(loc['color'],*(x*.55 for x in part.color));g.DrawArrays(1,*part.edges);g.Uniform1f(loc['edge'],0)
-        if getattr(self,'capture_path',None):
-            import cairo
-            pixels=C.create_string_buffer(w*h*4);g.ReadPixels(0,0,w,h,0x80E1,0x1401,pixels)
-            raw=bytearray().join(pixels.raw[row*w*4:(row+1)*w*4] for row in range(h-1,-1,-1))
-            surface=cairo.ImageSurface.create_for_data(raw,cairo.FORMAT_ARGB32,w,h,w*4);surface.write_to_png(self.capture_path);self.capture_path=None
+            g.Disable(0x8037);g.Uniform1f(loc['lit'],0);g.Uniform1f(loc['edge'],1);g.Uniform3f(loc['color'],*(x*.55 for x in color));g.DrawArrays(1,*part.edges);g.Uniform1f(loc['edge'],0)
+        if getattr(self,'capture_path',None) or getattr(self,'capture_callback',None):
+            callback=getattr(self,'capture_callback',None);self.capture_callback=None
+            try:
+                import cairo
+                import io
+                pixels=C.create_string_buffer(w*h*4);g.ReadPixels(0,0,w,h,0x80E1,0x1401,pixels)
+                raw=bytearray().join(pixels.raw[row*w*4:(row+1)*w*4] for row in range(h-1,-1,-1))
+                surface=cairo.ImageSurface.create_for_data(raw,cairo.FORMAT_ARGB32,w,h,w*4)
+                if getattr(self,'capture_path',None):
+                    surface.write_to_png(self.capture_path);self.capture_path=None
+                if callback:
+                    encoded=io.BytesIO();surface.write_to_png(encoded);callback(encoded.getvalue(),None)
+            except Exception as error:
+                if callback:callback(None,error)
+                else:raise
         g.StencilMask(0xFF);g.BindVertexArray(0);g.UseProgram(0)
         return True

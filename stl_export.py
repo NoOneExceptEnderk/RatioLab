@@ -7,6 +7,9 @@ from math import sqrt
 from pathlib import Path
 import re
 import struct
+import os
+import tempfile
+import shutil
 from solid_geometry import faces
 
 
@@ -34,7 +37,8 @@ def intersects(a, b, c, d):
     return on(a,b,c,ab_c) or on(a,b,d,ab_d) or on(c,d,a,cd_a) or on(c,d,b,cd_b)
 
 
-def triangulate(face):
+def triangulate(face, check=lambda:None):
+    check()
     if len(face) == 1 and len(face[0]) == 3:
         return [tuple(face[0])]
     outer = face[0]
@@ -54,11 +58,13 @@ def triangulate(face):
     polygon = loops[0][:]
     holes = sorted(loops[1:], key=lambda loop: max(p[0] for p in loop), reverse=True)
     for hole in holes:
+        check()
         h = max(range(len(hole)), key=lambda i: (hole[i][0], -hole[i][1]))
         a = hole[h]
         candidates = sorted(range(len(polygon)), key=lambda i: (polygon[i][0]-a[0])**2+(polygon[i][1]-a[1])**2)
         bridge = None
         for i in candidates:
+            check()
             b = polygon[i]
             if a == b: continue
             middle = ((a[0]+b[0])/2,(a[1]+b[1])/2)
@@ -76,12 +82,14 @@ def triangulate(face):
     reflex = {i for i in active if cross(polygon[prev[i]],polygon[i],polygon[nxt[i]]) <= 1e-14}
     i = 0; missed = 0
     while len(active)>3:
+        check()
         a,b,c = polygon[prev[i]],polygon[i],polygon[nxt[i]]
         ear = i not in reflex
         if ear:
             xmin,xmax = min(a[0],b[0],c[0]),max(a[0],b[0],c[0])
             ymin,ymax = min(a[1],b[1],c[1]),max(a[1],b[1],c[1])
             for j in reflex:
+                if j%128==0:check()
                 p = polygon[j]
                 if p in (a,b,c) or not (xmin<=p[0]<=xmax and ymin<=p[1]<=ymax): continue
                 if cross(a,b,p)>=-1e-14 and cross(b,c,p)>=-1e-14 and cross(c,a,p)>=-1e-14:
@@ -107,7 +115,9 @@ def triangles(part):
 
 def write_stl(path, parts):
     path = Path(path)
-    temporary = path.with_suffix(path.suffix+'.tmp')
+    descriptor, name = tempfile.mkstemp(prefix='.'+path.name+'-',suffix='.tmp',dir=path.parent)
+    os.close(descriptor)
+    temporary = Path(name)
     count = 0
     try:
         with temporary.open('wb') as out:
@@ -130,15 +140,30 @@ def write_stl(path, parts):
 def export(design, stem):
     stem = Path(stem)
     folder = stem.parent/(stem.name+'.stl-parts')
-    folder.mkdir(parents=True,exist_ok=True)
-    paths=[]
-    try:
-        for i,part in enumerate(design.parts,1):
+    assembly = stem.parent/(stem.name+'.stl')
+    stem.parent.mkdir(parents=True,exist_ok=True)
+    if folder.exists() or folder.is_symlink() or assembly.exists() or assembly.is_symlink():
+        raise FileExistsError(f'STL export already exists: {stem}')
+    if not design.parts:raise ValueError('No components to export.')
+    paths=[];assembly_published=False;folder_reserved=False
+    with tempfile.TemporaryDirectory(prefix='.'+stem.name+'-stl-',dir=stem.parent) as temporary:
+        staging=Path(temporary);parts_folder=staging/'parts';parts_folder.mkdir()
+        for i,part in zip(getattr(design,'source_indices',range(1,len(design.parts)+1)),design.parts):
             name = re.sub(r'[^\w-]+','_',part.name).strip('_') or 'componente'
-            paths.append(write_stl(folder/f'{i:03d}-{name}.stl',[part]))
-        assembly = write_stl(stem.parent/(stem.name+'.stl'),design.parts)
-    except Exception:
-        for path in paths:path.unlink(missing_ok=True)
-        if not any(folder.iterdir()):folder.rmdir()
-        raise
+            path=write_stl(parts_folder/f'{i:03d}-{name}.stl',[part])
+            paths.append(folder/path.name)
+        staged_assembly=write_stl(staging/'assembly.stl',design.parts)
+        try:
+            # Reserve both destinations exclusively. Copying instead of hard
+            # links also works on FAT/exFAT export volumes and Windows.
+            folder.mkdir();folder_reserved=True
+            with assembly.open('xb') as output:
+                assembly_published=True
+                with staged_assembly.open('rb') as source:shutil.copyfileobj(source,output)
+            for path in parts_folder.iterdir():path.rename(folder/path.name)
+            folder_reserved=False
+        except Exception:
+            if assembly_published:assembly.unlink()
+            if folder_reserved:shutil.rmtree(folder)
+            raise
     return assembly, paths

@@ -18,11 +18,15 @@ from preview3d import Preview3D
 from catalog import BEARINGS,MODES,FITS,SUPPORTED
 import bom
 import stl_export
+import cad_export
+import profile_export
+import package_export
 import io_controls
 import motion_controls
 import gui_workflow
 import result_controls
 import workspace_ui
+from project_ui import ProjectActions
 from kinematics import options as io_options,default as io_default,TRIPLES as IO_TRIPLES
 import hardware_catalog as hw
 
@@ -31,7 +35,7 @@ GLib.set_application_name('RatioLab')
 GENERATED=app_paths.default_output_dir()
 LABELS=[gui_workflow.CATALOG.get(key,(label,''))[0] for key,label in FAMILIES.items()]
 
-class ReducerApp(Gtk.Application):
+class ReducerApp(ProjectActions, Gtk.Application):
     def __init__(self):
         super().__init__(application_id=app_paths.APP_ID)
         self.values={};self.design=None;self.family='parallel';self.busy=False;self.pending=0;self.building=False;self.variant_model_family=None;self.last_valid_family=None;self.connected=False
@@ -43,6 +47,8 @@ class ReducerApp(Gtk.Application):
         workspace_ui.build(self, LABELS)
         self.make_fields()
         self.update_playback_bar()
+        self.init_projects()
+        if self.design:self.components.refreshed(self.design)
         self.win.present()
         GLib.timeout_add(500, self.check_graphics)
     def select_view(self,name):
@@ -73,16 +79,24 @@ class ReducerApp(Gtk.Application):
         self.status.set_tooltip_text(text)
     def read_values(self):
         self.error_field=None
-        if getattr(self, 'motion_input_invalid', False):
-            self.error_field='input_rpm'
-            raise ValueError('Input speed: '+self.motion_rate_error.get_text())
-        result=dict(getattr(self,"option_values",{}))
+        result=dict(self.values.get(self.family,{}))
+        result.update(getattr(self,"option_values",{}))
         for key,spin in self.inputs.items():
             try:result[key]=float(spin.get_text().strip().replace(',','.'))
             except ValueError:
                 self.error_field=key;spin.add_css_class('field-error');raise ValueError('Complete the numeric value: '+self.input_labels[key])
             else:spin.remove_css_class('field-error')
-        if hasattr(self,'motion_rpm'):result['input_rpm']=self.motion_rpm
+        if hasattr(self,'motion_rpm'):
+            from math import isfinite
+            try:
+                rpm=float(self.motion_speed_text.get_text().strip().replace(',','.'))
+                low,high=self.motion_rate_limits
+                if not isfinite(rpm) or not low<=rpm<=high:raise ValueError()
+            except ValueError:
+                self.error_field='input_rpm';raise ValueError('Complete a valid input speed.')
+            result['input_rpm']=rpm
+            self.motion_input_invalid=False
+            self.motion_rpm=rpm
         if self.family in VARIANTS:result['variant']=list(VARIANTS[self.family])[self.variant_selector.get_selected()]
         return result
     def change_variant(self,*args):
@@ -93,14 +107,18 @@ class ReducerApp(Gtk.Application):
         self.canvas.set_options(*(self.view_options[k].get_active() for k in ['support','housing','exploded','section']))
         self.hidden_hint.set_visible(bool(self.canvas.scene and not self.canvas.scene.parts))
     def remember(self):
-        if hasattr(self,'inputs'):
-            try:self.values[self.family]=self.read_values()
-            except ValueError:pass
+        if hasattr(self,'inputs'):self.collect_fields()
+    def rebuild_options(self, changes):
+        self.remember()
+        self.values[self.family].update(changes)
+        for key in changes:self.raw_edits.get(self.family,{}).pop(key,None)
+        self.make_fields()
     def change_family(self,*args):
         if self.building:return
         self.remember();self.family=list(FAMILIES)[self.selector.get_selected()];self.make_fields()
     def make_fields(self):
         self.building=True
+        self.hardware_warning_labels={}
         advanced_open=getattr(self,'advanced_expander',None) and self.advanced_expander.get_expanded()
         gui_workflow.preserve_scroll(self)
         if self.pending:GLib.source_remove(self.pending);self.pending=0
@@ -128,15 +146,16 @@ class ReducerApp(Gtk.Application):
             self.option_values[key]=values.get(key,default)
             def change(widget,*args):
                 if self.building:return
-                try:current=self.read_values()
-                except ValueError:current=dict(values)
+                current=self.collect_fields()
                 current[key]=keys[widget.get_selected()]
+                if key=='hardware_mode' and self.family in ('parallel','internal'):current['hardware_bolts']=False
                 if key=='eccentric_design':
                     if current[key]=='fdm_bolted':
                         from printed_shaft import SUPPORTED_SCHEMES
                         current.update(bearing_mode='manual',hardware_mode='none')
                         if current.get('io_scheme') not in SUPPORTED_SCHEMES:current['io_scheme']=SUPPORTED_SCHEMES[0]
-                self.values[self.family]=current;self.make_fields()
+                changes={k:v for k,v in current.items() if k not in self.inputs and k!='input_rpm'}
+                self.rebuild_options(changes)
             dropdown.connect('notify::selected',change);target.append(dropdown)
             return dropdown
         double=is_double(self.family,variant)
@@ -152,16 +171,21 @@ class ReducerApp(Gtk.Application):
             preset.set_tooltip_text('Sets input shaft Ø17 mm, bearing seat Ø32.2 mm, disc thickness 16 mm and the default two-bolt clearances. Other main dimensions are preserved.')
             def apply_printed_preset(*args):
                 from printed_shaft import PRESET
-                current=self.read_values();current.update(PRESET)
-                self.values[self.family]=current;self.make_fields()
+                self.rebuild_options(PRESET)
             preset.connect('clicked',apply_printed_preset);self.eccentric_design_box.append(preset)
             self.printed_preset_button=preset
         if double and self.family!='double':choice('double_style','Double helix construction',DOUBLE_STYLES,'joined' if values.get('gap',1)==0 else 'separated')
         io_controls.build(self,values,variant,choice)
-        self.sections['bearings'][0].set_visible(self.family in SUPPORTED and not printed)
+        self.sections['bearings'][0].set_visible(True)
         field_target=self.sections['bearings'][1]
-        if self.family in SUPPORTED:
-            choice('bearing_mode','Standard fit',MODES,'manual')
+        if self.family in SUPPORTED and not printed:
+            modes=dict(MODES)
+            if self.family in ('parallel','internal'):modes.pop('gear')
+            choice('bearing_mode','Standard fit',modes,'manual')
+            if self.family in ('parallel','internal'):
+                from pair_assembly import GEAR_REASON
+                disabled=Gtk.Button(label='Bearing in bore · unavailable');disabled.set_sensitive(False);field_target.append(disabled)
+                field_target.append(Gtk.Label(label=GEAR_REASON+(' Catalog support covers the pinion shaft only; ring output is not supported.' if self.family=='internal' else ''),xalign=0,wrap=True))
             if self.option_values.get('bearing_mode')!='manual':
                 choice('bearing','NSK bearing · d × D × B',{k:b.label for k,b in BEARINGS.items()},'608' if self.family=='cycloidal' else '626')
                 choice('fit','Seat dimensions',FITS,'nominal')
@@ -170,22 +194,38 @@ class ReducerApp(Gtk.Application):
                 link.connect('activate-link',lambda button:gui_workflow.open_link(self,button.get_uri()))
                 field_target.append(link)
                 field_target.append(Gtk.Label(label='Linked dimensions are shown after calculation. Assembly options add available retainers.',xalign=0,wrap=True,css_classes=['muted']))
-        self.sections['hardware'][0].set_visible(self.family in hw.SUPPORTED and not printed)
+        else:
+            from pair_assembly import STUDY_REASON,PRINT_REASON
+            disabled=Gtk.Button(label='Automatic bearing catalog · unavailable');disabled.set_sensitive(False);field_target.append(disabled)
+            field_target.append(Gtk.Label(label=PRINT_REASON if printed else STUDY_REASON,xalign=0,wrap=True))
+        self.sections['hardware'][0].set_visible(True)
         field_target=self.sections['hardware'][1]
-        if self.family in hw.SUPPORTED:
+        if self.family in hw.SUPPORTED and not printed:
             choice('hardware_mode','Hardware and assembly',hw.MODES,'none')
             if self.option_values['hardware_mode']=='standard':
                 for key,label in [('retaining','Retaining rings and grooves'),('keys','Compatible keys and keyways'),('bolts','Flange screws, nuts and holes'),('shims','Shims and spacers')]:
-                    name='hardware_'+key;check=Gtk.CheckButton(label=label);check.set_active(values.get(name,True));self.option_values[name]=values.get(name,True)
+                    name='hardware_'+key;check=Gtk.CheckButton(label=label);default=False if self.family in ('parallel','internal') and key=='bolts' else True;check.set_active(values.get(name,default));self.option_values[name]=values.get(name,default)
+                    if self.family in ('parallel','internal') and key=='bolts':
+                        from pair_assembly import BOLT_REASON
+                        check.set_sensitive(False);check.set_tooltip_text(BOLT_REASON)
                     def toggled(widget,key=name):
                         if self.building:return
-                        try:current=self.read_values()
-                        except ValueError:current=dict(values)
-                        current[key]=widget.get_active();self.values[self.family]=current;self.make_fields()
+                        self.rebuild_options({key:widget.get_active()})
                     check.connect('toggled',toggled);field_target.append(check)
-                choice('hardware_screw','Flange fasteners',{k:k for k in hw.FASTENERS},'M3')
+                    if self.family in ('parallel','internal'):
+                        from pair_assembly import hardware_warnings
+                        warning=hardware_warnings(self.family,values).get(key)
+                        note=Gtk.Label(label=warning or '',xalign=0,wrap=True,css_classes=['muted']);note.set_visible(bool(warning));field_target.append(note);self.hardware_warning_labels[key]=note
+                fastener=choice('hardware_screw','Flange fasteners',{k:k for k in hw.FASTENERS},'M3')
+                if self.family in ('parallel','internal'):
+                    from pair_assembly import BOLT_REASON
+                    fastener.set_sensitive(False);field_target.append(Gtk.Label(label=BOLT_REASON,xalign=0,wrap=True))
                 choice('hardware_shim','DIN 988 shim thickness',hw.SHIM_THICKNESSES,'.5')
                 field_target.append(Gtk.Label(label='Automatic dimensions and quantities; remaining connections are listed in the BOM.',xalign=0,wrap=True,css_classes=['muted']))
+        else:
+            from pair_assembly import STUDY_REASON,PRINT_REASON
+            disabled=Gtk.Button(label='Automatic hardware · unavailable');disabled.set_sensitive(False);field_target.append(disabled)
+            field_target.append(Gtk.Label(label=PRINT_REASON if printed else STUDY_REASON,xalign=0,wrap=True))
         specs=get_specs(self.family,variant,self.option_values.get('double_style'))
         if self.option_values.get('bearing_mode','manual')!='manual':
             specs+=[('shoulder','Minimum axial margin [mm]',1,.5,5,.5)]
@@ -193,9 +233,14 @@ class ReducerApp(Gtk.Application):
         motion_controls.configure(self,values,specs)
         gui_workflow.geometry_groups(self, specs)
         gui_workflow.update_family(self)
+        self.restore_raw_fields()
         self.building=False
         if self.family!=self.last_valid_family:self.canvas.view('iso')
-        self.refresh()
+        generated=self.refresh()
+        self.project_changed()
+        # Option rebuilds record after normalization; bind to the resulting
+        # revision only when this very rebuild generated valid geometry.
+        if generated and hasattr(self,'components'):self.components.refreshed(self.design)
     def changed(self,*args):
         if self.building:
             return
@@ -205,6 +250,8 @@ class ReducerApp(Gtk.Application):
             widget.set_text(widget.get_text().replace(',', '.'))
             widget.set_position(position)
             return
+        key=next((key for key,w in self.inputs.items() if args and w is args[0]),'input_rpm')
+        self.project_changed((self.family,key))
         self.send_btn.set_sensitive(False)
         self.export_menu.set_sensitive(False)
         self.empty.set_text('Geometry out of date · updating…')
@@ -226,17 +273,24 @@ class ReducerApp(Gtk.Application):
         if self.pending:
             GLib.source_remove(self.pending)
             self.pending = 0
+        reconcile_token=self.project_reconcile_token()
         try:
             values = self.read_values()
             design = generate(self.family, values)
             self.canvas.set_design(design)
             self.design = design
+            if getattr(self,'hardware_warning_labels',None):
+                from pair_assembly import hardware_warnings
+                warnings=hardware_warnings(self.family,design.values)
+                for key,note in self.hardware_warning_labels.items():note.set_text(warnings.get(key,''));note.set_visible(key in warnings)
             self.values[self.family] = values
             linked = set()
             mode = values.get('bearing_mode', 'manual')
             if mode != 'manual':
                 if self.family in ('spur', 'helical', 'double'):
                     linked = {'bore'}
+                elif self.family in ('parallel','internal'):
+                    linked = {'bore','output_bore'} if self.family=='parallel' else {'bore'}
                 elif self.family == 'planetary' and mode == 'shaft':
                     linked = {'bore'}
                 elif self.family == 'cycloidal':
@@ -249,6 +303,7 @@ class ReducerApp(Gtk.Application):
             for key, spin in self.inputs.items():
                 if key in design.values and (mode != 'manual' or printed and key == 'bore'):
                     spin.set_value(design.values[key])
+                    spin.set_text(gui_workflow.roundtrip_text(design.values[key],spin.get_digits()))
                 spin.set_sensitive(key not in linked)
                 if key in linked:
                     spin.add_css_class('derived')
@@ -291,10 +346,17 @@ class ReducerApp(Gtk.Application):
             self.status.remove_css_class('error')
             if not self.busy:
                 self.status_text('✓ Geometry generated')
+            self.reconcile_project(reconcile_token)
+            self.interference.refreshed(design)
+            self.combination_search.refreshed(design)
+            self.components.refreshed(design)
             return True
         except Exception as e:
             self.building = False
             self.design = None
+            self.components.invalidate('Invalid configuration · selection cleared')
+            self.interference.invalidate('Invalid configuration · check blocked')
+            self.combination_search.invalidate('Invalid configuration · search blocked')
             self.export_menu.set_sensitive(False)
             io_controls.update(self, None)
             if self.last_valid_family != self.family:
@@ -323,66 +385,50 @@ class ReducerApp(Gtk.Application):
             return False
 
     def reset_defaults(self,*args):
-        try:self.reset_values=(self.family,self.read_values())
-        except ValueError:self.reset_values=(self.family,dict(self.values.get(self.family,defaults(self.family))))
-        self.values[self.family]=defaults(self.family);self.make_fields();self.undo_reset.set_visible(True);self.status_text('Default parameters restored. Use the button alongside to undo.')
+        if self.busy:return
+        self.project_changed();self.document.barrier()
+        self.values[self.family]=defaults(self.family);self.raw_edits[self.family]={}
+        self.make_fields();self.undo_reset.set_visible(True)
+        self.status_text('Default parameters restored. Use Undo to restore your edits.')
     def undo_defaults(self,*args):
-        if not self.reset_values:return
-        family,values=self.reset_values;self.remember();self.selector.set_selected(list(FAMILIES).index(family));self.family=family;self.values[family]=values;self.make_fields();self.reset_values=None;self.undo_reset.set_visible(False)
-    def save_dialog(self,*args):
-        if self.busy or not self.refresh():return
-        config=self.config()
-        dialog=Gtk.FileChooserNative(title='Save model configuration',transient_for=self.win,action=Gtk.FileChooserAction.SAVE,accept_label='Save',cancel_label='Cancel')
-        dialog.set_current_name(f'{self.family}.config.json')
-        if self.output_dir.exists():dialog.set_current_folder(Gio.File.new_for_path(str(self.output_dir)))
-        def response(d,r):
-            if r==Gtk.ResponseType.ACCEPT:
-                try:
-                    path=Path(d.get_file().get_path());path.write_text(json.dumps(config,indent=2,ensure_ascii=False)+'\n',encoding='utf-8');self.status_text(f'Configuration saved: {path}')
-                except Exception as e:self.status_text(f'Configuration could not be saved: {e}')
-            d.destroy()
-        dialog.connect('response',response);dialog.show()
-    def config(self):
-        self.remember(); result={'format':'solidcraft-riduttori/1','family':self.family,'parameters':self.values[self.family]}
-        return result
-    def save_config(self,*args):
-        if not self.refresh():return
-        try:
-            self.output_dir.mkdir(parents=True,exist_ok=True); path=self.output_dir/f'{self.family}-{datetime.now():%Y%m%d-%H%M%S-%f}.config.json'
-            path.write_text(json.dumps(self.config(),indent=2,ensure_ascii=False)+'\n',encoding='utf-8'); self.status_text(f'Configuration saved: {path}')
-        except Exception as e:self.status_text(str(e))
-    def load_config_data(self,obj):
-        if obj.get('format')!='solidcraft-riduttori/1':raise ValueError('Unknown configuration format')
-        family=obj['family']
-        if family not in FAMILIES:raise ValueError('Unsupported reducer: '+str(family))
-        checked=generate(family,obj['parameters']);self.remember()
-        self.building=True
-        self.selector.set_selected(list(FAMILIES).index(family));self.family=family;self.values[family]=checked.values;self.make_fields()
-
-    def load_dialog(self,*args):
-        dialog=Gtk.FileChooserNative(title='Open reducer configuration',transient_for=self.win,action=Gtk.FileChooserAction.OPEN,accept_label='Open',cancel_label='Cancel')
-        f=Gtk.FileFilter(); f.set_name('JSON configurations'); f.add_pattern('*.json'); dialog.add_filter(f)
-        def response(d,r):
-            if r==Gtk.ResponseType.ACCEPT:
-                try:
-                    self.load_config_data(json.loads(Path(d.get_file().get_path()).read_text(encoding='utf-8')))
-                except Exception as e:self.status_text(f'Configuration could not be loaded: {e}')
-            d.destroy()
-        dialog.connect('response',response); dialog.show()
+        self.undo_project();self.undo_reset.set_visible(False)
     def export(self,*args):
         if self.busy or not self.refresh(): return
         try:
-            self.output_dir.mkdir(parents=True,exist_ok=True); stem=f'{self.family}-{datetime.now():%Y%m%d-%H%M%S-%f}'
+            target=self.output_dir/f'{self.family}-{datetime.now():%Y%m%d-%H%M%S-%f}.package'
             design=self.design;config=self.config()
-            self.canvas.reset_motion();self.canvas.save_png(self.output_dir/(stem+'.png'))
+            captured=threading.Event();preview={}
+            def capture_done(data,error):
+                preview.update(data=data,error=error);captured.set()
+            self.canvas.reset_motion()
+            self.view_options['exploded'].set_active(False)
+            self.view_options['section'].set_active(False)
+            self.canvas.capture_png(capture_done)
             def work():
-                assets=self.output_dir/(stem+'.assets');design.prepare_assets(assets)
-                path=self.output_dir/(stem+'.script.json');path.write_text(json.dumps({'commands':design.commands(assets)},indent=2)+'\n',encoding='utf-8')
-                (self.output_dir/(stem+'.config.json')).write_text(json.dumps(config,indent=2)+'\n',encoding='utf-8')
-                stl_export.export(design,self.output_dir/stem);bom.export(design,self.output_dir/stem)
-                return f'Script, configuration, assembly and component STL files, preview, BOM and calculations saved in {self.output_dir}'
+                if not captured.wait(30):
+                    GLib.idle_add(setattr,self.canvas,'capture_callback',None)
+                    raise RuntimeError('Preview capture timed out; no complete package was published.')
+                if preview['error']:raise RuntimeError(f'Preview capture failed: {preview["error"]}')
+                package_export.export(design,config,target,preview['data'])
+                return f'Complete STEP, STL, SVG/DXF, configuration, CAD script, preview and reports package saved: {target}'
             self.background(work)
         except Exception as e:self.status_text(str(e))
+    def export_step(self,*args):
+        if self.busy or not self.refresh():return
+        design=self.design
+        target=self.output_dir/f'{self.family}-{datetime.now():%Y%m%d-%H%M%S-%f}.step-export'
+        def work():
+            folder,metadata=cad_export.export(design,target)
+            return f'STEP in millimetres: assembly and {len(metadata)} components saved in {folder}'
+        self.background(work)
+    def export_profiles(self,*args):
+        if self.busy or not self.refresh():return
+        design=self.design
+        target=self.output_dir/f'{self.family}-{datetime.now():%Y%m%d-%H%M%S-%f}.profiles-export'
+        def work():
+            folder,metadata=profile_export.export(design,target)
+            return f'SVG/DXF in millimetres saved in {folder} · see profiles.json: helical/deformed sections are not extrusion profiles'
+        self.background(work)
     def export_stl(self,*args):
         if self.busy or not self.refresh():return
         design=self.design
@@ -408,6 +454,7 @@ class ReducerApp(Gtk.Application):
     def background(self,work):
         if self.busy:return
         self.busy=True;self.spinner.start();self.update_playback_bar()
+        self.components.update()
         self.send_btn.set_sensitive(False); self.connect_btn.set_sensitive(False); self.selector.set_sensitive(False); self.fields.set_sensitive(False);self.variant_selector.set_sensitive(False);self.motion_button.set_sensitive(False);self.io_frame.set_sensitive(False)
         for button in self.file_buttons: button.set_sensitive(False)
         self.status_text('Operation in progress… please wait.');self.live_label.set_text('● Working')
@@ -420,8 +467,9 @@ class ReducerApp(Gtk.Application):
             if failed:self.status.add_css_class('error')
             else:self.status.remove_css_class('error')
             self.busy=False;self.spinner.stop();self.update_playback_bar()
+            self.components.update()
             for button in self.file_buttons: button.set_sensitive(True)
-            self.connect_btn.set_sensitive(True); self.selector.set_sensitive(True); self.fields.set_sensitive(True);self.variant_selector.set_sensitive(True);self.motion_button.set_sensitive(True);self.io_frame.set_sensitive(True);self.live_label.set_text('● Live update'); self.send_btn.set_sensitive(self.design is not None); self.export_menu.set_sensitive(self.design is not None); self.status_text(message); return False
+            self.connect_btn.set_sensitive(True); self.selector.set_sensitive(True); self.fields.set_sensitive(True);self.variant_selector.set_sensitive(True);self.motion_button.set_sensitive(True);self.io_frame.set_sensitive(True);self.live_label.set_text('● Live update'); self.send_btn.set_sensitive(self.design is not None); self.export_menu.set_sensitive(self.design is not None); self.status_text(message); self.update_document(); return False
         threading.Thread(target=run,daemon=True).start()
     def send(self,*args):
         if self.busy or not self.refresh():return

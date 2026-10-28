@@ -28,7 +28,7 @@ class GeometryWarningTests(unittest.TestCase):
     def test_profile_shift_clears_undercut_and_hides_old_warning(self):
         app = SimpleNamespace(study=Mock())
         update_geometry_warning(app, generate('spur', {'teeth': 12, 'bore': 0}))
-        corrected = generate('spur', {'teeth': 12, 'bore': 0, 'profile_shift': 0.3})
+        corrected = generate('spur', {'teeth': 12, 'bore': 0, 'profile_shift': 0.4})
         self.assertEqual(geometry_warnings(corrected), [])
         update_geometry_warning(app, corrected)
         app.study.set_visible.assert_called_with(False)

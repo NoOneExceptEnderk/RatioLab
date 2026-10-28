@@ -2,8 +2,12 @@
 Phase is the reference angle; the viewer advances it at the input operating RPM.
 """
 from dataclasses import dataclass, field
-from math import sin, cos, sqrt, pi, atan2
+from math import sin, cos, sqrt, pi, atan2, remainder
 IDENTITY = (1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0)
+
+def wrapped_angle(angle):
+    """Reduce in float64 before a GPU uniform loses long-running phase bits."""
+    return remainder(angle,2*pi)
 
 def multiply(a, b):
     return tuple((sum((a[4 * k + r] * b[4 * c + k] for k in range(4))) for c in range(4) for r in range(4)))
@@ -53,6 +57,8 @@ class MotionPlan:
     warps: dict = field(default_factory=dict)
     flex: dict = field(default_factory=dict)
     reference_rpm: float = 1
+    rates: dict = field(default_factory=dict)
+    # Full labelled orientation period; geometric tooth symmetry is not assumed.
 
     def matrix(self, index, phase):
         return self.poses[index](phase) if index in self.poses else IDENTITY
@@ -79,6 +85,7 @@ def build_plan(d):
         p = parts[index]
         o, a = part_axis(p)
         plan.poses[index] = rigid(rpm / ref, pivot or o, axis or a)
+        plan.rates[index] = (rpm / ref,)
     for i, p in enumerate(parts):
         if 'rpm' in p.port:
             global_axis = f in ('planetary', 'cycloidal', 'harmonic')
@@ -101,6 +108,7 @@ def build_plan(d):
                 zp = v['planet2' if stage == 2 else 'planet']
                 wp = wc - zs / zp * (ws - wc)
                 plan.poses[i] = orbital(wp / ref, wc / ref, p.center)
+                plan.rates[i] = (wp / ref, wc / ref)
             elif 'shaft_input' in name:
                 spin(i, stages[0]['rates_rpm']['sun'])
             elif 'coupling_interstage' in name or 'shaft_output' in name:
@@ -112,8 +120,10 @@ def build_plan(d):
         for i, p in enumerate(parts):
             if p.name.startswith('Disc_cycloidal'):
                 plan.poses[i] = orbital(wo / ref, we / ref, p.center)
+                plan.rates[i] = (wo / ref, we / ref)
             elif p.name.startswith('Bearing_eccentric'):
                 plan.poses[i] = orbital(0, we / ref, p.center)
+                plan.rates[i] = (we / ref,)
     elif f == 'harmonic':
         rates = d.analysis['kinematics']['stage_results'][0]['rates_rpm']
         we = rates['wave'] / ref
@@ -125,6 +135,7 @@ def build_plan(d):
         for i, p in enumerate(parts):
             if p.name.startswith('Flexspline'):
                 plan.poses.pop(i, None)
+                plan.rates[i] = (wf, we)
                 plan.flex[i] = lambda phase, we=we, wf=wf: (wf * phase, we * phase, a, b, rp, length, t)
             elif p.name == 'Bearing_wave_envelope':
                 spin(i, rates['wave'])

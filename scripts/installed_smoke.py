@@ -84,7 +84,9 @@ def main():
                         break
                     time.sleep(.01)
                 assert application.canvas.gl and not application.canvas.failure
-                application.save_config()
+                saved_path = chosen/'installed-workspace.config.json'
+                assert application.save_project(path=saved_path), 'Workspace save failed'
+                assert application.document.path == saved_path and not application.document.dirty
                 saved = list(chosen.glob('*.config.json'))
                 assert saved, 'The installed workspace did not save its configuration'
                 assert json.loads(saved[-1].read_text(encoding='utf-8'))['format'] == 'solidcraft-riduttori/1'

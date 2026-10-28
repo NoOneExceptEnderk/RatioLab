@@ -30,12 +30,12 @@ ratiolab-install-desktop = "install_desktop:main"
 include-package-data = false
 packages = ["ratiolab_resources"]
 py-modules = [
-  "app", "app_paths", "assemblies", "bom", "catalog", "connection",
+  "app", "app_paths", "assemblies", "bom", "cad_export", "catalog", "connection", "export_transaction",
   "engineering", "external_programs", "geartrains", "geometry", "gl_loader", "gui_workflow",
   "hardware", "hardware_catalog", "install_desktop", "io_controls",
-  "kinematics", "motion", "motion_controls", "mounting", "preview3d",
-  "printed_shaft", "ratiolab_checks", "ratiolab_cli", "result_controls", "solid_geometry",
-  "special_drives", "standard_parts", "stl_export", "workspace_ui",
+  "component_geometry", "components_ui", "selected_export", "pair_assembly", "combination_search", "combination_search_ui", "collision_geometry", "interference", "interference_ui", "kinematics", "motion", "motion_controls", "mounting", "preview3d",
+  "project_document", "project_ui", "package_export", "printed_shaft", "profile_export", "ratiolab_checks", "ratiolab_cli", "result_controls", "solid_geometry",
+  "special_drives", "wave_geometry", "tooth_profiles", "standard_parts", "stl_export", "workspace_ui",
 ]
 
 [tool.setuptools.cmdclass]
