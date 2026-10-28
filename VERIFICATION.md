@@ -475,3 +475,21 @@ helper match after the approved filename substitutions and docstring removal.
 The parent also repaired the local Linux shortcuts after detecting their old
 source-launcher path. Full source-suite and refreshed native evidence follow
 when those checks complete.
+
+### Bounded event dispatch in installed GUI checks
+
+The initial refreshed native run 40704451204 passed Linux, Windows and Apple
+Silicon, but the Intel macOS GUI workspace check reached its existing 180-second
+outer timeout after a successful bundled OpenGL diagnostic and headless feature
+check. Inspection found an unbounded `while context.pending()` drain: a software
+renderer with continuously ready frame events could prevent checking readiness
+or the inner deadline. The child process supplied no stack, so this is a proven
+event-loop defect rather than a claim that its exact timed-out phase was observed.
+
+The installed workspace and wheel smoke checks now use one shared nonblocking
+dispatch helper, revisiting readiness and the deadline after each iteration.
+Two regressions cover continuously ready events and timeout enforcement. The
+outer 180-second native GUI limit is unchanged; crashes, incomplete reports and
+missing graphics checks remain failures. Self-test progress goes to stderr,
+preserving the JSON result on stdout. An independent xHigh review and all five
+focused event-loop/GUI-gate tests passed before rebuilding the native packages.

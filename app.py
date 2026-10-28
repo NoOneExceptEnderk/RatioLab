@@ -1,7 +1,7 @@
 #!/usr/bin/python3
 # SPDX-FileCopyrightText: 2026 NoOneExceptEnderk
 # SPDX-License-Identifier: GPL-3.0-only
-"""GTK 4 desktop companion with a local 3D preview and automatic updates."""
+"""GTK 4 desktop companion with a local 3D preview and automatic geometry refresh."""
 import json
 from pathlib import Path
 from datetime import datetime

@@ -4,6 +4,7 @@
 import json
 import os
 from pathlib import Path
+import sys
 import tempfile
 import time
 from unittest.mock import patch
@@ -136,6 +137,22 @@ def _features_check(output, design):
              'generated_profiles', 'interference_distance', 'combination_search', 'component_selection_export')}
 
 
+def _wait_for_context(context, condition, timeout=30):
+    """Dispatch events without starving the condition or the deadline.
+
+    A slow software renderer can keep GTK's frame events continuously ready.
+    Draining until pending() is false would then never return to either check.
+    One nonblocking iteration lets GTK dispatch ready sources before yielding.
+    """
+    deadline = time.monotonic()+timeout
+    while time.monotonic() < deadline:
+        context.iteration(False)
+        if condition():
+            return
+        time.sleep(.01)
+    raise RuntimeError('Timed out checking the installed workspace')
+
+
 def _workspace_check(config, output):
     from app import ReducerApp
     from gi.repository import Gio, GLib
@@ -146,16 +163,14 @@ def _workspace_check(config, output):
     context = GLib.MainContext.default()
 
     def wait_for(condition):
-        deadline = time.monotonic()+30
-        while time.monotonic() < deadline:
-            while context.pending():
-                context.iteration(False)
-            if condition():
-                return
-            time.sleep(.01)
-        raise RuntimeError('Timed out checking the installed workspace')
+        _wait_for_context(context, condition)
+
+    def progress(stage):
+        # Diagnostics stay on stderr; stdout remains a machine-readable report.
+        print('RatioLab workspace check: '+stage, file=sys.stderr, flush=True)
 
     try:
+        progress('load configuration')
         application.output_dir = output/'workspace'
         application.load_config_data(config)
         wait_for(lambda: application.canvas.gl and not application.pending)
@@ -172,6 +187,7 @@ def _workspace_check(config, output):
             controller.open()
             wait_for(lambda: controller.window is not None and controller.window.get_visible())
             controller.window.close()
+        progress('export complete package')
         application.export()
         wait_for(lambda: not application.busy and list(application.output_dir.glob('*.package/manifest.json')))
         package = next(application.output_dir.glob('*.package'))
@@ -191,6 +207,7 @@ def _workspace_check(config, output):
         from geometry import FAMILIES, generate
         previews = []
         for family in FAMILIES:
+            progress('render '+family)
             application.load_config_data(dict(format='solidcraft-riduttori/1', family=family,
                                                parameters=generate(family).values))
             wait_for(lambda: not application.pending and application.canvas.design.family == family)

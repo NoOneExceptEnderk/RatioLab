@@ -78,13 +78,10 @@ def main():
                 assert application.config()['format'] == 'solidcraft-riduttori/1'
                 assert application.family == 'helical'
                 context = GLib.MainContext.default()
-                deadline = time.monotonic()+10
-                while time.monotonic() < deadline:
-                    while context.pending():
-                        context.iteration(False)
-                    if application.canvas.gl and not application.canvas.dirty:
-                        break
-                    time.sleep(.01)
+                from ratiolab_checks import _wait_for_context
+                _wait_for_context(context,
+                                  lambda: application.canvas.gl and not application.canvas.dirty,
+                                  timeout=10)
                 assert application.canvas.gl and not application.canvas.failure
                 saved_path = chosen/'installed-workspace.config.json'
                 assert application.save_project(path=saved_path), 'Workspace save failed'

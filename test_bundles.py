@@ -30,6 +30,38 @@ support = load('bundle_support_test', ROOT/'packaging/bundle_support.py')
 gui_check = load('bundle_gui_check_test', ROOT/'scripts/check-installed-gui.py')
 
 
+class GuiEventLoopTests(unittest.TestCase):
+    def test_continuously_ready_events_do_not_starve_the_condition(self):
+        from ratiolab_checks import _wait_for_context
+        context = unittest.mock.Mock()
+        context.pending.return_value = True
+        dispatched = []
+        def dispatch(blocking):
+            self.assertFalse(blocking)
+            dispatched.append(None)
+            if len(dispatched) > 10:
+                self.fail('The event queue was drained without checking readiness')
+        context.iteration.side_effect = dispatch
+        with patch('ratiolab_checks.time.sleep'):
+            _wait_for_context(context, lambda: len(dispatched) >= 3)
+        self.assertEqual(len(dispatched), 3)
+
+    def test_continuously_ready_events_still_observe_the_deadline(self):
+        from ratiolab_checks import _wait_for_context
+        context = unittest.mock.Mock()
+        context.pending.return_value = True
+        def dispatch(blocking):
+            self.assertFalse(blocking)
+            if context.iteration.call_count > 10:
+                self.fail('The event queue prevented the deadline from being checked')
+        context.iteration.side_effect = dispatch
+        with patch('ratiolab_checks.time.monotonic', side_effect=[0, .05, .15, .25, .35]), \
+                patch('ratiolab_checks.time.sleep'), \
+                self.assertRaisesRegex(RuntimeError, 'Timed out checking the installed workspace'):
+            _wait_for_context(context, lambda: False, timeout=.3)
+        self.assertEqual(context.iteration.call_count, 3)
+
+
 class NativeGuiChecksTests(unittest.TestCase):
     def probe(self, folder, message, code, require=False):
         def run(*args, **kwargs):
