@@ -464,7 +464,7 @@ class ReducerApp(ProjectActions, Gtk.Application):
             try: result=work(); failed=False;message=result if isinstance(result,str) else 'Model created in SolidCraft. Save it from CAD as .solidcraft or export it as STEP.'
             except Exception as e:
                 failed=True;message=str(e); traceback.print_exc()
-            # Brief completion must run before busy animations can starve idle work.
+            # Keep short completion callbacks responsive when animations keep the loop busy.
             GLib.idle_add(done,message,failed,priority=GLib.PRIORITY_DEFAULT)
         def done(message,failed):
             if failed:self.status.add_css_class('error')

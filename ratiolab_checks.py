@@ -4,7 +4,6 @@
 import json
 import os
 from pathlib import Path
-import sys
 import tempfile
 import time
 from unittest.mock import patch
@@ -192,12 +191,7 @@ def _workspace_check(config, output):
     def wait_for(condition):
         _wait_for_context(context, condition)
 
-    def progress(stage):
-        # Diagnostics stay on stderr; stdout remains a machine-readable report.
-        print('RatioLab workspace check: '+stage, file=sys.stderr, flush=True)
-
     try:
-        progress('load configuration')
         application.output_dir = output/'workspace'
         application.load_config_data(config)
         wait_for(lambda: application.canvas.gl and not application.pending)
@@ -215,7 +209,6 @@ def _workspace_check(config, output):
             wait_for(lambda: controller.window is not None and controller.window.get_visible())
             controller.window.close()
         _wait_for_frame(application.canvas, context)
-        progress('export complete package')
         application.export()
         if not application.busy:
             raise RuntimeError('Workspace export did not start: '+application.status.get_text())
@@ -237,7 +230,6 @@ def _workspace_check(config, output):
         from geometry import FAMILIES, generate
         previews = []
         for family in FAMILIES:
-            progress('render '+family)
             application.load_config_data(dict(format='solidcraft-riduttori/1', family=family,
                                                parameters=generate(family).values))
             wait_for(lambda: not application.pending and application.canvas.design.family == family)

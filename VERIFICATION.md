@@ -490,8 +490,8 @@ The installed workspace and wheel smoke checks now use one shared nonblocking
 dispatch helper, revisiting readiness and the deadline after each iteration.
 Two regressions cover continuously ready events and timeout enforcement. The
 outer 180-second native GUI limit is unchanged; crashes, incomplete reports and
-missing graphics checks remain failures. Self-test progress goes to stderr,
-preserving the JSON result on stdout. An independent xHigh review and all five
+missing graphics checks remain failures. Temporary progress messages were used during local diagnosis and removed
+before final packaging so the original JSON report format remains intact. An independent xHigh review and all five
 focused event-loop/GUI-gate tests passed before rebuilding the native packages.
 
 ### Reproduced software-renderer export completion and frame synchronization
@@ -504,7 +504,7 @@ before export and each family screenshot. Three regressions cover the later
 frame, invalid dimensions/timeout cleanup and a missing frame clock.
 
 A separate timed probe showed that the full package was written in 0.573s,
-while its GUI completion stayed pending for30s with `busy=True`. The independent
+while its GUI completion stayed pending for 30 s with `busy=True`. The independent
 reviewer reproduced this with an immediate worker: a callback at default event
 priority ran, while the default idle callback remained behind busy animation.
 The brief background completion now uses `GLib.PRIORITY_DEFAULT`. A real GTK
@@ -516,3 +516,13 @@ complete package, all nine nonblank family PNGs and all six feature areas.
 All original native GUI resource/time limits remain unchanged. The parent
 retains the negative reproduction, worker timing and positive report under
 `work/english-release-review/`; those local paths are not part of an installer.
+
+The parent also exercised the unchanged installer entrypoint against the real
+Ubuntu24/Xvfb GUI self-test after removing temporary Python progress output.
+Its `--report` file parses directly as JSON and records all nine previews, six
+feature areas and the complete package. The entrypoint intentionally captures
+both Python streams for diagnostics; success must therefore emit only the
+machine-readable report. The isolated ToolWorkspaceTests pass 7/7, including
+the dock width, three text scales and scroll tests whose fixed-delay checks
+were affected by the shared desktop display. No layout assertions were removed
+or weakened. Final source-suite/native results are recorded below.
