@@ -70,6 +70,22 @@ class ExportGuiTests(unittest.TestCase):
             choices[0].emit('clicked')
             pump_until(lambda:not self.app.busy)
 
+    def test_background_completion_runs_with_continuously_ready_default_sources(self):
+        from ratiolab_checks import _wait_for_context
+        a=self.app
+        context=GLib.MainContext.default()
+        message='Background operation completed'
+        source=GLib.idle_add(lambda:True,priority=GLib.PRIORITY_DEFAULT)
+        try:
+            a.background(lambda:message)
+            _wait_for_context(context,
+                              lambda:not a.busy and a.status.get_text()==message,
+                              timeout=2)
+            self.assertFalse(a.busy)
+            self.assertEqual(a.status.get_text(),message)
+        finally:
+            GLib.source_remove(source)
+
     def test_step_menu_action_runs_without_cad_and_keeps_bodies(self):
         self.click('STEP for CAD')
         folders=list(self.app.output_dir.glob('*.step-export'));self.assertEqual(len(folders),1)

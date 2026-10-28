@@ -31,6 +31,53 @@ gui_check = load('bundle_gui_check_test', ROOT/'scripts/check-installed-gui.py')
 
 
 class GuiEventLoopTests(unittest.TestCase):
+    def frame_fixture(self, width=640):
+        clock = unittest.mock.Mock()
+        frame = [10]
+        clock.get_frame_counter.side_effect = lambda: frame[0]
+        callbacks = []
+        clock.connect.side_effect = lambda signal, callback: callbacks.append((signal, callback)) or 7
+        canvas = unittest.mock.Mock(gl=object(), dirty=False)
+        canvas.get_frame_clock.return_value = clock
+        canvas.get_mapped.return_value = True
+        canvas.get_width.return_value = width
+        canvas.get_height.return_value = 480
+        context = unittest.mock.Mock()
+        def dispatch(blocking):
+            self.assertFalse(blocking)
+            self.assertEqual(callbacks[0][0], 'after-paint')
+            canvas.queue_render.assert_called_once()
+            if context.iteration.call_count > 1:
+                frame[0] += 1
+            callbacks[0][1](clock)
+        context.iteration.side_effect = dispatch
+        return canvas, context, clock
+
+    def test_capture_barrier_waits_for_a_new_completed_frame(self):
+        from ratiolab_checks import _wait_for_frame
+        canvas, context, clock = self.frame_fixture()
+        with patch('ratiolab_checks.time.sleep'):
+            _wait_for_frame(canvas, context)
+        self.assertEqual(context.iteration.call_count, 2)
+        clock.disconnect.assert_called_once_with(7)
+
+    def test_capture_barrier_rejects_zero_size_and_disconnects_on_timeout(self):
+        from ratiolab_checks import _wait_for_frame
+        canvas, context, clock = self.frame_fixture(width=0)
+        with patch('ratiolab_checks.time.monotonic', side_effect=[0, .05, .15, .25, .35]), \
+                patch('ratiolab_checks.time.sleep'), self.assertRaisesRegex(RuntimeError, 'Timed out'):
+            _wait_for_frame(canvas, context, timeout=.3)
+        self.assertEqual(context.iteration.call_count, 3)
+        clock.disconnect.assert_called_once_with(7)
+
+    def test_capture_barrier_requires_a_frame_clock(self):
+        from ratiolab_checks import _wait_for_frame
+        canvas = unittest.mock.Mock()
+        canvas.get_frame_clock.return_value = None
+        with self.assertRaisesRegex(RuntimeError, 'no frame clock'):
+            _wait_for_frame(canvas, unittest.mock.Mock())
+        canvas.queue_render.assert_not_called()
+
     def test_continuously_ready_events_do_not_starve_the_condition(self):
         from ratiolab_checks import _wait_for_context
         context = unittest.mock.Mock()

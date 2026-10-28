@@ -153,6 +153,33 @@ def _wait_for_context(context, condition, timeout=30):
     raise RuntimeError('Timed out checking the installed workspace')
 
 
+def _wait_for_frame(canvas, context, timeout=30):
+    """Wait for a completed frame after layout changes, before framebuffer capture.
+
+    A GL context can exist while GTK still has a pending viewport resize. Scene
+    upload readiness alone does not prove that the framebuffer has been resized.
+    Render handlers may stop signal propagation, so use the frame clock instead.
+    """
+    clock = canvas.get_frame_clock()
+    if clock is None:
+        raise RuntimeError('The installed preview has no frame clock')
+    initial_frame = clock.get_frame_counter()
+    painted = False
+    def after_paint(current):
+        nonlocal painted
+        painted = current.get_frame_counter() > initial_frame
+    handler = clock.connect('after-paint', after_paint)
+    try:
+        canvas.queue_render()
+        _wait_for_context(context,
+                          lambda: painted and canvas.get_mapped()
+                          and canvas.get_width() > 0 and canvas.get_height() > 0
+                          and canvas.gl and not canvas.dirty,
+                          timeout=timeout)
+    finally:
+        clock.disconnect(handler)
+
+
 def _workspace_check(config, output):
     from app import ReducerApp
     from gi.repository import Gio, GLib
@@ -187,8 +214,11 @@ def _workspace_check(config, output):
             controller.open()
             wait_for(lambda: controller.window is not None and controller.window.get_visible())
             controller.window.close()
+        _wait_for_frame(application.canvas, context)
         progress('export complete package')
         application.export()
+        if not application.busy:
+            raise RuntimeError('Workspace export did not start: '+application.status.get_text())
         wait_for(lambda: not application.busy and list(application.output_dir.glob('*.package/manifest.json')))
         package = next(application.output_dir.glob('*.package'))
         for suffix in ('.config.json', '.script.json', '.stl', '.png', '.bom.json', '.calculations.txt'):
@@ -215,6 +245,7 @@ def _workspace_check(config, output):
             canvas.set_motion_playing(False)
             canvas.motion_enabled = True
             canvas.motion_phase = 1.25
+            _wait_for_frame(canvas, context)
             captured = []
             canvas.capture_png(lambda data, error: captured.append((data, error)))
             if not captured or captured[0][1] is not None:

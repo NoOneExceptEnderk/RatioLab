@@ -17,6 +17,8 @@ First public preview of RatioLab, a parametric gear and reducer generator.
 - English repository/example filenames and exported report suffixes; English
   source comments and a contributor guide. Earlier project formats remain readable.
 - English preference filenames with fallback to earlier installation settings.
+- Completed-frame synchronization and responsive export completion on busy
+  software-rendering main loops.
 
 This preview has sampled/concept geometry and no load-capacity certification.
 Windows Setup has no publisher signature; macOS uses ad hoc signing without

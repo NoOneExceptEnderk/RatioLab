@@ -493,3 +493,26 @@ outer 180-second native GUI limit is unchanged; crashes, incomplete reports and
 missing graphics checks remain failures. Self-test progress goes to stderr,
 preserving the JSON result on stdout. An independent xHigh review and all five
 focused event-loop/GUI-gate tests passed before rebuilding the native packages.
+
+### Reproduced software-renderer export completion and frame synchronization
+
+The parent reproduced the Linux capture failure with the same Ubuntu24.04,
+GTK4.14.5, Mesa/llvmpipe and Xvfb stack, using an immutable source snapshot.
+An explicit frame-clock `after-paint` barrier now waits for a later completed
+frame, a mapped/nonzero GLArea and uploaded geometry after layout changes,
+before export and each family screenshot. Three regressions cover the later
+frame, invalid dimensions/timeout cleanup and a missing frame clock.
+
+A separate timed probe showed that the full package was written in 0.573s,
+while its GUI completion stayed pending for30s with `busy=True`. The independent
+reviewer reproduced this with an immediate worker: a callback at default event
+priority ran, while the default idle callback remained behind busy animation.
+The brief background completion now uses `GLib.PRIORITY_DEFAULT`. A real GTK
+regression with a continuously ready main-context source fails on the old code
+and passes on the correction; all six export GUI tests passed independently.
+
+The final source self-test in that same Ubuntu24/Xvfb environment passes the
+complete package, all nine nonblank family PNGs and all six feature areas.
+All original native GUI resource/time limits remain unchanged. The parent
+retains the negative reproduction, worker timing and positive report under
+`work/english-release-review/`; those local paths are not part of an installer.
