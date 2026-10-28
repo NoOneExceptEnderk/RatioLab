@@ -380,8 +380,8 @@ The installed self-test now checks all six new feature areas: standalone STEP
 and SVG/DXF, project history/recovery, generated tooth profiles, interference
 distances, finite combination search and component picking/selected export.
 It writes only to a disposable profile. The GUI self-test opens the three new
-tools, exports the complete workspace and decodes the resulting preview PNG
-to reject blank captures.
+tools, exports the complete workspace and decodes animated preview PNGs for
+all nine families to reject blank captures.
 
 The Windows bundle explicitly includes `libEGL.dll` and `libGLESv2.dll` from
 [MSYS2 ANGLE](https://packages.msys2.org/packages/mingw-w64-ucrt-x86_64-angleproject).

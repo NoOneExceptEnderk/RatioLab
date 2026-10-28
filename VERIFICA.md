@@ -256,3 +256,93 @@ Evidenze locali: `work/final-installer-evidence.json`,
 UI di scorrimento e sull’integrazione CAD reale rimangono validi. Il Setup è
 privo di firma del produttore; l’app macOS ha firma ad hoc, senza identità
 Developer ID né notarizzazione Apple.
+
+
+## Aggiornamento delle sei funzioni e compatibilità grafica — 28 ottobre 2026
+
+La consegna funzionale comprende STEP autonomi e profili SVG/DXF, progetti con
+cronologia/recupero, profili dei denti migliorati, interferenze discrete 3D,
+ricerca finita di combinazioni e selezione/misure/export dei componenti.
+Dei 47 moduli runtime, 44 restano byte-identici alla snapshot funzionale
+accettata; i tre adattati sono `preview3d.py` (compatibilità grafica),
+`ratiolab_cli.py` (diagnostica) e `ratiolab_checks.py` (prove distribuite).
+Nessun algoritmo geometrico o calcolo strutturale aggiunto in questa fase.
+
+### Verifiche locali del revisore
+
+- Suite completa: **310 test, zero errori, zero skip**, 231,931 s, con tutte le
+  preview forzate su OpenGL ES reale; sorgenti runtime stabili durante la suite.
+  Il confronto numerico transform feedback CPU/GPU del modello wave mantiene
+  la tolleranza originale di 0,00015 mm. Il test usa ora MapBufferRange, comune
+  a desktop GL ed ES, invece della lettura buffer disponibile solo su desktop.
+- Le successive verifiche mirate contano **52 test superati** su bundle,
+  renderer, lancio programmi e installer Linux, comprese le nuove regressioni
+  di notice/provenienza ANGLE e conversione RGBA/ARGB su entrambe le endianess.
+- Self-test grafico finale su OpenGL desktop 4.6 e OpenGL ES 3.2: tutte le sei
+  aree funzionali, apertura dei tre strumenti, export del workspace e nove
+  anteprime animate catturate in PNG e decodificate, senza immagini vuote.
+  Vengono usati soltanto progetti/profili temporanei.
+- Sdist e wheel ricostruita dall'sdist: rispettivamente 258 e 62 membri
+  verificati, senza cartelle personali o di lavoro. I testi delle licenze
+  ANGLE conservano i byte originali anche nei sorgenti distribuibili.
+
+Il primo controllo grafico dell'installer Windows aggiornato ha rilevato una
+vera dipendenza mancante: `libEGL not available`. Il bundle ora include
+esplicitamente le DLL EGL/GLES di ANGLE, caricate dinamicamente da GTK.
+Windows richiede OpenGL ES 3.0 tramite ANGLE/Direct3D; Linux e macOS mantengono
+OpenGL desktop 3.3. Gli shader condividono la stessa matematica. La cattura
+usa RGBA portabile, poi converte in Cairo ARGB32: la precedente lettura BGRA
+non era garantita in ES. Errori shader, dipendenze mancanti, crash e PNG vuoti
+non sono trattati come assenza di GPU del runner.
+
+La review dei notice ANGLE verifica 18 testi mediante commit Git immutabili,
+Git blob, SHA-256 del file originale e intervallo esatto di byte selezionato.
+Il revisore ha ripetuto personalmente il verificatore online e i test.
+La provenienza distingue i file Git verificati dall'archivio sorgenti completo
+oltre 2 GB, che **non** è stato verificato: il suo hash è esplicitamente nullo.
+La raccolta integra il LICENSE installato da MSYS2 anche quando già presente,
+e rifiuta una versione/dichiarazione di licenza ANGLE non revisionata.
+
+Prove locali: `work/updated-installers-es-suite-result.json`,
+`work/updated-installers-es-full-tests.log`,
+`work/updated-installers-final-package-tests.log`,
+`work/updated-installers-desktop-nine-previews.json`,
+`work/updated-installers-es-nine-previews.json`,
+`work/angle-notices-parent-review/proof.json`.
+
+
+### Nuovi installer nativi con le sei funzioni
+
+Il [workflow installer aggiornati](https://github.com/NoOneExceptEnderk/RatioLab/actions/runs/40680620191)
+sul commit `9a77c048d2e10b9ac5553acb2f874ca06118016a` supera **4/4 job**.
+Anche la [distribuzione Python dello stesso codice](https://github.com/NoOneExceptEnderk/RatioLab/actions/runs/40680620325)
+supera **3/3 job**. Queste prove sostituiscono, per le nuove funzioni e la GUI,
+lo snapshot precedente degli installer #7.
+
+| App installata | Rendering effettivo del runner | Risultato |
+|---|---|---|
+| Linux x86-64, Ubuntu 24.04 | OpenGL 4.5, llvmpipe/Mesa/Xvfb | Sei aree funzionali, nove PNG animati, workspace completo; `.run` installato e rimosso; runtime `.deb` estratto e avviato |
+| Windows x86-64, Server 2025 | OpenGL ES 3.1, ANGLE/Direct3D11, Microsoft Basic Render Driver | Setup installato senza MSYS2 sul PATH, sei aree funzionali, nove PNG animati, workspace completo, disinstallazione |
+| macOS 15 Apple Silicon | OpenGL 4.1, Apple Software Renderer | DMG montato, app copiata senza Homebrew sul PATH, sei aree funzionali, nove PNG animati, workspace completo e firma ad hoc verificata |
+| macOS 15 Intel | OpenGL 4.1, Apple Software Renderer | Stesse prove complete, eseguite sul runner Intel |
+
+Il Linux nativo supera 47 test mirati senza skip. Windows e ciascun macOS
+superano 39 test con un solo skip del controllo dei common-license Debian,
+non presenti su quei sistemi; **nessun controllo grafico è stato saltato**.
+Le tre prove GUI delle app installate Windows/macOS hanno esito `passed`,
+non `unavailable_on_runner`. Gli inventari comprendono 88 componenti Linux,
+55 Windows e 41 per ciascun macOS, con testi delle licenze inclusi.
+
+Le verifiche usano i renderer software disponibili sui runner ospitati.
+Il pacchetto Windows è destinato a Windows 11 build 22000+, ma il runner di
+build/test è Windows Server 2025: non è una prova su ogni versione Windows 11,
+GPU o driver. L'assenza di firma Windows e di notarizzazione Apple resta un
+limite di questa anteprima. Le interazioni con documenti CAD personali non
+sono state eseguite. Valgono ancora i limiti geometrici discreti/campionati,
+vite/wave e di assenza di verifiche strutturali dichiarati dal prodotto.
+
+Log nativi completi: `work/ci-40680620191-*.log`. Report GUI e artefatti
+originali: `work/final-installers-40680620191/`. Hash, dimensioni, job e
+risultati grafici sintetici: `work/final-installer-evidence.json` e
+`dist/installers/build-evidence.json`. I sei file della bozza e i due allegati
+di verifica vengono confrontati con i digest SHA-256 restituiti da GitHub.
