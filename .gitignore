@@ -6,9 +6,10 @@ work/
 .backup*/
 *.bak
 *.token
-# Generated exports stay local; keep the screenshot referenced by VERIFICATION.md.
-outputs/*
-!outputs/ui-nine-reducers.png
+# Generated exports and internal working notes stay local.
+outputs/
+TODO.md
+VERIFICATION.md
 core
 core.*
 
@@ -20,3 +21,13 @@ build/
 dist/
 *.egg-info/
 .bundle-env/
+
+# Agent configuration and private account metadata remain local.
+.agents/
+.codex/
+.aws/
+.claude/
+AGENTS.md
+SKILL.md
+
+.venv/

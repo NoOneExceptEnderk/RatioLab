@@ -30,7 +30,8 @@ def main():
     before = {}
     for filename in ('branding/ratiolab-icon.png', 'branding/ratiolab-logo-dark.png',
                      'branding/ratiolab-logo-light.png', 'branding/brand.json',
-                     'bearing-catalog.json', 'hardware-catalog.json'):
+                     'bearing-catalog.json', 'hardware-catalog.json',
+                     'INSTALL.md', 'MCP.md', 'LICENSE', 'COPYRIGHT'):
         path = app_paths.resource_path(filename)
         if args.forbid_root and path.resolve().is_relative_to(forbidden):
             raise AssertionError(f'Resource depends on source checkout: {path}')

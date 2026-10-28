@@ -75,6 +75,6 @@ La geometria è la stessa; cambiano vincolo, uscita, rapporto firmato e relazion
 
 ## Verifiche e file
 
-Test: `python3 -m unittest discover -p 'test*.py'`. Sono controllati profili ZA, spessori, mani speculari, continuità, limiti dei codoli, perimetro d’onda, rapporti, giochi e identità delle facce preview/STEP anche per ZI sinistra e silk hat. La distinta tiene conto delle sezioni assiali nel codice del pezzo e nell’ingombro, per distinguere flange di dimensioni diverse.
+Test: `PYTHONPATH=src python3 -m unittest discover -s tests -p 'test*.py'`. Sono controllati profili ZA, spessori, mani speculari, continuità, limiti dei codoli, perimetro d’onda, rapporti, giochi e identità delle facce preview/STEP anche per ZI sinistra e silk hat. La distinta tiene conto delle sezioni assiali nel codice del pezzo e nell’ingombro, per distinguere flange di dimensioni diverse.
 
-Configurazioni in `examples/`; distinte, relazioni e documenti nativi nuovi in `outputs/`. Le prove CAD sono registrate in `outputs/verifica-varianti-cad.json`. Per carichi nominali, unità e limiti generali vedere [CALCULATIONS.md](CALCULATIONS.md).
+Configurazioni in [`examples/`](../../examples/). Distinte, relazioni e documenti CAD vengono creati nella cartella di esportazione scelta dall’utente. Per carichi nominali, unità e limiti generali vedere [CALCULATIONS.md](calculations.md).

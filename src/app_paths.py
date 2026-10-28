@@ -14,7 +14,10 @@ APP_ID = 'local.solidcraft.reducers'
 MIN_GTK = (4, 12, 0)
 PREFERENCES_FILENAME = 'ui-preferences.json'
 LEGACY_PREFERENCES_FILENAME = 'preferenze-ui.json'
-SOURCE_ROOT = Path(__file__).resolve().parent
+MODULE_ROOT = Path(__file__).resolve().parent
+SOURCE_ROOT = (MODULE_ROOT.parent
+               if MODULE_ROOT.name == 'src' and (MODULE_ROOT.parent/'pyproject.toml').is_file()
+               else MODULE_ROOT)
 _dll_directories = []
 
 
@@ -63,10 +66,14 @@ def resource_path(relative):
     if relative.is_absolute() or '..' in relative.parts:
         raise ValueError('Resource paths must stay inside the resource directory')
     path = root()/relative
-    if (not path.exists() and relative.as_posix() in
-            ('bearing-catalog.json', 'hardware-catalog.json', 'INSTALL.md', 'MCP.md',
-             'LICENSE', 'COPYRIGHT')):
-        path = SOURCE_ROOT/relative
+    source_documents = {
+        'INSTALL.md': 'docs/installation.md',
+        'MCP.md': 'docs/mcp.md',
+        'LICENSE': 'LICENSE',
+        'COPYRIGHT': 'COPYRIGHT',
+    }
+    if not path.exists() and relative.as_posix() in source_documents:
+        path = SOURCE_ROOT/source_documents[relative.as_posix()]
     if not path.is_file() and not path.is_dir():
         raise FileNotFoundError(f'RatioLab resource missing: {relative}')
     return path

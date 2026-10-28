@@ -1,15 +1,14 @@
-include README.md README.it.md INSTALL.md pyproject.toml ratiolab_build.py .gitattributes
+include README.md README.it.md pyproject.toml .gitattributes
 include LICENSE COPYRIGHT CONTRIBUTING.md CHANGELOG.md
-include VERIFICATION.md packaging/README.md
-include MCP.md
-include launch.sh RatioLab.desktop bearing-catalog.json hardware-catalog.json
-include CALCULATIONS.md KINEMATICS.md HARDWARE.md IO-MODELS.md PRINTED-SHAFT.md VARIANTS.md
-include assets/branding/brand.json assets/branding/*.png
-include ratiolab_resources/__init__.py
+include launch.sh RatioLab.desktop
+recursive-include docs *.md
+recursive-include src *.py *.json *.png
+recursive-include tests test_*.py
+include build-support/ratiolab_build.py
+include assets/screenshots/*.png
 include scripts/*.py scripts/*.sh scripts/*.ps1 scripts/*.iss
 include .github/workflows/portable.yml .github/workflows/installers.yml
 recursive-include packaging *.py *.spec *.conf *.txt *.json *.ttf *.ico *.icns
-include test_*.py
 include examples/*.config.json
 prune work
 prune design
@@ -20,4 +19,5 @@ prune .git
 prune .codex
 prune .agents
 prune .aws
-global-exclude *.py[cod] __pycache__ *.token ui-preferences.json preferenze-ui.json custom-materials.json materiali-custom.json
+prune .claude
+global-exclude *.py[cod] __pycache__ *.token ui-preferences.json preferenze-ui.json custom-materials.json materiali-custom.json TODO.md VERIFICATION.md AGENTS.md SKILL.md

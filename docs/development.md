@@ -1,70 +1,30 @@
-# Installing RatioLab
+# Developing and building RatioLab
 
-## Connect a local agent
+For normal installation, use the [bundled installers](installation.md).
+This page is for contributors and maintainers.
 
-Native installers also include a console companion, `RatioLab-MCP` on Linux
-and macOS or `RatioLab-MCP.exe` beside the Windows desktop executable. On
-macOS it is inside `RatioLab.app/Contents/MacOS/`. Configure your MCP client
-to launch it with `--workspace` and an explicit absolute projects directory.
-It works without opening a graphical desktop and needs no extra installation.
+## Work on a checkout
 
-An installed Python wheel provides `ratiolab-mcp --workspace /absolute/projects`;
-the headless service needs no GTK, Cairo or OpenGL. Source use is
-`python -m ratiolab_mcp --workspace /absolute/projects`. See [MCP.md](MCP.md)
-for client examples, all tools, file/revision protections and geometric limits.
-The service works on its own projects and exchanges JSON files with the GUI.
-
-## Installers with GTK and Python included
-
-The native installers include Python, GTK 4, PyGObject, Cairo, libepoxy,
-introspection typelibs, settings schemas, icons and fonts. The destination
-computer does **not** need Python, MSYS2, Homebrew, pip or a separate GTK install.
-The operating system supplies the desktop session and graphics driver; desktop
-OpenGL 3.3+ is needed on Linux/macOS. Windows uses included ANGLE with
-OpenGL ES 3.0+ over the system Direct3D graphics stack for the 3D preview.
-
-| System | Installer | Installation and removal |
-|---|---|---|
-| Linux x86-64, glibc 2.39+ (Ubuntu 24.04 baseline) | `RatioLab-0.1.0-linux-x86_64.run`, `.tar.gz`, or `ratiolab_0.1.0_amd64.deb` | Open the `.deb` with the software installer, or run the `.run` for a per-user install. Remove the Debian package normally, or run `uninstall.sh` inside the user installation. |
-| Windows 11 x86-64 | `RatioLab-0.1.0-windows-x86_64-setup.exe` | Open Setup. It installs for the current user and adds a Start menu entry. Remove RatioLab from Installed apps. |
-| macOS 15+ Apple Silicon or Intel, separate builds | `RatioLab-0.1.0-macos-arm64.dmg` or `...-x86_64.dmg` | Open the disk image, drag RatioLab to Applications, then launch it from Applications. Move the app to Trash to remove it. |
-
-Native installers are generated and tested on their own operating systems by
-the [installer workflow](https://github.com/NoOneExceptEnderk/RatioLab/actions/workflows/installers.yml).
-Download artifacts from successful jobs or the assets of a published release.
-Each job installs or copies its downloadable package and checks the resulting
-application with the development runtime paths removed. Recorded validation
-and its limits are in `VERIFICATION.md`. Installed Windows/macOS GUI checks are
-always attempted; explicit lack of runner graphics capability is reported.
-
-For a Linux user install, if the desktop does not open `.run` files directly:
+Install the native GTK/Python bindings for your OS as described below, then
+create a development environment using that same interpreter. Linux example:
 
 ```sh
-sh RatioLab-0.1.0-linux-x86_64.run
+python3 -m venv --system-site-packages .venv
+.venv/bin/python -m pip install -e .
+.venv/bin/ratiolab --diagnose
+.venv/bin/ratiolab
+.venv/bin/python -m unittest discover -s tests -p 'test_*.py' -v
 ```
 
-It installs under `~/.local/share/ratiolab/app`, checks the included runtime and
-registers the application icon. It needs no administrator password. An existing
-RatioLab user installation is updated; unrelated directories are not replaced.
-`--destination /absolute/folder`, `--no-desktop` and `--yes` are available for
-automated installation. The `.tar.gz` contains the same runtime and `install.sh`.
-The `.deb` installs the runtime in `/opt/ratiolab` and registers the system menu.
+`src/` contains application modules and runtime resources. `tests/` contains
+automated checks; tests are part of the source distribution and are excluded
+from the installed wheel and native application. GUI checks need a working
+desktop/GL context; Linux CI uses Xvfb and Mesa.
 
-Preferences and exported projects are kept on uninstall. The installers do not
-install SolidCraft; the CAD connection remains optional and STL works locally.
-On Linux, opening the export folder uses the desktop's `xdg-open` service
-(`xdg-utils`); it does not require a system GTK installation. CAD and folder
-launches receive the system runtime environment rather than RatioLab's private
-library, typelib and font configuration paths.
-Linux builds target their recorded glibc baseline, not every Linux distribution
-or older libc. macOS builds record the actual minimum OS version of their
-native libraries; setting a lower deployment target does not lower a prebuilt
-Homebrew library's minimum.
-
-Development installers are unsigned unless a maintainer supplies a real signing
-identity. Windows/macOS can therefore show their normal publisher/security
-approval prompts. Optional signing/notarization is described below; no trusted
-publisher identity or Apple notarization is invented.
+For a quick source launch use `./launch.sh`. A headless source command from
+the repository root can use `PYTHONPATH=src python3 -m ratiolab_cli --diagnose`.
+On PowerShell, set `$env:PYTHONPATH = "src"` before the corresponding command.
+The editable installation above avoids that extra environment setting.
 
 ## Building the native installers
 
@@ -180,7 +140,7 @@ removed. Linux GUI/GL is mandatory; Windows/macOS GUI checks are always
 attempted, with explicit lack of runner graphics capability reported separately.
 Use `native_gui=true` to require that capability as well. The
 workflow uploads build artifacts; publication is a separate maintainer step.
-`VERIFICATION.md` records completed native runs and the checks actually performed.
+the [completed workflow runs](https://github.com/NoOneExceptEnderk/RatioLab/actions) records completed native runs and the checks actually performed.
 
 Build configuration follows [PyInstaller's GI hook settings](https://pyinstaller.org/en/stable/hooks-config.html),
 [PyInstaller's external program guidance](https://pyinstaller.org/en/stable/common-issues-and-pitfalls.html#launching-external-programs-from-the-frozen-application),
@@ -313,8 +273,8 @@ capabilities from a local session.
 
 After installation you can remove or move the original checkout/source archive.
 Launch the installed environment's `ratiolab`, not its former `launch.sh`.
-Source development remains supported with `./launch.sh` or `python3 app.py`;
-`python3 install_desktop.py` registers that particular checkout instead.
+Source development remains supported with `./launch.sh` or `python3 src/app.py`;
+`python3 src/install_desktop.py` registers that particular checkout instead.
 
 ## User data and existing configurations
 
@@ -336,8 +296,8 @@ files are not copied, moved or deleted by installation/uninstallation. The
 `solidcraft-riduttori/1` configuration format and `local.solidcraft.reducers`
 application ID are preserved.
 
-Repository resources now use `bearing-catalog.json`, `hardware-catalog.json`,
-`launch.sh` and `examples/`. Generated reports use `.calculations.json`,
+Catalogs and runtime branding live in `src/ratiolab_resources/`. The source
+launcher is `launch.sh`; reusable project configurations are in `examples/`. Generated reports use `.calculations.json`,
 `.calculations.txt` and `.machining.json`; generated STEP assets default to a
 `solids/` subdirectory. These names do not change project-format identifiers,
 parameter keys or the ability to reopen earlier configurations. Existing user
@@ -371,9 +331,9 @@ python scripts/verify-artifacts.py dist
 
 `python -m build` creates the sdist, then builds the wheel **from that sdist**.
 Both include explicit code/resource lists; no preferences, credentials, `work/`,
-`design/`, `outputs/`, `.git` or generated models are distributed. The resource
-build step stages the existing branding and catalog files into
-`ratiolab_resources`, without changing their source locations.
+`design/`, `outputs/`, `.git` or generated models are distributed. Runtime assets are packaged from `src/ratiolab_resources/`; the small
+`build-support/` hook adds canonical user documentation and legal notices.
+It does not copy developer notes or test files into the installed application.
 
 Install the wheel into a fresh native environment outside the checkout. Copy
 `scripts/installed_smoke.py` into a neutral directory, change there, and run it
@@ -389,7 +349,7 @@ checkout. Linux includes software-rendered GUI/GL checks with Xvfb. Windows and
 macOS always check native imports/loader and data/export paths; their GUI/driver
 check is opt-in via the workflow's `native_gui` input. The workflow logs record
 which checks actually ran; a skipped GUI/driver check is not a validation of
-graphics hardware. See `VERIFICATION.md` for the recorded native runs.
+graphics hardware. See the [completed workflow runs](https://github.com/NoOneExceptEnderk/RatioLab/actions) for the recorded native runs.
 
 Installation recipes follow [PyGObject's platform instructions](https://pygobject.gnome.org/getting_started.html),
 [MSYS2's Python ABI and virtual-environment documentation](https://www.msys2.org/docs/python/),

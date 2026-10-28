@@ -32,7 +32,7 @@ from project_ui import ProjectActions
 from kinematics import options as io_options,default as io_default,TRIPLES as IO_TRIPLES
 import hardware_catalog as hw
 
-BASE=Path(__file__).resolve().parent
+BASE=app_paths.SOURCE_ROOT
 GLib.set_application_name('RatioLab')
 GENERATED=app_paths.default_output_dir()
 LABELS=[gui_workflow.CATALOG.get(key,(label,''))[0] for key,label in FAMILIES.items()]

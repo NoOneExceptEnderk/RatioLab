@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: 2026 NoOneExceptEnderk
 # SPDX-License-Identifier: GPL-3.0-only
-"""Kinematic ports independent of construction variants. See IO-MODELS.md.
+"""Kinematic ports independent of construction variants. See docs/technical/io-models.md.
 
 Speeds use rpm; signed ratio is input speed / output speed. This stage completes
 the selected I/O mounting and ports after family/catalog/hardware construction.

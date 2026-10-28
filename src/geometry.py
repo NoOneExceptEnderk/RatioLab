@@ -4,7 +4,7 @@
 
 Input pressure/helix angles and stored section twist use degrees. Low-level
 trigonometric helpers and profile phase use radians; convert at those boundaries.
-See README.md and CALCULATIONS.md for model limits.
+See README.md and docs/technical/calculations.md for model limits.
 """
 from dataclasses import dataclass, field
 from math import sin, cos, tan, acos, atan, atan2, sqrt, pi, radians, degrees, hypot, isfinite, ceil

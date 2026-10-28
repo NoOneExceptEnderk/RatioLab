@@ -16,7 +16,7 @@ import app_paths
 import gl_loader
 import install_desktop
 
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(__file__).resolve().parents[1]
 
 
 class GtkAssetsTests(unittest.TestCase):

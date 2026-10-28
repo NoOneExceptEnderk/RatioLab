@@ -7,7 +7,7 @@ RatioLab includes a local MCP server and a Python headless service. They use the
 From a source checkout, with Python 3.10 or newer:
 
 ```sh
-python -m ratiolab_mcp --workspace /absolute/path/to/projects
+PYTHONPATH=src python -m ratiolab_mcp --workspace /absolute/path/to/projects
 ```
 
 From an installed Python wheel:

@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: GPL-3.0-only
 """Build and verify a native onedir GTK4/Python application with PyInstaller.
 
-Requires the native build dependencies documented in INSTALL.md. Cross-building
+Requires the native build dependencies documented in docs/installation.md. Cross-building
 Windows/macOS from Linux is deliberately rejected by their packaging scripts.
 """
 import argparse
@@ -22,7 +22,7 @@ import sys
 import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(ROOT/'src'))
 
 
 def host_system():
@@ -133,7 +133,7 @@ def verify_bundle(bundle, *, gui=False, run=True, check_manifest=True):
                 'ratiolab_resources/branding/ratiolab-icon.png',
                 'ratiolab_resources/bearing-catalog.json',
                 'ratiolab_resources/hardware-catalog.json',
-                'ratiolab_resources/MCP.md',
+                'ratiolab_resources/INSTALL.md', 'ratiolab_resources/MCP.md',
                 'ratiolab_resources/LICENSE', 'ratiolab_resources/COPYRIGHT',
                 'etc/fonts/fonts.conf', 'share/fonts/DejaVuSans.ttf',
                 'notices/components.json', 'notices/THIRD-PARTY-NOTICES.txt']

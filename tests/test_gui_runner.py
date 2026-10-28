@@ -9,7 +9,7 @@ import unittest
 from unittest.mock import Mock, patch
 
 spec = importlib.util.spec_from_file_location(
-    'gui_runner_test', Path(__file__).parent/'scripts/check-installed-gui.py')
+    'gui_runner_test', Path(__file__).resolve().parents[1]/'scripts/check-installed-gui.py')
 runner = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(runner)
 

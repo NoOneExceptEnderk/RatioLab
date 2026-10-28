@@ -3,7 +3,7 @@
   "description_en": "Parametric gear and reducer generator.",
   "description_it": "Generatore parametrico di ingranaggi e riduttori.",
   "selected_design": "B — Bicolore, compact RL monogram",
-  "revision": "2026-10-28: longer horizontal L foot requested by the owner",
+  "revision": "2026-10-28: longer horizontal L foot",
   "palette": {
     "background": "#1D2229",
     "foreground": "#E9EEF4",
@@ -15,7 +15,5 @@
     "logo_on_light": "ratiolab-logo-light.png",
     "selected_reference": "ratiolab-approved-board.png",
     "monochrome_reference": "ratiolab-monochrome-reference.png"
-  },
-  "provenance": "../../design/branding/production-2026-10-28/",
-  "generation_tool": "image_gen built-in"
+  }
 }

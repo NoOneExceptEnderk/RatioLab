@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-only
 """Nominal geometry and statics. Units: mm, N, N·m, rpm and W.
 
-Sources, conventions and formula domains are in CALCULATIONS.md.
+Sources, conventions and formula domains are in docs/technical/calculations.md.
 No ISO/AGMA strength verification or elastic load-distribution analysis.
 """
 from math import pi, sin, cos, tan, atan, acos, sqrt, radians, degrees
@@ -172,5 +172,5 @@ def report_text(d):
         q=r['wheel_geometry'];lines.append(f"Wheel: {q['method']} · cylinder R {q['radius_mm']:.6f} mm · edge sag {q['max_radial_sag_mm']:.6f} mm · axial chord threshold {q['axial_chord_threshold_mm']:g} mm; no conjugate flank solution.")
     if 'forces' in r:
         lines.append('Reference forces: ' + ', '.join((f'{k} = {v:.3f}' for k, v in r['forces'].items())))
-    lines += ['', 'ASSUMPTIONS AND LIMITATIONS'] + d.notes + ['', 'Sources and formulas: CALCULATIONS.md. No result is an allowable load or ISO/AGMA certification.']
+    lines += ['', 'ASSUMPTIONS AND LIMITATIONS'] + d.notes + ['', 'Sources and formulas: docs/technical/calculations.md. No result is an allowable load or ISO/AGMA certification.']
     return '\n'.join(lines) + '\n'

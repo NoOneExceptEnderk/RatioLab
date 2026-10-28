@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # SPDX-FileCopyrightText: 2026 NoOneExceptEnderk
 # SPDX-License-Identifier: GPL-3.0-only
-# Run in the MSYS2 UCRT64 terminal, after installing the packages in INSTALL.md.
+# Run in the MSYS2 UCRT64 terminal, after installing the packages in docs/installation.md.
 set -euo pipefail
 if [[ ${MSYSTEM:-} != UCRT64 ]]; then
     printf '%s\n' 'Open the MSYS2 UCRT64 terminal to run this installer.' >&2

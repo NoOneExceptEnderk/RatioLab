@@ -62,18 +62,20 @@ Attach an annular load adapter to the rotating flange and the frame to the separ
 4. Fit the final cap. Insert the two steel bolts with upper washers, then fit the lower washers and nuts. Confirm the cap bears on the intended inner rings and no printed journal end has bottomed out prematurely.
 5. Tighten gradually and alternately while checking free motion. Determine tightening torque and retained clamping force experimentally for the polymer and hardware. Check that the bearing outer rings are adequately located in the discs.
 
-The example `printable-shaft/` directories contain **printed shaft parts only**, each lowered to Z=0. Choose final print orientation, supports, perimeters and local fill in the slicer. Layers, shrinkage and polymer creep affect the shaft; the steel pair does not remove those effects. Commercial bearings, bolts, washers and nuts in the complete assembly STL are reference parts and must be purchased, not printed.
+Use component selection and STL export for the **printed shaft parts only**. Choose placement, final print orientation, supports, perimeters and local fill in the slicer. Layers, shrinkage and polymer creep affect the shaft; the steel pair does not remove those effects. Commercial bearings, bolts, washers and nuts in the complete assembly STL are reference parts and must be purchased, not printed.
 
 The motor coupling is not universal: design it for the printed Ø17 mm input journal or the asymmetric two-bolt pattern. Neither reinforcement bolt is the rotation axis. Remaining input/output support bearing envelopes, external couplings, seals and load paths still require completion. No allowable torque, fatigue life or stiffness increase is assigned to this prototype without physical testing.
 
-## Files and verification
+## Example configurations and verification
 
-- `examples/cycloidal-fdm-single.config.json` and `examples/cycloidal-fdm-dual.config.json`: reopenable configurations.
-- `outputs/cycloidal-fdm-single/` and `outputs/cycloidal-fdm-dual/`: assembly and individual STL files, printed shaft kits, CAD command scripts/STEP assets, BOM and nominal calculations.
-- `examples/cycloidal-fdm-housing-single.config.json` and `examples/cycloidal-fdm-housing-dual.config.json`: housing-output examples, with matching complete exports under `outputs/cycloidal-fdm-housing-single/` and `outputs/cycloidal-fdm-housing-dual/`.
-- `outputs/fdm-housing-output.png`: housing-output preview.
-- `outputs/fdm-eccentric-shaft.png`: rendered shaft detail.
-- `outputs/verification-fdm-shaft.json`: generated dimensions and solid checks.
+Open one of the configurations in the repository's [`examples/`](../../examples/):
+
+- [Single disc](../../examples/cycloidal-fdm-single.config.json) or [dual disc](../../examples/cycloidal-fdm-dual.config.json).
+- Housing-output [single disc](../../examples/cycloidal-fdm-housing-single.config.json) or [dual disc](../../examples/cycloidal-fdm-housing-dual.config.json).
+
+Use **Export…** to generate your own STL, STEP, component lists and calculation
+reports. Generated models and internal verification records are not repository
+assets.
 
 The dedicated tests check closed, oriented solids and watertight STL with real holes; coaxial bolt passages through all segments; asymmetry against inverted assembly; opposing bearing centres; accessible journal ends; shoulder and cap placement; purchased quantities; full nut engagement; invalid dimensions; JSON roundtrip; and preservation of fixed hardware in saved configurations. GTK/OpenGL checks cover the selector, single/dual variants, loading, visibility without Supports and playback. Tests validate geometry and assembly relationships, not physical strength or bearing preload.
 

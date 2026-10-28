@@ -15,7 +15,7 @@ from types import ModuleType
 import unittest
 from unittest.mock import patch
 
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(__file__).resolve().parents[1]
 
 
 def load(name, path):

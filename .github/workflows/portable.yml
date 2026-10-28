@@ -37,7 +37,7 @@ jobs:
         run: |
           "$RUNNER_TEMP/ratiolab-env/bin/python" -m pip install --no-deps dist/*.whl
           mkdir -p "$RUNNER_TEMP/ratiolab-checks"
-          cp scripts/installed_smoke.py test_portability.py test_connection.py test_preview3d.py test_stl_export.py test_agent.py test_mcp.py scripts/check-installed-mcp.py "$RUNNER_TEMP/ratiolab-checks/"
+          cp scripts/installed_smoke.py tests/test_portability.py tests/test_connection.py tests/test_preview3d.py tests/test_stl_export.py tests/test_agent.py tests/test_mcp.py scripts/check-installed-mcp.py "$RUNNER_TEMP/ratiolab-checks/"
           chmod -R a-w "$RUNNER_TEMP/ratiolab-env/lib/"*/site-packages
           cd "$RUNNER_TEMP/ratiolab-checks"
           xvfb-run -a "$RUNNER_TEMP/ratiolab-env/bin/python" installed_smoke.py --gui --forbid-root "$GITHUB_WORKSPACE"
@@ -80,7 +80,7 @@ jobs:
           check_root="$(cygpath -u "$RUNNER_TEMP")/ratiolab-checks"
           /ucrt64/bin/python.exe -m venv --system-site-packages "$check_root/env"
           "$check_root/env/bin/python.exe" -m pip install --no-deps dist/*.whl
-          cp scripts/installed_smoke.py test_portability.py test_connection.py test_preview3d.py test_stl_export.py test_agent.py test_mcp.py scripts/check-installed-mcp.py "$check_root/"
+          cp scripts/installed_smoke.py tests/test_portability.py tests/test_connection.py tests/test_preview3d.py tests/test_stl_export.py tests/test_agent.py tests/test_mcp.py scripts/check-installed-mcp.py "$check_root/"
           cd "$check_root"
           "$check_root/env/bin/python.exe" installed_smoke.py --forbid-root "$GITHUB_WORKSPACE"
           "$check_root/env/bin/python.exe" check-installed-mcp.py "$check_root/env/bin/python.exe" --module
@@ -115,7 +115,7 @@ jobs:
         run: |
           "$RUNNER_TEMP/ratiolab-env/bin/python" -m pip install --no-deps dist/*.whl
           mkdir -p "$RUNNER_TEMP/ratiolab-checks"
-          cp scripts/installed_smoke.py test_portability.py test_connection.py test_preview3d.py test_stl_export.py test_agent.py test_mcp.py scripts/check-installed-mcp.py "$RUNNER_TEMP/ratiolab-checks/"
+          cp scripts/installed_smoke.py tests/test_portability.py tests/test_connection.py tests/test_preview3d.py tests/test_stl_export.py tests/test_agent.py tests/test_mcp.py scripts/check-installed-mcp.py "$RUNNER_TEMP/ratiolab-checks/"
           cd "$RUNNER_TEMP/ratiolab-checks"
           "$RUNNER_TEMP/ratiolab-env/bin/python" installed_smoke.py --forbid-root "$GITHUB_WORKSPACE"
           "$RUNNER_TEMP/ratiolab-env/bin/python" check-installed-mcp.py "$RUNNER_TEMP/ratiolab-env/bin/python" --module

@@ -12,26 +12,26 @@ on:
       - '**.py'
       - 'packaging/**'
       - 'scripts/**'
-      - 'assets/branding/**'
+      - 'src/**'
+      - 'build-support/**'
+      - 'docs/**'
       - 'pyproject.toml'
       - 'MANIFEST.in'
       - 'LICENSE'
       - 'COPYRIGHT'
-      - 'bearing-catalog.json'
-      - 'hardware-catalog.json'
       - '.github/workflows/installers.yml'
   pull_request:
     paths:
       - '**.py'
       - 'packaging/**'
       - 'scripts/**'
-      - 'assets/branding/**'
+      - 'src/**'
+      - 'build-support/**'
+      - 'docs/**'
       - 'pyproject.toml'
       - 'MANIFEST.in'
       - 'LICENSE'
       - 'COPYRIGHT'
-      - 'bearing-catalog.json'
-      - 'hardware-catalog.json'
       - '.github/workflows/installers.yml'
 
 permissions:
@@ -54,7 +54,10 @@ jobs:
       - name: Build the native bundle and verify real rendering
         run: |
           xvfb-run -a "$RUNNER_TEMP/bundle-env/bin/python" scripts/build-bundle.py --gui
-          "$RUNNER_TEMP/bundle-env/bin/python" -m unittest test_bundles test_gui_runner test_external_programs test_installers_linux -v
+          PYTHONPATH=src "$RUNNER_TEMP/bundle-env/bin/python" -m unittest discover -s tests -p 'test_bundles.py' -v
+          PYTHONPATH=src "$RUNNER_TEMP/bundle-env/bin/python" -m unittest discover -s tests -p 'test_gui_runner.py' -v
+          PYTHONPATH=src "$RUNNER_TEMP/bundle-env/bin/python" -m unittest discover -s tests -p 'test_external_programs.py' -v
+          PYTHONPATH=src "$RUNNER_TEMP/bundle-env/bin/python" -m unittest discover -s tests -p 'test_installers_linux.py' -v
       - name: Create actual Linux installers
         run: |
           "$RUNNER_TEMP/bundle-env/bin/python" scripts/package-linux.py --bundle dist/bundles/linux-x86_64/RatioLab --deb
@@ -104,7 +107,9 @@ jobs:
         run: |
           export PYGI_DLL_PATH="$(cygpath -w /ucrt64/bin)"
           /ucrt64/bin/python.exe scripts/build-bundle.py
-          /ucrt64/bin/python.exe -m unittest test_bundles test_gui_runner test_external_programs -v
+          PYTHONPATH=src /ucrt64/bin/python.exe -m unittest discover -s tests -p 'test_bundles.py' -v
+          PYTHONPATH=src /ucrt64/bin/python.exe -m unittest discover -s tests -p 'test_gui_runner.py' -v
+          PYTHONPATH=src /ucrt64/bin/python.exe -m unittest discover -s tests -p 'test_external_programs.py' -v
           echo "RATIOLAB_NATIVE_PYTHON=$(cygpath -w /ucrt64/bin/python.exe)" >> "$GITHUB_ENV"
       - name: Compile the real per-user Inno Setup installer
         shell: pwsh
@@ -172,7 +177,9 @@ jobs:
       - name: Build and check the native app bundle
         run: |
           "$RUNNER_TEMP/bundle-env/bin/python" scripts/build-bundle.py
-          "$RUNNER_TEMP/bundle-env/bin/python" -m unittest test_bundles test_gui_runner test_external_programs -v
+          PYTHONPATH=src "$RUNNER_TEMP/bundle-env/bin/python" -m unittest discover -s tests -p 'test_bundles.py' -v
+          PYTHONPATH=src "$RUNNER_TEMP/bundle-env/bin/python" -m unittest discover -s tests -p 'test_gui_runner.py' -v
+          PYTHONPATH=src "$RUNNER_TEMP/bundle-env/bin/python" -m unittest discover -s tests -p 'test_external_programs.py' -v
           codesign --verify --deep --strict dist/bundles/macos-${{ matrix.arch }}/RatioLab.app
       - name: Build the actual drag-to-Applications DMG
         env:

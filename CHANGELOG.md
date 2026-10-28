@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.1.0 Preview 2 — 2026-10-28
+
+- Application source, automated tests and documentation now have dedicated
+  `src/`, `tests/` and `docs/` directories. Public imports and saved project formats
+  remain compatible.
+- README and installation guide lead with platform-specific bundled downloads.
+  Developer setup and the detailed user manual have separate pages.
+- Internal working notes and agent instructions are excluded from public sources.
+- Canonical branding/catalog resources have one maintained location; packaging,
+  launchers and native builds follow the new source layout.
+
+
 ## 0.1.0 Preview 1 — 2026-10-28
 
 First public preview of RatioLab, a parametric gear and reducer generator.
@@ -12,7 +24,7 @@ First public preview of RatioLab, a parametric gear and reducer generator.
 - Component selection, isolation, sampled surface measurements and subset exports.
 - An offline MCP companion with 13 tools for agent workflows.
 - Bundled installers for Linux x86-64, Windows 11 x86-64, and macOS 15+
-  on Intel and Apple Silicon. See INSTALL.md for exact requirements.
+  on Intel and Apple Silicon. See [installation](docs/installation.md) for exact requirements.
 - GNU GPL version 3 only, with attribution to NoOneExceptEnderk.
 - English repository/example filenames and exported report suffixes; English
   source comments and a contributor guide. Earlier project formats remain readable.

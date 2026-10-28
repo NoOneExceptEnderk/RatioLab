@@ -31,7 +31,7 @@ def launcher():
     if getattr(sys, 'frozen', False):
         arguments = [sys.executable]
     else:
-        arguments = [sys.executable, str(ROOT/'app.py')] if (ROOT/'launch.sh').is_file() else [sys.executable, '-m', 'ratiolab_cli']
+        arguments = [sys.executable, str(ROOT/'app.py')] if (ROOT.parent/'launch.sh').is_file() and ROOT.name == 'src' else [sys.executable, '-m', 'ratiolab_cli']
     def quote(argument):
         for character in ('\\', '"', '`', '$'):
             argument = argument.replace(character, '\\'+character)

@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: 2026 NoOneExceptEnderk
 # SPDX-License-Identifier: GPL-3.0-only
-"""Cylindrical ZA/ZI worms and strain wave envelopes. Sources are in VARIANTS.md.
+"""Cylindrical ZA/ZI worms and strain wave envelopes. Sources are in docs/technical/variants.md.
 Worm wheels and strain wave teeth remain concept approximations.
 """
 from math import pi,sin,cos,tan,atan,acos,atan2,sqrt,hypot,radians,degrees,ceil

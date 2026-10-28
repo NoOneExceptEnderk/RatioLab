@@ -1,56 +1,65 @@
 # RatioLab
 
-Anteprima pubblica, con licenza **GNU GPL v3.0 only**. Gli installer con le
-dipendenze incluse sono in [GitHub Releases](https://github.com/NoOneExceptEnderk/RatioLab/releases).
-I nomi dei file e i commenti del codice sono in inglese; questa guida resta
-disponibile in italiano. Per contribuire vedere [CONTRIBUTING.md](CONTRIBUTING.md).
+![RatioLab](src/ratiolab_resources/branding/ratiolab-logo-dark.png)
 
-![RatioLab](assets/branding/ratiolab-logo-dark.png)
+**Progetta ingranaggi e riduttori, osservane il movimento ed esporta i modelli per CAD o stampa 3D.**
 
-**Generatore parametrico di ingranaggi e riduttori.**
+[Download](#scarica-e-installa) · [Manuale in inglese](docs/user-guide.md) · [English](README.md) · [Segnala un problema](https://github.com/NoOneExceptEnderk/RatioLab/issues)
 
-Include anche un server **MCP locale per gli agenti**, con 13 strumenti per
-progetti, parametri, Undo/Redo, componenti/BOM, ricerca, interferenze ed export.
-Gli installer contengono il programma `RatioLab-MCP` (`.exe` su Windows):
-non richiede dipendenze aggiuntive e lavora senza aprire la GUI. Progetti e
-file restano nella cartella assegnata; le revisioni impediscono modifiche
-basate su uno stato superato. Collegamento a Codex e altri client in [MCP.md](MCP.md).
+![Area di lavoro di RatioLab](assets/screenshots/workspace.png)
 
-Applicazione autonoma per generare ingranaggi e riduttori, visualizzarli ed
-esportarne la geometria per i software CAD. SolidCraft è un'integrazione
-disponibile; l'esportazione STL funziona anche senza collegarlo.
+## Scarica e installa
 
-Per installarlo su un altro computer, seguire [INSTALL.md](INSTALL.md). Gli
-installer nativi includono Python, GTK e le altre librerie: `.run`/`.deb` Linux,
-Setup Windows 11 e `.app`/`.dmg` macOS per Intel e Apple Silicon. Le build native
-verificano l'app installata e allegano i file ai job superati: vedere le
-[build degli installer](https://github.com/NoOneExceptEnderk/RatioLab/actions/workflows/installers.yml)
-e le versioni dei sistemi supportate in `INSTALL.md`.
-Il percorso wheel/sorgenti rimane disponibile per sviluppo. Preferenze ed
-esportazioni usano cartelle dell’utente.
+**Gli installer includono Python, GTK e le librerie necessarie.** Non devi
+scaricare i sorgenti o installare strumenti di sviluppo.
 
-Il programma usa il **Workspace tecnico** scelto: parametri a sinistra nelle schede **Dimensions**, **Motion** e **Assembly**, anteprima dominante, una sola barra del movimento e risultati geometrici sotto il modello. L’interfaccia rimane in inglese. Nome e icona sono RatioLab. La versione B bicolore del monogramma RL, con la base della L allungata, e i file per GitHub sono conservati in `assets/branding/`; la palette e la scelta sono registrate in `brand.json`.
+Versione disponibile: **0.1.0 Preview 2**, una prima anteprima aperta ai riscontri degli utenti.
 
-Sono disponibili solo nove famiglie: ingranaggio diritto, elicoidale, doppia elica, planetary, cicloidale, strain wave, vite senza fine, **Parallel shaft reducer** e riduttore a corona interna. Gli altri generatori non sono disponibili.
+| Il tuo computer | Download | Installazione |
+|---|---|---|
+| Windows 11, Intel/AMD a 64 bit | [Setup Windows](https://github.com/NoOneExceptEnderk/RatioLab/releases/download/v0.1.0-preview.2/RatioLab-0.1.0-windows-x86_64-setup.exe) | Apri il file scaricato; al termine avvia RatioLab dal menu Start. |
+| macOS 15+, Apple Silicon (M1 o successivi) | [DMG Apple Silicon](https://github.com/NoOneExceptEnderk/RatioLab/releases/download/v0.1.0-preview.2/RatioLab-0.1.0-macos-arm64.dmg) | Apri il DMG e trascina RatioLab in Applicazioni. |
+| macOS 15+, Intel | [DMG Intel](https://github.com/NoOneExceptEnderk/RatioLab/releases/download/v0.1.0-preview.2/RatioLab-0.1.0-macos-x86_64.dmg) | Apri il DMG e trascina RatioLab in Applicazioni. |
+| Ubuntu 24.04+ / Linux compatibile, x86-64 | [Pacchetto Debian/Ubuntu](https://github.com/NoOneExceptEnderk/RatioLab/releases/download/v0.1.0-preview.2/ratiolab_0.1.0_amd64.deb) · [Installer per altri Linux](https://github.com/NoOneExceptEnderk/RatioLab/releases/download/v0.1.0-preview.2/RatioLab-0.1.0-linux-x86_64.run) | Apri il `.deb` con il gestore software; per il `.run` segui la guida. |
 
-Quote, cinematica, animazione, carichi nominali, cataloghi e hardware rimangono disponibili per le famiglie supportate. I parametri sono raggruppati; profili e giochi stanno negli avanzati e i carichi nominali in una sezione richiudibile di Motion. I risultati sono distinti dai campi modificabili. Le quote collegate spiegano l’origine e permettono di aprirla in Assembly. Scheda, avanzati e scorrimento rimangono stabili quando si cambia un’opzione. Le sezioni materiali, resistenza degli alberi e impostazioni di produzione restano escluse. I relativi campi nelle configurazioni precedenti vengono ignorati senza cambiare la geometria.
+Linux richiede glibc 2.39 o successiva. Serve un driver grafico compatibile.
+L’installer Windows non ha ancora una firma del produttore; l’app macOS ha
+firma ad-hoc e non è notarizzata da Apple. Il sistema può mostrare un avviso o bloccare l’avvio.
 
-**Open… / Save…** e **Export…** sono sempre nell’intestazione. L’esportazione comprende STL, pacchetto completo o distinta e calcoli. Connessione, stato e **Create in SolidCraft** sono nel menu **CAD integrations**. Distinta, relazione e note sono nella barra inferiore. Gli errori restano visibili nei campi e bloccano l’export; l’ultima anteprima valida è esplicitamente segnalata. Il collegamento sulla Scrivania avvia `launch.sh` in questa cartella.
+[Guida all’installazione e alla disinstallazione](docs/installation.md) · [Tutti i file e i checksum](https://github.com/NoOneExceptEnderk/RatioLab/releases/tag/v0.1.0-preview.2)
 
-Le priorità sono in [TODO.md](TODO.md): semplificare le funzioni e rifare la UI intorno alla generazione, consolidare esportazione e progetti, preparare la pubblicazione open source su GitHub e poi migrare a Rust. Nuove famiglie e preparazione dedicata alla stampa sono rimandate.
+## Cosa puoi fare
 
-I file già esportati rimangono disponibili; le configurazioni relative a famiglie non supportate vengono rifiutate senza modificare il modello aperto.
+- Generare nove famiglie di ingranaggi e riduttori, comprese configurazioni planetarie, cicloidali e a vite senza fine.
+- Modificare i parametri, osservare l’anteprima 3D animata e selezionare i componenti.
+- Salvare progetti, annullare modifiche, cercare combinazioni e controllare le interferenze con campionamento discreto.
+- Esportare STEP, STL, SVG/DXF, distinte, relazioni di calcolo e pacchetti completi.
+- Collegare un agente tramite il [companion MCP incluso](docs/mcp.md), senza aprire la GUI.
 
-Per registrare nome e icona anche nella barra delle applicazioni Linux, eseguire `/usr/bin/python3 install_desktop.py`. Lo script installa il launcher nel menu applicazioni dell’utente e aggiorna il collegamento sulla Scrivania usando l’identificatore GTK corretto.
+L’interfaccia dell’app e il manuale completo sono in inglese.
+L’integrazione con SolidCraft è facoltativa: gli export autonomi non richiedono un CAD installato.
 
-Documentazione completa: [README.md](README.md), [PRINTED-SHAFT.md](PRINTED-SHAFT.md), [CALCULATIONS.md](CALCULATIONS.md).
+## Primo progetto
 
-## Licenza
+1. Apri RatioLab e scegli una famiglia.
+2. Imposta le dimensioni e le opzioni di assemblaggio; controlla anteprima e risultati.
+3. Salva il progetto e usa **Export…** per creare i file.
 
-Copyright (C) 2026 NoOneExceptEnderk. RatioLab usa la [GNU GPL versione 3 only](LICENSE),
-identificativo `GPL-3.0-only`. Sono consentiti uso commerciale, modifiche e fork.
-Chi ridistribuisce il programma o versioni derivate deve conservare attribuzioni
-e avvisi di licenza, mantenere la GPLv3 e fornire il relativo codice sorgente
-secondo i suoi termini. Il programma è fornito senza garanzie. Le dipendenze
-mantengono le proprie licenze. La licenza dell'app non si applica automaticamente
-ai progetti indipendenti o ai pezzi realizzati dagli utenti.
+Trovi altre indicazioni nel [manuale](docs/user-guide.md) e nei [progetti di esempio](examples/).
+
+## Limiti dell’anteprima
+
+RatioLab produce modelli di studio geometrici e cinematici: non certifica
+resistenza, durata o idoneità alla produzione. Misure e interferenze usano
+superfici campionate; vite senza fine e strain wave restano modelli di studio.
+Consulta i [limiti documentati](docs/user-guide.md#accuracy-and-limitations).
+
+## Contribuire e licenza
+
+Il codice è in [`src/`](src/), i test in [`tests/`](tests/) e la documentazione
+in [`docs/`](docs/). [CONTRIBUTING.md](CONTRIBUTING.md) spiega come contribuire;
+[CHANGELOG.md](CHANGELOG.md) riporta le novità.
+
+Copyright © 2026 **NoOneExceptEnderk**. Licenza [GNU GPL versione 3 only](LICENSE)
+(`GPL-3.0-only`), con [attribuzioni e avvisi](COPYRIGHT).
+Le dipendenze mantengono le proprie licenze.

@@ -1,7 +1,7 @@
 #!/bin/sh
 # SPDX-FileCopyrightText: 2026 NoOneExceptEnderk
 # SPDX-License-Identifier: GPL-3.0-only
-# Native GTK dependencies must be installed as described in INSTALL.md first.
+# Native GTK dependencies must be installed as described in docs/installation.md first.
 set -eu
 root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 python=${RATIOLAB_PYTHON:-python3}

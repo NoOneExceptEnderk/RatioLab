@@ -36,6 +36,7 @@ ratiolab-mcp = "ratiolab_mcp:main"
 
 [tool.setuptools]
 include-package-data = false
+package-dir = {"" = "src", "build_support" = "build-support"}
 packages = ["ratiolab_resources"]
 py-modules = [
   "app", "app_paths", "assemblies", "bom", "cad_export", "catalog", "connection", "export_transaction",
@@ -47,4 +48,7 @@ py-modules = [
 ]
 
 [tool.setuptools.cmdclass]
-build_py = "ratiolab_build.BuildPy"
+build_py = "build_support.ratiolab_build.BuildPy"
+
+[tool.setuptools.package-data]
+ratiolab_resources = ["*.json", "branding/*.json", "branding/*.png"]

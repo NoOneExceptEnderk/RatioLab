@@ -23,7 +23,8 @@ class ReducerCatalogTests(unittest.TestCase):
                 with self.assertRaises(ValueError):get_specs(family)
 
     def test_removed_implementations_are_not_shipped(self):
-        root=Path(__file__).resolve().parent
+        import geometry
+        root=Path(geometry.__file__).resolve().parent
         for name in ('easy_controls','easy_design','robot_drives','robot_specs','cable_drives','mishin_drives','mishin_specs'):
             self.assertFalse((root/(name+'.py')).exists(),name)
 

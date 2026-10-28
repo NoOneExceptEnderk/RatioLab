@@ -11,7 +11,7 @@ version = os.environ['RATIOLAB_VERSION']
 datas = [(str(root/'packaging/fonts.conf'), 'etc/fonts')]
 datas += [(str(path), 'share/fonts') for path in (root/'packaging/fonts').glob('*.ttf')]
 a = Analysis(
-    [str(root/'packaging/entrypoint.py'), str(root/'packaging/mcp_entrypoint.py')], pathex=[str(root)],
+    [str(root/'packaging/entrypoint.py'), str(root/'packaging/mcp_entrypoint.py')], pathex=[str(root/'src')],
     binaries=[], datas=datas,
     hiddenimports=['app', 'ratiolab_checks', 'ratiolab_resources', 'cairo', 'gi._gi_cairo',
                    'gi.repository.Gtk', 'gi.repository.Gdk', 'gi.repository.Gio',
@@ -23,6 +23,8 @@ a = Analysis(
     excludes=['tkinter', 'matplotlib', 'numpy', 'PIL', 'IPython', 'pytest'],
     noarchive=False,
 )
+for source, destination in (('docs/installation.md', 'INSTALL.md'), ('docs/mcp.md', 'MCP.md')):
+    a.datas.append(('ratiolab_resources/'+destination, str(root/source), 'DATA'))
 for source, destination in write_notices(a.binaries, metadata, datas=a.datas):
     a.datas.append((destination, str(source), 'DATA'))
 pyz = PYZ(a.pure)

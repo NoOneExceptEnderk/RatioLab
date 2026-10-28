@@ -64,7 +64,8 @@ class ProjectScopeTests(unittest.TestCase):
             self.assertEqual(generate(d.family,saved).parts,d.parts)
 
     def test_retired_implementations_are_not_shipped(self):
-        root=Path(__file__).resolve().parent
+        import geometry
+        root=Path(geometry.__file__).resolve().parent
         for name in ('material_stress','material_controls','material_library','manufacturing','process_settings','process_controls'):
             self.assertFalse((root/(name+'.py')).exists(),name)
 

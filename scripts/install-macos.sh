@@ -1,7 +1,7 @@
 #!/bin/sh
 # SPDX-FileCopyrightText: 2026 NoOneExceptEnderk
 # SPDX-License-Identifier: GPL-3.0-only
-# Install Homebrew pygobject3 and gtk4 first; see INSTALL.md.
+# Install Homebrew pygobject3 and gtk4 first; see docs/installation.md.
 set -eu
 root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 . "$root/scripts/macos-python.sh"

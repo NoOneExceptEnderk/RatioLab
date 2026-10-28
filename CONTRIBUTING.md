@@ -2,8 +2,21 @@
 
 Use English for contributor documentation, code comments and docstrings. Keep
 changes focused and describe the behavior changed, its limits and the checks
-actually run. See [INSTALL.md](INSTALL.md) for Python and native GTK setup.
+actually run. See [development guide](docs/development.md) for Python and native GTK setup.
 Code contributions use GPL-3.0-only; see [LICENSE](LICENSE).
+
+## Repository layout
+
+- `src/` contains the application modules, which retain their top-level import
+  names. `src/ratiolab_resources/` holds the runtime catalogs and branding.
+- `tests/` contains the test suite and is included only in source distributions.
+- `docs/` contains user, installation, development and technical documentation.
+- `scripts/`, `packaging/` and `build-support/` contain distribution tooling.
+  The build copies the canonical documentation and legal notices into the wheel.
+- Local exports, preferences, credentials, agent notes and working directories
+  stay outside published source and build artifacts.
+
+Module filenames below refer to `src/`.
 
 ## Architecture and ownership
 
@@ -17,7 +30,7 @@ Code contributions use GPL-3.0-only; see [LICENSE](LICENSE).
 - `project_document.py` owns document history and recovery data;
   `project_ui.py` connects it to the desktop. `ratiolab_agent.py` exposes
   workspace-confined headless operations and `ratiolab_mcp.py` adapts them to
-  stdio MCP. See [MCP.md](MCP.md) for the public service contract.
+  stdio MCP. See [MCP guide](docs/mcp.md) for the public service contract.
 - Export modules consume generated designs. `selected_export.py` copies an
   explicit subset; regenerating that subset would reintroduce omitted parts.
   `connection.py` handles the optional SolidCraft connection.
@@ -29,8 +42,8 @@ pressure, helix and `Part.twist` use degrees; trigonometric helpers, profile
 phase and motion phase use radians. `profile_sections()` returns section
 angles in degrees, converted at the surface boundary. Operating quantities
 use N, N·m, rpm and W; the signed transmission ratio is input speed/output
-speed. See [CALCULATIONS.md](CALCULATIONS.md), [KINEMATICS.md](KINEMATICS.md)
-and [IO-MODELS.md](IO-MODELS.md) before changing those conventions.
+speed. See [calculations](docs/technical/calculations.md), [kinematics](docs/technical/kinematics.md)
+and [io models](docs/technical/io-models.md) before changing those conventions.
 
 `Part` contours are local XY loops. Width and section levels run along local
 Z before placement by `solid_geometry.point()`. Preserve loop correspondence
@@ -48,7 +61,7 @@ path. Standalone STEP may promote circles/cylinders only when explicit
 an arbitrary polygon that happens to be equiradial is insufficient. Analytic
 STEP bounds and sampled mesh bounds can therefore differ slightly. Sampling
 thresholds describe numerical construction, not manufacturing tolerances.
-See [VARIANTS.md](VARIANTS.md) for the worm and strain wave study limits.
+See [variants](docs/technical/variants.md) for the worm and strain wave study limits.
 
 ## Preserve these invariants
 
@@ -80,12 +93,12 @@ See [VARIANTS.md](VARIANTS.md) for the worm and strain wave study limits.
 
 ## Verification
 
-After setting up the source environment described in [INSTALL.md](INSTALL.md),
+After setting up the source environment in the [development guide](docs/development.md),
 run relevant tests from the repository root, then the complete suite:
 
 ```sh
-python3 -m unittest test_geometry test_solid_geometry test_kinematics
-python3 -m unittest discover -p 'test*.py'
+PYTHONPATH=src python3 -m unittest discover -s tests -p 'test_geometry.py'
+PYTHONPATH=src python3 -m unittest discover -s tests -p 'test_*.py'
 ```
 
 Use the interpreter that can load the installed native bindings. GUI and
@@ -93,4 +106,4 @@ OpenGL checks need a working desktop or the supported test display setup;
 report skips and unavailable graphics explicitly. Run desktop checks in the
 normal application environment; use software-rendering overrides only when
 deliberately verifying that configuration. Add regression coverage for changed
-behavior and record relevant limitations in [VERIFICATION.md](VERIFICATION.md).
+behavior and describe the checks and relevant limitations in your pull request.
