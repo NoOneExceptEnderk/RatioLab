@@ -24,6 +24,11 @@ class UserPathsTests(unittest.TestCase):
                                               'LOCALAPPDATA': str(self.root/'local')})
         environment.start()
         self.addCleanup(environment.stop)
+        # macOS uses ~/Library rather than XDG/AppData. Isolate home on every
+        # host so preferences from one test cannot affect a later test or user.
+        home = patch.object(Path, 'home', return_value=self.root)
+        home.start()
+        self.addCleanup(home.stop)
 
     def test_platform_directories(self):
         for platform, config, data in [
@@ -45,11 +50,14 @@ class UserPathsTests(unittest.TestCase):
         legacy.mkdir()
         original = json.dumps({'output_dir': str(self.root/'old exports'), 'mode': 'legacy'})
         (legacy/'preferenze-ui.json').write_text(original)
-        self.assertEqual(app_paths.saved_output_dir(legacy), self.root/'old exports')
-        app_paths.save_preferences(legacy_root=legacy, output_dir=str(self.root/'new exports'))
-        self.assertEqual(app_paths.saved_output_dir(legacy), self.root/'new exports')
-        self.assertNotIn('mode', app_paths.load_preferences())
-        self.assertEqual((legacy/'preferenze-ui.json').read_text(), original)
+        for platform in ('linux', 'win32', 'darwin'):
+            with self.subTest(platform=platform), patch('app_paths.sys.platform', platform):
+                self.assertTrue(app_paths.config_dir().is_relative_to(self.root))
+                self.assertEqual(app_paths.saved_output_dir(legacy), self.root/'old exports')
+                app_paths.save_preferences(legacy_root=legacy, output_dir=str(self.root/'new exports'))
+                self.assertEqual(app_paths.saved_output_dir(legacy), self.root/'new exports')
+                self.assertNotIn('mode', app_paths.load_preferences())
+                self.assertEqual((legacy/'preferenze-ui.json').read_text(), original)
 
     def test_invalid_preferences_and_failed_atomic_replace(self):
         app_paths.save_preferences(output_dir='relative')

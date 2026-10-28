@@ -1,18 +1,44 @@
 """Installer lifecycle and frozen paths; runtime bundles have separate real GL tests."""
 import os
 from pathlib import Path
+import runpy
 import shutil
 import subprocess
 import sys
 import tempfile
 import unittest
-from unittest.mock import patch
+from types import ModuleType, SimpleNamespace
+from unittest.mock import Mock, patch
 
 import app_paths
 import gl_loader
 import install_desktop
 
 ROOT = Path(__file__).resolve().parent
+
+
+class GtkAssetsTests(unittest.TestCase):
+    def test_gtk_bundle_excludes_icons_from_other_installed_applications(self):
+        info = SimpleNamespace(available=True, version='4.0',
+                               collect_typelib_data=lambda: ([], [], []))
+        files = {
+            ('icons', 'Adwaita'): [('/native/share/icons/Adwaita/dialog-error.svg', 'share/icons/Adwaita')],
+            ('icons', 'hicolor'): [('/native/share/icons/hicolor/index.theme', 'share/icons/hicolor'),
+                                   ('/native/share/icons/hicolor/icon-theme.cache', 'share/icons/hicolor'),
+                                   ('/native/share/icons/hicolor/48x48/apps/google-chrome.png', 'share/icons/hicolor/48x48/apps')],
+            ('glib-2.0', 'schemas'): [('/native/org.gtk.gtk4.Settings.gschema.xml', 'share/glib-2.0/schemas')],
+        }
+        gi = ModuleType('PyInstaller.utils.hooks.gi')
+        gi.GiModuleInfo = lambda *args, **kwargs: info
+        gi.collect_glib_share_files = lambda *args: files[args]
+        with patch.dict(sys.modules, {'PyInstaller.utils.hooks.gi': gi}):
+            hook = runpy.run_path(str(ROOT/'packaging/hooks/hook-gi.repository.Gtk.py'))['hook']
+            api = Mock()
+            hook(api)
+        sources = [source for source, _ in api.add_datas.call_args.args[0]]
+        self.assertTrue(any(source.endswith('dialog-error.svg') for source in sources))
+        self.assertTrue(any(source.endswith('index.theme') for source in sources))
+        self.assertFalse(any('google-chrome' in source or source.endswith('icon-theme.cache') for source in sources))
 
 
 class FrozenPathsTests(unittest.TestCase):

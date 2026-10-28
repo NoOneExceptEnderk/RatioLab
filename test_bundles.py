@@ -102,6 +102,46 @@ class BootstrapTests(unittest.TestCase):
 
 
 class NativeNoticesTests(unittest.TestCase):
+    def test_darwin_recompiled_typelib_requires_exact_source_recipe_and_owner(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            prefix = root/'native'
+            original = prefix/'lib/girepository-1.0/Gtk-4.0.typelib'
+            original.parent.mkdir(parents=True)
+            original.write_bytes(b'original typelib fixture')
+            gir = prefix/'share/gir-1.0/Gtk-4.0.gir'
+            gir.parent.mkdir(parents=True)
+            gir.write_text('<namespace name="Gtk" version="4.0"\n'
+                           ' shared-library="/opt/homebrew/lib/libgtk-4.1.dylib,libdep.dylib">\n</namespace>\n')
+            work = root/'pyinstaller'
+            work.mkdir()
+            generated = work/'Gtk-4.0.typelib'
+            generated.write_bytes(b'relocated typelib fixture')
+            generated_gir = work/'Gtk-4.0.gir'
+            rewritten = '<namespace name="Gtk" version="4.0"\n' \
+                        ' shared-library="@loader_path/libgtk-4.1.dylib,@loader_path/libdep.dylib">\n</namespace>\n'
+            generated_gir.write_text(rewritten)
+            component = dict(name='gtk4', version='4.22.4', provider='Homebrew')
+            with patch.object(support.sys, 'platform', 'darwin'), \
+                    patch.object(support, '_typelib_build_inputs',
+                                 return_value=(original, prefix/'python/Versions/3.14', work)), \
+                    patch.object(support, 'component_for_binary',
+                                 side_effect=lambda path: component if Path(path) in (original, gir) else None):
+                owner, derived = support.derived_typelib_component('gi_typelibs/Gtk-4.0.typelib', generated)
+                self.assertEqual(owner, component)
+                self.assertEqual(derived['from'], 'share/gir-1.0/Gtk-4.0.gir')
+                self.assertEqual(len(derived['source_sha256']), 64)
+                # An identically named file outside Analysis.workpath is not trusted.
+                self.assertIsNone(support.derived_typelib_component('gi_typelibs/Gtk-4.0.typelib', original))
+                generated_gir.write_text(rewritten.replace('libdep.dylib', 'unrelated.dylib'))
+                self.assertIsNone(support.derived_typelib_component('gi_typelibs/Gtk-4.0.typelib', generated))
+                generated_gir.write_text(rewritten)
+                with patch.object(support, 'component_for_binary', return_value=None):
+                    self.assertIsNone(support.derived_typelib_component('gi_typelibs/Gtk-4.0.typelib', generated))
+                with patch.object(support, 'component_for_binary', side_effect=[
+                        component, dict(component, name='another-owner')]):
+                    self.assertIsNone(support.derived_typelib_component('gi_typelibs/Gtk-4.0.typelib', generated))
+
     def test_generated_icon_cache_uses_only_its_adjacent_theme_owner(self):
         with tempfile.TemporaryDirectory() as temporary:
             theme = Path(temporary)/'share/icons/Adwaita'
