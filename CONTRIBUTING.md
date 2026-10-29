@@ -61,7 +61,7 @@ path. Standalone STEP may promote circles/cylinders only when explicit
 an arbitrary polygon that happens to be equiradial is insufficient. Analytic
 STEP bounds and sampled mesh bounds can therefore differ slightly. Sampling
 thresholds describe numerical construction, not manufacturing tolerances.
-See [variants](docs/technical/variants.md) for the worm and strain wave study limits.
+See [variants](docs/technical/variants.md) for construction-specific geometry and validation limits.
 
 ## Preserve these invariants
 

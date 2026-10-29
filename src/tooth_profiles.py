@@ -4,7 +4,7 @@
 
 No CAD dependency. Coordinates use a tooth centred on +X. See
 docs/technical/calculations.md for profile conventions, domains and references, and docs/technical/variants.md
-for the separate worm and strain wave study geometry.
+for the separate generated worm and prescribed-deformation strain-wave geometry.
 """
 from math import sin, cos, tan, atan, atan2, acos, sqrt, hypot, pi, radians
 

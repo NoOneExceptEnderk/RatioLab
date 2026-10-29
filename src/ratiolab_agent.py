@@ -27,7 +27,7 @@ LIMITATIONS = [
     'Units are millimetres; geometry and exports use the nominal assembly pose.',
     'Sampled tooth curves and surfaces are retained; only proven construction circles may become analytic STEP cylinders.',
     'SVG/DXF files are local planar sections with placement metadata; twisted/deformed sections are not a manufacturing development.',
-    'Worm and strain-wave drives are concept models; no conjugacy, elastic, strength or service-life certification.',
+    'Construction-specific geometry checks are recorded in analysis metadata; they do not certify elastic response, strength or service life.',
     'Interference is discrete sampled coverage, not a continuous collision-free or exact penetration-depth guarantee.',
     'Cancellation and time limits are cooperative; one generator, triangulation or exporter unit may finish before stopping.',
 ]
@@ -132,6 +132,10 @@ def _option_fields(family):
     if family == 'cycloidal':
         from printed_shaft import DESIGNS
         fields['eccentric_design'] = dict(type='string', enum=list(DESIGNS))
+    if family == 'differential':
+        from differential_wrist import OUTPUT_INTERFACES,CARRIER_STYLES,RATIO_MODES,CONFIGURATIONS
+        for key,choices in (('output_interface',OUTPUT_INTERFACES),('carrier_style',CARRIER_STYLES),('ratio_mode',RATIO_MODES),('configuration',CONFIGURATIONS)):
+            fields[key]=dict(type='string',enum=list(choices))
     return fields
 
 
@@ -311,6 +315,9 @@ class AgentService:
                 supplied[key] = value
         values = checked_parameters(family, supplied)
         specs = get_specs(family, values.get('variant'), values.get('double_style'))
+        if family=='differential':
+            from differential_wrist import labelled_specs
+            specs=labelled_specs(specs,values)
         import catalog
         import kinematics
         import hardware_catalog
@@ -321,6 +328,12 @@ class AgentService:
                 canonical_defaults=checked_parameters(family, dict(eccentric_design='fdm_bolted')),
                 supported_io_schemes=list(SUPPORTED_SCHEMES),
                 derived_fields=['bore'], explanation='6804 seat derives from print_seat_allowance; input_shaft=17 and width=16 are preset defaults. Manual bearing mode and no additional hardware are required.')
+        if family == 'differential':
+            for mode,description in (('one_to_one','Output teeth equal side teeth; relative spin gain is 1.'),
+                                     ('spin_2_1','Output teeth are twice side teeth; relative spin gain is 1/2. Carrier mean speed is unchanged.')):
+                context=dict(ratio_mode=mode,configuration=values['configuration'],variant=values['variant'])
+                presets[mode]=dict(parameters=dict(ratio_mode=mode),canonical_defaults=checked_parameters(family,context),
+                                   derived_fields=['output_teeth'],explanation=description)
         return dict(family=family, label=FAMILIES[family], defaults=values, named_presets=presets,
                     fields=[dict(name=k, label=label, type='integer' if k in INTEGER else 'number',
                                  default=values[k], nominal_default=default, minimum=low, maximum=high, step=step) for k,label,default,low,high,step in specs],
@@ -329,7 +342,20 @@ class AgentService:
                     bearing_catalog_supported=family in catalog.SUPPORTED,
                     hardware_catalog_supported=family in hardware_catalog.SUPPORTED,
                     derived_parameters='The generator recomputes bearing-linked bores/widths, nominal fits, printed-shaft seats, dependent teeth and I/O rates. Returned canonical parameters are authoritative; compare them after every change.',
-                    limitations=LIMITATIONS)
+                    limitations=LIMITATIONS, **(dict(parameter_conditions=dict(
+                        flange_fields='flange_radius, bolt_count and bolt_diameter apply only to output_interface=flange',
+                        output_extension='Wrist solid/hollow output extension beyond carrier outer face; classic uses shaft_extension for both side outputs beyond each outer carrier interface',
+                        passage_diameter='Applies only to output_interface=hollow; minimum radial shaft wall is 1 mm',
+                        carrier_bolt_diameter='Applies to split carrier lap joints and the classic direct carrier input mount; nominal holes, no stock fasteners',
+                        output_teeth='Derived from side_teeth unless ratio_mode=custom; spin_2_1 supports side_teeth <=30',
+                        spiral_angle='Unsigned degrees, active only for variant=spiral; zero uses exact straight geometry',
+                        spiral_hand='Integer -1 or +1, active only for variant=spiral; side local hands match, transverse hand is opposite',
+                        configuration='Wrist: two input shafts and one two-motion output. Classic: direct carrier input, two side outputs and an internal spider',
+                        input_rpm='Wrist input A speed or classic carrier input speed, all about world +X',
+                        input_b_rpm='Active only for wrist; retained but unused for classic',
+                        output_difference_rpm='Active only for classic; prescribed B-A speed boundary, not a second motor or load-based split',
+                        spider_pin_diameter='Classic only; real carrier-fixed pin, with spider gear bore = pin diameter + 2*spider_clearance',
+                        spider_clearance='Classic only; positive radial running clearance, no bearing capacity estimate')) if family=='differential' else {}))
 
     def project_create(self, family, parameters=None, cancel=None):
         budget = self._budget(cancel)

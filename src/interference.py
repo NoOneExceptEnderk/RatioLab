@@ -124,9 +124,11 @@ def expected_interface(d,i,j):
     if f=='cycloidal' and any(n.startswith('disc_cycloidal') for n in names) and any(n.startswith(('roller_ring','pin_output')) for n in names):
         return 'Constructed disc/roller interface · boundary contact expected, intersection is suspect'
     if f=='worm' and any(n.startswith('screw_') for n in names) and any(n.startswith('wheel_') for n in names):
-        return 'Worm/wheel study mesh · conjugacy unverified; all overlaps require review'
+        return ('Generated matching screw/wheel envelope · sampled contact; all overlaps require review' if d.analysis.get('wheel_geometry',{}).get('conjugate') else 'Worm/wheel study mesh · conjugacy unverified; all overlaps require review')
+    if f=='differential' and all(n.startswith('bevel_') for n in names):
+        return ('Spherical involute bevel mesh · sampled contact; all overlaps require review' if d.analysis.get('bevel',{}).get('conjugacy_verified') else 'Approximate bevel study mesh · conjugacy unverified; all overlaps require review')
     if f=='harmonic' and any(n.startswith('flexspline') for n in names):
-        return 'Flexible study interface · unsupported deformation'
+        return ('Prescribed flexible interface · sampled moving geometry; all overlaps require review' if d.analysis.get('wave_mapping',{}).get('conjugate') else 'Flexible study interface · conjugacy unverified')
     return ''
 
 
@@ -136,7 +138,7 @@ def analyze(design,settings=None,cancel=None,progress=lambda message,fraction:No
     def check():
         if cancel.is_set():raise Stopped('Cancelled by user; unfinished poses and pairs are not checked')
         if monotonic()-start>settings.max_seconds:raise Stopped('Time limit reached; unfinished poses and pairs are not checked')
-    records={};base={};unsupported=set();total_triangles=0
+    records={};base={};materials={};unsupported=set();total_triangles=0
     try:
         check()
         if not plan.supported:
@@ -149,8 +151,14 @@ def analyze(design,settings=None,cancel=None,progress=lambda message,fraction:No
         required=max(1,ceil(360*turns/settings.step_degrees)+1)
         result.planned_poses=min(required,settings.max_poses)
         if required>settings.max_poses:result.issues.append(f'Pose limit: {required} poses required for the full period; only a prefix is checked')
-        if design.family in ('worm','harmonic'):
-            result.studies.append('Study geometry: worm/wheel conjugacy and flexspline elasticity are not verified; findings describe the sampled model only')
+        if design.family=='worm' and not design.analysis.get('wheel_geometry',{}).get('conjugate'):
+            result.studies.append('Worm/wheel conjugacy is unverified; findings describe the sampled model only')
+        if design.family=='harmonic':
+            result.studies.append('Prescribed flexspline deformation; no elastic, loaded-contact or continuous-clearance certification')
+            if not design.analysis.get('wave_mapping',{}).get('conjugate'):
+                result.studies.append('Strain-wave tooth conjugacy is unverified')
+        if design.family=='differential' and not design.analysis.get('bevel',{}).get('conjugacy_verified'):
+            result.studies.append('Approximate bevel tooth geometry: conjugacy and continuous tooth-contact clearance are unverified; prescribed carrier/difference kinematics only' if design.values.get('configuration')=='classic' else 'Approximate bevel tooth geometry: conjugacy and continuous tooth-contact clearance are unverified; ideal two-input kinematics only')
         if not design.parts:
             result.issues.append('No components to check');return result
         if len(design.parts)>settings.max_parts:
@@ -159,7 +167,12 @@ def analyze(design,settings=None,cancel=None,progress=lambda message,fraction:No
             check();progress(f'Preparing {i+1}/{len(design.parts)} · {part.name}',0.)
             result.parts.append(dict(index=i,name=part.name,supported=True))
             try:
-                if i in plan.flex:raise ValueError('Time-varying flexspline deformation is not supported by this checker')
+                if i in plan.flex:
+                    if design.family!='harmonic' or not part.name.startswith('Flexspline'):
+                        raise ValueError('Unknown deformation: only the prescribed strain-wave material map is supported')
+                    from wave_geometry import material_vertices,posed_vertices
+                    materials[i]=material_vertices(part,check)
+                    posed_vertices(part,materials[i],plan.deformation(i,0.),check)
                 if i in plan.warps:raise ValueError('Time-varying warp is not supported by this checker')
                 triangles=[]
                 for face in faces(part):
@@ -168,8 +181,11 @@ def analyze(design,settings=None,cancel=None,progress=lambda message,fraction:No
                     triangles.extend(triangulate(face,check))
                     if total_triangles+len(triangles)>settings.max_triangles:raise ValueError('Assembly triangle limit exceeded')
                 surface=Surface(triangles,check)
+                if i in materials and any(q not in materials[i] for triangle in triangles for q in triangle):
+                    raise ValueError('Shared surface contains a vertex without an immutable material reference')
                 if surface.edge_approximation_mm>settings.tolerance_mm/100:raise ValueError('Near-collinear triangle edge approximation exceeds tolerance / 100')
                 result.parts[-1].update(triangles=len(triangles),thin_triangles=surface.thin_triangles,edge_approximation_mm=surface.edge_approximation_mm)
+                if i in materials:result.parts[-1]['deformation']='prescribed pitch-arc/normal map'
                 total_triangles+=len(triangles);base[i]=surface
             except ValueError as error:
                 unsupported.add(i);result.parts[-1].update(supported=False,reason=str(error));result.issues.append(f'{i+1} · {part.name}: {error}')
@@ -184,7 +200,15 @@ def analyze(design,settings=None,cancel=None,progress=lambda message,fraction:No
             for i in indices:
                 check()
                 m=plan.matrix(i,phase)
-                if m==IDENTITY:surfaces[i]=base[i]
+                if i in materials:
+                    mapped=posed_vertices(design.parts[i],materials[i],plan.deformation(i,phase),check)
+                    transformed=[]
+                    for j,triangle in enumerate(base[i].triangles):
+                        if j%128==0:check()
+                        transformed.append(tuple(transform(m,mapped[q]) for q in triangle))
+                    surfaces[i]=Surface(transformed,check)
+                    if surfaces[i].edge_approximation_mm>settings.tolerance_mm/100:raise ValueError('Deformed triangle edge approximation exceeds tolerance / 100')
+                elif m==IDENTITY:surfaces[i]=base[i]
                 else:
                     transformed=[tuple(transform(m,q) for q in t) for t in base[i].triangles]
                     # Validation at each transformed pose also rejects singular/custom

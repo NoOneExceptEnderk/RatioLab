@@ -22,6 +22,7 @@ def row(box, title, value, style):
 
 def build(app, values, variant, choice):
     box = app.io_box
+    app.io_frame.set_label('Drive connections')
     while (child := box.get_first_child()):
         box.remove(child)
     schemes = options(app.family)
@@ -30,6 +31,25 @@ def build(app, values, variant, choice):
     app.io_role_selectors = {}
     app.io_mode_buttons = {}
     app.io_results = []
+    if app.family == 'differential':
+        classic=values.get('configuration','wrist')=='classic'
+        app.io_frame.set_visible(True)
+        app.io_frame.set_label('Carrier input and two side outputs' if classic else 'Two independent inputs')
+        box.append(label('Set carrier input C in the motion bar. Prescribe B−A below to explore the two outputs; this is a speed boundary condition, not another motor.' if classic else 'Input A is set in the motion bar. Set input B below. Both signs use the same world +X direction; the shafts face opposite sides.'))
+        box.append(label('A=C−(B−A)/2 and B=C+(B−A)/2. All signs use world +X. Output split is not predicted from loads.' if classic else 'Equal speeds → carrier tilt. Opposing speeds → output spin. Other combinations move both axes.'))
+        demos = Gtk.Box(spacing=5)
+        choices=[('Equal',12,0),('A held',12,24),('Counterrotate',0,24)] if classic else [('Tilt', 12, 12), ('Spin', 12, -12), ('Combined', 12, 0)]
+        for title, a, b in choices:
+            button = Gtk.Button(label=title)
+            button.set_tooltip_text(f'Prescribe carrier C / difference B−A = {a:+g} / {b:+g} rpm; A held is a speed boundary, not a differential lock.' if classic else f'Demonstrate with inputs A / B = {a:+g} / {b:+g} rpm.')
+            button.connect('clicked', lambda _, a=a, b=b, classic=classic: app.rebuild_options({'input_rpm':a,'output_difference_rpm' if classic else 'input_b_rpm':b}))
+            demos.append(button)
+            app.io_mode_buttons[title.lower().replace(' ','_')] = button
+        box.append(demos)
+        result = label('', 'io-result')
+        box.append(result)
+        app.io_results.append((0, result))
+        return
     if not schemes:
         return
     legacy = 'wave_circular_flex' if app.family == 'harmonic' and values.get('harmonic_output') == 'circular' else default(app.family)
@@ -146,6 +166,11 @@ def update(app, design):
     if design is None:
         for _, widget in app.io_results:
             widget.set_text('Result out of date · correct the parameters.')
+        return
+    if design.family == 'differential':
+        q = design.analysis['kinematics']['rates_rpm']
+        for _, widget in app.io_results:
+            widget.set_text(f"Side output A / B: {q['side_a']:+.3g} / {q['side_b']:+.3g} rpm\nInternal spider spin: {q['spider_spin']:+.3g} rpm relative to carrier" if design.values.get('configuration')=='classic' else f"Carrier tilt: {q['carrier']:+.3g} rpm\nOutput spin relative to carrier: {q['output_spin']:+.3g} rpm")
         return
     stages = design.analysis.get('kinematics', {}).get('stage_results', [])
     for stage, widget in app.io_results:

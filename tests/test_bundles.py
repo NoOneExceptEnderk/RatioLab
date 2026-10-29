@@ -231,9 +231,13 @@ class BundleIntegrityTests(unittest.TestCase):
             for name in ('gi_typelibs/Gtk-4.0.typelib', 'gi_typelibs/Gdk-4.0.typelib',
                          'share/glib-2.0/schemas/gschemas.compiled',
                          'ratiolab_resources/branding/ratiolab-icon.png',
+                         'ratiolab_resources/icons/hicolor/index.theme',
+                         'ratiolab_resources/icons/hicolor/128x128/apps/local.solidcraft.reducers.png',
+                         'ratiolab_resources/icons/hicolor/256x256/apps/local.solidcraft.reducers.png',
                          'ratiolab_resources/bearing-catalog.json',
                          'ratiolab_resources/hardware-catalog.json',
                          'ratiolab_resources/INSTALL.md', 'ratiolab_resources/MCP.md',
+                         'ratiolab_resources/CHANGELOG.md', 'ratiolab_resources/version.json',
                          'etc/fonts/fonts.conf', 'share/fonts/DejaVuSans.ttf',
                          'notices/THIRD-PARTY-NOTICES.txt',
                          'libepoxy-fixture.dll', 'libEGL.dll', 'libGLESv2.dll'):
@@ -290,7 +294,7 @@ class BundleIntegrityTests(unittest.TestCase):
 
     def test_inventory_rejects_personal_data(self):
         with tempfile.TemporaryDirectory() as temporary:
-            for name in ('ui-preferences.json', 'preferenze-ui.json'):
+            for name in ('ui-preferences.json', 'preferenze-ui.json', 'updates.json'):
                 path = Path(temporary)/name
                 path.write_text('{}')
                 with self.assertRaisesRegex(RuntimeError, 'Personal data'):

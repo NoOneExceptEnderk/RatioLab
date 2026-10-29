@@ -15,6 +15,7 @@ core.*
 
 preferenze-ui.json
 ui-preferences.json
+updates.json
 materiali-custom.json
 custom-materials.json
 build/

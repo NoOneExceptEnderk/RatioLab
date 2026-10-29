@@ -11,7 +11,7 @@ from geometry import Part,circle
 PAIRS={'parallel','internal'}
 GEAR_REASON='Bearing-in-bore is unavailable for fixed-axis pairs: generated gears are keyed to shafts; internal rings need a dedicated annular support.'
 BOLT_REASON='Flange screw automation is unavailable for fixed-axis pairs: independent bearing blocks have no shared frame or common fastening flanges.'
-STUDY_REASON='Automatic bearings / hardware are unavailable for worm and strain-wave study frames and deformation.'
+STUDY_REASON='Automatic bearings / hardware are unavailable for the crossed-axis worm assembly and deforming strain-wave body.'
 PRINT_REASON='The printed eccentric assembly uses its dedicated bearing and bolted-shaft construction; the generic catalog is unavailable.'
 
 

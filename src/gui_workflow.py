@@ -6,8 +6,9 @@ import json
 import gi
 gi.require_version('Gtk', '4.0')
 from gi.repository import Gtk, Gio, Gdk
-CATALOG = {'spur': ('Spur gear', 'A single gear: choose the tooth count, module and bore.'), 'helical': ('Helical gear', 'A single gear with an adjustable helix angle.'), 'double': ('Double helical gear', 'Two opposing helices, joined or separated by a groove.'), 'planetary': ('Planetary gearbox', 'Sun, planets and ring gear. One or two reduction stages.'), 'cycloidal': ('Cycloidal reducer', 'Eccentric discs and rollers, with one or two discs.'), 'harmonic': ('Strain wave reducer', 'A flexible gear deformed by a wave generator. Concept model.'), 'worm': ('Worm and wheel', 'Transmission with perpendicular axes. Concept gear pair.'), 'parallel': ('Parallel shaft reducer', 'A gear pair with input and output shafts.'), 'internal': ('Internal gear reducer', 'A pinion inside an internal gear, with fixed axes.')}
+CATALOG = {'spur': ('Spur gear', 'A single gear: choose the tooth count, module and bore.'), 'helical': ('Helical gear', 'A single gear with an adjustable helix angle.'), 'double': ('Double helical gear', 'Two opposing helices, joined or separated by a groove.'), 'planetary': ('Planetary gearbox', 'Sun, planets and ring gear. One or two reduction stages.'), 'cycloidal': ('Cycloidal reducer', 'Eccentric discs and rollers, with one or two discs.'), 'harmonic': ('Strain wave reducer', 'A flexible gear with prescribed wave deformation and a generated matching ring.'), 'worm': ('Worm and wheel', 'Perpendicular axes with a wheel generated from the selected ZA or ZI screw.'), 'parallel': ('Parallel shaft reducer', 'A gear pair with input and output shafts.'), 'internal': ('Internal gear reducer', 'A pinion inside an internal gear, with fixed axes.')}
 ADVANCED = {'pressure', 'backlash', 'profile_shift', 'addendum', 'dedendum', 'clearance', 'assembly_clearance', 'output_clearance', 'profile_tolerance', 'wave_clearance', 'wave_factor'}
+CATALOG['differential'] = ('Bevel differential', 'Spherical involute gears: wrist with two inputs or classic carrier input with two side outputs.')
 
 def searchable_dropdown(labels):
     """Filter displayed names while keeping selection indices in the full model."""
@@ -55,6 +56,8 @@ def install_sections(app, left):
         events = Gtk.EventControllerLegacy()
         events.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
         def user_navigation(controller, event):
+            if event is None:
+                return False
             if event.get_event_type() in (Gdk.EventType.SCROLL, Gdk.EventType.BUTTON_PRESS,
                                          Gdk.EventType.TOUCH_BEGIN, Gdk.EventType.KEY_PRESS):
                 app.panel_revision = getattr(app,'panel_revision',0) + 1
@@ -187,8 +190,8 @@ def geometry_groups(app, specs):
             groups[key] = box
         return groups[key]
     # Render groups in a useful order, independent of the generator's spec order.
-    main_order = ('teeth','sun','planet','planets','sun2','planet2','pinion','wheel',
-                  'pins','radius','pin_radius','eccentric','module','width','width2','disc_gap','helix','gap')
+    main_order = ('teeth','side_teeth','output_teeth','sun','planet','planets','sun2','planet2','pinion','wheel',
+                  'pins','radius','pin_radius','eccentric','module','width','spiral_angle','width2','disc_gap','helix','gap')
     order = {key: i for i, key in enumerate(main_order)}
     specs = sorted(specs, key=lambda s: order.get(s[0], len(order)))
     app.field_feedback, app.linked_notes, app.field_containers = {}, {}, {}
@@ -197,21 +200,27 @@ def geometry_groups(app, specs):
     load_box = app.sections['loads'][1]
     app.load_help = text('Based on operating inputs and assumed efficiency. These are not allowable loads.')
     load_box.append(app.load_help)
+    inactive=set()
+    if app.family=='differential':
+        from differential_wrist import inactive_fields
+        inactive=inactive_fields(dict(app.field_values,**app.option_values))
     for key, label, default, low, high, step in specs:
-        if key=='input_rpm' or (key.startswith('print_') and app.option_values.get('eccentric_design')!='fdm_bolted'):
+        if key in inactive or key=='input_rpm' or app.family=='differential' and key=='spiral_hand' or (key.startswith('print_') and app.option_values.get('eccentric_design')!='fdm_bolted'):
             continue
         page = 'geometry'
-        if key in ('input_torque','efficiency','pull_force'):
+        if key in ('input_b_rpm','output_difference_rpm'):
+            target, page = app.io_box, 'motion'
+        elif key in ('input_torque','efficiency','pull_force'):
             target, page = load_box, 'motion'
         elif key in ('shoulder','seat_allowance','shaft_allowance'):
             target, page = app.sections['bearings'][1], 'assembly'
-        elif key in ('plate','housing_wall','rim','stage_gap') or key.startswith('print_'):
+        elif key in ('plate','housing_wall','rim','stage_gap','carrier_bolt_diameter','spider_pin_diameter','spider_clearance') or key.startswith('print_'):
             target, page = app.sections['housing'][1], 'assembly'
         elif key in ADVANCED:
             target = app.advanced_fields
-        elif key in ('bore','output_bore','wheel_bore','input_shaft','output_shaft','shaft_extension','journal_length','journal_diameter'):
+        elif key in ('bore','output_bore','wheel_bore','input_shaft','output_shaft','shaft_extension','journal_length','journal_diameter','output_extension','passage_diameter'):
             target = group('shafts', 'Shafts & bores')
-        elif key in ('output_count','output_radius','output_pin'):
+        elif key in ('output_count','output_radius','output_pin','flange_radius','bolt_count','bolt_diameter'):
             target = group('output', 'Output connection')
         else:
             target = group('main', 'Disc & rollers' if app.family=='cycloidal' else 'Main geometry')
@@ -269,7 +278,7 @@ def geometry_groups(app, specs):
         feedback.set_visible(False)
         container.append(feedback)
         app.field_feedback[key] = feedback
-        if key in ('bore','input_shaft','output_shaft'):
+        if key in ('bore','input_shaft','output_shaft') or app.family=='differential' and key=='output_teeth':
             linked = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
             note = text('')
             linked.append(note)
@@ -291,6 +300,7 @@ def geometry_groups(app, specs):
             app.geometry_derived[key] = value_label
         app.inputs[key], app.input_labels[key], app.input_pages[key] = spin, label, page
         app.field_containers[key] = container
+        if app.family=='differential' and key=='output_teeth' and app.option_values.get('ratio_mode','custom')!='custom':spin.set_sensitive(False)
     for key in ('main', 'output', 'shafts'):
         if key in groups:
             parent = app.sections['geometry'][1]
@@ -303,6 +313,10 @@ def geometry_groups(app, specs):
 
 
 def reveal_source(app, key):
+    if app.family=='differential' and key=='output_teeth':
+        show_page(app,'geometry')
+        app.differential_selectors['ratio_mode'].grab_focus()
+        return
     show_page(app, 'assembly')
     printed = app.option_values.get('eccentric_design')=='fdm_bolted'
     section = app.eccentric_section if printed else app.sections['bearings'][0]
@@ -363,8 +377,9 @@ def reveal_error(app):
 def update_family(app):
     description = CATALOG[app.family][1]
     app.selector.set_tooltip_text(description)
-    app.family_hint.set_text('Geometric study · illustrative profiles')
-    app.family_hint.set_visible(app.family in ('harmonic', 'worm'))
+    # Construction notices are decided from the generated model below.
+    app.family_hint.set_text('')
+    app.family_hint.set_visible(False)
     app.eccentric_section.set_visible(app.family=='cycloidal')
     from catalog import SUPPORTED
     printed=app.family=='cycloidal' and app.option_values.get('eccentric_design')=='fdm_bolted'
@@ -372,28 +387,42 @@ def update_family(app):
     message='Linked dimensions update automatically.' if enabled else 'Automatic catalog unavailable for this construction. See the disabled controls and reasons below; adjust the dedicated geometry and interfaces.'
     if app.family=='internal':message='Linked catalog dimensions cover the pinion shaft only. The ring output needs a dedicated annular support.'
     app.mount_help.set_text(message)
-    if not app.io_frame.get_visible():
+    if app.family == 'differential':
+        app.motion_help.set_text('Direct carrier input drives two side outputs. B−A is a prescribed speed boundary, not a second motor or load-based speed split.' if app.option_values.get('configuration')=='classic' else 'External belts, pulleys and motors are added later in your CAD. The output has two motions; no single reduction ratio or output torque is calculated.')
+    elif not app.io_frame.get_visible():
         app.motion_help.set_text('This is a single gear. Use Start motion in the motion bar to see it rotate and set speed and torque.')
     else:
         app.motion_help.set_text('Connect the motor to the input and the load to the output.')
+
+
+def construction_notice(design):
+    """Keep unverified construction visible without branding whole families as studies."""
+    if design.family == 'worm':
+        verified = design.analysis.get('wheel_geometry', {}).get('conjugate') is True
+    elif design.family == 'differential':
+        verified = design.analysis.get('bevel', {}).get('conjugacy_verified') is True
+    elif design.family == 'harmonic':
+        verified = design.analysis.get('wave_mapping', {}).get('conjugate') is True
+    else:
+        return ''
+    return '' if verified else 'Tooth conjugacy has not been verified for this construction.'
 
 
 def update_geometry_warning(app, design):
     from engineering import geometry_warnings
 
     warnings = geometry_warnings(design)
-    study = design.family in ('harmonic', 'worm')
-    if study:
-        message = 'Concept model · profiles are not conjugate'
-    elif warnings:
-        message = 'Geometry warning: ' + warnings[0] + ' See the calculation report.'
-    else:
-        message = ''
+    notice = construction_notice(design)
+    message = ('Geometry warning: ' + warnings[0] + ' See the calculation report.'
+               if warnings else notice)
     app.study.set_text(message)
-    app.study.set_visible(study or bool(warnings))
+    app.study.set_visible(bool(message))
+    if hasattr(app, 'family_hint'):
+        app.family_hint.set_text(notice)
+        app.family_hint.set_visible(bool(notice))
     if hasattr(app, 'warning_bar'):
         app.warning_bar.remove_css_class('invalid')
-        app.warning_bar.set_visible(study or bool(warnings))
+        app.warning_bar.set_visible(bool(message))
         app.warning_details.set_visible(True)
         app.warning_details.set_tooltip_text(message)
         app.study.set_tooltip_text(message)

@@ -15,12 +15,13 @@ from threading import Event, Lock, Thread
 import traceback
 
 from ratiolab_agent import AgentError, AgentService, Limits
+from release_version import RELEASE_VERSION
 
 MODERN = '2026-07-28'
 LEGACY = '2025-11-25'
 SUPPORTED = [MODERN, LEGACY]
 PREFIX = 'io.modelcontextprotocol/'
-IDENTITY = dict(name='RatioLab', version='0.1.0')
+IDENTITY = dict(name='RatioLab', version=RELEASE_VERSION)
 INSTRUCTIONS = ('Local offline mechanical design tools. All file paths are relative to the explicitly granted workspace. '
                 'Discover families/options first. Keep the returned opaque handle and revision; refresh with project_list '
                 'after a stale_revision error. Existing files require explicit overwrite and a matching disk fingerprint. '
@@ -42,7 +43,7 @@ def tool(method, description, properties, required=(), read_only=False, destruct
 
 
 TOOLS = [
-    tool('discover', 'List nine families and limits, or numeric specs, defaults, variants, I/O, bearing/hardware options for one family.',
+    tool('discover', 'List available families and limits, or numeric specs, defaults, variants, I/O, bearing/hardware options for one family.',
          dict(family=STRING, variant=STRING, double_style=STRING, parameters=PARAMETERS), read_only=True),
     tool('project_create', 'Generate and validate a new in-memory project; return handle/revision and canonical parameters.',
          dict(family=STRING, parameters=PARAMETERS), ['family']),

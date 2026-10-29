@@ -11,7 +11,7 @@ def port_properties(p):
     if not p.port:return {}
     names={'sun':'Sun','carrier':'Carrier','ring':'Ring','eccentric':'Eccentric','output':'Pin flange','wave':'Wave generator','flex':'Flexspline','circular':'Circular spline','cam':'Cam','cage':'Cage','case':'Housing','satellite_upper':'Upper planet','disc':'Orbiting disc'}
     role={'input':'Input','output':'Output','fixed':'Fixed','internal':'Internal member'}.get(p.port['role'],p.port['role'])
-    props={'Kinematic member':names.get(p.port['member'],p.port['member']),'Kinematic role':role}
+    props={'Kinematic member':p.port.get('label',names.get(p.port['member'],p.port['member'])),'Kinematic role':role}
     if 'stage' in p.port:props['Stage']=str(p.port['stage'])
     if 'rpm' in p.port:props['Member speed [rpm]']=format(p.port['rpm'],'.6g')
     if 'orbital_rpm' in p.port:props['Orbital speed [rpm]']=format(p.port['orbital_rpm'],'.6g')

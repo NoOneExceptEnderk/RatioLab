@@ -21,7 +21,7 @@ class SharedSolidTests(unittest.TestCase):
                         self.assertGreater(info['faces'], 2)
 
     def test_preview_side_triangles_equal_step_faces_bit_for_bit(self):
-        for family, values in [('double', {}), ('planetary', {'variant': 'double'}), ('helical', {}), ('worm', {}), ('worm', {'variant': 'zi', 'worm_hand': -1, 'length': 12}), ('harmonic', {'variant': 'hat'})]:
+        for family, values in [('double', {}), ('planetary', {'variant': 'double'}), ('helical', {}), ('worm', {}), ('worm', {'variant': 'zi', 'worm_hand': -1, 'length': 12}), ('harmonic', {'variant': 'hat'}), ('differential', {})]:
             d = generate(family, values)
             for p in d.parts:
                 if not (p.stations or p.double or abs(p.twist) > 1e-08):

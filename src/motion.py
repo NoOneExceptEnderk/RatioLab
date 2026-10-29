@@ -66,6 +66,10 @@ class MotionPlan:
     flex: dict = field(default_factory=dict)
     reference_rpm: float = 1
     rates: dict = field(default_factory=dict)
+    # Bevel differential coordinates are independent angles, including spin relative
+    # to its carrier. Offsets retain physical pose when either speed changes.
+    angular_rates: dict = field(default_factory=dict)
+    angular_offsets: dict = field(default_factory=dict)
     # Full labelled orientation period; geometric tooth symmetry is not assumed.
 
     def matrix(self, index, phase):
@@ -77,14 +81,20 @@ class MotionPlan:
     def deformation(self, index, phase):
         return self.flex[index](phase) if index in self.flex else None
 
-def build_plan(d):
+def build_plan(d, previous=None, phase=0):
+    """Build nominal motion, retaining differential angles for a speed-only rebuild.
+
+    Callers may pass a previous differential plan only when geometry is identical.
+    The phase is its current display phase, not an elapsed time in seconds.
+    """
     plan = MotionPlan()
     f = d.family
     v = d.values
     parts = d.parts
     primary = v.get('input_rpm', 0)
-    secondary = 0
-    ref = abs(primary) or abs(secondary) or 1.0
+    classic=f=='differential' and v.get('configuration','wrist')=='classic'
+    secondary = v.get('output_difference_rpm' if classic else 'input_b_rpm', 0) if f == 'differential' else 0
+    ref = ((max(abs(x) for x in d.analysis['kinematics']['rates_rpm'].values()) if classic else max(abs(primary), abs(secondary))) or 1.0)
     plan.reference_rpm = ref
     if primary == secondary == 0:
         plan.message = 'Operating speed is 0 rpm: the model stays stationary.'
@@ -147,7 +157,7 @@ def build_plan(d):
                 plan.flex[i] = lambda phase, we=we, wf=wf: (wf * phase, we * phase, a, b, rp, length, t)
             elif p.name == 'Bearing_wave_envelope':
                 spin(i, rates['wave'])
-        plan.message = 'Illustrative strain wave: flexspline deformation and rotation of the three members. This is not an elastic analysis.'
+        plan.message = 'Prescribed strain-wave deformation and rotation of the three members. This is not an elastic analysis.'
     elif f in ('parallel', 'internal'):
         ratio = (1 if f == 'internal' else -1) * v['wheel'] / v['pinion']
         wa = primary if v['io_scheme'] == 'forward' else primary * ratio
@@ -157,6 +167,29 @@ def build_plan(d):
             name = p.name
             if name in ('S1_Wheel', 'S2_Pinion', 'Shaft_intermediate'):
                 spin(i, wm)
+    elif f == 'differential':
+        rates = d.analysis['kinematics']['rates_rpm']
+        plan.angular_rates = {key: value/ref for key, value in rates.items()}
+        plan.angular_offsets = {key: 0.0 for key in rates}
+        if previous is not None and set(previous.angular_rates) == set(plan.angular_rates):
+            for key, rate in plan.angular_rates.items():
+                plan.angular_offsets[key] = previous.angular_offsets[key] + phase*(previous.angular_rates[key]-rate)
+        transverse='spider_spin' if classic else 'output_spin'
+        wc, wo = plan.angular_rates['carrier'], plan.angular_rates[transverse]
+        oc, oo = plan.angular_offsets['carrier'], plan.angular_offsets[transverse]
+        for i, p in enumerate(parts):
+            group = p.port.get('member')
+            if group in ('A', 'B', 'carrier'):
+                key = ('side_a' if classic else 'input_a') if group == 'A' else ('side_b' if classic else 'input_b') if group == 'B' else 'carrier'
+                rate, offset = plan.angular_rates[key], plan.angular_offsets[key]
+                plan.poses[i] = lambda phase, rate=rate, offset=offset: rotation(rate*phase+offset,(1,0,0))
+                plan.rates[i] = (rate,)
+            elif group in ('output','spider'):
+                plan.poses[i] = lambda phase, wc=wc, wo=wo, oc=oc, oo=oo: multiply(rotation(wc*phase+oc,(1,0,0)), rotation(wo*phase+oo,(0,0,1)))
+                plan.rates[i] = (wc, wo)
+        plan.message = ('Both input signs use world +X. Equal speeds tilt the carrier; opposing speeds spin the output. '
+                        'Output spin is relative to its moving carrier; spherical involute working flanks and ideal kinematics.')
+        if classic:plan.message='Carrier input C; prescribed difference B−A sets the two side outputs. The internal spider spins relative to its carrier. This boundary condition does not predict speed split from loads.'
     elif f == 'worm':
         for i, p in enumerate(parts):
             if p.name.startswith('Screw_'):

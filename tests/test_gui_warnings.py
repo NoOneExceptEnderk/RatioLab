@@ -44,13 +44,34 @@ class GeometryWarningTests(unittest.TestCase):
         label.set_visible.assert_called_once_with(True)
         self.assertIn('Internal involute interference', label.set_text.call_args.args[0])
 
-    def test_concept_notice_remains_visible(self):
-        for family in ('harmonic', 'worm'):
+    def test_generated_profiles_clear_both_construction_notices(self):
+        for family in ('worm', 'differential', 'harmonic'):
             with self.subTest(family=family):
-                label = self.label_for(generate(family))
+                app = SimpleNamespace(study=Mock(), family_hint=Mock(),
+                                      warning_bar=Mock(), warning_details=Mock())
+                update_geometry_warning(app, generate(family))
+                app.study.set_visible.assert_called_once_with(False)
+                app.study.set_text.assert_called_once_with('')
+                app.family_hint.set_visible.assert_called_once_with(False)
+                app.warning_bar.set_visible.assert_called_once_with(False)
+
+    def test_missing_verification_is_not_silently_accepted(self):
+        for family in ('harmonic', 'worm', 'differential'):
+            with self.subTest(family=family):
+                design = SimpleNamespace(family=family, analysis={})
+                # This checks the display decision independently of generation.
+                from unittest.mock import patch
+                with patch('engineering.geometry_warnings', return_value=[]):
+                    label = self.label_for(design)
                 label.set_visible.assert_called_once_with(True)
-                label.set_text.assert_called_once_with(
-                    'Concept model · profiles are not conjugate')
+                self.assertIn('not been verified', label.set_text.call_args.args[0])
+
+    def test_real_warning_takes_priority_over_construction_notice(self):
+        from unittest.mock import patch
+        design = SimpleNamespace(family='worm', analysis={})
+        with patch('engineering.geometry_warnings', return_value=['Insufficient clearance']):
+            label = self.label_for(design)
+        self.assertIn('Insufficient clearance', label.set_text.call_args.args[0])
 
 
 if __name__ == '__main__':

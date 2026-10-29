@@ -145,7 +145,7 @@ class CombinationSearchGuiTests(unittest.TestCase):
         c.fields['target'].set_text('3');self.run_search();r=c.result;serial=c.serial;c.window.close();pump()
         self.assertIsNone(c.window);self.assertIsNone(c.result);c.finished(serial,r,None);self.assertIsNone(c.result)
         a.load_config_data(dict(format='solidcraft-riduttori/1',family='spur',parameters=generate('spur').values))
-        c.open();self.assertIn('single gear',c.scope.get_text());self.assertFalse(c.run_button.get_sensitive());c.start();self.assertIsNone(c.result)
+        c.open();self.assertIn('single fixed input/output ratio',c.scope.get_text());self.assertFalse(c.run_button.get_sensitive());c.start();self.assertIsNone(c.result)
 
     def test_refresh_save_without_edit_keeps_results_and_document_clean(self):
         a=self.app;c=self.c;r=self.run_search();token=a.document.token;index=a.document.index
@@ -183,5 +183,213 @@ class CombinationSearchGuiTests(unittest.TestCase):
         self.assertEqual(a.config(),before);self.assertEqual(a.document.token,token)
         c.start(Settings(target=3),{'pinion':(20.5,)})
         self.assertTrue(wait_until(lambda:c.cancel is None,5));self.assertIsNone(c.result);self.assertIn('integer',c.summary.get_text())
+
+    def test_guided_ranges_and_custom_drafts_survive_modes_and_keep_current(self):
+        c=self.c;control=c.axis_controls['pinion'];locked,custom,_=c.axes['pinion']
+        self.assertEqual(c.read_axes()['pinion'],tuple(range(16,25)))
+        self.assertIn('81 finite candidates',c.scope.get_text())
+        for entry,text in zip(control['inputs'],('18','24','2')):entry.set_text(text)
+        self.assertEqual(c.read_axes()['pinion'],(18.,20.,22.,24.))
+        self.assertIn('36 finite candidates',c.scope.get_text())
+        control['mode'].set_selected(1);custom.set_text('17, 22, 23')
+        self.assertEqual(c.read_axes()['pinion'],(17.,22.,23.))
+        locked.set_active(True);self.assertNotIn('pinion',c.read_axes())
+        control['vary'].set_active(True)
+        self.assertEqual(c.read_axes()['pinion'],(17.,22.,23.))
+        control['mode'].set_selected(0)
+        self.assertEqual(c.read_axes()['pinion'],(18.,20.,22.,24.))
+        control['mode'].set_selected(1)
+        self.assertEqual(custom.get_text(),'17, 22, 23')
+        self.assertEqual(c.read_axes()['pinion'],(17.,22.,23.))
+
+    def test_invalid_required_settings_disable_search_and_explain_inline(self):
+        c=self.c
+        invalid=dict(target=('', 'true', 'nan', 'inf', '0', '-1'), tolerance=('-1', '100', 'nan'), x=('0','inf'), y=('-3',), z=('false',), budget=('3.2','0','1000001'), seconds=('0','3601','nan'))
+        for key,texts in invalid.items():
+            original=c.fields[key].get_text()
+            for text in texts:
+                with self.subTest(key=key,text=text):
+                    c.fields[key].set_text(text)
+                    self.assertFalse(c.run_button.get_sensitive())
+                    self.assertTrue(c.field_errors[key].get_visible())
+                    self.assertTrue(c.field_errors[key].get_text())
+                    self.assertIsNone(c.cancel)
+            c.fields[key].set_text(original)
+            self.assertTrue(c.run_button.get_sensitive())
+
+    def test_invalid_ranges_and_custom_counts_are_inline_before_worker(self):
+        c=self.c;control=c.axis_controls['pinion'];entry=control['inputs'][0]
+        original=entry.get_text()
+        for text in ('3.2','nan','true','500','30'):
+            entry.set_text(text)
+            self.assertFalse(c.run_button.get_sensitive(),text)
+            self.assertIn('Input pinion teeth',control['error'].get_text())
+        entry.set_text(original)
+        self.assertTrue(c.run_button.get_sensitive())
+        control['inputs'][2].set_text('0')
+        self.assertFalse(c.run_button.get_sensitive())
+        control['inputs'][2].set_text('1')
+        control['mode'].set_selected(1)
+        for text in ('20.5','nan','12:100:0.01','201'):
+            c.axes['pinion'][1].set_text(text)
+            self.assertFalse(c.run_button.get_sensitive(),text)
+        c.axes['pinion'][0].set_active(True)
+        self.assertTrue(c.run_button.get_sensitive())
+        control['vary'].set_active(True)
+        self.assertFalse(c.run_button.get_sensitive())
+        self.assertEqual(c.axes['pinion'][1].get_text(),'201')
+
+    def test_ratio_hint_handles_speed_increase_and_visible_size_limits(self):
+        c=self.c
+        c.fields['target'].set_text('0.5');c.fields['tolerance'].set_text('10')
+        self.assertIn('0.45–0.55',c.ratio_hint.get_text())
+        self.assertIn('2000 rpm',c.ratio_hint.get_text())
+        self.assertNotIn('reduction',c.ratio_hint.get_text().lower())
+        c.fields['x'].set_text('250')
+        self.assertIn('250 × 1000 × 1000',c.envelope_summary.get_text())
+        c.fields['target'].set_text('1e308');c.fields['tolerance'].set_text('99')
+        self.assertTrue(c.run_button.get_sensitive())
+        self.assertNotIn('inf',c.ratio_hint.get_text())
+
+    def test_invalid_advanced_field_keeps_valid_ratio_hint_and_names_cause(self):
+        c=self.c
+        c.fields['target'].set_text('2.5');c.fields['tolerance'].set_text('1')
+        expected=c.ratio_hint.get_text()
+        for key,title,expander in (('x','Maximum X',c.envelope),('budget','Maximum candidates',c.advanced)):
+            expander.set_expanded(False)
+            original=c.fields[key].get_text();c.fields[key].set_text('')
+            self.assertEqual(c.ratio_hint.get_text(),expected)
+            self.assertIn(title,c.scope.get_text())
+            self.assertTrue(expander.get_expanded())
+            self.assertFalse(c.run_button.get_sensitive())
+            c.fields[key].set_text(original)
+
+    def test_harmonic_count_stride_and_continuous_defaults(self):
+        a=self.app;c=self.c
+        for family in ('planetary','cycloidal','harmonic','worm','internal'):
+            with self.subTest(family=family):
+                a.load_config_data(dict(format='solidcraft-riduttori/1',family=family,parameters=generate(family).values));c.populate()
+                self.assertTrue(c.run_button.get_sensitive())
+                for key,(locked,custom,value) in c.axes.items():
+                    self.assertEqual(locked.get_active(),key not in ui.COUNT_KEYS[family] or key=='planets')
+                if family=='harmonic':
+                    self.assertEqual(c.axis_controls['teeth']['inputs'][2].get_text(),'2')
+                    self.assertTrue(all(v%2==0 for v in c.read_axes()['teeth']))
+
+    def test_compare_uses_human_titles_and_explicit_apply(self):
+        c=self.c;r=self.run_search()
+        row=next(row for row in self.rows() if row.proposal.changes)
+        text=row.get_child().get_text()
+        self.assertIn('Ratio (input/output)',text)
+        self.assertIn('Overall XYZ',text)
+        self.assertIn('3:1',text)
+        self.assertIn('Opposite rotation',text)
+        self.assertIn('Signed input/output ratio: -3',row.get_tooltip_text())
+        self.assertIn('Current → Proposed',text)
+        self.assertIn('Input pinion teeth',text)
+        self.assertNotIn('pinion:',text)
+        self.assertFalse(c.apply_button.get_sensitive())
+        c.list.select_row(row);self.assertTrue(c.apply_button.get_sensitive())
+        c.fields['target'].set_text('nan');self.assertFalse(c.apply_button.get_sensitive())
+        self.assertFalse(c.result_scroll.get_visible())
+
+    def test_open_panel_tracks_family_variant_and_live_current_without_losing_drafts(self):
+        a=self.app;c=self.c
+        for family in ('spur','parallel'):
+            a.load_config_data(dict(format='solidcraft-riduttori/1',family=family,parameters=generate(family).values));pump(.05)
+            self.assertEqual(c.run_button.get_sensitive(),family=='parallel')
+            if family=='spur':self.assertIn('single fixed input/output ratio',c.scope.get_text())
+        c.fields['target'].set_text('2.5')
+        custom=c.axes['wheel'][1];custom.set_text('60, 66, 70')
+        control=c.axis_controls['wheel'];ranges=[e.get_text() for e in control['inputs']]
+        a.inputs['wheel'].set_text('70');self.assertTrue(a.refresh())
+        self.assertEqual(c.fields['target'].get_text(),'2.5')
+        self.assertIs(c.axis_controls['wheel'],control)
+        self.assertIn('Current: 70',control['current'].get_text())
+        self.assertEqual(custom.get_text(),'60, 66, 70')
+        self.assertEqual([e.get_text() for e in control['inputs']],ranges)
+        self.assertEqual(c.read_axes()['wheel'],(60.,66.,70.))
+        a.load_config_data(dict(format='solidcraft-riduttori/1',family='planetary',parameters=generate('planetary').values))
+        self.assertNotIn('sun2',c.axes)
+        a.load_config_data(dict(format='solidcraft-riduttori/1',family='planetary',parameters=generate('planetary',{'variant':'two_stage'}).values))
+        self.assertIn('sun2',c.axes);self.assertIn('planet2',c.axes)
+        self.assertIn('ranges and ratio reset',c.status.get_text())
+        self.assertTrue(c.run_button.get_sensitive())
+
+    def test_missing_native_navigation_event_preserves_pending_restore(self):
+        from types import SimpleNamespace
+        import gui_workflow
+        pending={'geometry':12.0}
+        isolated=SimpleNamespace(panel_revision=17,_scroll_restore_positions=pending)
+        native_type=Gtk.EventControllerLegacy
+        callbacks=[]
+        def record_controller():
+            controller=native_type()
+            connect=controller.connect
+            def record(signal,callback):
+                if signal=='event':callbacks.append((controller,callback))
+                return connect(signal,callback)
+            controller.connect=record
+            return controller
+        # GI refuses to synthesize emit('event', None), although a native callback
+        # can receive it. Capture the callbacks connected to actual GTK widgets.
+        with patch.object(Gtk,'EventControllerLegacy',record_controller):
+            gui_workflow.install_sections(isolated,Gtk.Box())
+        self.assertEqual(len(callbacks),3)
+        for controller,callback in callbacks:
+            self.assertFalse(callback(controller,None))
+        self.assertEqual(isolated.panel_revision,17)
+        self.assertIs(isolated._scroll_restore_positions,pending)
+
+    def test_worker_error_preserves_message_and_allows_explicit_retry(self):
+        c=self.c
+        for key,texts in (('pinion',('20','21','1')),('wheel',('60','63','3'))):
+            for entry,text in zip(c.axis_controls[key]['inputs'],texts):entry.set_text(text)
+        with patch.object(ui,'search',side_effect=RuntimeError('transient test failure')):
+            c.run_button.emit('clicked')
+            self.assertTrue(wait_until(lambda:c.cancel is None,5))
+        self.assertIsNone(c.result)
+        self.assertIn('RuntimeError: transient test failure',c.status.get_text())
+        self.assertTrue(c.run_button.get_sensitive())
+        self.assertFalse(c.apply_button.get_sensitive())
+        c.run_button.emit('clicked')
+        self.assertTrue(wait_until(lambda:c.cancel is None,20))
+        self.assertIsNotNone(c.result)
+        self.assertIn('Complete finite search',c.status.get_text())
+
+    def test_narrow_dock_keeps_actions_and_result_scroll_accessible(self):
+        a=self.app;c=self.c
+        self.assertFalse(c.compare.get_visible())
+        self.assertTrue(c.setup.get_expanded())
+        for width in (360,400):
+            a.tools.paned.set_position(a.tools.paned.get_width()-width);pump(.1)
+            for scroller in (c.window.scroll,c.result_scroll):
+                self.assertEqual(scroller.get_policy()[0],Gtk.PolicyType.NEVER)
+                adjustment=scroller.get_hadjustment()
+                self.assertLessEqual(adjustment.get_upper(),adjustment.get_page_size()+1)
+            self.assertGreater(c.fields['target'].get_width(),30)
+        self.run_search();pump(.1)
+        self.assertTrue(c.compare.get_visible());self.assertTrue(c.result_scroll.get_visible())
+        self.assertGreater(c.result_scroll.get_height(),80)
+        self.assertGreater(c.apply_button.get_height(),20)
+        self.assertIs(c.apply_button.get_root(),a.win)
+        self.assertIs(c.envelope_summary.get_parent(),c.status.get_parent())
+        c.setup.set_expanded(True);pump(.1)
+        self.assertFalse(c.compare.get_visible())
+        self.assertTrue(c.results_button.get_visible())
+        self.assertGreater(c.window.scroll.get_height(),190)
+        c.results_button.emit('clicked');pump(.1)
+        self.assertTrue(c.compare.get_visible())
+        self.assertGreater(c.result_scroll.get_height(),80)
+
+    def test_no_matches_and_partial_have_actionable_feedback(self):
+        c=self.c
+        self.run_search(Settings(target=500,tolerance_percent=0),{'pinion':(20,), 'wheel':(60,)})
+        self.assertIn('No matching proposals',c.status.get_text())
+        self.assertIn('Review ratio, ranges and size limits',c.status.get_text())
+        self.assertTrue(c.empty.get_visible());self.assertFalse(c.apply_button.get_sensitive())
+        self.run_search(Settings(target=3,tolerance_percent=0,max_candidates=1),{'pinion':(20,21), 'wheel':(60,63)})
+        self.assertIn('PARTIAL',c.status.get_text());self.assertIn('Advanced budgets',c.status.get_text())
+        self.assertIsNone(c.list.get_selected_row());self.assertFalse(c.apply_button.get_sensitive())
 
 if __name__=='__main__':unittest.main()

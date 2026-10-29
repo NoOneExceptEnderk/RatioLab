@@ -187,4 +187,38 @@ class InterferenceTests(unittest.TestCase):
     def test_report_and_json(self):
         r=check([box('A'),box('B',x=4)]);self.assertIn('mm',r.text());self.assertIn('Discrete',r.text());self.assertIn('coverage_complete',r.json())
 
+    def test_bvh_distance_matches_brute_force_for_transformed_surfaces(self):
+        from collision_geometry import distance,triangle_distance
+        from motion import rotation,transform
+        # The nearest pair can lie inside a leaf whose other triangles are
+        # far away. Compare the accelerated search with every triangle pair,
+        # including holes, crossed faces, rotations and micrometre clearances.
+        tube=Part('tube',[(0,0),(6,0),(6,6),(0,6)],
+                  holes=[[(1,1),(5,1),(5,5),(1,5)]],width=3)
+        first=Surface(list(triangles(tube)))
+        for angle in (0.,.31,1.27):
+            for offset in ((2.,2.,.5),(7.,0.,0.),(6.000002,0.,0.),(-2.,3.,4.)):
+                matrix=rotation(angle,axis=(1,2,3))
+                mesh=[tuple(tuple(x+y for x,y in zip(transform(matrix,p),offset)) for p in tri)
+                      for tri in triangles(box('B',size=1))]
+                second=Surface(mesh)
+                expected=min(triangle_distance(a,b)[0] for a in first.triangles for b in second.triangles)**.5
+                with self.subTest(angle=angle,offset=offset):
+                        self.assertAlmostEqual(distance(first,second)[0],expected,places=11)
+
+    def test_long_nearly_parallel_caps_match_exhaustive_triangle_distances(self):
+        from collision_geometry import distance,triangle_distance
+        from motion import rotation,transform
+        plate=Part('Long cap',[(-1000,-.001),(1000,-.001),(1000,.001),(-1000,.001)],width=.02)
+        first=Surface(list(triangles(plate)))
+        for angle in (0.,.000003,.019):
+            matrix=rotation(angle,axis=(1,2,3))
+            for offset in ((0,.002002,0),(0,0,.020002),(2000.000002,0,0)):
+                mesh=[tuple(tuple(x+y for x,y in zip(transform(matrix,p),offset)) for p in tri)
+                      for tri in triangles(plate)]
+                second=Surface(mesh)
+                expected=min(triangle_distance(a,b)[0] for a in first.triangles for b in second.triangles)**.5
+                with self.subTest(angle=angle,offset=offset):
+                    self.assertAlmostEqual(distance(first,second)[0],expected,places=10)
+
 if __name__=='__main__':unittest.main()

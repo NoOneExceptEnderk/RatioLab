@@ -139,12 +139,14 @@ def install_axes(app, overlay):
 
 
 def build(app, labels):
-    from app_paths import resource_path
+    from app_paths import APP_ID, resource_path
     brand_dir = resource_path('branding')
-    Gtk.IconTheme.get_for_display(Gdk.Display.get_default()).add_search_path(str(brand_dir))
-    Gtk.Window.set_default_icon_name('ratiolab-icon')
+    # A flat PNG lookup has no registered sizes, so GTK cannot populate native
+    # window icons. Keep a standard hicolor theme for source, wheels and bundles.
+    Gtk.IconTheme.get_for_display(Gdk.Display.get_default()).add_search_path(str(resource_path('icons')))
+    Gtk.Window.set_default_icon_name(APP_ID)
     app.win = Gtk.ApplicationWindow(application=app, title='RatioLab · Gears & reducers')
-    app.win.set_icon_name('ratiolab-icon')
+    app.win.set_icon_name(APP_ID)
     app.win.add_css_class('reducers')
     app.win.set_default_size(1600, 1000)
     provider = Gtk.CssProvider()
@@ -202,6 +204,11 @@ def build(app, labels):
     header.pack_end(app.export_menu)
     gui_workflow.install_cad(app)
     header.pack_end(app.cad_menu)
+    from update_ui import Controller
+    app.updates = Controller(app, header)
+    release_notes = Gtk.Button(label='Release notes and updates…')
+    release_notes.connect('clicked', lambda *_: (project_popup.popdown(), app.updates.show()))
+    commands.append(release_notes)
     app.win.set_titlebar(header)
     content = Gtk.Paned(orientation=Gtk.Orientation.HORIZONTAL)
     content.set_position(350)

@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: 2026 NoOneExceptEnderk
 # SPDX-License-Identifier: GPL-3.0-only
 """Cylindrical ZA/ZI worms and strain wave envelopes. Sources are in docs/technical/variants.md.
-Worm wheels and strain wave teeth remain concept approximations.
+Worm wheels use the matching screw envelope; strain-wave rings use the complete prescribed tooth sweep.
 """
 from math import pi,sin,cos,tan,atan,acos,atan2,sqrt,hypot,radians,degrees,ceil
 from geometry import CircleProfile,Part,gear_part,involute,circle,circle_info,polar,clean,sample_curve,TAU
@@ -24,7 +24,7 @@ def za_profile(starts,module,diameter,pressure,backlash):
     return clean(pts)
 
 def zi_profile(starts,module,diameter,pressure,backlash):
-    """Transverse screw involute; radial runout remains a study construction."""
+    """Transverse screw involute with an explicit sharp radial root runout."""
     rp=diameter/2;rb=rp*cos(radians(pressure));root=rp-1.25*module;tip=rp+module
     inv=lambda r:sqrt(max(0,(r/rb)**2-1))-atan(sqrt(max(0,(r/rb)**2-1)))
     angle=lambda r:pi/(2*starts)-backlash/(4*rp)+inv(rp)-inv(r)
@@ -70,40 +70,26 @@ def worm(d):
         mirror=lambda loop:[(x,-y) for x,y in reversed(loop)]
         outline=mirror(outline);hole=[mirror(h) for h in hole]
         stations=[dict(z=s['z'],outer=mirror(s['outer']),holes=hole) for s in stations]
-    p=Part('Screw_'+v['variant'].upper(),outline,hole,length+2*jl,twist=hand*360*turns,axis_x=True,color=(.95,.65,.3),stations=stations,alternate_diagonal=hand<0);p.profile_metadata['screw_profile']=dict(method=v['variant'].upper()+' cylindrical screw flanks',root_runout='unblended study runout',conjugate_wheel=False)
+    p=Part('Screw_'+v['variant'].upper(),outline,hole,length+2*jl,twist=hand*360*turns,axis_x=True,color=(.95,.65,.3),stations=stations,alternate_diagonal=hand<0);p.profile_metadata['screw_profile']=dict(method=v['variant'].upper()+' cylindrical screw flanks',root_runout='sharp radial root transition',conjugate_wheel=True)
     d.parts.append(p)
-    wheel=gear_part('Wheel_concept',z,mn,an,v['backlash'],width,v['wheel_bore'],helix=degrees(gamma));wheel.center=(0,-(D+m*z)/2);wheel.z=-width/2;wheel.color=(.23,.68,.82)
-    # Cylinder envelope gives the wheel a real throat. Tooth flanks remain
-    # a helical surrogate; this does not solve the worm/hob flank envelope.
-    throat_radius=D/2+m
-    if width/2>=throat_radius*.95:raise ValueError('Wheel too wide for the cylindrical throat study (half width < 0.95 worm tip radius).')
-    maxstep=2*acos(max(-1,min(1,1-.01/throat_radius)))
-    intervals=max(4,ceil(2*__import__('math').asin(width/(2*throat_radius))/maxstep))
-    if intervals%2:intervals+=1
-    wheel.stations=[]
-    for j in range(intervals+1):
-        h=width*j/intervals;q=h-width/2;delta=throat_radius-sqrt(throat_radius**2-q*q)
-        angle=radians(wheel.twist)*q/width
-        contour=[polar(hypot(x,y)+delta,atan2(y,x)+angle) for x,y in wheel.outer]
-        wheel.stations.append(dict(z=h,outer=contour,holes=wheel.holes))
-    if hand<0:
-        def mirror_profile(loop):
-            mirrored=[(x,-y) for x,y in reversed(loop)]
-            if isinstance(loop,CircleProfile) and loop.intact():
-                return CircleProfile(mirrored,loop.radius,(loop.center[0],-loop.center[1]))
-            return mirrored
-        wheel.outer=mirror_profile(wheel.outer);wheel.holes=[mirror_profile(h) for h in wheel.holes]
-        wheel.stations=[dict(z=s['z'],outer=mirror_profile(s['outer']),holes=wheel.holes) for s in wheel.stations]
-        wheel.twist=-wheel.twist;wheel.alternate_diagonal=True
-    wheel.profile_metadata['wheel_throat']=dict(method='worm tip-cylinder throat; helical flank surrogate',radius_mm=throat_radius,max_radial_sag_mm=throat_radius-sqrt(throat_radius**2-width**2/4),axial_chord_threshold_mm=.01,conjugate=False)
+    from worm_geometry import wheel_sections
+    wheel_holes=[round_loop(v['wheel_bore']/2)] if v['wheel_bore'] else []
+    sections,metadata=wheel_sections(v,hole_vertices=sum(map(len,wheel_holes)))
+    if any(v['wheel_bore']/2+.25>=min(hypot(*p) for p in loop) for q,loop in sections):
+        raise ValueError('Wheel bore too large for the generated tooth root.')
+    wheel=Part('Wheel_generated',min(sections,key=lambda item:abs(item[0]))[1],wheel_holes,width,
+               z=-width/2,center=(0,-(D+m*z)/2),color=(.23,.68,.82),
+               stations=[dict(z=q+width/2,outer=loop,holes=wheel_holes) for q,loop in sections],
+               alternate_diagonal=hand<0)
+    wheel.profile_metadata['wheel_envelope']=metadata
     d.parts.append(wheel)
     d.metrics=[f'Worm cilindrica {v["variant"].upper()} · nominal ratio {z/starts:g}:1',f'{starts} principio/i · avanzamento {lead:.3f} mm · γ {degrees(gamma):.3f}°',f'Centre distance {(D+m*z)/2:.3f} mm · length filetto {length:g} mm',f'Codoli {jl:g} mm per side · total length {length+2*jl:g} mm']
-    d.analysis['wheel_geometry']=wheel.profile_metadata['wheel_throat']
+    d.analysis['wheel_geometry']=metadata
     d.analysis.update(signed_ratio=hand*z/starts,worm_axis='+X',wheel_axis='+Z',wheel_side='negative Y',profile=v['variant'].upper(),lead_mm=lead,lead_angle_deg=degrees(gamma),normal_module_mm=mn,normal_pressure_deg=an,center_distance_mm=(D+m*z)/2,thread_turns=turns,thread_length_mm=length,journal_length_mm=jl)
     d.notes+=['Signed worm ratio follows the displayed +X worm / +Z wheel axes (wheel on negative Y): left hand reverses wheel rotation.',
         'ZA worm profile: straight flanks in axial section; ZI: involute in transverse section. Helical surfaces use a nominal angular sagitta of 0.02 mm; geometry is shared by CAD and preview.',
-        'ASSEMBLY STUDY ONLY: the worm uses the stated geometric profile; the wheel has a worm tip-cylinder throat with approximate helical flanks, not a conjugate worm/hob envelope. Contact, interference and manufacturability of the pair are unverified. Self locking is not claimed.']
-    d.requirements.append('Design worm/wheel supports, bearings, retainers, fasteners and lubrication; a conjugate wheel profile is not included.')
+        'The wheel is generated from the matching ZA/ZI screw helicoid, including backlash and the swept hob-tip root transition. Numerical section chord threshold is 0.005 mm; discrete surfaces require clearance checks at the chosen parameters. Strength, lubrication, manufacturing tolerances and self locking are not certified.']
+    d.requirements.append('Design worm/wheel supports, bearings, retainers, fasteners and lubrication; the generated envelope does not specify a production hob or manufacturing tolerances.')
 
 def ellipse_axes(radius,amplitude):
     """Preserve the numerical pitch-line perimeter using periodic quadrature."""
@@ -176,25 +162,33 @@ def harmonic(d):
         level(h,out,hole,outer_body,inner_round,f)
     level(L,toothed,inner_deformed,reference,inner_round,1);level(L+w,toothed,inner_deformed,reference,inner_round,1)
     p=Part('Flexspline_'+variant,toothed,[inner_deformed],L+w,-L,stations=stations);d.parts.append(p)
-    ring=gear_part('Circular_spline_concept',z+2,m,v['pressure'],v['backlash'],w,phase=pi/(z+2),internal=True,rim=v['rim']);ring.color=(.69,.59,.86);d.parts.append(ring)
+    from wave_envelope import circular_spline
+    # The actual flex tooth is thinned by j/2; its generating reference is
+    # thickened by j/2, leaving the requested total reference tooth allowance.
+    cutter=gear_part('Generating_reference',z,m,v['pressure'],-v['backlash'],w)
+    cavity,envelope=circular_spline(cutter.outer,z,a,b,rp)
+    ring=Part('Circular_spline_generated',round_loop(max(hypot(*q) for q in cavity)+v['rim']),
+              [cavity],w,internal=True,color=(.69,.59,.86))
+    ring.profile_metadata['wave_envelope']=envelope
+    d.parts.append(ring)
     # The bearing is a deformed envelope, not an identified catalog part.
     outer=[polar(hypot(x,y)-clearance,atan2(y,x)) for x,y in inner_deformed]
     bore=[polar(hypot(x,y)-clearance-bearing,atan2(y,x)) for x,y in inner_deformed]
     cam=[polar(hypot(x,y)-2*clearance-bearing,atan2(y,x)) for x,y in inner_deformed]
     d.parts.append(Part('Bearing_wave_envelope',outer,[bore],w,role='support',color=(.52,.61,.7)))
-    d.parts.append(Part('Generator_wave_concept',cam,[round_loop(v['bore']/2)] if v['bore'] else [],w,color=(.95,.65,.3)))
+    d.parts.append(Part('Generator_wave_prescribed',cam,[round_loop(v['bore']/2)] if v['bore'] else [],w,color=(.95,.65,.3)))
     # Ring, cam and bearing use the same shared geometry path; the CAD kernel
     # does not independently reconstruct the deformed tooth profiles.
     ring.outer=round_loop(circle_info(ring.outer)[2])
     for q in d.parts[1:]:q.stations=[dict(z=0,outer=q.outer,holes=q.holes),dict(z=q.width,outer=q.outer,holes=q.holes)]
     circular=v['harmonic_output']=='circular';ratio=(z+2)/2 if circular else -z/2
-    d.metrics=[f'Strain wave · {variant.replace("_"," ")} · ratio {ratio:+g}:1',f'Flexspline {z} · ring {z+2} teeth · body {L:g} mm',f'Linea primitiva: semiassi {a:.3f} / {b:.3f} mm',f'Diaphragm/flange {t:g} mm · wave bearing {bearing:g} mm']
-    d.analysis['wave_mapping']=dict(method='uniform pitch arc length with local normal tooth offsets',arc_fourier_modes=8,arc_coefficients=list(arc_coefficients(a,b,rp)),aspect_q=(a*a-b*b)/(a*a+b*b),domain_max_q=.25,elastic_solution=False,conjugate=False)
+    d.metrics=[f'Strain wave · {variant.replace("_"," ")} · ratio {ratio:+g}:1',f'Flexspline {z} · ring {z+2} teeth · body {L:g} mm',f'Pitch ellipse: semiaxes {a:.3f} / {b:.3f} mm',f'Diaphragm/flange {t:g} mm · wave bearing {bearing:g} mm']
+    d.analysis['wave_mapping']=dict(method='uniform pitch arc length with local normal tooth offsets',arc_fourier_modes=8,arc_coefficients=list(arc_coefficients(a,b,rp)),aspect_q=(a*a-b*b)/(a*a+b*b),domain_max_q=.25,elastic_solution=False,conjugate=True,verification_scope='Numerically generated envelope under prescribed map; finite sampled containment and engagement checks, no elastic solution',schema='ratiolab.wave-map/1',ellipse_axes_mm=[a,b],pitch_radius_mm=rp,body_length_mm=L,diaphragm_mm=t,reference_pair_backlash_mm=v['backlash'],ring_envelope=envelope)
     p.profile_metadata['wave_mapping']=d.analysis['wave_mapping']
     p.profile_metadata['undeformed_tooth_reference']=gear.profile_metadata['tooth_profile']
     d.analysis.update(signed_ratio=ratio,illustrative_amplitude_mm=amp,pitch_ellipse_semiaxes_mm=[a,b],reference_pitch_perimeter_mm=TAU*rp,harmonic_output=v['harmonic_output'],housing_variant=variant)
-    d.notes+=['STRAIN WAVE GEOMETRIC STUDY ONLY: cup/diaphragm or external flange form one continuous flexible solid. Axial circular→deformed transition with uniform pitch arc length and locally normal tooth orientation. This is neither an elastic solution nor a stress state.',
+    d.notes+=['The flexible cup/diaphragm or external flange is one continuous solid with a prescribed circular-to-ellipse transition, uniform pitch arc length and local normal tooth orientation. The rigid ring is generated from the complete swept tooth outline; deformation is prescribed, not an elastic or stress solution.',
         'Wave generator and bearing envelope follow the deformed cavity with separate radial clearances. The bearing envelope is not a selected commercial component.',
-        'Arc-length mapped involute study teeth, not industrial conjugate profiles: interference is possible. Cup/flat cup/silk hat outer shapes do not certify load capacity. Design supports, fatigue fillets and fasteners.',
+        'The ring uses a numerically generated envelope of a thickened reference tooth. Angular-cell enclosure relief is reported separately from reference pair backlash. Discrete verification does not prove continuous clearance or certify load capacity; design supports, fatigue fillets and fasteners.',
         'Wave generator input; '+('fixed flexspline, ring output (same direction).' if circular else 'fixed ring, flexspline output (opposite direction).')]
-    d.requirements.append('Design conjugate profiles, flexspline elastic/fatigue checks, fillets, flange and fasteners, actual bearings and seals.')
+    d.requirements.append('Design flexspline elastic/fatigue checks, fillets, flange and fasteners, actual bearings and seals; validate tooling and manufacturing tolerances.')

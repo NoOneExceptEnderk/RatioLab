@@ -23,6 +23,40 @@ def box_distance(a,b):
     return sum(max(0,a[0][i]-b[1][i],b[0][i]-a[1][i])**2 for i in range(3))
 
 
+def supporting_plane(triangle):
+    if thin_triangle(triangle):return None
+    n=cross(sub(triangle[1],triangle[0]),sub(triangle[2],triangle[0]))
+    return triangle[0],mul(n,1/sqrt(norm2(n)))
+
+
+def plane_distance(plane,triangle):
+    """Squared lower bound from a triangle to another triangle's whole plane."""
+    if plane is None:return 0.
+    anchor,normal=plane
+    values=[dot(sub(q,anchor),normal) for q in triangle]
+    lower=max(0.,min(values),-max(values))
+    return lower*lower
+
+
+def edge_slabs(triangle,plane):
+    if plane is None:return ()
+    result=[]
+    for a,b in zip(triangle,triangle[1:]+triangle[:1]):
+        axis=cross(plane[1],sub(b,a));axis=mul(axis,1/sqrt(norm2(axis)))
+        values=[dot(sub(q,a),axis) for q in triangle]
+        result.append((a,axis,min(values),max(values)))
+    return tuple(result)
+
+
+def beyond_slabs(slabs,triangle,limit):
+    """Projection-interval gaps are lower bounds on Euclidean distance."""
+    for anchor,axis,lo,hi in slabs:
+        values=[dot(sub(q,anchor),axis) for q in triangle]
+        gap=max(0.,lo-max(values),min(values)-hi)
+        if gap*gap>limit:return True
+    return False
+
+
 def point_segment(p,a,b):
     edge=sub(b,a);length=norm2(edge)
     return add(a,mul(edge,max(0,min(1,dot(sub(p,a),edge)/length)))) if length else a
@@ -97,6 +131,26 @@ class Node:
     triangles: tuple=()
     left: object=None
     right: object=None
+    triangle_boxes: tuple=()
+    triangle_planes: tuple=()
+    triangle_slabs: tuple=()
+
+    def leaf_boxes(self):
+        # Cache only visited leaves: detailed gear surfaces need many fewer
+        # triangle pairs than overlapping leaf boxes initially suggest.
+        if not self.triangle_boxes:
+            self.triangle_boxes=tuple(bounds(t) for t in self.triangles)
+        return self.triangle_boxes
+
+    def leaf_planes(self):
+        if not self.triangle_planes:
+            self.triangle_planes=tuple(supporting_plane(t) for t in self.triangles)
+        return self.triangle_planes
+
+    def leaf_slabs(self):
+        if not self.triangle_slabs:
+            self.triangle_slabs=tuple(edge_slabs(t,p) for t,p in zip(self.triangles,self.leaf_planes()))
+        return self.triangle_slabs
 
 
 def build(triangles,check=lambda:None):
@@ -187,8 +241,16 @@ def distance(a,b):
         a.check();lower,_,x,y=heappop(heap)
         if lower>best[0]:continue
         if x.triangles and y.triangles:
-            for t in x.triangles:
-                for u in y.triangles:
+            for t,tbox,tplane,tslabs in zip(x.triangles,x.leaf_boxes(),x.leaf_planes(),x.leaf_slabs()):
+                if box_distance(tbox,y.box)>best[0]:continue
+                for u,ubox,uplane,uslabs in zip(y.triangles,y.leaf_boxes(),y.leaf_planes(),y.leaf_slabs()):
+                    if box_distance(tbox,ubox)>best[0]:continue
+                    # Supporting planes give an additional Euclidean lower
+                    # bound when long cap triangles have overlapping boxes.
+                    # Leave a roundoff margin; thin triangles use no plane.
+                    guard=best[0]*(1+1e-12)+1e-20
+                    if plane_distance(tplane,u)>guard or plane_distance(uplane,t)>guard:continue
+                    if beyond_slabs(tslabs,u,guard) or beyond_slabs(uslabs,t,guard):continue
                     result=triangle_distance(t,u)
                     if result[0]<best[0]:best=result
                     if best[0]<=1e-20:return (sqrt(best[0]),best[1],best[2])

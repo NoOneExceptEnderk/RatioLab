@@ -43,7 +43,7 @@ SUPPORTED={'spur','helical','double','planetary','cycloidal','parallel','interna
 def options(family,supplied):
     mode=supplied.get('bearing_mode','manual');fit=supplied.get('fit','nominal')
     if mode not in MODES or fit not in FITS:raise ValueError('Unknown bearing or fit mode')
-    if mode!='manual' and family not in SUPPORTED:raise ValueError('Automatic catalog unavailable for study frames and deformation.')
+    if mode!='manual' and family not in SUPPORTED:raise ValueError('Automatic catalog unavailable for these crossed axes or deforming assemblies.')
     if mode=='gear' and family in ('parallel','internal'):
         from pair_assembly import GEAR_REASON
         raise ValueError(GEAR_REASON)

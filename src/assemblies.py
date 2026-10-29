@@ -104,7 +104,8 @@ def cycloidal(d):
         holes=[circle(bore/2)]+[circle(hole_r,64,polar(outR,TAU*i/k)) for i in range(k)]
         d.parts.append(Part(f'Disc_cycloidal_{j+1}',transformed(pts,angle=delta),holes,w,z,center))
         # Offset cam: outside is eccentric, the shaft bore remains on the world axis.
-        annulus(d,f'Eccentric_{j+1}',cam,0,w,z,center,holes=[circle(rin,96,(-center[0],-center[1]))])
+        # The driving cam uses gear visibility; Supports hides its bearing, not the cam.
+        annulus(d,f'Eccentric_{j+1}',cam,0,w,z,center,holes=[circle(rin,96,(-center[0],-center[1]))],role='gear')
         annulus(d,f'Bearing_eccentric_{j+1}_envelope',bore/2-radial,cam+radial,w-2*radial,z+radial,center,color=BEARING)
     bottom=-ax-t;top=span+ax+t
     pinholes=[circle(r,48,polar(R,TAU*j/n)) for j in range(n)]

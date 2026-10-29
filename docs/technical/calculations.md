@@ -87,9 +87,24 @@ La distinzione dei giochi è motivata da [Chen et al., ASME Journal of Mechanica
 
 ## Vite e strain wave
 
-Nello studio vite-corona **m è assiale della vite**, non normale: avanzamento L = π m principi, γ = atan(m principi / d vite), mn = m cos γ, αn = atan(tan αassiale cos γ). La ruota usa mn e β = γ al centro, mantenendo il diametro primitivo m z. Ora ha una gola reale con incremento radiale Δ(z)=Rw−sqrt(Rw²−z²), Rw=d_vite/2+mx, e |z|<0,95Rw. Questo è l’inviluppo del solo cilindro di testa vite; i fianchi rimangono una surrogata elicoidale e non l’inviluppo coniugato del filetto. Sono selezionabili mano della vite e foro indipendente della ruota. Fonte: [KHK, Calculation of gear dimensions, sezione Worm Gear Pairs](https://khkgears.net/gear-knowledge/gear-technical-reference/calculation-gear-dimensions/?ad=semD&am=broad&an=msn_s&askid=d51ae89b-b1e4-4e19-a5c3-c9a2931dd7a0-0-ab_msb&l=sem&o=29593&q=bevel+gear+tooth+profile&qsrc=999). Il rapporto firmato segue gli assi visualizzati +X vite/+Z ruota (centro ruota su Y negativo): i=mano×z/principi. Non si deducono rendimento o irreversibilità dalla sola geometria.
+For the worm pair, **m is the axial worm module**: lead L = π m starts,
+γ = atan(m starts / worm diameter), mn = m cos γ and
+αn = atan(tan αaxial cos γ). The wheel uses the conjugate screw/hob envelope,
+with an extended generating tip for root clearance and explicit generating
+thickness for backlash. ZA and ZI, both hands and independent wheel bores are
+supported within the checked geometric domain. Signed ratio follows world
++X worm / +Z wheel, with the wheel centre on negative Y:
+i = hand × wheel teeth / starts. Geometry alone does not establish efficiency
+or self locking. See [worm equations and primary references](worm.md).
 
-Per lo strain wave a due lobi resta differenza di due denti: i = −z flex/2 con corona fissa, oppure i = +(z flex+2)/2 con flexspline fisso e uscita corona. La revisione successiva include coppa e cuscinetto sagoma, con una linea primitiva ellittica a perimetro numerico conservato. Il fattore d’onda modifica la deformazione illustrativa. Il passo dei denti è ora uniforme lungo l’arco della primitiva ellittica e l’altezza è orientata sulla normale locale; la stessa mappa è usata nel moto OpenGL. Non è una soluzione elastica né un profilo coniugato. Dettagli in [VARIANTS.md](variants.md). Riferimento del principio cinematico: [Harmonic Drive Systems, Principle of HarmonicDrive](https://www.hds.co.jp/english/products/hd_theory/).
+For a two-lobe strain wave, zc = zf + 2 and
+2 ωwave + zf ωflex − zc ωring = 0. Fixed ring gives i = −zf/2;
+fixed flex gives i = +(zf+2)/2. The rigid ring is generated from the complete
+matching tooth sweep under the prescribed pitch-arc/normal ellipse map. The
+reference tooth-thickness allowance and numerical cell-enclosure relief are
+separate reported quantities. The same immutable material map drives preview
+and discrete interference poses. This is not an elastic, fatigue or loaded
+contact solution. See [strain-wave equations and references](strain-wave.md).
 
 ## Consultazione ed esportazione
 

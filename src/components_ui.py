@@ -262,7 +262,7 @@ class Controller:
         if kind=='package':
             canvas=app.canvas
             saved=dict(options={k:w.get_active() for k,w in app.view_options.items()},isolated=canvas.isolated_indices,
-                enabled=canvas.motion_enabled,phase=canvas.motion_phase,inspection=canvas.inspection_phase,inspection_indices=canvas.inspection_indices,playing=canvas.motion_playing,points=deepcopy(self.points),pose=self.pose,measurement=self.measure_text.get_text() if self.window else '')
+                enabled=canvas.motion_enabled,phase=canvas.motion_phase,plan=canvas.inspection_motion_plan or canvas.motion_plan,inspection=canvas.inspection_phase,inspection_indices=canvas.inspection_indices,playing=canvas.motion_playing,points=deepcopy(self.points),pose=self.pose,measurement=self.measure_text.get_text() if self.window else '')
             try:
                 canvas.reset_motion()
                 for key in ('support','housing'):app.view_options[key].set_active(True)
@@ -274,7 +274,7 @@ class Controller:
             except Exception as error:app.status_text(str(error));return
             finally:
                 for key,value in saved['options'].items():app.view_options[key].set_active(value)
-                canvas.isolated_indices=saved['isolated'];canvas.motion_phase=saved['phase'];canvas.motion_enabled=saved['enabled']
+                canvas.isolated_indices=saved['isolated'];canvas.motion_phase=saved['phase'];canvas.motion_enabled=saved['enabled'];canvas.motion_plan=saved['plan']
                 if saved['inspection'] is not None:canvas.show_inspection(saved['inspection'],saved['inspection_indices'])
                 if saved['playing']:canvas.set_motion_playing(True)
                 self.points=saved['points'];self.pose=saved['pose']

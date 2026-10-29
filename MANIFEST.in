@@ -1,8 +1,9 @@
 include README.md README.it.md pyproject.toml .gitattributes
 include LICENSE COPYRIGHT CONTRIBUTING.md CHANGELOG.md
-include launch.sh RatioLab.desktop
+include launch.sh
 recursive-include docs *.md
 recursive-include src *.py *.json *.png *.manifest
+recursive-include src/ratiolab_resources/icons *.theme
 recursive-include tests test_*.py
 include build-support/ratiolab_build.py
 include assets/screenshots/*.png
@@ -20,4 +21,4 @@ prune .codex
 prune .agents
 prune .aws
 prune .claude
-global-exclude *.py[cod] __pycache__ *.token ui-preferences.json preferenze-ui.json custom-materials.json materiali-custom.json TODO.md VERIFICATION.md AGENTS.md SKILL.md
+global-exclude *.py[cod] __pycache__ *.token ui-preferences.json preferenze-ui.json updates.json custom-materials.json materiali-custom.json TODO.md VERIFICATION.md AGENTS.md SKILL.md

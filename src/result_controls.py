@@ -40,6 +40,15 @@ def clear(box):
 def items(design):
     """Present existing calculation values; do not introduce a second solver."""
     a, v = design.analysis, design.values
+    if design.family == 'differential':
+        q = a['kinematics']['rates_rpm']
+        if v.get('configuration','wrist')=='classic':
+            return [('Carrier input',f'{q["carrier"]:+.3g}','rpm',f'Prescribed B−A: {v["output_difference_rpm"]:+g} rpm'),
+                    ('Side output A',f'{q["side_a"]:+.3g}','rpm','About world +X'),
+                    ('Side output B',f'{q["side_b"]:+.3g}','rpm','About world +X')]
+        return [('Carrier tilt', f'{q["carrier"]:+.3g}', 'rpm', 'About the common input axis'),
+                ('Output spin', f'{q["output_spin"]:+.3g}', 'rpm', 'Relative to the moving carrier'),
+                ('Input speeds A / B', f'{q["input_a"]:+g} / {q["input_b"]:+g}', 'rpm', 'Both signs measured about world +X')]
     ratio, output = a.get('signed_ratio'), a.get('output', {})
     if ratio is None:
         gear = a.get('gear', {})
@@ -60,7 +69,7 @@ def items(design):
     elif a.get('meshes'):
         result.append(('Centre distance', f'{a["meshes"][0]["center_distance_mm"]:.3f}', 'mm', 'Axis spacing'))
     else:
-        result.append(('Flexible body length', f'{v["cup_length"]:g}', 'mm', 'Geometric study'))
+        result.append(('Flexible body length', f'{v["cup_length"]:g}', 'mm', 'Prescribed flexible-body geometry'))
     return result
 
 

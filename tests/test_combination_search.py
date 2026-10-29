@@ -157,6 +157,6 @@ class CombinationSearchTests(unittest.TestCase):
             with self.subTest(kwargs=kwargs),self.assertRaises(ValueError):search('parallel',d.values,{},Settings(**kwargs))
         for axes in ({'pinion':(20.5,)},{'pinion':(1,)},{'pinion':()},{'width':(inf,)},{'variant':('spur',)},{'io_scheme':('reverse',)}):
             with self.subTest(axes=axes),self.assertRaises(ValueError):search('parallel',d.values,axes)
-        with self.assertRaisesRegex(ValueError,'single gear'):search('spur',defaults('spur'),{})
+        with self.assertRaisesRegex(ValueError,'single fixed input/output ratio'):search('spur',defaults('spur'),{})
 
 if __name__=='__main__':unittest.main()

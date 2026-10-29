@@ -14,7 +14,7 @@ Parametri errati fermano l’animazione; correggili per riavviarla. Avvia disatt
 
 - Ingranaggi, treni, vite e riduttori: rotazioni dei membri con velocità e assi propri.
 - Cicloidale: orbita eccentrica e rotazione del disco. Il disco è un organo interno orbitante, anche quando l’uscita è fissa.
-- Harmonic: deformazione radiale illustrativa del flexspline, orientata dal generatore d’onda, con rotazione del materiale e fondo della coppa solidale alla flangia. Non rappresenta un’analisi elastica.
+- Harmonic: deformazione prescritta del flexspline con passo uniforme lungo l’arco ellittico e denti orientati sulla normale locale, orientata dal generatore d’onda, con rotazione del materiale e fondo della coppa solidale alla flangia. Non rappresenta un’analisi elastica.
 
 
 ## Esportazione
@@ -22,3 +22,7 @@ Parametri errati fermano l’animazione; correggili per riavviarla. Avvia disatt
 L’animazione modifica soltanto il rendering dell’anteprima: geometria, parametri, distinta e comandi CAD conservano la posa di montaggio. STEP e STL rimangono coerenti con il modello nominale. **Esporta file… → Pacchetto completo** ripristina la posa iniziale prima di salvare anche il PNG.
 
 È una visualizzazione cinematica: non verifica collisioni durante il ciclo, contatto coniugato, carichi, elasticità, attrito o durata; non crea giunti animati nel documento SolidCraft.
+
+The generated strain-wave ring and its discrete moving-surface checks are described
+in the [strain-wave reference](strain-wave.md). Starting animation alone does not
+run interference checks.

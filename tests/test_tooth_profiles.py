@@ -123,26 +123,34 @@ class GeneratedProfileTests(unittest.TestCase):
                     self.assertTrue(distance==0 or distance>1e-7,(variant,distance))
             self.assertGreater(signature(p)['volume_mm3'],0)
 
-    def test_worm_throat_cylinder_and_export_metadata_roundtrip(self):
+    def test_generated_worm_wheel_blank_root_cylinders_and_export_metadata(self):
         for hand in (-1,1):
             d=generate('worm',dict(worm_hand=hand));wheel=d.parts[1]
-            meta=d.analysis['wheel_geometry'];r=meta['radius_mm']
+            meta=d.analysis['wheel_geometry'];r=meta['generating_hob_tip_radius_mm']
+            self.assertTrue(meta['conjugate'])
             self.assertEqual(d.analysis['signed_ratio'],hand*d.values['teeth']/d.values['starts'])
             self.assertEqual(wheel.port['rpm'],d.values['input_rpm']/d.analysis['signed_ratio'])
-            middle=wheel.stations[len(wheel.stations)//2]['outer']
-            for s in wheel.stations:
-                h=s['z']-wheel.width/2
-                # Independent cylinder relation, not sagitta reconstruction.
-                for p,q in zip(s['outer'][::17],middle[::17]):
-                    dr=hypot(*p)-hypot(*q)
-                    self.assertAlmostEqual((r-dr)**2+h*h,r*r,places=7)
+            centre=d.analysis['center_distance_mm']
+            blank_radius=d.values['diameter']/2-d.values['module']
+            for station in wheel.stations:
+                h=station['z']-wheel.width/2
+                minimum=min(hypot(*p) for p in station['outer'])
+                maximum=max(hypot(*p) for p in station['outer'])
+                # Independent cylinder relations for generated root and blank
+                # tip boundaries; the intervening flanks are not radial offsets.
+                self.assertAlmostEqual((centre-minimum)**2+h*h,r*r,places=7)
+                self.assertAlmostEqual((centre-maximum)**2+h*h,blank_radius**2,places=7)
             self.assertGreater(signature(wheel)['volume_mm3'],0)
             restored=generate(d.family,json.loads(json.dumps(d.values)))
             self.assertEqual(restored.parts,d.parts)
         right=generate('worm').parts[1];left=generate('worm',dict(worm_hand=-1)).parts[1]
         self.assertAlmostEqual(signature(left)['volume_mm3'],signature(right)['volume_mm3'],places=7)
         for f in ('spur','internal','helical','double','harmonic'):
-            d=generate(f);self.assertTrue(d.analysis['tooth_profiles'])
+            d=generate(f)
+            if f=='harmonic':
+                self.assertTrue(d.parts[0].profile_metadata['undeformed_tooth_reference'])
+                self.assertTrue(d.parts[1].profile_metadata['wave_envelope'])
+            else:self.assertTrue(d.analysis['tooth_profiles'])
             self.assertEqual(generate(f,json.loads(json.dumps(d.values))).parts,d.parts)
         with self.assertRaisesRegex(ValueError,'Wheel too wide'):generate('worm',{'width':30})
 

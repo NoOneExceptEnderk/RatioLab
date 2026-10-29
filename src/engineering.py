@@ -100,7 +100,7 @@ def mesh(z1, z2, m, pressure=20, beta=0, width=10, x=0, center_extra=0, internal
     upper=min(g1,bound2-span if internal else span-bound2)
     usable_ea=max(0,upper-lower)/(pi*a1['mt']*cos(at))
     if usable_ea+eb<1:
-        warnings.append('Usable involute contact ratio after root trimming/blending is below 1; nominal tip/base-circle ratio overstates the active flank. This configuration is a geometric study.')
+        warnings.append('Usable involute contact ratio after root trimming/blending is below 1; nominal tip/base-circle ratio overstates the active flank. Change tooth counts or tooth geometry to maintain continuous engagement.')
     return dict(profile_contact_transverse=usable_ea, profile_contact_total=usable_ea+eb,
                 profile_contact_basis='intersection of usable involute intervals after root envelope/blend; excludes fillet contact, elastic deflection and 3D interference',
                 z1=z1, z2=z2, internal=internal, center_distance_mm=a, reference_center_mm=a0, working_pressure_deg=degrees(aw), contact_transverse=ea, contact_overlap=eb, contact_total=ea + eb, extra_backlash_mm=added, nominal_pair_backlash_mm=backlash, working_pair_backlash_mm=backlash * a / a0 + (added or 0), gear1=a1, gear2=a2, warnings=warnings)
@@ -112,6 +112,13 @@ def force_components(torque, diameter, pressure, beta=0):
 def attach_report(d):
     v = d.values
     r = d.analysis
+    if d.family == 'differential':
+        if v.get('configuration','wrist')=='classic':
+            r['input']=dict(carrier_rpm=v['input_rpm'],prescribed_side_difference_rpm=v['output_difference_rpm'],
+                            scope='Direct carrier input; prescribed side difference is a boundary condition, not a second physical input or load-based split')
+        else:r['input'] = dict(input_a_rpm=v['input_rpm'], input_b_rpm=v['input_b_rpm'],
+                          scope='Two independently prescribed speeds; no load or power balance calculated')
+        return r
     rpm = v['input_rpm']
     torque = v['input_torque']
     eta = v.get('efficiency', 100) / 100
@@ -143,6 +150,10 @@ def report_text(d):
     lines = ['NOMINAL CALCULATION REPORT · SOLIDCRAFT REDUCERS', d.family, '']
     lines += d.metrics + ['']
     load = r['input']
+    if 'input_a_rpm' in load:
+        lines.append(f"Inputs A / B: {load['input_a_rpm']:+g} / {load['input_b_rpm']:+g} rpm. No combined power or output torque estimate.")
+    if 'carrier_rpm' in load:
+        lines.append(f"Carrier input: {load['carrier_rpm']:+g} rpm; prescribed B−A: {load['prescribed_side_difference_rpm']:+g} rpm. Speed boundary condition only; no load-based speed split, torque or power estimate.")
     if 'rpm' in load:
         lines.append(f"Input: {load['rpm']:g} rpm · {load['torque_Nm']:g} N·m · {load['power_W']:.3f} W")
     if 'signed_ratio' in r:
@@ -167,9 +178,13 @@ def report_text(d):
             lines.append(f"  Internal blend radius {p['blend_radius_mm']:.6f} mm (nominal {p['nominal_blend_radius_mm']:.6f}; adapted {p['blend_radius_adapted']}); not cutter generated.")
         lines.append('  Domain: '+p['domain'])
     if 'wave_mapping' in r:
-        lines.append('Strain wave: '+r['wave_mapping']['method']+'; eight arc Fourier modes; no conjugate or elastic solution.')
+        q=r['wave_mapping']
+        lines.append('Strain wave: '+q['method']+'; eight arc Fourier modes; prescribed deformation, no elastic solution.')
+        if q.get('ring_envelope'):
+            e=q['ring_envelope']
+            lines.append(f"  Generated ring: {e['method']}; reference pair backlash {q['reference_pair_backlash_mm']:g} mm; numerical radial enclosure relief <= {e['numerical_enclosure_relief_mm']:.6f} mm; measured refinement change {e['measured_refinement_change_mm']:.6f} mm.")
     if 'wheel_geometry' in r:
-        q=r['wheel_geometry'];lines.append(f"Wheel: {q['method']} · cylinder R {q['radius_mm']:.6f} mm · edge sag {q['max_radial_sag_mm']:.6f} mm · axial chord threshold {q['axial_chord_threshold_mm']:g} mm; no conjugate flank solution.")
+        q=r['wheel_geometry'];lines.append(f"Wheel: {q['method']} · reference R {q['reference_wheel_radius_mm']:.6f} mm · root clearance {q['root_clearance_mm']:.6f} mm · section chord threshold {q['chord_threshold_mm']:g} mm; ideal rigid generated envelope.")
     if 'forces' in r:
         lines.append('Reference forces: ' + ', '.join((f'{k} = {v:.3f}' for k, v in r['forces'].items())))
     lines += ['', 'ASSUMPTIONS AND LIMITATIONS'] + d.notes + ['', 'Sources and formulas: docs/technical/calculations.md. No result is an allowable load or ISO/AGMA certification.']

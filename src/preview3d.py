@@ -330,7 +330,7 @@ class Preview3D(Gtk.GLArea):
         self.set_has_depth_buffer(True);self.set_has_stencil_buffer(True);self.set_auto_render(False)
         self.set_hexpand(True);self.set_vexpand(True);self.set_size_request(320,280)
         self.design=None;self.show_support=False;self.show_housing=False;self.exploded=False;self.section=False;self.scene=None;self.dirty=False;self.gl=None;self.failure=None;self.zoom=1.;self.yaw=radians(-35);self.tilt=radians(-55)
-        self.inspection_phase=None;self.inspection_indices=()
+        self.inspection_phase=None;self.inspection_indices=();self.inspection_motion_plan=None
         self.selected_indices=();self.isolated_indices=None;self.drag_distance=0.;self.rendered_phase=0.
         self.motion_plan=None;self.motion_enabled=False;self.motion_playing=False;self.motion_speed=1.;self.motion_phase=0.;self.motion_tick=0;self.motion_last=None;self.motion_valid=True
         self.connect('realize',self.on_realize);self.connect('unrealize',self.on_unrealize);self.connect('render',self.on_render)
@@ -346,11 +346,13 @@ class Preview3D(Gtk.GLArea):
             return None
     def set_design(self,design):
         changed=design is not self.design
-        keep_phase=bool(design and self.design and design.family==self.design.family and {k:v for k,v in design.values.items() if k!='input_rpm'}=={k:v for k,v in self.design.values.items() if k!='input_rpm'})
+        speed_keys={'input_rpm','input_b_rpm','output_difference_rpm'}
+        keep_phase=bool(design and self.design and design.family==self.design.family and {k:v for k,v in design.values.items() if k not in speed_keys}=={k:v for k,v in self.design.values.items() if k not in speed_keys})
         if self.design is not None and (not design or design.family!=self.design.family or design.values!=self.design.values):self.clear_inspection()
         self.design=design;self.scene=build_scene(design,self.show_support,self.show_housing,self.exploded) if design else None;self.dirty=True
         if changed:
-            self.motion_plan=build_plan(design) if design else None
+            previous=self.motion_plan if keep_phase and design.family=='differential' else None
+            self.motion_plan=build_plan(design,previous,self.motion_phase) if design else None
             if not keep_phase:self.motion_phase=0.;self.motion_last=None
             self.motion_valid=True
             if not self.motion_plan or not self.motion_plan.supported:self.set_motion_playing(False)
@@ -358,11 +360,16 @@ class Preview3D(Gtk.GLArea):
         self.queue_render()
     def show_inspection(self,phase,indices):
         self.set_motion_playing(False)
+        if self.design and self.design.family=='differential' and self.inspection_motion_plan is None:
+            self.inspection_motion_plan=self.motion_plan
+            self.motion_plan=build_plan(self.design)
         self.inspection_phase=float(phase);self.inspection_indices=tuple(indices)
         self.queue_render();self.emit('motion-state');self.emit('inspection-state')
     def clear_inspection(self):
         changed=self.inspection_phase is not None
         self.inspection_phase=None;self.inspection_indices=()
+        if self.inspection_motion_plan is not None:
+            self.motion_plan=self.inspection_motion_plan;self.inspection_motion_plan=None
         self.queue_render()
         if changed:self.emit('inspection-state')
     def set_motion_playing(self,playing):
@@ -378,10 +385,17 @@ class Preview3D(Gtk.GLArea):
     def on_motion_tick(self,widget,clock):
         if not self.motion_playing:self.motion_tick=0;return False
         now=clock.get_frame_time()/1000000
-        if self.motion_last is not None:self.motion_phase+=max(0,now-self.motion_last)*2*pi/60*((self.motion_plan.reference_rpm if self.design.values.get('input_rpm',0) or self.design.values.get('secondary_rpm',0) else 0) if self.design and 'input_rpm' in self.design.values else 12*self.motion_speed)
+        if self.motion_last is not None:
+            if self.design and 'input_rpm' in self.design.values:
+                keys=('input_rpm','output_difference_rpm') if self.design.family=='differential' and self.design.values.get('configuration')=='classic' else ('input_rpm','input_b_rpm','secondary_rpm')
+                rpm=self.motion_plan.reference_rpm if any(self.design.values.get(key,0) for key in keys) else 0
+            else:rpm=12*self.motion_speed
+            self.motion_phase+=max(0,now-self.motion_last)*2*pi/60*rpm
         self.motion_last=now;self.queue_render();return True
     def reset_motion(self):
-        self.clear_inspection();self.set_motion_playing(False);self.motion_phase=0.;self.motion_enabled=False;self.queue_render();self.emit('motion-state')
+        self.clear_inspection();self.set_motion_playing(False);self.motion_phase=0.;self.motion_enabled=False
+        if self.design and self.design.family=='differential':self.motion_plan=build_plan(self.design)
+        self.queue_render();self.emit('motion-state')
     def invalidate_motion(self):
         self.clear_inspection();self.motion_valid=False;self.set_motion_playing(False)
     def set_motion_speed(self,speed):

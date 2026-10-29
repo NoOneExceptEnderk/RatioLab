@@ -10,12 +10,38 @@ from dataclasses import dataclass, field
 from math import sin, cos, tan, acos, atan, atan2, sqrt, pi, radians, degrees, hypot, isfinite, ceil
 import uuid
 TAU = 2 * pi
-FAMILIES = {'spur': 'Spur gear', 'helical': 'Helical gear', 'double': 'Double helical gear', 'planetary': 'Planetary gearbox', 'cycloidal': 'Cycloidal drive', 'harmonic': 'Strain wave drive · concept model', 'worm': 'Worm drive · concept model', 'parallel': 'Parallel shaft reducer · single stage', 'internal': 'Internal gear reducer · fixed axes'}
+FAMILIES = {'spur': 'Spur gear', 'helical': 'Helical gear', 'double': 'Double helical gear', 'planetary': 'Planetary gearbox', 'cycloidal': 'Cycloidal drive', 'harmonic': 'Strain wave drive', 'worm': 'Worm drive', 'parallel': 'Parallel shaft reducer · single stage', 'internal': 'Internal gear reducer · fixed axes'}
 COMMON = [('module', 'Normal module [mm]', 2.0, 0.1, 10, 0.1), ('width', 'Face width [mm]', 10, 1, 100, 1), ('bore', 'Bore diameter [mm]', 6, 0, 100, 0.5), ('pressure', 'Pressure angle [°]', 20, 14.5, 30, 0.5), ('backlash', 'Tangential backlash [mm]', 0.15, 0, 1, 0.01)]
 SPECS = {'spur': COMMON + [('teeth', 'Tooth count', 24, 8, 160, 1)], 'helical': COMMON + [('teeth', 'Tooth count', 24, 8, 160, 1), ('helix', 'Helix angle [°] (sign = handedness)', 20, -45, 45, 1)], 'double': COMMON + [('teeth', 'Tooth count', 24, 8, 160, 1), ('helix', 'Helix angle [°]', 25, -45, 45, 1), ('gap', 'Central groove [mm]', 1, 0, 10, 0.1)], 'planetary': COMMON + [('sun', 'Sun teeth', 18, 8, 80, 1), ('planet', 'Planet teeth', 18, 8, 60, 1), ('planets', 'Planet count', 3, 2, 6, 1), ('rim', 'Ring thickness [mm]', 5, 1, 30, 0.5)], 'cycloidal': [('pins', 'Ring roller count', 16, 6, 60, 1), ('radius', 'Roller pitch radius [mm]', 40, 10, 150, 1), ('pin_radius', 'Roller radius [mm]', 3, 1, 10, 0.1), ('eccentric', 'Eccentricity [mm]', 1.2, 0.1, 5, 0.1), ('width', 'Disc thickness [mm]', 8, 1, 40, 1), ('bore', 'Eccentric seat diameter [mm]', 12, 2, 60, 1), ('output_count', 'Output pin count', 6, 3, 10, 1), ('output_radius', 'Output pin pitch radius [mm]', 22, 5, 100, 1), ('output_pin', 'Output pin radius [mm]', 2, 1, 10, 0.1), ('clearance', 'Radial clearance [mm]', 0.1, 0, 0.8, 0.01)], 'harmonic': COMMON + [('teeth', 'Flexspline teeth', 60, 30, 160, 2), ('wall', 'Flexible wall thickness [mm]', 1, 0.3, 4, 0.1), ('rim', 'Ring thickness [mm]', 5, 1, 30, 0.5)], 'worm': COMMON + [('teeth', 'Wheel teeth', 30, 12, 100, 1), ('starts', 'Worm starts', 1, 1, 4, 1), ('diameter', 'Worm pitch diameter [mm]', 20, 8, 80, 1), ('length', 'Worm length [mm]', 24, 5, 80, 1)]}
 VARIANTS = {'double': {'joined': 'Joined helices · no groove', 'separated': 'Separate helices · with groove'}, 'worm': {'za': 'Cylindrical ZA · straight axial flanks', 'zi': 'Cylindrical ZI · transverse involute'}, 'harmonic': {'cup': 'Cup', 'flat_cup': 'Flat cup', 'hat': 'External flange · silk hat'}, 'planetary': {'spur': 'Single stage · spur', 'helical': 'Single stage · helical', 'double': 'Single stage · double helical', 'two_stage': 'Two stages in cascade', 'two_stage_double': 'Two stages · double helical'}, 'cycloidal': {'single': 'Complete single disc', 'dual': 'Dual disc · opposing eccentrics'}, 'parallel': {'spur': 'Spur teeth', 'helical': 'Helical', 'double': 'Double helix'}, 'internal': {'spur': 'Internal gear · spur', 'helical': 'Internal gear · helical', 'double': 'Internal gear · double helical'}}
 DOUBLE_STYLES = {'joined': 'Joined helices · no groove', 'separated': 'Separate helices · with groove'}
 HARMONIC_OUTPUTS = {'flex': 'Fixed ring → flexspline output', 'circular': 'Fixed flexspline → ring output'}
+FAMILIES['differential'] = 'Bevel differential'
+VARIANTS['differential'] = {'straight': 'Straight bevel', 'spiral': 'Spiral bevel'}
+SPECS['differential'] = [
+    ('module', 'Outer bevel module [mm]', 2, .5, 6, .1),
+    ('side_teeth', 'Teeth on each input gear', 24, 16, 60, 1),
+    ('output_teeth', 'Output bevel teeth', 24, 16, 60, 1),
+    ('width', 'Face width along pitch cone [mm]', 8, 2, 25, .5),
+    ('pressure', 'Transverse pressure angle [°]', 20, 14.5, 30, .5),
+    ('backlash', 'Outer tangential backlash [mm]', .15, 0, 1, .01),
+    ('input_shaft', 'Input shaft diameter [mm]', 6, 2, 24, .5),
+    ('output_shaft', 'Output shaft diameter [mm]', 8, 2, 24, .5),
+    ('shaft_extension', 'Input shaft extension [mm]', 12, 4, 40, 1),
+    ('plate', 'Carrier / flange thickness [mm]', 4, 2, 12, .5),
+    ('assembly_clearance', 'Assembly clearance [mm]', .3, .1, 1, .05),
+    ('flange_radius', 'Output flange radius [mm]', 12, 6, 40, .5),
+    ('bolt_count', 'Flange mounting hole count', 4, 3, 8, 1),
+    ('bolt_diameter', 'Flange mounting hole diameter [mm]', 3, 1, 8, .25),
+    ('output_extension', 'Output shaft extension [mm]', 12, 4, 60, 1),
+    ('passage_diameter', 'Output passage diameter [mm]', 4, 1, 22, .5),
+    ('carrier_bolt_diameter', 'Split carrier joining hole diameter [mm]', 3, 1, 6, .25),
+    ('spiral_angle', 'Unsigned spiral angle [°]', 35, 0, 45, 1),
+    ('spiral_hand', 'Input gear local spiral hand (−1 / +1)', 1, -1, 1, 2),
+    ('output_difference_rpm', 'Prescribed side speed difference B−A [rpm]', 0, -200000, 200000, 1),
+    ('spider_pin_diameter', 'Spider pin diameter [mm]', 6, 2, 20, .5),
+    ('spider_clearance', 'Spider pin radial running clearance [mm]', .15, .05, 1, .05),
+]
 
 def is_double(family, variant=None):
     return family == 'double' or variant in ('double', 'two_stage_double')
@@ -65,7 +91,7 @@ def get_specs(family, variant=None, double_style=None):
         from printed_shaft import FIELDS
         specs += FIELDS
     if family == 'harmonic':
-        specs += [('wave_factor', 'Illustrative deformation factor', 1, 0.5, 1.5, 0.05)]
+        specs += [('wave_factor', 'Wave amplitude factor', 1, 0.5, 1.5, 0.05)]
     if family == 'harmonic':
         specs += [('cup_length', 'Flexible body length [mm]', 8 if variant == 'flat_cup' else 25, 4, 100, 1), ('diaphragm', 'Diaphragm / flange thickness [mm]', 2, 0.5, 10, 0.5), ('bearing_thickness', 'Wave bearing radial thickness [mm]', 2, 0.5, 8, 0.5), ('wave_clearance', 'Generator radial clearance [mm]', 0.05, 0.01, 0.5, 0.01)]
         if variant == 'hat':
@@ -81,14 +107,22 @@ def get_specs(family, variant=None, double_style=None):
         if style == 'joined':
             specs = [s for s in specs if s[0] != 'gap']
     from engineering import LOAD_FIELDS
-    specs += LOAD_FIELDS[:2] if family in ('spur', 'helical', 'double') else LOAD_FIELDS
+    if family == 'differential':
+        specs += [('input_rpm', 'Input A speed [rpm]', 12, -100000, 100000, 1),
+                  ('input_b_rpm', 'Input B speed [rpm]', -12, -100000, 100000, 1)]
+    else:
+        specs += LOAD_FIELDS[:2] if family in ('spur', 'helical', 'double') else LOAD_FIELDS
     return specs
 INTEGER = {'teeth', 'sun', 'planet', 'planets', 'pins', 'output_count', 'starts', 'sun2', 'planet2', 'pinion', 'wheel', 'pinion2', 'wheel2', 'worm_hand', 'rollers', 'crown_teeth', 'segments', 'planet_teeth', 'pairs', 'friction_faces', 'crank_teeth', 'cranks', 'spring_count', 'coils', 'bolt_count', 'bevel_pinion'}
+INTEGER.update(('side_teeth', 'output_teeth', 'spiral_hand'))
 
 def defaults(family, variant=None):
     v = {s[0]: s[2] for s in get_specs(family, variant)}
     if family in VARIANTS:
         v['variant'] = variant or next(iter(VARIANTS[family]))
+    if family == 'differential':
+        from differential_wrist import OPTION_DEFAULTS
+        v.update(OPTION_DEFAULTS)
     return v
 
 def validate(family, supplied):
@@ -102,6 +136,9 @@ def validate(family, supplied):
         raise ValueError('Unknown family')
     from kinematics import prepare as prepare_io, options as io_options
     supplied = prepare_io(family, supplied)
+    if family == 'differential':
+        from differential_wrist import prepare as prepare_wrist
+        supplied = prepare_wrist(supplied)
     if family == 'cycloidal':
         from printed_shaft import prepare
         supplied = prepare(supplied)
@@ -126,6 +163,9 @@ def validate(family, supplied):
     supplied = prepare_hardware(family, supplied)
     variant = supplied.get('variant', next(iter(VARIANTS.get(family, {'': None}))))
     values = {'variant': variant} if family in VARIANTS else {}
+    if family == 'differential':
+        from differential_wrist import options as wrist_options
+        values.update(wrist_options(supplied))
     if family == 'cycloidal':
         values['eccentric_design'] = supplied.get('eccentric_design', 'standard')
     for key, label, default, low, high, step in get_specs(family, variant, style):
@@ -140,6 +180,8 @@ def validate(family, supplied):
                 raise ValueError(f'{label}: an integer is required')
             v = int(v)
         values[key] = v
+    if family == 'differential' and values['spiral_hand'] not in (-1,1):
+        raise ValueError('Spiral handedness must be −1 or +1.')
     if double:
         values['double_style'] = style
         if style == 'joined':
@@ -584,6 +626,9 @@ def generate(family, supplied=None):
     elif family in ('harmonic', 'worm'):
         from special_drives import harmonic, worm
         (harmonic if family == 'harmonic' else worm)(d)
+    elif family == 'differential':
+        from differential_wrist import build
+        build(d)
     from standard_parts import apply_catalog
     apply_catalog(d)
     from hardware import apply_hardware
@@ -599,5 +644,6 @@ def generate(family, supplied=None):
     if any((p.mesh or p.frame or p.stations or p.double or (abs(p.twist) > 1e-08) for p in d.parts)):
         d.notes.append('Faithful preview export: faceted STEP BRep solids for parts with shared surfaces. Extruded profile circles are sampled with a maximum radial deviation of 0.002 mm; tubes and freeform surfaces use the sampling specified in the guide. Edit dimensions in the generator and regenerate the group. This is not a smooth parametric loft.')
     d.analysis['tooth_profiles'] = [dict(part=p.name, **p.profile_metadata['tooth_profile']) for p in d.parts if 'tooth_profile' in p.profile_metadata]
-    d.notes.append('External cylindrical roots use a rounded normal rack envelope with undercut trimming; internal roots use a tangent circular construction, not a shaping cutter envelope. Adaptive chord threshold 0.015 mm; tool geometry and domain are in the calculation JSON. Strength, lubrication and manufacturing tolerances are not verified.')
+    if family != 'differential':
+        d.notes.append('External cylindrical roots use a rounded normal rack envelope with undercut trimming; internal roots use a tangent circular construction, not a shaping cutter envelope. Adaptive chord threshold 0.015 mm; tool geometry and domain are in the calculation JSON. Strength, lubrication and manufacturing tolerances are not verified.')
     return d

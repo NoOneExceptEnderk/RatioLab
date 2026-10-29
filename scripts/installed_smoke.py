@@ -30,8 +30,11 @@ def main():
     before = {}
     for filename in ('branding/ratiolab-icon.png', 'branding/ratiolab-logo-dark.png',
                      'branding/ratiolab-logo-light.png', 'branding/brand.json',
+                     'icons/hicolor/index.theme',
+                     'icons/hicolor/128x128/apps/local.solidcraft.reducers.png',
+                     'icons/hicolor/256x256/apps/local.solidcraft.reducers.png',
                      'bearing-catalog.json', 'hardware-catalog.json',
-                     'INSTALL.md', 'MCP.md', 'LICENSE', 'COPYRIGHT'):
+                     'INSTALL.md', 'MCP.md', 'CHANGELOG.md', 'version.json', 'LICENSE', 'COPYRIGHT'):
         path = app_paths.resource_path(filename)
         if args.forbid_root and path.resolve().is_relative_to(forbidden):
             raise AssertionError(f'Resource depends on source checkout: {path}')
@@ -40,7 +43,7 @@ def main():
         profile = Path(temporary).resolve()
         # Avoid writing to the runner/user's actual preferences on every OS.
         os.environ.update(XDG_CONFIG_HOME=str(profile/'config'), XDG_DATA_HOME=str(profile/'data'),
-                          APPDATA=str(profile/'roaming'), LOCALAPPDATA=str(profile/'local'))
+                          APPDATA=str(profile/'roaming'), LOCALAPPDATA=str(profile/'local'), RATIOLAB_UPDATE_CHECK='0')
         from unittest.mock import patch
         with patch.object(Path, 'home', return_value=profile):
             chosen = profile/'chosen exports · qualità Ω'
@@ -68,11 +71,20 @@ def main():
                 # by the full installed app, beyond the small GL diagnostic.
                 import app
                 import gui_workflow
-                from gi.repository import Gio, GLib
+                from gi.repository import Gio, GLib, Gtk
                 application = app.ReducerApp()
                 application.set_flags(Gio.ApplicationFlags.NON_UNIQUE)
                 application.register(None)
                 application.activate()
+                assert application.get_application_id() == app_paths.APP_ID
+                assert GLib.get_prgname() == app_paths.APP_ID
+                assert application.win.get_icon_name() == app_paths.APP_ID
+                theme = Gtk.IconTheme.get_for_display(application.win.get_display())
+                assert 128 in theme.get_icon_sizes(app_paths.APP_ID)
+                for size in (128, 256):
+                    icon = theme.lookup_icon(app_paths.APP_ID, None, size, 1, Gtk.TextDirection.NONE, 0)
+                    assert Path(icon.get_file().get_path()) == app_paths.resource_path(
+                        f'icons/hicolor/{size}x{size}/apps/{app_paths.APP_ID}.png')
                 application.output_dir = chosen
                 gui_workflow.save_preference(application, output_dir=str(output))
                 application.load_config_data(loaded)

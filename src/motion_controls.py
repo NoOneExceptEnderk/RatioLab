@@ -4,7 +4,15 @@
 import gi
 gi.require_version('Gtk', '4.0')
 from gi.repository import Gtk
-from math import log1p, expm1, isfinite
+from math import log1p, expm1, isfinite, copysign
+
+
+def scale_rpm(value):
+    return copysign(log1p(abs(value)), value)
+
+
+def unscale_rpm(value):
+    return copysign(expm1(abs(value)), value)
 
 
 def install(app, container):
@@ -78,7 +86,7 @@ def install(app, container):
         entry.remove_css_class('field-error')
         error.set_visible(False)
         app.motion_syncing = True
-        slider.set_value(log1p(value))
+        slider.set_value(scale_rpm(value))
         app.motion_syncing = False
         show_value(value)
         if hasattr(app, 'motion_rpm'):
@@ -113,7 +121,7 @@ def install(app, container):
     focus = Gtk.EventControllerFocus()
     focus.connect('leave', commit)
     entry.add_controller(focus)
-    slider.connect('value-changed', lambda w: apply_rate(round(expm1(w.get_value())))
+    slider.connect('value-changed', lambda w: apply_rate(round(unscale_rpm(w.get_value())))
                    if not getattr(app, 'motion_syncing', False) else None)
     for title, delta in [('−1', -1), ('+1', 1)]:
         step = Gtk.Button(label=title)
@@ -151,9 +159,10 @@ def configure(app,values,specs):
  if rpm_spec:
   _,_,default,low,high,_=rpm_spec;app.motion_rate_limits=(low,high);app.motion_unit.set_text('rpm');app.motion_rpm=values.get('input_rpm',default)
   app.motion_speed_text.set_text(str(int(app.motion_rpm)) if float(app.motion_rpm).is_integer() else repr(float(app.motion_rpm)))
-  speed.set_range(log1p(low),log1p(high));speed.set_value(log1p(app.motion_rpm))
-  for rpm in (0,100000):
-   if low<=rpm<=high:speed.add_mark(log1p(rpm),Gtk.PositionType.BOTTOM,'100k' if rpm==100000 else str(rpm))
-  app.motion_caption.set_text('Input speed · stage 1' if app.family=='planetary' and values.get('variant') in ('two_stage','two_stage_double') else 'Input speed')
-  speed.set_tooltip_text('Actual input RPM · progressive scale 0–100,000. Also updates calculations and configuration. Use the arrows to adjust.')
+  speed.set_range(scale_rpm(low),scale_rpm(high));speed.set_value(scale_rpm(app.motion_rpm))
+  for rpm in (-100000,0,100000):
+   if low<=rpm<=high:speed.add_mark(scale_rpm(rpm),Gtk.PositionType.BOTTOM,'−100k' if rpm==-100000 else '100k' if rpm==100000 else str(rpm))
+  classic=app.family=='differential' and values.get('configuration')=='classic'
+  app.motion_caption.set_text('Carrier input speed' if classic else 'Input A speed' if app.family=='differential' else 'Input speed · stage 1' if app.family=='planetary' and values.get('variant') in ('two_stage','two_stage_double') else 'Input speed')
+  speed.set_tooltip_text('Signed carrier RPM; prescribe the side-speed difference independently in Motion.' if classic else 'Signed input A RPM; set input B independently in Motion.' if app.family=='differential' else 'Actual input RPM · progressive scale 0–100,000. Also updates calculations and configuration. Use the arrows to adjust.')
  app.motion_syncing=False

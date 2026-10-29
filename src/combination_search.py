@@ -185,7 +185,7 @@ class Result:
                  f'{"Complete finite domain" if self.complete else "PARTIAL search: "+self.reason} · {self.visited}/{self.total} visited · {self.generated} generated · {self.valid} valid · {self.matched} matching · {self.rejected} rejected · {self.elapsed:.3f} s',
                  'Ranking: ratio error %, then nominal XYZ bounding box volume, then XYZ lengths. No continuous or global optimum claim; only this finite domain.',
                  f'{len(self.proposals)} retained proposals'+(' · No results satisfy this finite search.' if not self.proposals else ''),
-                 'Generator validation is not a motion interference check or a strength/load rating. Worm and strain wave remain concept models.']
+                 'Generator validation is not a motion interference check or a strength/load rating.']
         for n, p in enumerate(self.proposals, 1):
             lines.append(f'{n}. i={p.ratio:+.12g}; error={p.error_percent:.9g}%; XYZ={p.xyz} mm; changes={p.changes}')
         return '\n'.join(lines)
@@ -200,7 +200,7 @@ def search(family, base, axes, settings=None, cancel=None, progress=lambda messa
     settings = deepcopy(settings or Settings())
     settings.validate()
     if family not in FAMILIES:
-        raise ValueError('A single gear has no independent transmission ratio. Select an assembly family.')
+        raise ValueError('Ratio search requires a single fixed input/output ratio. Select a supported reducer assembly.')
     # Preparation counts toward elapsed time; generation itself is cooperative.
     started = monotonic()
     if cancel is not None and cancel.is_set():

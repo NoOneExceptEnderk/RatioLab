@@ -120,7 +120,7 @@ macOS app's Resources/notices directory.
 
 The builder's default self-test runs the frozen executable from a neutral
 directory with Python/GTK environment paths removed and no MSYS2/Homebrew on
-PATH. It checks local typelibs, all nine families, STL/STEP, UTF-8 configurations
+PATH. It checks local typelibs, all catalog families, STL/STEP, UTF-8 configurations
 and preferences in a temporary user profile. `--gui` also verifies nonblank
 pixels and complete workspace exports. To repeat on a built folder:
 
@@ -303,6 +303,22 @@ launcher is `launch.sh`; reusable project configurations are in `examples/`. Gen
 parameter keys or the ability to reopen earlier configurations. Existing user
 exports are retained as saved.
 
+The GUI uses the same application ID for GTK, the GLib program name, Linux
+desktop-file matching and the Windows taskbar/installer shortcuts. The approved
+logo is included as a 128/256 px hicolor icon theme for native window icons;
+the original branding PNG and executable ICO/ICNS artwork are unchanged.
+Source launches, installed wheels and frozen bundles resolve this theme from
+their own resources, independently of the working directory. On GNOME/Wayland,
+the application menu entry supplies the dock icon: register the selected source
+installation with `python3 src/install_desktop.py`, or an installed wheel with
+`ratiolab-install-desktop` (use `--dry-run` to inspect the paths first). Run the
+source command from the checkout root with the Python interpreter used to launch
+RatioLab. Registration generates the desktop entry using that installation's
+absolute executable and icon paths; a copied static launcher cannot resolve
+those paths reliably. Native Linux installers register their own entry. Development
+demo windows should keep the canonical ID and use `NON_UNIQUE` when a separate
+process is needed; changing the ID also requires a corresponding desktop entry.
+
 ## Optional Autodesk Fusion connection
 
 The [Fusion integration guide](fusion360.md) describes the user workflow. The
@@ -383,7 +399,7 @@ and SVG/DXF, project history/recovery, generated tooth profiles, interference
 distances, finite combination search and component picking/selected export.
 It writes only to a disposable profile. The GUI self-test opens the three new
 tools, exports the complete workspace and decodes animated preview PNGs for
-all nine families to reject blank captures.
+all catalog families to reject blank captures.
 
 The Windows bundle explicitly includes `libEGL.dll` and `libGLESv2.dll` from
 [MSYS2 ANGLE](https://packages.msys2.org/packages/mingw-w64-ucrt-x86_64-angleproject).

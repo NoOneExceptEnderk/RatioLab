@@ -35,7 +35,7 @@ LENGTHS=[6,8,10,12,16,20,25,30,35,40,45,50,60,70,80,90,100,110,120]
 def options(family,supplied):
     mode=supplied.get('hardware_mode','none')
     if mode not in MODES:raise ValueError('Unknown hardware mode')
-    if mode!='none' and family not in SUPPORTED:raise ValueError('Standard hardware is unavailable for concept models')
+    if mode!='none' and family not in SUPPORTED:raise ValueError('Automatic standard hardware is unavailable for this construction')
     screw=supplied.get('hardware_screw','M3');shim=str(supplied.get('hardware_shim','.5'))
     if screw not in FASTENERS or shim not in SHIM_THICKNESSES:raise ValueError('Hardware size is not in the catalog')
     out=dict(hardware_mode=mode,hardware_screw=screw,hardware_shim=shim)

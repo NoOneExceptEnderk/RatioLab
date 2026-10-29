@@ -10,6 +10,7 @@ import traceback
 import sys
 import app_paths
 app_paths.prepare_native_runtime()
+app_paths.prepare_application_identity()
 import gi
 gi.require_version('Gtk','4.0')
 from gi.repository import Gtk, GLib, Gdk, Gio
@@ -34,6 +35,7 @@ from kinematics import options as io_options,default as io_default,TRIPLES as IO
 import hardware_catalog as hw
 
 BASE=app_paths.SOURCE_ROOT
+GLib.set_prgname(app_paths.APP_ID)
 GLib.set_application_name('RatioLab')
 GENERATED=app_paths.default_output_dir()
 LABELS=[gui_workflow.CATALOG.get(key,(label,''))[0] for key,label in FAMILIES.items()]
@@ -53,6 +55,7 @@ class ReducerApp(ProjectActions, Gtk.Application):
         self.init_projects()
         if self.design:self.components.refreshed(self.design)
         self.win.present()
+        self.updates.start()
         GLib.timeout_add(500, self.check_graphics)
     def select_view(self,name):
         self.canvas.view(name)
@@ -167,7 +170,7 @@ class ReducerApp(ProjectActions, Gtk.Application):
         variant=values.get('variant',next(iter(variants),None))
         selected=list(variants).index(variant) if variant in variants else 0
         if self.variant_selector.get_selected()!=selected:self.variant_selector.set_selected(selected)
-        self.inputs={};self.input_labels={};self.input_pages={};self.field_values=values;self.option_values={k:values[k] for k in ('bearing_mode','bearing','fit','hardware_mode','hardware_screw','hardware_shim','hardware_retaining','hardware_keys','hardware_bolts','hardware_shims','double_style','harmonic_output','io_scheme','io_scheme2','eccentric_design') if k in values}
+        self.inputs={};self.input_labels={};self.input_pages={};self.field_values=values;self.option_values={k:values[k] for k in ('bearing_mode','bearing','fit','hardware_mode','hardware_screw','hardware_shim','hardware_retaining','hardware_keys','hardware_bolts','hardware_shims','double_style','harmonic_output','io_scheme','io_scheme2','eccentric_design','output_interface','carrier_style','ratio_mode','spiral_hand','configuration') if k in values}
         def choice(key,label,choices,default,target=None):
             target=target or field_target
             target.append(Gtk.Label(label=label,xalign=0,css_classes=['field-label']))
@@ -188,6 +191,16 @@ class ReducerApp(ProjectActions, Gtk.Application):
                 self.rebuild_options(changes)
             dropdown.connect('notify::selected',change);target.append(dropdown)
             return dropdown
+        self.differential_selectors={}
+        if self.family=='differential':
+            from differential_wrist import OUTPUT_INTERFACES,CARRIER_STYLES,CONFIGURATIONS,ratio_labels
+            self.differential_selectors['configuration']=choice('configuration','Differential configuration',CONFIGURATIONS,'wrist')
+            self.differential_selectors['ratio_mode']=choice('ratio_mode','Side / transverse tooth ratio',ratio_labels(values),'custom')
+            self.differential_selectors['output_interface']=choice('output_interface','Output connection',OUTPUT_INTERFACES,'flange',self.sections['housing'][1])
+            self.differential_selectors['carrier_style']=choice('carrier_style','Carrier construction',CARRIER_STYLES,'open',self.sections['housing'][1])
+            if variant=='spiral':
+                from differential_wrist import SPIRAL_HANDS
+                self.differential_selectors['spiral_hand']=choice('spiral_hand','Local side spiral hand',SPIRAL_HANDS,1)
         double=is_double(self.family,variant)
         while (child:=self.eccentric_design_box.get_first_child()):self.eccentric_design_box.remove(child)
         self.eccentric_design_box.set_visible(self.family=='cycloidal')
@@ -257,6 +270,9 @@ class ReducerApp(ProjectActions, Gtk.Application):
             disabled=Gtk.Button(label='Automatic hardware · unavailable');disabled.set_sensitive(False);field_target.append(disabled)
             field_target.append(Gtk.Label(label=PRINT_REASON if printed else STUDY_REASON,xalign=0,wrap=True))
         specs=get_specs(self.family,variant,self.option_values.get('double_style'))
+        if self.family=='differential':
+            from differential_wrist import labelled_specs
+            specs=labelled_specs(specs,values)
         if self.option_values.get('bearing_mode','manual')!='manual':
             specs+=[('shoulder','Minimum axial margin [mm]',1,.5,5,.5)]
             if self.option_values.get('fit')=='custom':specs+=[('seat_allowance','Seat diameter allowance [mm]',0,-.08,.8,.01),('shaft_allowance','Shaft diameter allowance [mm]',0,-.8,.08,.01)]
@@ -266,6 +282,9 @@ class ReducerApp(ProjectActions, Gtk.Application):
         self.restore_raw_fields()
         self.building=False
         if self.family!=self.last_valid_family:self.canvas.view('iso')
+        if self.family == 'differential' and not getattr(self, '_differential_supports_shown', False):
+            self._differential_supports_shown = True
+            self.view_options['support'].set_active(True)
         generated=self.refresh()
         self.project_changed()
         # Option rebuilds record after normalization; bind to the resulting
@@ -330,16 +349,21 @@ class ReducerApp(ProjectActions, Gtk.Application):
                        and design.values.get('eccentric_design') == 'fdm_bolted')
             if printed:
                 linked.add('bore')
+            if self.family=='differential' and design.values['ratio_mode']!='custom':linked.add('output_teeth')
             self.building = True
             for key, spin in self.inputs.items():
-                if key in design.values and (mode != 'manual' or printed and key == 'bore'):
+                if key in design.values and (mode != 'manual' or key in linked):
                     spin.set_value(design.values[key])
                     spin.set_text(gui_workflow.roundtrip_text(design.values[key],spin.get_digits()))
                 spin.set_sensitive(key not in linked)
                 if key in linked:
                     spin.add_css_class('derived')
-                    source = 'printed shaft bearing seat' if printed and key=='bore' else 'NSK '+str(design.values.get('bearing', ''))+' and selected fit'
-                    spin.set_tooltip_text('Linked to '+source+'. Change its source in Assembly.')
+                    if self.family=='differential' and key=='output_teeth':
+                        from differential_wrist import ratio_labels
+                        source=ratio_labels(design.values)[design.values['ratio_mode']]+'; choose Custom tooth counts to edit'
+                        spin.set_tooltip_text('Linked to '+source+'. Use Change source below.')
+                    else:source = 'printed shaft bearing seat' if printed and key=='bore' else 'NSK '+str(design.values.get('bearing', ''))+' and selected fit'
+                    if not (self.family=='differential' and key=='output_teeth'):spin.set_tooltip_text('Linked to '+source+'. Change its source in Assembly.')
                     if key in self.linked_notes:
                         box, note = self.linked_notes[key];note.set_text('Linked to '+source);box.set_visible(True)
                 else:

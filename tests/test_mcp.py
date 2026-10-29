@@ -16,6 +16,8 @@ import unittest
 from ratiolab_agent import AgentService, Limits
 import ratiolab_agent
 from ratiolab_mcp import Server, MODERN, LEGACY, PREFIX, TOOLS, serve
+from release_version import RELEASE_VERSION
+from geometry import FAMILIES
 
 ROOT=Path(__file__).resolve().parent
 META={PREFIX+'protocolVersion':MODERN,PREFIX+'clientCapabilities':{}}
@@ -41,6 +43,7 @@ class ProtocolTests(unittest.TestCase):
         self.assertEqual(result['capabilities'],{'tools':{}})
         self.assertEqual(result['cacheScope'],'private');self.assertEqual(result['ttlMs'],0)
         self.assertIn(PREFIX+'serverInfo',result['_meta'])
+        self.assertEqual(result['_meta'][PREFIX+'serverInfo'],dict(name='RatioLab',version=RELEASE_VERSION))
         listed=self.server.process(request('tools/list'))['result']
         self.assertEqual([tool['name'] for tool in listed['tools']],sorted(tool['name'] for tool in TOOLS))
         self.assertEqual(len(listed['tools']),13)
@@ -48,7 +51,7 @@ class ProtocolTests(unittest.TestCase):
         called=self.server.process(request('tools/call',{'name':'ratiolab.discover','arguments':{}}))['result']
         self.assertFalse(called['isError'])
         self.assertEqual(json.loads(called['content'][0]['text']),called['structuredContent'])
-        self.assertEqual(len(called['structuredContent']['families']),9)
+        self.assertEqual({row['id'] for row in called['structuredContent']['families']},set(FAMILIES))
         # Metadata never leaks from one modern request to the next.
         self.assertEqual(self.server.process(request('tools/list',modern=False))['error']['code'],-32602)
         self.assertEqual(self.server.process(request('ping'))['error']['code'],-32601)
@@ -57,6 +60,7 @@ class ProtocolTests(unittest.TestCase):
         params=dict(protocolVersion='2025-06-18',capabilities={},clientInfo=dict(name='test',version='1'))
         initialized=self.server.process(request('initialize',params,modern=False))['result']
         self.assertEqual(initialized['protocolVersion'],LEGACY)
+        self.assertEqual(initialized['serverInfo'],dict(name='RatioLab',version=RELEASE_VERSION))
         self.assertNotIn('resultType',initialized)
         self.assertEqual(self.server.process(request('tools/list',modern=False))['error']['code'],-32602)
         self.assertIsNone(self.server.process(dict(jsonrpc='2.0',method='notifications/initialized')))

@@ -51,7 +51,7 @@ class AgentTests(unittest.TestCase):
                     self.assertEqual(unchanged['revision'],0)
                     self.assertEqual(details['defaults'],project['parameters'])
                     self.assertIn('bearing_mode',details['options'])
-                    if family not in ('spur','helical','double'):
+                    if family not in ('spur','helical','double','differential'):
                         self.assertTrue(details['io_schemes'])
                     self.service.project_close(**self.ref(unchanged))
 

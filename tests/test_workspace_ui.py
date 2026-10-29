@@ -26,6 +26,11 @@ class ResultSummaryTests(unittest.TestCase):
             if 'signed_ratio' in d.analysis:
                 self.assertEqual(float(values[0][1]), d.analysis['signed_ratio'])
                 self.assertAlmostEqual(float(values[1][1]), d.analysis['output']['rpm'], places=2)
+            elif family == 'differential':
+                self.assertEqual(values[0][0], 'Carrier tilt')
+                self.assertEqual(values[1][0], 'Output spin')
+                self.assertEqual(float(values[0][1]), d.analysis['kinematics']['rates_rpm']['carrier'])
+                self.assertEqual(float(values[1][1]), d.analysis['kinematics']['rates_rpm']['output_spin'])
             else:
                 self.assertEqual(values[0][0], 'Pitch diameter')
                 self.assertAlmostEqual(float(values[0][1]), 2*d.analysis['gear']['pitch_radius'], places=3)
@@ -85,8 +90,202 @@ class WorkspaceTests(unittest.TestCase):
         self.assertIs(a.motion_play.get_parent(), a.motion_speed_text.get_parent())
         self.assertTrue(a.send_btn.is_ancestor(a.cad_menu.get_popover()))
         self.assertIs(a.export_menu.get_parent(), a.cad_menu.get_parent())
-        self.assertEqual(a.selector.get_model().get_n_items(), 9)
+        self.assertEqual(a.selector.get_model().get_n_items(), len(FAMILIES))
         self.assertEqual(a.geometry_derived['planets'].get_text(),'54')
+
+    def test_differential_independent_signed_speeds_demo_modes_and_actual_tick(self):
+        from math import pi
+        a=self.app
+        a.load_config_data(dict(format='solidcraft-riduttori/1',family='differential',
+                               parameters=generate('differential',dict(input_rpm=-7.5,input_b_rpm=17.25)).values))
+        self.assertIsNotNone(a.design,a.status.get_text())
+        self.assertEqual(a.motion_caption.get_text(),'Input A speed')
+        self.assertTrue(a.io_frame.get_visible())
+        self.assertEqual(a.read_values()['input_rpm'],-7.5)
+        self.assertEqual(a.read_values()['input_b_rpm'],17.25)
+        self.assertFalse(a.study.get_visible())
+        for mode,expected in [('tilt',(12,0)),('spin',(0,-12)),('combined',(6,-6))]:
+            a.io_mode_buttons[mode].emit('clicked')
+            q=a.design.analysis['kinematics']['rates_rpm']
+            self.assertEqual((q['carrier'],q['output_spin']),expected)
+        a.rebuild_options(dict(input_rpm=0,input_b_rpm=12))
+        class Clock:
+            def __init__(self,t):self.t=t
+            def get_frame_time(self):return self.t
+        a.canvas.reset_motion()
+        a.canvas.set_motion_playing(True)
+        a.canvas.on_motion_tick(a.canvas,Clock(0))
+        a.canvas.on_motion_tick(a.canvas,Clock(1000000))
+        a.canvas.set_motion_playing(False)
+        self.assertAlmostEqual(a.canvas.motion_phase,12*2*pi/60)
+        # Either speed can change without jumping back to the initial pose.
+        phase=a.canvas.motion_phase
+        matrices=[a.canvas.motion_plan.matrix(i,phase) for i in range(len(a.design.parts))]
+        a.inputs['input_b_rpm'].set_text('7.125')
+        self.assertTrue(a.refresh())
+        self.assertEqual(a.design.values['input_b_rpm'],7.125)
+        self.assertEqual(a.canvas.motion_phase,phase)
+        for i,before in enumerate(matrices):
+            for x,y in zip(before,a.canvas.motion_plan.matrix(i,phase)):self.assertAlmostEqual(x,y,places=10)
+        matrices=[a.canvas.motion_plan.matrix(i,phase) for i in range(len(a.design.parts))]
+        a.motion_speed_text.set_text('-19.25')
+        a.motion_speed_text.emit('activate')
+        self.assertEqual(a.design.values['input_rpm'],-19.25)
+        for i,before in enumerate(matrices):
+            for x,y in zip(before,a.canvas.motion_plan.matrix(i,phase)):self.assertAlmostEqual(x,y,places=10)
+        # Interference phases use the nominal rate plan, then restore live angles.
+        from motion import build_plan, IDENTITY
+        live=a.canvas.motion_plan
+        a.canvas.show_inspection(.9,(0,2))
+        nominal=build_plan(a.design)
+        for i in range(len(a.design.parts)):
+            self.assertEqual(a.canvas.motion_plan.matrix(i,.9),nominal.matrix(i,.9))
+        a.canvas.clear_inspection()
+        self.assertIs(a.canvas.motion_plan,live)
+        # A selected-package nominal snapshot restores the same live angle plan.
+        a.components.select((0,2))
+        for inspecting in (False,True):
+            if inspecting:a.canvas.show_inspection(.9,(0,2))
+            with patch.object(a,'refresh',return_value=True),patch.object(a,'background') as worker:
+                a.components.export('package')
+            self.assertTrue(worker.called,a.status.get_text())
+            self.assertEqual(a.canvas.inspection_phase,.9 if inspecting else None)
+            a.canvas.clear_inspection()
+            self.assertIs(a.canvas.motion_plan,live)
+            self.assertEqual(a.canvas.motion_phase,phase)
+        for i,before in enumerate(matrices):
+            for x,y in zip(before,a.canvas.motion_plan.matrix(i,phase)):self.assertAlmostEqual(x,y,places=10)
+        a.canvas.reset_motion()
+        for i in range(len(a.design.parts)):self.assertEqual(a.canvas.motion_plan.matrix(i,0),IDENTITY)
+        a.combination_search.open()
+        self.assertFalse(a.combination_search.run_button.get_sensitive())
+        self.assertIn('single fixed input/output ratio',a.combination_search.unavailable)
+        a.combination_search.window.close()
+        self.assertNotIn('input_torque',a.inputs)
+        a.load_config_data(dict(format='solidcraft-riduttori/1',family='planetary',parameters=generate('planetary').values))
+        self.assertNotEqual(a.io_frame.get_label(),'Two independent inputs')
+
+    def test_differential_construction_selectors_visibility_derived_counts_and_config(self):
+        from differential_wrist import OUTPUT_INTERFACES,CARRIER_STYLES,RATIO_MODES
+        a=self.app
+        a.load_config_data(dict(format='solidcraft-riduttori/1',family='differential',
+                               parameters=generate('differential',dict(output_teeth=31)).values))
+        def choose(key,value,choices):
+            a.differential_selectors[key].set_selected(list(choices).index(value))
+            self.assertIsNotNone(a.design,a.status.get_text())
+        choose('output_interface','hollow',OUTPUT_INTERFACES)
+        for key in ('flange_radius','bolt_count','bolt_diameter'):self.assertNotIn(key,a.inputs)
+        for key in ('passage_diameter','output_extension'):self.assertIn(key,a.inputs)
+        self.assertNotIn('carrier_bolt_diameter',a.inputs)
+
+        a.inputs['passage_diameter'].set_text('6')
+        a.inputs['output_extension'].set_text('19')
+        self.assertTrue(a.refresh())
+        choose('carrier_style','split',CARRIER_STYLES)
+        self.assertIn('carrier_bolt_diameter',a.inputs)
+        choose('ratio_mode','spin_2_1',RATIO_MODES)
+        self.assertEqual(a.design.values['output_teeth'],48)
+        self.assertFalse(a.inputs['output_teeth'].get_sensitive())
+        self.assertTrue(a.linked_notes['output_teeth'][0].get_visible())
+        self.assertIn('Custom tooth counts',a.linked_notes['output_teeth'][1].get_text())
+        gui_workflow.reveal_source(a,'output_teeth')
+        self.assertEqual(a.fields.get_visible_child_name(),'geometry')
+        choose('ratio_mode','custom',RATIO_MODES)
+        self.assertTrue(a.inputs['output_teeth'].get_sensitive())
+        self.assertEqual(a.design.values['output_teeth'],31,'The earlier custom count must survive preset exploration')
+        saved=a.config()
+        for key,wanted in (('output_interface','hollow'),('carrier_style','split'),('ratio_mode','custom')):
+            self.assertEqual(saved['parameters'][key],wanted)
+            self.assertEqual(a.option_values[key],wanted)
+            self.assertEqual(a.read_values()[key],wanted)
+        a.load_config_data(saved)
+        self.assertEqual(a.config(),saved)
+        self.assertEqual(a.design.values['passage_diameter'],6)
+        self.assertEqual(a.design.analysis['wrist_construction']['output_extension_mm'],19)
+        choose('output_interface','solid',OUTPUT_INTERFACES)
+        self.assertNotIn('passage_diameter',a.inputs)
+        self.assertFalse(next(p for p in a.design.parts if p.name=='Shaft_output').holes)
+        choose('output_interface','flange',OUTPUT_INTERFACES)
+        for key in ('passage_diameter','output_extension'):self.assertNotIn(key,a.inputs)
+        for key in ('flange_radius','bolt_count','bolt_diameter'):self.assertIn(key,a.inputs)
+        choose('carrier_style','open',CARRIER_STYLES)
+        self.assertNotIn('carrier_bolt_diameter',a.inputs)
+
+    def test_differential_spiral_controls_visibility_editing_and_saved_hand(self):
+        a=self.app
+        a.load_config_data(dict(format='solidcraft-riduttori/1',family='differential',
+                               parameters=generate('differential',dict(variant='spiral',spiral_angle=27.5,spiral_hand=-1)).values))
+        self.assertIsNotNone(a.design,a.status.get_text())
+        self.assertTrue(a.variant_box.get_visible())
+        self.assertIn('spiral_angle',a.inputs)
+        self.assertTrue(a.inputs['spiral_angle'].get_sensitive())
+        self.assertEqual(a.differential_selectors['spiral_hand'].get_selected(),0)
+        a.inputs['spiral_angle'].set_text('12.75')
+        self.assertTrue(a.refresh())
+        a.differential_selectors['spiral_hand'].set_selected(1)
+        self.assertEqual(a.design.values['spiral_angle'],12.75)
+        self.assertEqual(a.design.values['spiral_hand'],1)
+        saved=a.config()
+        a.load_config_data(saved)
+        self.assertEqual(a.config(),saved)
+        self.assertGreater(len(a.design.parts[0].stations),2)
+        a.variant_selector.set_selected(0)
+        self.assertIsNotNone(a.design,a.status.get_text())
+        self.assertNotIn('spiral_angle',a.inputs)
+        self.assertNotIn('spiral_hand',a.differential_selectors)
+        self.assertEqual(len(a.design.parts[0].stations),2)
+        a.variant_selector.set_selected(1)
+        self.assertEqual(a.design.values['spiral_angle'],12.75)
+        self.assertEqual(a.design.values['spiral_hand'],1)
+
+    def test_classic_differential_carrier_boundary_controls_motion_continuity_and_config(self):
+        from differential_wrist import CONFIGURATIONS
+        from motion import IDENTITY
+        from math import pi
+        a=self.app
+        a.load_config_data(dict(format='solidcraft-riduttori/1',family='differential',
+                               parameters=generate('differential',dict(configuration='classic',output_interface='hollow')).values))
+        self.assertIsNotNone(a.design,a.status.get_text())
+        self.assertEqual(a.motion_caption.get_text(),'Carrier input speed')
+        self.assertIn('output_difference_rpm',a.inputs)
+        self.assertNotIn('input_b_rpm',a.inputs)
+        self.assertNotIn('output_shaft',a.inputs)
+        self.assertNotIn('output_extension',a.inputs)
+        self.assertIn('spider_pin_diameter',a.inputs)
+        self.assertIn('spider_clearance',a.inputs)
+        self.assertIn('carrier_bolt_diameter',a.inputs)
+        self.assertIn('Side output',a.input_labels['input_shaft'])
+        for mode,wanted in (('equal',(12,12)),('a_held',(0,24)),('counterrotate',(-12,12))):
+            a.io_mode_buttons[mode].emit('clicked')
+            q=a.design.analysis['kinematics']['rates_rpm']
+            self.assertEqual((q['side_a'],q['side_b']),wanted)
+        class Clock:
+            def __init__(self,t):self.t=t
+            def get_frame_time(self):return self.t
+        a.canvas.reset_motion();a.canvas.set_motion_playing(True)
+        a.canvas.on_motion_tick(a.canvas,Clock(0));a.canvas.on_motion_tick(a.canvas,Clock(1000000))
+        a.canvas.set_motion_playing(False)
+        self.assertAlmostEqual(a.canvas.motion_phase,12*2*pi/60)
+        carrier=next(i for i,p in enumerate(a.design.parts) if p.name=='Pin_spider')
+        self.assertEqual(a.canvas.motion_plan.matrix(carrier,a.canvas.motion_phase),IDENTITY)
+        phase=a.canvas.motion_phase
+        before=[a.canvas.motion_plan.matrix(i,phase) for i in range(len(a.design.parts))]
+        a.inputs['output_difference_rpm'].set_text('7.125');self.assertTrue(a.refresh())
+        a.motion_speed_text.set_text('-19.25');a.motion_speed_text.emit('activate')
+        self.assertEqual(a.design.values['input_rpm'],-19.25)
+        for i,old in enumerate(before):
+            for x,y in zip(old,a.canvas.motion_plan.matrix(i,phase)):self.assertAlmostEqual(x,y,places=10)
+        saved=a.config();a.load_config_data(saved);self.assertEqual(a.config(),saved)
+        a.rebuild_options(dict(input_rpm=0,output_difference_rpm=0,input_b_rpm=99))
+        a.canvas.reset_motion();a.canvas.set_motion_playing(True)
+        a.canvas.on_motion_tick(a.canvas,Clock(0));a.canvas.on_motion_tick(a.canvas,Clock(1000000))
+        a.canvas.set_motion_playing(False)
+        self.assertEqual(a.canvas.motion_phase,0,'The inactive legacy B speed must not drive classic playback')
+        a.differential_selectors['configuration'].set_selected(list(CONFIGURATIONS).index('wrist'))
+        self.assertEqual(a.motion_caption.get_text(),'Input A speed')
+        self.assertIn('input_b_rpm',a.inputs)
+        self.assertNotIn('output_difference_rpm',a.inputs)
+        self.assertNotIn('spider_pin_diameter',a.inputs)
 
     def test_bad_assembly_retains_preview_and_highlights_field(self):
         a = self.app

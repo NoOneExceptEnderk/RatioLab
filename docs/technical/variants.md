@@ -1,6 +1,6 @@
 # Doppia elica, viti cilindriche e strain wave
 
-Revisione del 23 ottobre 2026. Modelli dimensionali e di studio; nessuna certificazione di resistenza o producibilità del riduttore completo.
+Dimensional geometry and ideal motion; no strength or production-readiness certification of a complete reducer.
 
 ## Doppia elica: unite e separate
 
@@ -11,38 +11,17 @@ Per l’ingranaggio singolo si sceglie direttamente la variante. Per planetary, 
 
 La gola è nascosta e forzata a zero nelle eliche unite; deve essere positiva nelle separate. I vecchi JSON con `gap: 0` vengono riconosciuti come uniti e quelli con gola positiva come separati. Il ricoprimento assiale continua a usare la larghezza di una singola metà attiva, senza contare la gola come dentatura. La cancellazione della spinta assiale richiede una ripartizione simmetrica del carico.
 
-## Vite senza fine: ZA e ZI
+## Cylindrical worm: ZA and ZI
 
-Sono implementate due famiglie geometriche reali:
+ZA retains straight axial screw flanks; ZI retains a transverse involute screw.
+The wheel now uses the matching helicoid envelope, including the swept hob-tip
+root transition and backlash, rather than a helical-gear surrogate. Both hands,
+1–4 starts, separate bores and optional journals remain available. Unsupported
+or unresolved geometries are rejected explicitly.
 
-| Variante | Definizione del fianco della vite |
-|---|---|
-| Cilindrica ZA | Rettilineo nella sezione assiale; sezione trasversale a spirale di Archimede |
-| Cilindrica ZI | Evolvente nella sezione trasversale; superficie elicoidale evolvente |
-
-Riferimenti: [Gear Technology, Ask the expert — Worm gears, descrizione delle forme DIN 3975](https://www.geartechnology.com/ext/resources/issues/1013x/worm_gears.pdf) e [Litvin e Fuentes, Gear Geometry and Applied Theory, capitolo Worm-Gear Drives with Cylindrical Worms, estratto tecnico](https://www.globalspec.com/reference/62679/203279/html-head-chapter-19-worm-gear-drives-with-cylindrical-worms). È consultata la descrizione pubblica del capitolo, non dichiarata la lettura dell’intero libro.
-
-Il vecchio profilo trasversale era una stella con raccordi approssimati. Ora la ZA viene ricavata dalla condizione sul fianco assiale. Con modulo assiale mx, numero principi s, raggio primitivo rp, gioco assiale totale j e k = mx s/2:
-
-```
-Avanzamento L = π mx s
-γ = atan(mx s / d vite)
-mn = mx cos γ
-αn = atan(tan αassiale cos γ)
-θ mezzo dente(r) = π/(2s) − (r − rp) tan αassiale / k − j/(4k)
-```
-
-Un’intersezione a piano assiale fisso soddisfa x = −kθ: il fianco ha quindi pendenza dx/dr = tan αassiale. Lo spessore assiale primitivo di ciascuna vite è πmx/2 − j/2. Il gioco nominale della coppia è ripartito fra vite e ruota.
-
-Per la ZI si usa un’evolvente trasversale di modulo d vite/s e angolo trasversale ricavato da β vite = 90° − γ. Il gioco trasversale equivalente della vite è j/tan γ; non è uguale al gioco assiale j. Le altezze radiali sono mx e 1,25mx nella convenzione assiale adottata. Non è una certificazione della geometria completa secondo DIN/ISO.
-
-La mano sinistra è una riflessione della destra, comprese le diagonali della triangolazione, sia sulla vite sia sulla ruota: le due versioni hanno lo stesso volume numerico. Con vite sull’asse +X, ruota sull’asse +Z e centro ruota sul semiasse Y negativo, i=mano×z/principi: la mano sinistra inverte il verso ruota anche nell’animazione e nei port cinematici. Le facce sono condivise fra preview e STEP. Sono disponibili 1–4 principi, mano, foro vite e foro ruota indipendenti, lunghezza del filetto, diametro e lunghezza dei codoli. I codoli si possono eliminare impostandone la lunghezza a zero; devono altrimenti stare fra foro e fondo filetto con materiale residuo.
-
-Il limite precedente di quattro giri è sostituito da un limite di complessità di 250000 facce. Il passo angolare della vite è scelto per una freccia nominale massima di 0,02 mm; la discretizzazione non coincide con una tolleranza di lavorazione.
-
-**La ruota ha ora una gola dall’inviluppo del cilindro di testa vite, con fianchi elicoidali approssimati.** Δ(z)=Rw−sqrt(Rw²−z²), Rw=d vite/2+mx; il dominio richiede metà larghezza <0,95Rw. Si discretizza la gola con soglia di corda assiale 0,01 mm. Questo migliora la superficie effettiva della ruota ma non risolve l’inviluppo coniugato del filetto/hob. La vite ha ora il profilo geometrico dichiarato, ma la coppia completa rimane uno studio: contatto, interferenze e utensile della ruota devono ancora essere risolti. Il programma non deduce irreversibilità o rendimento dalla sola geometria.
-
-Esistono anche ZN, ZK, ZC e soluzioni globoidali/doppio avvolgimento. Sono documentate, ma non esposte come varianti generate: richiedono definizione dell’utensile o superfici e ruote coniugate dedicate. Riferimento sulle forme cilindriche: [Technology of Manufacturing of ZC Cylindrical Worm, descrizione dei tipi ZA/ZN/ZI/ZK/ZC](https://pdfs.semanticscholar.org/88c7/49b0b4fa5e9308bc700b2cebf16cdea6e61f.pdf).
+See the [worm equations, original references, supported domain and numerical
+validation](worm.md). The ideal rigid generated envelope and discrete clearance
+checks do not certify a manufactured transmission, strength or self locking.
 
 ## Strain wave: cup, flat cup e silk hat
 
@@ -56,9 +35,9 @@ Cup e flat cup includono un foro di uscita indipendente da quello della camma. S
 
 Queste architetture sono documentate nei [modelli ufficiali Harmonic Drive Systems: CSF, CSD e SHF](https://www.hds.co.jp/english/products/model/). I nomi descrivono l’architettura; non vengono riprodotte quote di uno specifico prodotto commerciale o assegnati codici d’ordine.
 
-L’ellisse primitiva usa a = rp + ampiezza; b è risolto numericamente affinché il perimetro sia 2πrp. La verifica indipendente usa 4096 punti. Il passo dei denti è ora uniforme sull’arco della linea primitiva, risolvendo l’integrale della velocità ellittica con otto armoniche e inversione di Newton. Gli offset radiali del profilo di riferimento diventano offset sulla normale locale all’ellisse, orientando i denti. La transizione assiale interpola la mappa circolare e quella ellittica; il moto usa identiche coordinate materiali immutabili e coefficienti nello shader. Il dominio numericamente verificato è q=(a²−b²)/(a²+b²)≤0,25. Conservare perimetro e passo non risolve elasticità o coniugazione.
+L’ellisse primitiva usa a = rp + ampiezza; b è risolto numericamente affinché il perimetro sia 2πrp. La verifica indipendente usa 4096 punti. Il passo dei denti è ora uniforme sull’arco della linea primitiva, risolvendo l’integrale della velocità ellittica con otto armoniche e inversione di Newton. Gli offset radiali del profilo di riferimento diventano offset sulla normale locale all’ellisse, orientando i denti. La transizione assiale interpola la mappa circolare e quella ellittica; il moto usa identiche coordinate materiali immutabili e coefficienti nello shader. Il dominio numericamente verificato è q=(a²−b²)/(a²+b²)≤0,25. The ring is generated from the matching complete tooth sweep under this map; perimeter and pitch conservation alone are not its conjugacy check. Deformation remains prescribed, without an elastic solution.
 
-Il generatore d’onda e l’involucro del suo cuscinetto seguono il vano deformato con spessore e giochi radiali espliciti. Il cuscinetto è classificato come **sagoma da definire**, non come acquisto di catalogo. I denti restano evolventi mappate di studio, con possibili interferenze; non riproducono il profilo industriale S tooth e non costituiscono un flexspline dimensionato a fatica.
+Il generatore d’onda e l’involucro del suo cuscinetto seguono il vano deformato con spessore e giochi radiali espliciti. Il cuscinetto è classificato come **sagoma da definire**, non come acquisto di catalogo. The flexible tooth reference is mapped with the local ellipse normal; the rigid ring uses its full generated outer swept envelope, including all branches and corners. Reference backlash and derived numerical enclosure relief are reported separately. This does not reproduce an industrial S-tooth profile or establish fatigue capacity. See [the equations, original references, sampled verification and remaining limits](strain-wave.md).
 
 ### Due schemi cinematici
 

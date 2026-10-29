@@ -9,6 +9,7 @@ import sys
 
 from app_paths import (APP_ID, bundle_dir, config_dir, data_dir, default_output_dir,
                        prepare_native_runtime, require_gtk_version, resource_path)
+from release_version import RELEASE_VERSION
 
 
 def diagnose(gui=False):
@@ -110,7 +111,7 @@ def diagnose(gui=False):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description='RatioLab · parametric gears and reducers')
-    parser.add_argument('--version', action='version', version='RatioLab 0.1.0')
+    parser.add_argument('--version', action='version', version='RatioLab '+RELEASE_VERSION)
     parser.add_argument('--diagnose', action='store_true', help='Check installed GTK, Cairo, resources and GL loader')
     parser.add_argument('--diagnose-gui', action='store_true', help='Also open and render a test OpenGL preview')
     parser.add_argument('--self-test', action='store_true', help='Check runtime, preferences and model exports in a temporary profile')

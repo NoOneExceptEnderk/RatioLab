@@ -21,6 +21,23 @@ SOURCE_ROOT = (MODULE_ROOT.parent
 _dll_directories = []
 
 
+def prepare_application_identity():
+    """Match Windows taskbar grouping to the installed RatioLab shortcuts."""
+    if sys.platform != 'win32':
+        return
+    import ctypes
+    import logging
+    try:
+        identify = ctypes.WinDLL('shell32').SetCurrentProcessExplicitAppUserModelID
+        identify.argtypes = [ctypes.c_wchar_p]
+        identify.restype = ctypes.c_long
+        result = identify(APP_ID)
+        if result < 0:
+            raise OSError(f'Windows rejected the application identity ({result})')
+    except OSError as error:
+        logging.getLogger(__name__).warning('Could not set RatioLab taskbar identity: %s', error)
+
+
 def bundle_dir():
     """PyInstaller's immutable runtime root, including macOS bundle symlinks."""
     root = getattr(sys, '_MEIPASS', None)
@@ -69,6 +86,7 @@ def resource_path(relative):
     source_documents = {
         'INSTALL.md': 'docs/installation.md',
         'MCP.md': 'docs/mcp.md',
+        'CHANGELOG.md': 'CHANGELOG.md',
         'LICENSE': 'LICENSE',
         'COPYRIGHT': 'COPYRIGHT',
     }

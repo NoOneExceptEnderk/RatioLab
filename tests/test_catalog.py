@@ -12,8 +12,8 @@ class CatalogTests(unittest.TestCase):
 
     def test_desktop_catalog_keeps_only_requested_transmissions(self):
         from geometry import FAMILIES, VARIANTS
-        self.assertEqual(len(FAMILIES), 9)
-        for family in ('internal', 'parallel', 'planetary', 'cycloidal', 'harmonic', 'worm'):
+        self.assertEqual(len(FAMILIES), 10)
+        for family in ('internal', 'parallel', 'planetary', 'cycloidal', 'harmonic', 'worm', 'differential'):
             self.assertIn(family, FAMILIES)
         self.assertEqual(set(VARIANTS['parallel']), {'spur', 'helical', 'double'})
         self.assertEqual(set(VARIANTS['internal']), {'spur', 'helical', 'double'})

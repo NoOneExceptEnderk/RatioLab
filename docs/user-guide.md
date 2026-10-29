@@ -40,7 +40,7 @@ server maintains its own project handles rather than controlling an open window.
 
 ## Active catalog
 
-Only these nine families are available, in this order:
+These ten families are available, in this order:
 
 | Family | Main variants or purpose |
 |---|---|
@@ -49,18 +49,107 @@ Only these nine families are available, in this order:
 | Double helical gear | Joined helices or separated by a groove |
 | Planetary gearbox | Spur, helical, double helical, one or two stages |
 | Cycloidal reducer | Single or dual disc with opposing eccentrics |
-| Strain wave reducer | Cup, flat cup, silk hat; geometric study |
-| Worm and wheel | Cylindrical ZA / ZI; concept gear pair |
+| Strain wave reducer | Cup, flat cup, silk hat; generated matching ring |
+| Worm and wheel | Cylindrical ZA / ZI with generated wheel |
 | Parallel shaft reducer | Spur, helical, double helical |
 | Internal gear reducer | Fixed axes; spur, helical, double helical |
+| Bevel differential | Wrist or classic configuration; straight or spiral bevel gears |
 
 Unsupported families are rejected by both the interface and generator. Previously exported files remain independent artifacts.
+
+### Bevel differential
+
+Choose **Bevel differential** with its default **Wrist** configuration to generate three bevel gears,
+two independent input stub shafts, an open carrier and a drilled output flange.
+Belts, pulleys and motors are not generated; add the external drive in your CAD.
+Set the module, input/output tooth counts, face width, shaft diameters and flange
+dimensions in Dimensions and Assembly. **Supports** reveals the carrier and
+nominal bearing envelopes and is enabled on the first visit to this family.
+
+The choices are independent. In Assembly, **Output connection** selects the
+original drilled flange, a solid shaft or a hollow shaft. Solid and hollow
+shafts have an extension measured beyond the output carrier face. Hollow shafts
+have a real continuous coaxial passage through the output gear/shaft/hub
+assembly, with a minimum 1 mm shaft wall. This is the local output passage;
+it does not establish an unrestricted cable route through the whole wrist or
+through its tilt range. Flange-only dimensions and the hollow-passage dimension
+are hidden when they do not apply.
+
+**Carrier construction** offers the original open carrier or split members
+with open bearing-seat halves. The split cheeks and bridges remain separate
+parts; bridge lap tabs have matching joining holes, an axial clearance gap and
+at least 1 mm layer thickness. Bridge ends butt against the cheek faces. Choose
+the joining hole diameter and complete fastener selection, axial retention and
+clamping in CAD; no stock fasteners or validated clamp capacity are inferred.
+
+In Dimensions, **Side / output tooth ratio** offers custom counts, 1:1 teeth
+or **Relative spin reduction 2:1**. The latter derives twice as many output
+teeth as side teeth (up to 30 side teeth), reducing relative output spin by
+two while retaining the carrier mean-speed equation. Derived output teeth are
+read-only with **Change source…**; choose Custom to edit both counts. Exploring
+presets preserves the earlier custom count in the current editing session.
+Old configurations retain the original flange/open construction and their
+custom counts. A
+[hollow shaft / split carrier example](../examples/differential-wrist-hollow-split.config.json)
+demonstrates the independent choices.
+
+Set signed **Input A speed** in the motion bar and **Input B speed** under Motion.
+The **Tilt**, **Spin** and **Combined** buttons demonstrate 12/12, 12/−12 and
+12/0 rpm inputs. Both signs refer to the same world +X direction, although the
+input shafts emerge on opposite sides. Equal speeds rotate the carrier about X;
+opposing speeds rotate the output about its carrier's Z axis. Results
+show both output speeds rather than a single reduction ratio. No combined power
+balance or output torque is calculated without independent load data.
+
+The ideal equations are `carrier = (A+B)/2` and
+`output spin = (side teeth/output teeth) × (B−A)/2`. Output spin is relative to
+the moving carrier. The working flanks are exact spherical involutes, with an
+optional logarithmic spiral trace. Pressure angle is transverse. The planar end
+caps form a custom blank, not a KHK standard full-depth blank. The generator
+checks the common normal, root domain and continuous availability of ideal tooth
+engagement; combinations with gaps between successive contacts are rejected.
+Face width is limited to one third of the cone distance. Bearings and retention
+require completion in CAD. STEP/STL share the preview surfaces in the nominal
+pose; SVG/DXF are sections, not cutting templates. Start with the
+[example configuration](../examples/differential-wrist.config.json).
+
+The construction selector offers **Straight bevel** and **Spiral bevel**.
+Spiral exposes an unsigned angle (0–45°) and local input hand (−1 or +1).
+Both inputs use the selected local hand; the perpendicular output uses the
+opposite hand. Sections retain fixed circular bores. Zero angle reproduces the
+straight geometry exactly. Profile refinement and spiral trace chords use a
+0.003 mm sampling criterion; this is not a global surface-error proof or a
+manufacturing tolerance. Faceted surfaces, especially at zero backlash, still
+need discrete motion checks. See the
+[spiral example](../examples/differential-wrist-spiral.config.json) and the
+[equations, references, custom blank and geometry limits](technical/differential.md).
+
+The independent **Differential configuration** selector also offers **Classic**:
+direct carrier input, two coaxial side outputs and an internal spider bevel on
+a carrier-fixed pin. The perpendicular wrist output shaft/flange is removed.
+A drilled annular carrier input mount clears side output A; the full mount
+thickness is reserved before the side output's exposed extension. Choose solid,
+hollow or flanged connections for both side outputs. Hollow side passages are
+local; the spider and pin can obstruct a route through the complete mechanism.
+Spider pin diameter and positive radial running clearance are explicit; axial
+retainers and all mounting/fastening interfaces remain nominal.
+
+For Classic, set **Carrier input speed** in the motion bar and **Prescribed side
+speed difference B−A** under Motion. Outputs are `A=C−(B−A)/2` and
+`B=C+(B−A)/2`, with all signs about world +X. The difference is a visualization
+boundary condition, not a second motor or a speed split predicted from loads.
+**Equal**, **A held** and **Counterrotate** demonstrate 12/0, 12/24 and 0/24 rpm
+carrier/difference settings. A held is a prescribed zero side speed, not a
+physical differential lock. Results and component roles identify the carrier
+input, two outputs and internal spider; no output torque or traction is inferred.
+The [classic example](../examples/differential-classic.config.json) can be
+opened directly. No crown/pinion input stage, belts, pulleys or motors are generated.
 
 ## Preview and motion
 
 Drag to rotate, scroll to zoom, and double click or use Fit to reset the camera. **Supports**, **Housing**, **Exploded** and **Section** control the view. Cycloidal output pins remain visible when Supports is disabled, in both single and dual disc variants.
 
-Use the single motion bar below the preview: **Start motion / Pause**, a precise RPM entry, **Adjust** and **Initial pose**. Adjust opens a progressive RPM slider and ±1 controls; playback is not duplicated in that popover. Press Enter or leave the entry to apply; both decimal points and commas are accepted. Zero RPM freezes the phase. Changing only valid RPM preserves the current phase.
+Use the single motion bar below the preview: **Start motion / Pause**, a precise RPM entry, **Adjust** and **Initial pose**. Adjust opens a progressive RPM slider and ±1 controls; playback is not duplicated in that popover. Press Enter or leave the entry to apply; both decimal points and commas are accepted. All inputs at zero freeze the phase. Changing only valid RPM preserves the current phase.
 
 Closing Adjust does not stop playback. Starting motion returns from exploded view to the assembly pose. At high speeds, video sampling may cause visual aliasing.
 
@@ -91,11 +180,13 @@ surface distance per pair and observed class, with a selectable sample pose.
 This is **discrete sampling, not continuous collision certification**. Limits
 are 721 poses, 128 parts, 300,000 triangles and the selected time budget (default
 120 seconds). Unfinished or unsupported checks are explicitly incomplete. Rigid
-closed triangle surfaces are supported; arbitrary warps and time-varying
-flexspline deformation are excluded with a reason, so strain-wave assemblies
-remain partial. Worm/wheel and strain-wave geometry remain studies without
-conjugacy or elastic validation. Near-collinear triangulation faces retain
-topology and use edge/point distances, with altitude below tolerance / 100.
+closed triangle surfaces and the known prescribed flexspline material map are
+supported. The flexspline is rebuilt at each pose from its immutable reference
+coordinates with the same triangle connectivity; stale or missing references,
+unknown deformation and arbitrary warps fail explicitly. Generated worm and
+bevel working geometry and the prescribed strain-wave envelope do not establish
+continuous clearance or elastic response. Near-collinear triangulation faces
+retain topology and use edge/point distances, with altitude below tolerance / 100.
 
 ## Components and surface measurements
 
@@ -133,16 +224,40 @@ transmission ratio. Enter the target magnitude **|input speed / output speed|**,
 relative tolerance in percent, and either sign, same (+), or opposite (−)
 direction. The current I/O connection and each planetary stage remain fixed.
 
-Unlock tooth/roller counts, planet count, module, widths or cycloidal pitch
-radius and enter explicit comma separated values or inclusive `low:high:step`
-grids. The initial count grids are a local ±4 window, clipped to valid parameter
-limits; review or expand them as needed. Other dimensions, variants, number of
-stages, I/O, bearings and hardware options stay locked. A candidate that would
-silently normalize a locked dimension or an enumerated value is rejected.
-The displayed Cartesian domain is finite; a module grid is not continuous
-optimization. Default budgets are 50,000 visited candidates and 30 seconds;
-results clearly distinguish a complete domain from a partial or cancelled
-search. Generation and surface section construction are cooperative stop units.
+The Search dock guides you through **Desired ratio**, **Parameters to explore**
+and **Compare results**. The ratio example and accepted interval update as you
+enter the target and relative tolerance. A ratio below 1 describes an output
+speed greater than the input speed. Direction follows the selected members and
+their displayed axes, rather than an assumed reducer direction.
+
+For each available tooth/roller count, planet count, module, width or cycloidal
+pitch radius, choose **Keep current** or **Vary**. Set **From**, **To** and **Step**
+with ordinary numeric fields; no grid syntax is required. Counts must be whole
+numbers. Initial count ranges are a local ±4 window, clipped to parameter limits
+(strain wave teeth use step 2); planet count and continuous dimensions initially
+stay fixed. The finite candidate count updates immediately. Invalid required
+inputs show a field message and disable Search until corrected.
+
+For nonuniform lists or compound grids, choose **Custom values (advanced)** for
+that parameter and enter comma-separated numbers or inclusive `low:high:step`
+grids. Range and Custom values keep separate drafts when you switch between
+them; only the selected mode is searched. **Keep current** preserves these
+drafts too. No custom list is automatically resampled into a range. Each varying
+parameter accepts at most 1,000 distinct values.
+
+**Overall size limits** groups the XYZ limits; the active limits stay visible
+in the dock, including while settings are collapsed. **Advanced** contains time
+and candidate budgets and the full technical report. Default budgets are 50,000
+visited candidates and 30 seconds. Results distinguish a complete domain from
+a partial or cancelled search. For no matches, review ratio, ranges and size
+limits; for partial coverage, also review the Advanced budgets before another
+search. No constraint is relaxed automatically. Generation and surface section
+construction are cooperative stop units.
+
+Other dimensions, variants, number of stages, I/O, bearings and hardware stay
+fixed. A candidate that would silently normalize a fixed dimension or an
+enumerated value is rejected. This is a finite local search, not continuous
+optimization or a global optimum claim.
 
 Each retained proposal passes the definitive generator and uses its actual
 signed analysis ratio, including reverse connections and all stages. XYZ limits
@@ -150,18 +265,22 @@ use the nominal bounding box of the **sampled shared preview/STL surface** in
 world axes and millimetres, including all generated supports, housing and
 hardware regardless of view filters. This is the export pose rather than a
 motion swept envelope. Analytic circles in STEP can extend slightly beyond the
-sampled bound. No interference, strength or load rating is inferred; worm and
-strain wave remain concept models.
+sampled bound. No interference, strength or load rating is inferred.
 
-Proposals show the exact changed parameters, ratio error and nominal XYZ size.
+Proposals show ratio, error, overall XYZ size in mm and human-readable parameter
+changes as **Current → Proposed**, with ratio magnitude and rotation direction
+shown separately. Results and Apply stay visible while comparing. Open **Edit
+search settings** to return to the form; **Results** returns to the existing
+comparison until an edit invalidates it. Search and Cancel remain at the bottom
+of the dock.
 Ranking uses ratio error, bounding box volume, then XYZ lengths; at most 100
 best proposals from the visited domain are retained. Equivalent parameter sets
 are deduplicated; equal ratios with different geometry remain separate. Select
-a proposal and press **Apply selected · one Undo step** to change the current
-document. Undo/Redo preserve its identity, path, save checkpoint and other
+a proposal and press **Apply selected** to change the current
+document as one Undo step. Undo/Redo preserve its identity, path, save checkpoint and other
 families. Search itself never modifies parameters. Model/request edits, invalid
 numeric drafts, replacement and closing invalidate old proposals; Apply also
-invalidates interference checks. **Save search report…** records the grids,
+invalidates interference checks. **Save report…** records the grids,
 locked baseline, budgets, coverage and retained proposals.
 
 ## Input and output connections
@@ -182,7 +301,7 @@ The verified local NSK catalog provides nominal open deep groove ball bearing di
 
 Automatic bearing and hardware options cover supported single spur/helical/double helical gears, planetary and cycloidal assemblies, plus fixed-axis shaft supports: **both shafts for parallel reducers**, and **the pinion shaft only for internal reducers**. The internal ring output still needs a dedicated annular bearing/support. The new supports share their real seats, shafts, applicable grooves, keys and spacers across preview, CAD, STL and BOM. Forward/reverse connections preserve the physical shaft ownership of rotating hardware.
 
-Bearing-in-bore and common flange screws are disabled with reasons for parallel/internal pairs; their independent bearing blocks do not form a common frame. Generic automation is explicitly disabled for worm/strain-wave study constructions and the dedicated printed eccentric construction. Catalog omissions, such as keys or external retainers unavailable at a selected shaft diameter, are explained beside the controls and in BOM requirements. Existing supported assemblies retain their flange fastener options.
+Bearing-in-bore and common flange screws are disabled with reasons for parallel/internal pairs; their independent bearing blocks do not form a common frame. Generic automation is explicitly disabled for crossed-axis worm and deforming strain-wave constructions and the dedicated printed eccentric construction. Catalog omissions, such as keys or external retainers unavailable at a selected shaft diameter, are explained beside the controls and in BOM requirements. Existing supported assemblies retain their flange fastener options.
 
 Grooves, keyways and through holes are represented in the shared geometry. Commercial hardware is simplified: threads, drive recesses and bearing raceways are not fully modelled. Codes are assigned only when selected from the catalog; unresolved envelopes remain **TO BE DEFINED**. Custom spacers are **MANUFACTURE** items.
 
@@ -199,7 +318,7 @@ Keyboard shortcuts: Ctrl+N (New), Ctrl+O (Open), Ctrl+S (Save), Ctrl+Shift+S (Sa
 **Export…** remembers the destination folder and provides:
 
 - **STL for 3D printing:** a binary assembly STL and a `.stl-parts/` folder with one STL per component.
-- **STEP for CAD:** a `.step-export/` folder with `assembly.step`, one STEP per component in `step-parts/`, and approximation details in `step-info.json`. All nine families and their variants are supported without a SolidCraft installation.
+- **STEP for CAD:** a `.step-export/` folder with `assembly.step`, one STEP per component in `step-parts/`, and approximation details in `step-info.json`. All catalog families and their variants are supported without a SolidCraft installation.
 - **SVG / DXF profiles:** a `.profiles-export/` folder with closed outer contours and holes, in local section coordinates. `profiles.json` records axial positions, rotations and world placement. Helical and deformed parts are explicitly labelled **sections only**, rather than complete extrusion profiles or manufacturing developments.
 - **Complete package:** one `.package/` folder containing standalone assembly/component STEP, SVG/DXF profiles, STL files, parameter JSON, CAD script and required assets, preview PNG, BOM and calculation reports. `manifest.json` lists checksums for every exported file.
 - **BOM and calculations:** TXT, CSV and JSON component lists plus `.calculations.txt` and `.calculations.json` reports.
@@ -243,6 +362,6 @@ For a complete package, run this command from **inside the package directory**. 
 
 These are dimensional design models, not certified production designs. Materials, manufacturing tolerances, lubrication, seals, fastening details, strength, bearing life and load capacity must be defined and verified. Reports provide nominal geometry, contact ratios, kinematic relations and static force estimates using assumed operating data; no ISO/AGMA strength verification is performed.
 
-External cylindrical gears use a rounded normal rack envelope at the root, with trimming against the usable involute where undercut occurs. The tool's normal circular corner becomes an ellipse in transverse helical sections. Internal gears use a circular blend tangent to the involute and dedendum circle; a pinion-cutter envelope and cutter interference checks remain unimplemented. Involutes and root curves use adaptive midpoint/quarter checks at a nominal 0.015 mm chord threshold. Shared circular profiles use a maximum radial sampling deviation of 0.002 mm where specified. These sample thresholds do not certify global analytical profile error. Tool parameters, method, domain and usable involute limits are recorded in the calculation and CAD/profile metadata. The reports retain nominal contact ratios and additionally report usable involute contact ratios after root trimming/blending. Worm wheels now have an actual tip-cylinder throat with helical surrogate flanks; strain-wave teeth use uniform ellipse arc pitch and local normal offsets shared by the motion shader. Both families remain geometric studies without conjugate contact or elastic validation. Tubes and freeform surfaces use their documented sampling. Complex bodies have a 250,000 face limit.
+External cylindrical gears use a rounded normal rack envelope at the root, with trimming against the usable involute where undercut occurs. The tool's normal circular corner becomes an ellipse in transverse helical sections. Internal gears use a circular blend tangent to the involute and dedendum circle; a pinion-cutter envelope and cutter interference checks remain unimplemented. Involutes and root curves use adaptive midpoint/quarter checks at a nominal 0.015 mm chord threshold. Shared circular profiles use a maximum radial sampling deviation of 0.002 mm where specified. These sample thresholds do not certify global analytical profile error. Tool parameters, method, domain and usable involute limits are recorded in the calculation and CAD/profile metadata. The reports retain nominal contact ratios and additionally report usable involute contact ratios after root trimming/blending. Worm wheels use the matching screw helicoid envelope, including the swept generating-tip root transition. Strain-wave rings use the full swept outline of a thickened matching flexible tooth under the prescribed ellipse pitch-arc/normal map; the same material map drives animation and interference checks. Numerical ring enclosure relief is recorded separately from reference tooth backlash. These constructions and the spherical involute bevel flanks are documented with their supported domains and numerical limits in the [worm](technical/worm.md), [strain-wave](technical/strain-wave.md) and [differential](technical/differential.md) references. Tubes and freeform surfaces use their documented sampling. Complex bodies have a 250,000 face limit.
 
-Strain wave teeth and flexspline deformation are illustrative. The worm wheel is approximate rather than generated by a conjugate tool envelope. Nominal interface contact is not proof of torque transmission. Tests on presets do not certify all parameter combinations.
+Strain-wave deformation is prescribed, without an elastic or loaded-contact solution. Reference tooth-thickness allowance does not establish loaded rotational lost motion. Nominal interface contact is not proof of torque transmission. Tests on presets do not certify all parameter combinations.

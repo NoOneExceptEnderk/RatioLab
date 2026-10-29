@@ -37,7 +37,10 @@ def architecture():
 def version():
     # The supported build Pythons are 3.11+ (runtime remains Python 3.10+).
     import tomllib
-    return tomllib.loads((ROOT/'pyproject.toml').read_text(encoding='utf-8'))['project']['version']
+    base=tomllib.loads((ROOT/'pyproject.toml').read_text(encoding='utf-8'))['project']['version']
+    from release_version import BASE_VERSION
+    if base!=BASE_VERSION:raise RuntimeError('pyproject.toml version and release identity base differ')
+    return base
 
 
 def bundle_paths(bundle):
@@ -69,7 +72,7 @@ def inventory(bundle):
                                 sha256=hashlib.sha256(path.read_bytes()).hexdigest()))
         if set(Path(relative).parts) & {'work', 'design', 'outputs', 'generated', 'generati', '.git', '.aws', '.codex', '.agents'}:
             raise RuntimeError(f'Private/generated directory in bundle: {relative}')
-        if path.name in ('ui-preferences.json', 'preferenze-ui.json', 'custom-materials.json', 'materiali-custom.json') or path.suffix == '.token':
+        if path.name in ('ui-preferences.json', 'preferenze-ui.json', 'updates.json', 'custom-materials.json', 'materiali-custom.json') or path.suffix == '.token':
             raise RuntimeError(f'Personal data in bundle: {relative}')
     return records
 
@@ -131,9 +134,13 @@ def verify_bundle(bundle, *, gui=False, run=True, check_manifest=True):
     required = ['gi_typelibs/Gtk-4.0.typelib', 'gi_typelibs/Gdk-4.0.typelib',
                 'share/glib-2.0/schemas/gschemas.compiled',
                 'ratiolab_resources/branding/ratiolab-icon.png',
+                'ratiolab_resources/icons/hicolor/index.theme',
+                'ratiolab_resources/icons/hicolor/128x128/apps/local.solidcraft.reducers.png',
+                'ratiolab_resources/icons/hicolor/256x256/apps/local.solidcraft.reducers.png',
                 'ratiolab_resources/bearing-catalog.json',
                 'ratiolab_resources/hardware-catalog.json',
                 'ratiolab_resources/INSTALL.md', 'ratiolab_resources/MCP.md',
+                'ratiolab_resources/CHANGELOG.md', 'ratiolab_resources/version.json',
                 'ratiolab_resources/LICENSE', 'ratiolab_resources/COPYRIGHT',
                 'ratiolab_resources/fusion_addin/RatioLabBridge/RatioLabBridge.py',
                 'ratiolab_resources/fusion_addin/RatioLabBridge/RatioLabBridge.manifest',
@@ -241,6 +248,7 @@ def build(args):
     executable, runtime, manifest_file = bundle_paths(bundle)
     manifest = dict(format='ratiolab-bundle/1', application_id='local.solidcraft.reducers',
                     name='RatioLab', version=version(), system=host_system(), arch=architecture(),
+                    release=json.loads((ROOT/'src/ratiolab_resources/version.json').read_text(encoding='utf-8')),
                     executable=executable.relative_to(bundle).as_posix(),
                     agent_executable=agent_executable(bundle).relative_to(bundle).as_posix(),
                     mcp_protocols=['2026-07-28', '2025-11-25'],

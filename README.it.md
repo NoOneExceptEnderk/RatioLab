@@ -36,7 +36,7 @@ firma ad-hoc e non è notarizzata da Apple. Il sistema può mostrare un avviso o
 
 ## Cosa puoi fare
 
-- Generare nove famiglie di ingranaggi e riduttori, comprese configurazioni planetarie, cicloidali e a vite senza fine.
+- Generare dieci famiglie di ingranaggi e trasmissioni, inclusi differenziali conici in configurazione polso o classica.
 - Modificare i parametri, osservare l’anteprima 3D animata e selezionare i componenti.
 - Salvare progetti, annullare modifiche, cercare combinazioni e controllare le interferenze con campionamento discreto.
 - Esportare STEP, STL, SVG/DXF, distinte, relazioni di calcolo e pacchetti completi.
@@ -56,10 +56,14 @@ Trovi altre indicazioni nel [manuale](docs/user-guide.md) e nei [progetti di ese
 
 ## Limiti dell’anteprima
 
-RatioLab produce modelli di studio geometrici e cinematici: non certifica
-resistenza, durata o idoneità alla produzione. Misure e interferenze usano
-superfici campionate; vite senza fine e strain wave restano modelli di studio.
-Consulta i [limiti documentati](docs/user-guide.md#accuracy-and-limitations).
+RatioLab genera geometrie dimensionali e moto ideale. I controlli costruttivi e
+i limiti numerici sono riportati nel modello e nella relazione di calcolo;
+non certificano resistenza, durata o idoneità alla produzione. Misure e
+interferenze usano superfici campionate. Consulta i
+[limiti documentati](docs/user-guide.md#accuracy-and-limitations) e le equazioni
+per [vite e corona](docs/technical/worm.md) e
+[differenziali conici](docs/technical/differential.md) e
+[strain wave](docs/technical/strain-wave.md).
 
 ## Community
 

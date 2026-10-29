@@ -1,5 +1,53 @@
 # Changelog
 
+## 0.1.1 — 2026-10-30
+
+### Added
+
+- Bevel differentials with wrist and classic configurations, straight or spiral
+  teeth, solid/hollow/flanged connections, open or split carriers and tooth-ratio
+  presets. External belts, pulleys and motors remain part of the user's CAD work.
+- Independent signed wrist inputs and a classic carrier input with a prescribed
+  side-speed difference, with matching motion, saved projects, MCP parameters and
+  STEP/STL/profile exports.
+- Automatic release checks and a conditional **Update to [version]** button,
+  with release notes and the appropriate platform download. The button appears
+  only for a newer eligible GitHub release; checks do not open unsolicited dialogs.
+
+### Changed
+
+- Worm wheels now use the matching ZA/ZI screw envelope, including backlash and
+  the swept generating-tip root transition.
+- Bevel working flanks use spherical involutes and optional logarithmic spiral
+  traces. The generator checks the root domain and availability of ideal tooth
+  engagement, rejecting unsupported combinations.
+- Strain-wave circular splines now use the full swept matching tooth outline
+  under the prescribed ellipse pitch-arc/normal deformation. Numerical enclosure
+  relief is reported separately from reference tooth backlash. Discrete
+  interference checks now evaluate the actual moving flexspline surfaces.
+- Combination-search controls show the current model, editable parameter ranges,
+  finite search size and resource limits, with clearer proposal comparisons and
+  invalidation when the model changes.
+- Reference equations, coordinate conventions, supported domains and numerical
+  limitations are documented for the new and revised mechanisms.
+
+### Fixed
+
+- Speed-only edits and temporary export/inspection poses preserve differential
+  motion continuity and restore the active motion plan.
+- Hiding supports keeps the driving cycloidal eccentric visible while hiding its
+  bearing envelope.
+- Application icons, native window identity and launcher resources are consistent
+  across source, wheel and native packaging layouts.
+- Obsolete unconditional concept/study banners are replaced by notices based on
+  generated-model metadata; actual geometry warnings remain visible.
+- Exact sampled-surface distance searches prune triangle pairs using cached
+  bounds and projection lower bounds, without omitting components or poses.
+
+Geometric and kinematic checks do not certify elastic response, strength, service
+life or continuous clearance. Strain-wave deformation is prescribed. Bevel gears
+use the documented custom planar blank.
+
 ## Windows and Linux Fusion update — 2026-10-29
 
 Updated Windows and Linux downloads in Preview 2; macOS downloads retain their

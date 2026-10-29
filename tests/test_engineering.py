@@ -104,8 +104,8 @@ class EngineeringTests(unittest.TestCase):
         r = d.analysis
         self.assertAlmostEqual(r['lead_mm'], 2 * math.pi)
         self.assertAlmostEqual(r['normal_module_mm'], 2 / math.sqrt(1 + 0.1 ** 2))
-        wheel = next((p for p in d.parts if p.name == 'Wheel_concept'))
-        expected_tip = 30 + 2 / math.sqrt(1 + 0.1 ** 2)
+        wheel = next((p for p in d.parts if p.name == 'Wheel_generated'))
+        expected_tip = 30 + 2
         self.assertAlmostEqual(max((math.hypot(*q) for q in wheel.outer)), expected_tip, places=7)
         left = generate('worm', {'worm_hand': -1})
         self.assertLess(left.parts[0].twist, 0)

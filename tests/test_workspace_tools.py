@@ -11,7 +11,7 @@ gi.require_version('Gtk','4.0')
 from gi.repository import Gtk,Gdk,Gio
 import app as module
 from geometry import generate
-from test_interference_gui import pump
+from test_interference_gui import pump,wait_until
 
 
 class ToolWorkspaceTests(unittest.TestCase):
@@ -38,11 +38,31 @@ class ToolWorkspaceTests(unittest.TestCase):
             if c.window:c.window.close()
         a.text_size.set_selected(0);a.pick_mode.set_selected(1)
         a.load_config_data(dict(format='solidcraft-riduttori/1',family='parallel',parameters=generate('parallel').values))
-        a.win.set_visible(False);a.win.set_default_size(1280,800);a.win.present();pump(.15)
+        monitor=Gdk.Display.get_default().get_monitor_at_surface(a.win.get_surface())
+        # X11 exposes the desktop work area; other backends expose its monitor.
+        area=monitor.get_workarea() if hasattr(monitor,'get_workarea') else monitor.get_geometry()
+        # Keep the compact test inside the available desktop. The window
+        # manager can allocate less client space to accommodate decorations.
+        self.window_limit=(min(1280,area.width),min(800,area.height))
+        a.win.unfullscreen();a.win.unmaximize();pump(.1)
+        a.win.set_visible(False);a.win.set_default_size(*self.window_limit);a.win.present();pump(.15)
+        # Some window managers automatically maximize large newly mapped windows.
+        a.win.unmaximize()
+        self.assertTrue(wait_until(lambda:not a.win.is_maximized(),2))
+        pump(.15)
+        self.assertLessEqual(a.win.get_width(),self.window_limit[0],self.layout_budget())
+        self.assertLessEqual(a.win.get_height(),self.window_limit[1],self.layout_budget())
+
+    def layout_budget(self):
+        a=self.app
+        return f'actual window {a.win.get_width()}x{a.win.get_height()}, desktop-constrained request {self.window_limit[0]}x{self.window_limit[1]}'
 
     def test_closed_dock_gives_space_back_to_model(self):
         a=self.app
-        self.assertFalse(a.tools.box.get_visible());self.assertGreaterEqual(a.canvas.get_height(),470)
+        self.assertFalse(a.tools.box.get_visible())
+        # Preserve the original 470px viewport at 800px while allowing the same
+        # maximum 330px of chrome when the desktop allocates a shorter window.
+        self.assertGreaterEqual(a.canvas.get_height(),max(250,a.win.get_height()-330),self.layout_budget())
         width=a.canvas.get_width();a.components.open();pump(.05)
         self.assertLess(a.canvas.get_width(),width);self.assertEqual(a.tools.active,'components')
         a.tools.close_current();pump(.05)
@@ -128,14 +148,16 @@ class ToolWorkspaceTests(unittest.TestCase):
                 a.text_size.set_selected(scale)
                 for controller in (a.components,a.combination_search,a.interference):
                     controller.open();pump(.1)
-                    self.assertLessEqual(a.win.get_width(),1280)
-                    self.assertLessEqual(a.win.get_height(),800)
+                    self.assertLessEqual(a.win.get_width(),self.window_limit[0],self.layout_budget())
+                    self.assertLessEqual(a.win.get_height(),self.window_limit[1],self.layout_budget())
                     self.assertGreater(a.canvas.get_width(),250)
                     for control in (a.tools.menu,a.export_menu,a.cad_menu,a.pick_mode,a.motion_reset):
                         ok,rect=control.compute_bounds(a.win)
                         self.assertTrue(ok)
                         self.assertGreaterEqual(rect.get_x(),0)
-                        self.assertLessEqual(rect.get_x()+rect.get_width(),1280)
+                        self.assertLessEqual(rect.get_x()+rect.get_width(),a.win.get_width())
+                        self.assertGreaterEqual(rect.get_y(),0)
+                        self.assertLessEqual(rect.get_y()+rect.get_height(),a.win.get_height())
                     panel=controller.window
                     self.assertGreater(panel.scroll.get_height(),80)
                     target=controller.export_buttons[0] if controller is a.components else controller.cancel_button
@@ -150,6 +172,8 @@ class ToolWorkspaceTests(unittest.TestCase):
                     ok,bounds=target.compute_bounds(a.win)
                     self.assertTrue(ok);self.assertGreaterEqual(bounds.get_y(),0)
                     self.assertLessEqual(bounds.get_y()+bounds.get_height(),a.win.get_height())
+                    self.assertGreaterEqual(bounds.get_x(),0)
+                    self.assertLessEqual(bounds.get_x()+bounds.get_width(),a.win.get_width())
         a.text_size.set_selected(0)
 
 

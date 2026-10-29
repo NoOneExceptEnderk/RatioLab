@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ratiolab"
-version = "0.1.0"
+version = "0.1.1"
 description = "Parametric gears and reducers with a GTK 4 and OpenGL preview"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -39,16 +39,16 @@ include-package-data = false
 package-dir = {"" = "src", "build_support" = "build-support"}
 packages = ["ratiolab_resources"]
 py-modules = [
-  "app", "app_paths", "assemblies", "bom", "cad_export", "catalog", "connection", "export_transaction",
-  "engineering", "external_programs", "fusion_connection", "geartrains", "geometry", "gl_loader", "gui_workflow",
+  "app", "app_paths", "release_version", "updates", "update_ui", "assemblies", "bom", "cad_export", "catalog", "connection", "export_transaction",
+  "bevel_geometry", "differential_wrist", "engineering", "external_programs", "fusion_connection", "geartrains", "geometry", "gl_loader", "gui_workflow",
   "hardware", "hardware_catalog", "install_desktop", "io_controls",
   "component_geometry", "components_ui", "selected_export", "pair_assembly", "combination_search", "combination_search_ui", "collision_geometry", "interference", "interference_ui", "kinematics", "motion", "motion_controls", "mounting", "preview3d",
   "project_document", "project_ui", "package_export", "printed_shaft", "profile_export", "ratiolab_agent", "ratiolab_mcp", "ratiolab_checks", "ratiolab_cli", "result_controls", "solid_geometry",
-  "special_drives", "wave_geometry", "tooth_profiles", "standard_parts", "stl_export", "workspace_ui", "workspace_tools",
+  "special_drives", "worm_geometry", "wave_geometry", "wave_envelope", "tooth_profiles", "standard_parts", "stl_export", "workspace_ui", "workspace_tools",
 ]
 
 [tool.setuptools.cmdclass]
 build_py = "build_support.ratiolab_build.BuildPy"
 
 [tool.setuptools.package-data]
-ratiolab_resources = ["*.json", "branding/*.json", "branding/*.png", "fusion_addin/RatioLabBridge/*.py", "fusion_addin/RatioLabBridge/*.manifest"]
+ratiolab_resources = ["*.json", "branding/*.json", "branding/*.png", "icons/hicolor/index.theme", "icons/hicolor/*/apps/*.png", "fusion_addin/RatioLabBridge/*.py", "fusion_addin/RatioLabBridge/*.manifest"]
