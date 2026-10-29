@@ -19,7 +19,10 @@ class WineFixtureTests(unittest.TestCase):
     def setUp(self):
         folder=tempfile.TemporaryDirectory(prefix='ratiolab-wine-')
         self.addCleanup(folder.cleanup)
-        self.root=Path(folder.name)
+        # macOS exposes temporary directories through /var -> /private/var.
+        # Canonicalize the fixture root before creating profile expectations;
+        # endpoint's final component intentionally remains lexical in production.
+        self.root=Path(folder.name).resolve()
         self.home=self.root/'home';self.home.mkdir()
         environment=patch.dict(os.environ,{},clear=False);environment.start();self.addCleanup(environment.stop)
         for key in ('RATIOLAB_FUSION_WINEPREFIX','WINEPREFIX','RATIOLAB_FUSION_WINEUSER'):os.environ.pop(key,None)
