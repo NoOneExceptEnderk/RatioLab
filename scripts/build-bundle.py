@@ -135,6 +135,10 @@ def verify_bundle(bundle, *, gui=False, run=True, check_manifest=True):
                 'ratiolab_resources/hardware-catalog.json',
                 'ratiolab_resources/INSTALL.md', 'ratiolab_resources/MCP.md',
                 'ratiolab_resources/LICENSE', 'ratiolab_resources/COPYRIGHT',
+                'ratiolab_resources/fusion_addin/RatioLabBridge/RatioLabBridge.py',
+                'ratiolab_resources/fusion_addin/RatioLabBridge/RatioLabBridge.manifest',
+                'ratiolab_resources/fusion_addin/RatioLabBridge/bridge_server.py',
+                'ratiolab_resources/fusion_addin/RatioLabBridge/fusion_import.py',
                 'etc/fonts/fonts.conf', 'share/fonts/DejaVuSans.ttf',
                 'notices/components.json', 'notices/THIRD-PARTY-NOTICES.txt']
     missing = [name for name in required if not (runtime/name).is_file()]

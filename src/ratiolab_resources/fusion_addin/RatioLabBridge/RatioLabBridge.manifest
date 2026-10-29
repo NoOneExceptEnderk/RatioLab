@@ -1,0 +1,9 @@
+{
+  "autodeskProduct": "Fusion360",
+  "type": "addin",
+  "author": "NoOneExceptEnderk",
+  "description": {"": "Import verified RatioLab STEP assemblies into the active Fusion design through an authenticated local bridge."},
+  "version": "0.1.0",
+  "runOnStartup": true,
+  "supportedOS": "windows|mac"
+}

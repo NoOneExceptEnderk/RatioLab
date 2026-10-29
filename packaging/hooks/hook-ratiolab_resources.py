@@ -12,3 +12,8 @@ datas += [(str(resources/'branding'/name), 'ratiolab_resources/branding') for na
           ('brand.json', 'ratiolab-icon.png', 'ratiolab-logo-dark.png',
            'ratiolab-logo-light.png', 'ratiolab-approved-board.png',
            'ratiolab-monochrome-reference.png')]
+
+# Fusion runs this add-in with its own Python; ship its sources as plain data.
+addin = resources/'fusion_addin'/'RatioLabBridge'
+datas += [(str(path), 'ratiolab_resources/fusion_addin/RatioLabBridge')
+          for pattern in ('*.py', '*.manifest') for path in sorted(addin.glob(pattern))]

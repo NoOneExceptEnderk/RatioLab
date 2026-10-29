@@ -31,6 +31,17 @@ jobs:
         run: |
           "$RUNNER_TEMP/ratiolab-env/bin/python" -m build
           "$RUNNER_TEMP/ratiolab-env/bin/python" scripts/verify-artifacts.py dist
+      - name: Test Fusion client and bridge from source
+        run: |
+          PYTHONPATH=src "$RUNNER_TEMP/ratiolab-env/bin/python" -m unittest discover -s tests -p 'test_fusion_connection.py' -v
+          PYTHONPATH=src "$RUNNER_TEMP/ratiolab-env/bin/python" -m unittest discover -s tests -p 'test_fusion_bridge.py' -v
+          PYTHONPATH=src "$RUNNER_TEMP/ratiolab-env/bin/python" -m unittest discover -s tests -p 'test_fusion_wine.py' -v
+      - name: Test Fusion GTK controls with a virtual display
+        env:
+          LIBGL_ALWAYS_SOFTWARE: "1"
+          GSK_RENDERER: cairo
+        run: |
+          PYTHONPATH=src xvfb-run -a "$RUNNER_TEMP/ratiolab-env/bin/python" -m unittest discover -s tests -p 'test_fusion_gui.py' -v
       - name: Install wheel outside the checkout and render with Mesa
         env:
           LIBGL_ALWAYS_SOFTWARE: "1"
@@ -74,6 +85,11 @@ jobs:
         run: |
           /ucrt64/bin/python.exe -m build --no-isolation
           /ucrt64/bin/python.exe scripts/verify-artifacts.py dist
+      - name: Test Fusion client and bridge from source
+        run: |
+          PYTHONPATH=src /ucrt64/bin/python.exe -m unittest discover -s tests -p 'test_fusion_connection.py' -v
+          PYTHONPATH=src /ucrt64/bin/python.exe -m unittest discover -s tests -p 'test_fusion_bridge.py' -v
+          PYTHONPATH=src /ucrt64/bin/python.exe -m unittest discover -s tests -p 'test_fusion_wine.py' -v
       - name: Install and test the wheel outside the checkout
         run: |
           export PYGI_DLL_PATH="$(cygpath -w /ucrt64/bin)${PYGI_DLL_PATH:+;$PYGI_DLL_PATH}"
@@ -111,6 +127,11 @@ jobs:
         run: |
           "$RUNNER_TEMP/ratiolab-env/bin/python" -m build
           "$RUNNER_TEMP/ratiolab-env/bin/python" scripts/verify-artifacts.py dist
+      - name: Test Fusion client and bridge from source
+        run: |
+          PYTHONPATH=src "$RUNNER_TEMP/ratiolab-env/bin/python" -m unittest discover -s tests -p 'test_fusion_connection.py' -v
+          PYTHONPATH=src "$RUNNER_TEMP/ratiolab-env/bin/python" -m unittest discover -s tests -p 'test_fusion_bridge.py' -v
+          PYTHONPATH=src "$RUNNER_TEMP/ratiolab-env/bin/python" -m unittest discover -s tests -p 'test_fusion_wine.py' -v
       - name: Install and test the wheel outside the checkout
         run: |
           "$RUNNER_TEMP/ratiolab-env/bin/python" -m pip install --no-deps dist/*.whl

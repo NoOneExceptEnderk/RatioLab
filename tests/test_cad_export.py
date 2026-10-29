@@ -7,6 +7,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 import copy
+from collections import Counter
 import hashlib
 import json
 import math
@@ -68,6 +69,50 @@ class CadExportTests(unittest.TestCase):
         groove=self.tube();groove.stations=[dict(z=z,outer=circle(r),holes=groove.holes) for z,r in ((0,10),(4,8),(8,10))]
         self.assertNotIn(0,cad_export.circular_walls(groove))
         self.assertIn(1,cad_export.circular_walls(groove))
+
+    def test_explicit_topology_is_opt_in_and_preserves_existing_exports(self):
+        polygon=self.tube();polygon.outer=list(polygon.outer);polygon.holes=[list(polygon.holes[0])]
+        default,default_info=cad_export.document([polygon])
+        compact,compact_info=cad_export.document([polygon],explicit_topology=False)
+        self.assertEqual(default,compact)
+        self.assertEqual(default_info,compact_info)
+        self.assertIn('FACETED_BREP(',default)
+        explicit,info=cad_export.document([polygon],indices=[7],explicit_topology=True)
+        self.assertNotIn('FACETED_BREP(',explicit)
+        self.assertIn("MANIFOLD_SOLID_BREP('007 Tube'",explicit)
+        self.assertEqual(info[0]['cad_volume_mm3'],default_info[0]['cad_volume_mm3'])
+        self.assertEqual(info[0]['sampled_volume_mm3'],default_info[0]['sampled_volume_mm3'])
+        self.assertEqual(info[0]['max_radial_difference_mm'],0)
+        # Already explicit analytic-cylinder exports do not change at all.
+        self.assertEqual(cad_export.document([self.tube()]),
+                         cad_export.document([self.tube()],explicit_topology=True))
+        with TemporaryDirectory() as temporary:
+            target=Path(temporary)/'explicit.step'
+            written=cad_export.write(target,[polygon],indices=[7],explicit_topology=True)
+            self.assertEqual(target.read_text(encoding='ascii'),explicit)
+            self.assertEqual(written,info)
+
+    def test_harmonic_explicit_shell_reuses_every_edge_with_opposite_winding(self):
+        from solid_geometry import faces,signature
+        design=generate('harmonic')
+        for part in (design.parts[0],design.parts[2]):
+            with self.subTest(part=part.name):
+                sampled=faces(part)
+                writer=cad_export.Writer()
+                solid,info=writer.body(part,part.name,explicit_topology=True)
+                self.assertTrue(writer.entities[int(solid[1:])-1].startswith('MANIFOLD_SOLID_BREP('))
+                self.assertEqual(sum(e.startswith('ADVANCED_FACE(') for e in writer.entities),len(sampled))
+                self.assertEqual(set(writer.vertices),{q for face in sampled for loop in face for q in loop})
+                # Each exact shared edge bounds two faces, in opposite senses.
+                senses=Counter()
+                for entity in writer.entities:
+                    match=re.fullmatch(r"ORIENTED_EDGE\('',\*,\*,(#\d+),(\.[TF]\.)\)",entity)
+                    if match:senses[match.groups()]+=1
+                self.assertEqual(len(senses),2*len(writer.edges))
+                for edge in writer.edges.values():
+                    self.assertEqual(senses[edge,'.T.'],1)
+                    self.assertEqual(senses[edge,'.F.'],1)
+                self.assertEqual(info['cad_volume_mm3'],signature(part)['volume_mm3'])
 
     def test_frames_are_rigid_before_curves_are_promoted(self):
         rigid=((12,5,7),(0,1,0),(0,0,1),(1,0,0))

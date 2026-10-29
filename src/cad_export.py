@@ -185,10 +185,21 @@ class Writer:
             bounds.append(self.bound(edges, j==0))
         return self.add("ADVANCED_FACE('',"+self.refs(bounds)+','+surface+',.T.)')
 
-    def body(self, p, name):
+    def body(self, p, name, *, explicit_topology=False):
         shared = signature(p)  # Validate topology before publishing geometry.
         cylinders = circular_walls(p)
         if not cylinders:
+            if explicit_topology:
+                # Fusion imports implicit POLY_LOOP/FACETED_BREP boundaries as
+                # surfaces on some releases. Give the same sampled faces shared
+                # EDGE_CURVEs so the reader can retain their closed solid shell.
+                faceids = [self.plane(face) for face in faces(p)]
+                shell = self.add("CLOSED_SHELL('',"+self.refs(faceids)+')')
+                solid = self.add('MANIFOLD_SOLID_BREP('+self.quote(name)+','+shell+')')
+                return solid, dict(representation='sampled planar faces with explicit shared edges',
+                                   cylinders=0, max_radial_difference_mm=0,
+                                   sampled_volume_mm3=shared['volume_mm3'],
+                                   cad_volume_mm3=shared['volume_mm3'], volume_difference_mm3=0)
             # Existing planar representation remains compact for freeform meshes.
             source = faceted_step(p, 'body')
             data = source.split('DATA;\n',1)[1].split('\nENDSEC;',1)[0]
@@ -287,8 +298,12 @@ class Writer:
         return "ISO-10303-21;\nHEADER;\nFILE_DESCRIPTION(('RatioLab: sampled geometry with proven circular walls'),'2;1');\nFILE_NAME('model.step','',(''),(''),'RatioLab','RatioLab','');\nFILE_SCHEMA(('CONFIG_CONTROL_DESIGN'));\nENDSEC;\nDATA;\n"+'\n'.join(f'#{i}={v};' for i,v in enumerate(self.entities,1))+"\nENDSEC;\nEND-ISO-10303-21;\n"
 
 
-def document(parts, indices=None):
-    """Return a STEP document and per-body approximation metadata."""
+def document(parts, indices=None, *, explicit_topology=False):
+    """Return STEP and approximation metadata; optionally share all planar edges.
+
+    Explicit topology keeps sampled geometry unchanged and helps readers that
+    import implicit faceted boundaries as surfaces. Default exports stay compact.
+    """
     if not parts:
         raise ValueError('No components to export.')
     writer = Writer()
@@ -296,14 +311,14 @@ def document(parts, indices=None):
     if indices is None:indices=range(1,len(parts)+1)
     if len(indices)!=len(parts):raise ValueError('Component index count does not match the parts.')
     for index, p in zip(indices,parts):
-        solid, info = writer.body(p, f'{index:03d} {p.name}')
+        solid, info = writer.body(p, f'{index:03d} {p.name}', explicit_topology=explicit_topology)
         solids.append(solid)
         metadata.append(dict(index=index, name=p.name, profile_geometry=p.profile_metadata, **info))
     return writer.finish(solids), metadata
 
 
-def write(path, parts, indices=None):
-    content, metadata = document(parts,indices)
+def write(path, parts, indices=None, *, explicit_topology=False):
+    content, metadata = document(parts,indices,explicit_topology=explicit_topology)
     write_text(path, content, encoding='ascii')
     return metadata
 

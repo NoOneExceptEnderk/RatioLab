@@ -221,6 +221,44 @@ class NativeGuiChecksTests(unittest.TestCase):
 
 
 class BundleIntegrityTests(unittest.TestCase):
+    def test_native_bundle_requires_all_plain_fusion_addin_sources(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            bundle = Path(temporary)/'RatioLab'
+            runtime = bundle/'_internal'
+            runtime.mkdir(parents=True)
+            for name in ('RatioLab.exe', 'RatioLab-MCP.exe'):
+                (bundle/name).write_bytes(b'fixture')
+            for name in ('gi_typelibs/Gtk-4.0.typelib', 'gi_typelibs/Gdk-4.0.typelib',
+                         'share/glib-2.0/schemas/gschemas.compiled',
+                         'ratiolab_resources/branding/ratiolab-icon.png',
+                         'ratiolab_resources/bearing-catalog.json',
+                         'ratiolab_resources/hardware-catalog.json',
+                         'ratiolab_resources/INSTALL.md', 'ratiolab_resources/MCP.md',
+                         'etc/fonts/fonts.conf', 'share/fonts/DejaVuSans.ttf',
+                         'notices/THIRD-PARTY-NOTICES.txt',
+                         'libepoxy-fixture.dll', 'libEGL.dll', 'libGLESv2.dll'):
+                target = runtime/name
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes(b'fixture')
+            for name in ('LICENSE', 'COPYRIGHT'):
+                (runtime/'ratiolab_resources'/name).write_bytes((ROOT/name).read_bytes())
+            (runtime/'notices/components.json').write_text(
+                json.dumps(dict(complete=True, components=[])), encoding='utf-8')
+            source = ROOT/'src/ratiolab_resources/fusion_addin/RatioLabBridge'
+            addin = runtime/'ratiolab_resources/fusion_addin/RatioLabBridge'
+            addin.mkdir(parents=True)
+            names = ('RatioLabBridge.py', 'RatioLabBridge.manifest', 'bridge_server.py', 'fusion_import.py')
+            for name in names:
+                (addin/name).write_bytes((source/name).read_bytes())
+            self.assertEqual(builder.verify_bundle(bundle, run=False, check_manifest=False)['structure'], 'passed')
+            for name in names:
+                with self.subTest(name=name):
+                    target = addin/name
+                    target.unlink()
+                    with self.assertRaisesRegex(RuntimeError, 'Bundle runtime data missing:.*'+name.replace('.', r'\.')):
+                        builder.verify_bundle(bundle, run=False, check_manifest=False)
+                    target.write_bytes((source/name).read_bytes())
+
     def test_macos_minimum_uses_native_load_commands_and_normalizes_versions(self):
         with tempfile.TemporaryDirectory() as temporary:
             app = Path(temporary)/'RatioLab.app'

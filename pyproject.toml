@@ -40,7 +40,7 @@ package-dir = {"" = "src", "build_support" = "build-support"}
 packages = ["ratiolab_resources"]
 py-modules = [
   "app", "app_paths", "assemblies", "bom", "cad_export", "catalog", "connection", "export_transaction",
-  "engineering", "external_programs", "geartrains", "geometry", "gl_loader", "gui_workflow",
+  "engineering", "external_programs", "fusion_connection", "geartrains", "geometry", "gl_loader", "gui_workflow",
   "hardware", "hardware_catalog", "install_desktop", "io_controls",
   "component_geometry", "components_ui", "selected_export", "pair_assembly", "combination_search", "combination_search_ui", "collision_geometry", "interference", "interference_ui", "kinematics", "motion", "motion_controls", "mounting", "preview3d",
   "project_document", "project_ui", "package_export", "printed_shaft", "profile_export", "ratiolab_agent", "ratiolab_mcp", "ratiolab_checks", "ratiolab_cli", "result_controls", "solid_geometry",
@@ -51,4 +51,4 @@ py-modules = [
 build_py = "build_support.ratiolab_build.BuildPy"
 
 [tool.setuptools.package-data]
-ratiolab_resources = ["*.json", "branding/*.json", "branding/*.png"]
+ratiolab_resources = ["*.json", "branding/*.json", "branding/*.png", "fusion_addin/RatioLabBridge/*.py", "fusion_addin/RatioLabBridge/*.manifest"]

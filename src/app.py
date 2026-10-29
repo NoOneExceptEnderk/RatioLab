@@ -16,6 +16,7 @@ from gi.repository import Gtk, GLib, Gdk, Gio
 app_paths.require_gtk_version(Gtk)
 from geometry import FAMILIES,SPECS,VARIANTS,INTEGER,get_specs,defaults,generate,is_double,DOUBLE_STYLES,HARMONIC_OUTPUTS
 from connection import Client,connect_or_launch
+import fusion_connection
 from preview3d import Preview3D
 from catalog import BEARINGS,MODES,FITS,SUPPORTED
 import bom
@@ -40,7 +41,7 @@ LABELS=[gui_workflow.CATALOG.get(key,(label,''))[0] for key,label in FAMILIES.it
 class ReducerApp(ProjectActions, Gtk.Application):
     def __init__(self):
         super().__init__(application_id=app_paths.APP_ID)
-        self.values={};self.design=None;self.family='parallel';self.busy=False;self.pending=0;self.building=False;self.variant_model_family=None;self.last_valid_family=None;self.connected=False
+        self.values={};self.design=None;self.family='parallel';self.busy=False;self.pending=0;self.building=False;self.variant_model_family=None;self.last_valid_family=None;self.connected=False;self.fusion_connected=False
     def do_activate(self):
         if hasattr(self,'win'):self.win.present();return
         self.BASE=BASE;self.output_dir=GENERATED;self.file_buttons=[];self.reset_values=None
@@ -70,6 +71,33 @@ class ReducerApp(ProjectActions, Gtk.Application):
         if connected:self.connection_label.add_css_class('connected')
         else:self.connection_label.remove_css_class('connected')
         return False
+    def set_fusion_connection(self,status=None):
+        self.fusion_connected=status is not None
+        label=self.fusion_connection_label
+        if status is None:
+            label.set_text('○ Disconnected')
+            label.remove_css_class('connected')
+            self.fusion_hint.set_text(fusion_connection.START_HELP+' Transfers STEP solids with RatioLab parameter metadata; Fusion timeline features are not regenerated.')
+        else:
+            document=status.get('document')
+            label.set_text('● Connected · '+(document['name'] if document else 'no design document'))
+            label.add_css_class('connected')
+            self.fusion_hint.set_text('Adds a new group of STEP solids to the active Fusion design. RatioLab parameters are stored as metadata. '+('' if document else 'Open a design document first.'))
+        return False
+    def install_fusion_addin(self):
+        try:
+            path=fusion_connection.install_addin()
+        finally:
+            GLib.idle_add(self.set_fusion_connection,None,priority=GLib.PRIORITY_DEFAULT)
+        return f'Fusion add-in installed in {path}. Stop and restart RatioLabBridge if it was already running. '+fusion_connection.START_HELP
+    def connect_fusion(self):
+        try:
+            with fusion_connection.Client() as client:status=client.status()
+        except Exception:
+            GLib.idle_add(self.set_fusion_connection,None,priority=GLib.PRIORITY_DEFAULT)
+            raise
+        GLib.idle_add(self.set_fusion_connection,status,priority=GLib.PRIORITY_DEFAULT)
+        return 'Fusion connected. '+('Active design: '+status['document']['name'] if status['document'] else 'Open a design document before creating the model.')
     def update_metrics(self,design):
         result_controls.update(self,design)
     def check_graphics(self):
@@ -255,6 +283,7 @@ class ReducerApp(ProjectActions, Gtk.Application):
         key=next((key for key,w in self.inputs.items() if args and w is args[0]),'input_rpm')
         self.project_changed((self.family,key))
         self.send_btn.set_sensitive(False)
+        self.fusion_send_btn.set_sensitive(False)
         self.export_menu.set_sensitive(False)
         self.empty.set_text('Geometry out of date · updating…')
         self.empty.remove_css_class('invalid')
@@ -344,6 +373,7 @@ class ReducerApp(ProjectActions, Gtk.Application):
             self.empty.set_visible(False)
             self.empty.remove_css_class('invalid')
             self.send_btn.set_sensitive(not self.busy)
+            self.fusion_send_btn.set_sensitive(not self.busy)
             self.live_label.set_text('✓ Geometry generated')
             self.status.remove_css_class('error')
             if not self.busy:
@@ -360,6 +390,7 @@ class ReducerApp(ProjectActions, Gtk.Application):
             self.interference.invalidate('Invalid configuration · check blocked')
             self.combination_search.invalidate('Invalid configuration · search blocked')
             self.export_menu.set_sensitive(False)
+            self.fusion_send_btn.set_sensitive(False)
             io_controls.update(self, None)
             if self.last_valid_family != self.family:
                 self.canvas.set_design(None)
@@ -458,6 +489,7 @@ class ReducerApp(ProjectActions, Gtk.Application):
         self.busy=True;self.spinner.start();self.update_playback_bar()
         self.components.update()
         self.send_btn.set_sensitive(False); self.connect_btn.set_sensitive(False); self.selector.set_sensitive(False); self.fields.set_sensitive(False);self.variant_selector.set_sensitive(False);self.motion_button.set_sensitive(False);self.io_frame.set_sensitive(False)
+        self.fusion_install_btn.set_sensitive(False);self.fusion_connect_btn.set_sensitive(False);self.fusion_send_btn.set_sensitive(False);self.export_menu.set_sensitive(False)
         for button in self.file_buttons: button.set_sensitive(False)
         self.status_text('Operation in progress… please wait.');self.live_label.set_text('● Working')
         def run():
@@ -472,6 +504,7 @@ class ReducerApp(ProjectActions, Gtk.Application):
             self.busy=False;self.spinner.stop();self.update_playback_bar()
             self.components.update()
             for button in self.file_buttons: button.set_sensitive(True)
+            self.fusion_install_btn.set_sensitive(True);self.fusion_connect_btn.set_sensitive(True);self.fusion_send_btn.set_sensitive(self.design is not None)
             self.connect_btn.set_sensitive(True); self.selector.set_sensitive(True); self.fields.set_sensitive(True);self.variant_selector.set_sensitive(True);self.motion_button.set_sensitive(True);self.io_frame.set_sensitive(True);self.live_label.set_text('● Live update'); self.send_btn.set_sensitive(self.design is not None); self.export_menu.set_sensitive(self.design is not None); self.status_text(message); self.update_document(); return False
         threading.Thread(target=run,daemon=True).start()
     def send(self,*args):
@@ -495,6 +528,28 @@ class ReducerApp(ProjectActions, Gtk.Application):
                 try:c.execute('assembly.bom',component=f'Reducers_{design.family}_{design.token}',path=str(self.output_dir/(stem+'.solidcraft-bom.csv')),format='csv')
                 except Exception as error:return f'Model created. BOM TXT/CSV/JSON saved in {self.output_dir}. Native CSV export failed: {error}. Do not send the model again.'
                 return f'Model created in SolidCraft. BOM TXT, CSV, JSON and native CSV saved in {self.output_dir}. Save the document from CAD.'
+        self.background(work)
+    def send_fusion(self,*args):
+        if self.busy or not self.refresh():return
+        design=self.design
+        output_dir=self.output_dir
+        visible_roles={'gear'}
+        if self.canvas.show_support:visible_roles.add('support')
+        if self.canvas.show_housing:visible_roles.add('housing')
+        def work():
+            try:
+                with fusion_connection.Client() as client:
+                    result=client.insert(design,output_dir,visible_roles)
+                    # Query again after import: active documents can change in
+                    # Fusion while RatioLab's worker is preparing STEP files.
+                    try:status=client.status()
+                    except Exception:
+                        GLib.idle_add(self.set_fusion_connection,None,priority=GLib.PRIORITY_DEFAULT)
+                    else:GLib.idle_add(self.set_fusion_connection,status,priority=GLib.PRIORITY_DEFAULT)
+            except Exception:
+                GLib.idle_add(self.set_fusion_connection,None,priority=GLib.PRIORITY_DEFAULT)
+                raise
+            return f"Model created in Fusion as STEP solids. Save the Fusion document. Package, BOM and RatioLab parameters saved in {result['package_path']}."
         self.background(work)
 
 

@@ -1,5 +1,20 @@
 # Changelog
 
+## Windows and Linux Fusion update — 2026-10-29
+
+Updated Windows and Linux downloads in Preview 2; macOS downloads retain their
+original Preview 2 build.
+
+- Add an optional Autodesk Fusion connection through the bundled RatioLabBridge
+  add-in: authenticated local communication, per-component STEP import, source
+  parameters/BOM metadata, unit/solid checks and cleanup of a failed new group.
+- Add Fusion setup, connection and creation controls beside SolidCraft in the
+  CAD integrations menu. Imported solids retain RatioLab parameters as metadata;
+  native Fusion timeline regeneration is not provided.
+- Connect the native Linux app to community Fusion installations under Wine,
+  with prefix/profile discovery and verified transfer files inside the Wine
+  C: drive. Wine runtime and Fusion compatibility depend on the community port.
+
 ## 0.1.0 Preview 2 — 2026-10-28
 
 - Application source, automated tests and documentation now have dedicated

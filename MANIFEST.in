@@ -2,7 +2,7 @@ include README.md README.it.md pyproject.toml .gitattributes
 include LICENSE COPYRIGHT CONTRIBUTING.md CHANGELOG.md
 include launch.sh RatioLab.desktop
 recursive-include docs *.md
-recursive-include src *.py *.json *.png
+recursive-include src *.py *.json *.png *.manifest
 recursive-include tests test_*.py
 include build-support/ratiolab_build.py
 include assets/screenshots/*.png

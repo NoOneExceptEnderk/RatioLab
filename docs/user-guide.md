@@ -16,7 +16,7 @@ The parameter panel has three tabs:
 
 Parameters update the preview and calculations automatically. Main geometry, shafts/bores and output connections are grouped; profile parameters and clearances are under **Advanced**. Nominal operating loads are collapsed under Motion. Read-only results show effective ratio/direction, output speed and a relevant geometric dimension; single gears show pitch diameter, tooth count and width. Nominal torque remains in the operating assumptions and calculation report, rather than appearing as a capacity rating.
 
-**New**, **Open…**, **Save**, **Save As…**, **Recent…**, **Undo / Redo** and **Export…** stay in the header. The document line shows its full path and any unsaved changes. **CAD integrations** groups SolidCraft connection, status and creation. The bottom bar provides model status, component count, bill of materials, calculation report and notes. The panel remembers its active tab, advanced section and scroll position when choices rebuild its fields. Linked dimensions explain their source and provide **Change source…** to open the relevant Assembly section.
+**New**, **Open…**, **Save**, **Save As…**, **Recent…**, **Undo / Redo** and **Export…** stay in the header. The document line shows its full path and any unsaved changes. **CAD integrations** groups SolidCraft and Autodesk Fusion connection, status and creation. The bottom bar provides model status, component count, bill of materials, calculation report and notes. The panel remembers its active tab, advanced section and scroll position when choices rebuild its fields. Linked dimensions explain their source and provide **Change source…** to open the relevant Assembly section.
 
 Invalid input remains visible, with a field message when the generator identifies the cause. Geometry actions are blocked immediately while an update is pending. Invalid geometry or speed stops motion; the last valid model of the same family remains visible with an explicit warning that it does not match the current parameters. No automatic correction replaces an invalid numeric entry on focus loss.
 
@@ -213,6 +213,15 @@ SVG uses physical `mm` dimensions and a one-to-one coordinate scale. DXF declare
 STEP, profile and complete-package folders are published only after every file succeeds. Existing exports are preserved; failed operations clean their temporary output. The complete package waits for a finished PNG before publication. STL assembly/component exports also preserve existing results and remove newly created files if publication fails. An interrupted process can leave a hidden staging directory or reservation file; these do not represent a completed export.
 
 BOM and calculation windows support text search, previous/next matches and **Copy all**. Invalid configurations prevent geometry exports and CAD creation.
+
+## Create in Autodesk Fusion
+
+Under **CAD integrations**, install and run **RatioLabBridge** in Fusion, then use
+**Connect / check Fusion** and **Create in Fusion**. Each send adds a new component
+containing STEP solids, child components, RatioLab parameters and BOM metadata.
+See the [Fusion setup and transfer guide](fusion360.md) for installation, supported
+designs, import checks and the distinction between STEP solids and native Fusion
+parametric features.
 
 ## Create in SolidCraft
 

@@ -303,6 +303,24 @@ launcher is `launch.sh`; reusable project configurations are in `examples/`. Gen
 parameter keys or the ability to reopen earlier configurations. Existing user
 exports are retained as saved.
 
+## Optional Autodesk Fusion connection
+
+The [Fusion integration guide](fusion360.md) describes the user workflow. The
+standalone `fusion_connection` client prepares persistent per-part STEP packages
+and submits a hashed manifest to the add-in under
+`src/ratiolab_resources/fusion_addin/RatioLabBridge/`. This directory is plain
+resource data in wheels and frozen bundles because Fusion loads it with its own
+Python and SDK. It must not be imported by RatioLab's Python environment.
+
+The add-in owns a localhost listener and dispatches the two protocol methods
+through a Fusion CustomEvent. CAD operations run on Fusion's main thread. Tests
+cover the real client/server transport with a simulated dispatcher and a mocked
+SDK separately; a live Fusion import is additional evidence, not implied by
+those tests. On Linux the native client can connect to the Windows SDK host
+running through Wine. It discovers the selected prefix/profile and stages
+transfer packages on its C: drive, avoiding a dependency on the Z: mapping.
+Wine path/protocol fixtures do not constitute a live Fusion-on-Linux test.
+
 ## Optional SolidCraft connection
 
 STL generation and export are local and require no CAD installation. RatioLab

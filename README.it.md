@@ -15,6 +15,10 @@ scaricare i sorgenti o installare strumenti di sviluppo.
 
 Versione disponibile: **0.1.0 Preview 2**, una prima anteprima aperta ai riscontri degli utenti.
 
+I download Windows e Linux includono l’integrazione Fusion; su Linux si collega
+a Fusion eseguito tramite Wine. Windows include anche le correzioni grafiche.
+I download macOS mantengono il build originale di Preview 2.
+
 | Il tuo computer | Download | Installazione |
 |---|---|---|
 | Windows 11, Intel/AMD a 64 bit | [Setup Windows](https://github.com/NoOneExceptEnderk/RatioLab/releases/download/v0.1.0-preview.2/RatioLab-0.1.0-windows-x86_64-setup.exe) | Apri il file scaricato; al termine avvia RatioLab dal menu Start. |
@@ -34,10 +38,11 @@ firma ad-hoc e non è notarizzata da Apple. Il sistema può mostrare un avviso o
 - Modificare i parametri, osservare l’anteprima 3D animata e selezionare i componenti.
 - Salvare progetti, annullare modifiche, cercare combinazioni e controllare le interferenze con campionamento discreto.
 - Esportare STEP, STL, SVG/DXF, distinte, relazioni di calcolo e pacchetti completi.
+- Inviare modelli a SolidCraft o [Autodesk Fusion](docs/fusion360.md); Fusion riceve solidi STEP e metadati dei parametri tramite il modulo aggiuntivo incluso.
 - Collegare un agente tramite il [companion MCP incluso](docs/mcp.md), senza aprire la GUI.
 
 L’interfaccia dell’app e il manuale completo sono in inglese.
-L’integrazione con SolidCraft è facoltativa: gli export autonomi non richiedono un CAD installato.
+Le integrazioni CAD sono facoltative: gli export autonomi non richiedono un CAD installato.
 
 ## Primo progetto
 
