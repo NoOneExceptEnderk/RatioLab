@@ -6,6 +6,8 @@
 
 [Download](#scarica-e-installa) · [Manuale in inglese](docs/user-guide.md) · [English](README.md) · [Segnala un problema](https://github.com/NoOneExceptEnderk/RatioLab/issues) · [Discord](https://discord.gg/G8NVHNg6J)
 
+**Lingue:** [English](README.md) · **Italiano** · [Español](docs/readme/es.md) · [Français](docs/readme/fr.md) · [Deutsch](docs/readme/de.md) · [Português (Portugal)](docs/readme/pt.md) · [Русский](docs/readme/ru.md) · [简体中文](docs/readme/zh-CN.md) · [தமிழ்](docs/readme/ta.md)
+
 ![Area di lavoro di RatioLab](assets/screenshots/workspace.png)
 
 ## Scarica e installa
