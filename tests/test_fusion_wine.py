@@ -50,7 +50,8 @@ class WineFixtureTests(unittest.TestCase):
         self.assertEqual(selected.profile,profile.resolve())
         self.assertEqual(fusion.addins_directory(),profile/'AppData/Roaming/Autodesk/Autodesk Fusion 360/API/AddIns')
         self.assertEqual(fusion.endpoint_path(),profile/'AppData/Local/RatioLab/fusion-bridge/endpoint.json')
-        self.assertEqual(selected.windows_path(selected.endpoint()),'C:\\users\\André Maker\\AppData\\Local\\RatioLab\\fusion-bridge\\endpoint.json')
+        self.assertEqual(PureWindowsPath(selected.windows_path(selected.endpoint())),
+                         PureWindowsPath('C:/users/André Maker/AppData/Local/RatioLab/fusion-bridge/endpoint.json'))
 
     def test_each_known_legacy_and_flatpak_prefix_is_discovered_without_broad_scan(self):
         candidates=('.fusion360/wineprefixes/default','.var/app/org.winehq.Wine/data/wineprefixes/fusion360',
