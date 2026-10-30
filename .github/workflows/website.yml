@@ -1,0 +1,54 @@
+name: Public website
+
+on:
+  push:
+    paths:
+      - 'website/**'
+      - 'docs/**'
+      - '.github/workflows/website.yml'
+  pull_request:
+    paths:
+      - 'website/**'
+      - 'docs/**'
+      - '.github/workflows/website.yml'
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: website-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    if: ${{ github.event_name != 'release' || (!github.event.release.draft && !github.event.release.prerelease) }}
+    runs-on: ubuntu-24.04
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # A release can point to an older tag; publish current canonical guides.
+          ref: ${{ github.event_name == 'release' && github.event.repository.default_branch || github.ref }}
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Install isolated website dependencies
+        run: |
+          python -m venv "$RUNNER_TEMP/ratiolab-site-venv"
+          "$RUNNER_TEMP/ratiolab-site-venv/bin/python" -m pip install --disable-pip-version-check -r website/requirements.txt
+      - name: Test canonical documentation, release validation and safe output
+        run: '"$RUNNER_TEMP/ratiolab-site-venv/bin/python" -B -m unittest discover -s website/tests -v'
+      - name: Build against the latest public stable release
+        run: |
+          GITHUB_SHA="$(git rev-parse HEAD)" "$RUNNER_TEMP/ratiolab-site-venv/bin/python" website/build.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: RatioLab-website
+          path: _site/
+          if-no-files-found: error
+          retention-days: 7

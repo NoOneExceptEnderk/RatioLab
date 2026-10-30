@@ -1,16 +1,22 @@
-# Calcoli nominali e riferimenti tecnici
+<a id="calcoli-nominali-e-riferimenti-tecnici"></a>
 
-Revisione del 23 ottobre 2026. Le formule sono state implementate nel progetto, senza copiare codice o tavole dai riferimenti. `engineering.py` contiene i calcoli; `geometry.py`, `assemblies.py` e `geartrains.py` producono le geometrie.
+# Nominal calculations and technical references
 
-## Convenzioni
+Revision of 23 October 2026. The formulas were implemented in the project without copying code or tables from the references. `engineering.py` contains the calculations; `geometry.py`, `assemblies.py` and `geartrains.py` produce the geometry.
 
-Quote in mm, forze in N, coppia in N·m, velocità in rpm e potenza in W. Il rapporto firmato è **i = n ingresso / n uscita**: negativo significa versi opposti. La coppia d’uscita è riportata come modulo, non come vettore di reazione.
+<a id="convenzioni"></a>
 
-Il rendimento è un dato ipotizzato dall’utente, non un risultato del modello. Non sono implementati dimensionamento a fatica, pressione hertziana, verifiche ISO 6336/AGMA, durata dei cuscinetti o simulazione elastica. Quindi una coppia impostata non rappresenta una coppia ammissibile. Harmonic e vite-corona restano studi geometrici.
+## Conventions
 
-## Dentature cilindriche: geometria normale e trasversale
+Dimensions in mm, forces in N, torque in N·m, speed in rpm and power in W. The signed ratio is **i = n input / n output**: a negative value means opposite directions. Output torque is reported as a magnitude, not as a reaction vector.
 
-Per elicoidali e doppia elica il modulo e l’angolo di pressione immessi sono **normali**:
+Efficiency is an assumption supplied by the user, not a result of the model. Fatigue sizing, Hertzian pressure, ISO 6336/AGMA checks, bearing life and elastic simulation are not implemented. A configured torque therefore does not represent an allowable torque. Harmonic and worm-wheel pairs remain geometric studies.
+
+<a id="dentature-cilindriche-geometria-normale-e-trasversale"></a>
+
+## Cylindrical teeth: normal and transverse geometry
+
+For helical and double-helical gears, the entered module and pressure angle are **normal**:
 
 ```
 mt = mn / cos β
@@ -22,15 +28,17 @@ df = d − 2 mn (hf* − x)
 sn = mn (π/2 + 2 x tan αn)
 ```
 
-Per i denti diritti β = 0. L’addendum e il dedendum usano mn, anche negli elicoidali: la revisione precedente usava erroneamente mt nelle altezze. Per una corona non corretta, il diametro di testa interno è d − 2mn e il diametro di fondo è d + 2,5mn.
+For spur teeth, β = 0. Addendum and dedendum use mn, including in helical gears: the previous revision incorrectly used mt for the heights. For an unshifted internal ring gear, the internal tip diameter is d − 2mn and the root diameter is d + 2,5mn.
 
-Fonte industriale: [HPC Europe, Precision gears — Technical information, pagina 132](https://hpceurope.com/docFichesTechniques/PrecisionGears.pdf). La correzione x e i coefficienti ha*/hf* sono disponibili per gli ingranaggi singoli. Nelle nuove coppie esterne x1 = x e x2 = −x: la somma nulla conserva l’interasse teorico, pur modificando spessori e altezze. Per planetary, corone interne e studi non si espone una correzione indipendente che renderebbe incompatibili le coppie.
+Industrial source: [HPC Europe, Precision gears — Technical information, page 132](https://hpceurope.com/docFichesTechniques/PrecisionGears.pdf). Profile shift x and coefficients ha*/hf* are available for individual gears. In the new external pairs, x1 = x and x2 = −x: the zero sum preserves the theoretical centre distance while changing thicknesses and heights. For planetary gears, internal ring gears and studies, an independent profile shift that would make the pairs incompatible is not exposed.
 
-Il gioco tangenziale impostato è il gioco totale nominale della coppia, ripartito fra le due ruote. Il piede esterno è ora l’inviluppo della punta arrotondata di una dentiera normale: la sezione trasversale della punta è ellittica nelle eliche. La correzione x trasla realmente la dentiera; il sottotaglio tronca il raccordo all’intersezione con il ramo evolvente utilizzabile. Il raggio normale della punta è min(0,3mn, limite che conserva una semiland di 0,025mn). Non è un utensile commerciale selezionato. La corona interna usa invece un raccordo circolare tangente a evolvente e fondo, esplicitamente non generato da un pinion-cutter. Metodi, parametri e limiti sono nei metadati per parte; i metadati esportati riportano metodo, dominio e limiti del profilo.
+The configured tangential backlash is the pair's total nominal backlash, divided between the two gears. The external root is now the envelope of the rounded tip of a normal rack: the transverse tip section is elliptical in helical gears. Profile shift x actually translates the rack; undercut trims the fillet at its intersection with the usable involute branch. The normal tip radius is min(0,3mn, limit preserving a half-land of 0,025mn). This is not a selected commercial tool. The internal ring gear instead uses a circular fillet tangent to the involute and root, explicitly not generated by a pinion-cutter. Methods, parameters and limits are in the per-part metadata; exported metadata reports the profile method, domain and limits.
 
-## Contatto e interasse
+<a id="contatto-e-interasse"></a>
 
-Per coppie esterne bilanciate si può aumentare l’interasse di lavoro:
+## Contact and centre distance
+
+For balanced external pairs, the working centre distance can be increased:
 
 ```
 a0 = (d1 + d2)/2
@@ -38,54 +46,62 @@ a0 = (d1 + d2)/2
 g1 = sqrt(ra1² − rb1²)
 g2 = sqrt(ra2² − rb2²)
 εα = (g1 + g2 − a sin αw) / (π mt cos αt)
-εβ = b attiva |sin β| / (π mn)
-ε totale = εα + εβ
-Δj = 2a [inv(αw) − inv(αt)], dove inv(α) = tan α − α
-j lavoro = j nominale × a/a0 + Δj
+εβ = b active |sin β| / (π mn)
+ε total = εα + εβ
+Δj = 2a [inv(αw) − inv(αt)], where inv(α) = tan α − α
+j working = j nominal × a/a0 + Δj
 ```
 
-Per una coppia interna a0 = (d2 − d1)/2 e il numeratore di εα diventa g1 − g2 + a sin αw; ra2 è il raggio di testa interno. I valori storici contact_transverse/contact_total conservano il calcolo nominale testa/base. profile_contact_transverse/profile_contact_total intersecano invece i due intervalli evolventi effettivi dopo trimming/blend; il report espone entrambi e avverte se il secondo totale è inferiore a uno. Il calcolo corretto esclude il contatto sui raccordi e non verifica collisioni 3D o smussi. Non sono un’analisi del contatto sotto carico. Fonte: [Drivetrain Hub, Geometry / Helical Gears, sezioni Gear Mesh e Contact Ratio](https://drivetrainhub.com/notebooks/gears/geometry/Chapter%203%20-%20Helical%20Gears.html).
+For an internal pair, a0 = (d2 − d1)/2 and the numerator of εα becomes g1 − g2 + a sin αw; ra2 is the internal tip radius. The historical contact_transverse/contact_total values retain the nominal tip/base calculation. profile_contact_transverse/profile_contact_total instead intersect the two actual involute intervals after trimming/blend; the report exposes both and warns if the second total is less than one. The corrected calculation excludes contact on fillets and does not check 3D collisions or chamfers. These are not loaded-contact analyses. Source: [Drivetrain Hub, Geometry / Helical Gears, Gear Mesh and Contact Ratio sections](https://drivetrainhub.com/notebooks/gears/geometry/Chapter%203%20-%20Helical%20Gears.html).
 
-Il generatore rifiuta ricoprimento totale < 1 e interferenza evolvente nelle nuove coppie. Nella doppia elica b attiva è **(larghezza − gola)/2**, anche se la gola è zero: le due metà non sono trattate come un’unica elica continua. Δj è aggiuntivo rispetto al gioco già impostato.
+The generator rejects total contact ratio < 1 and involute interference in the new pairs. For double-helical gears, b active is **(width − gap)/2**, even when the gap is zero: the two halves are not treated as one continuous helix. Δj is additional to the backlash already configured.
 
-## Sottotaglio e interferenza interna
+<a id="sottotaglio-e-interferenza-interna"></a>
 
-La condizione indicativa da dentiera standard è x minimo = ha* − zv sin²αn / 2, con zv = z per denti diritti e zv ≈ z/cos³β per elicoidali. Il controllo con denti virtuali resta un’approssimazione di progetto. L’avviso geometrico usa ora la soglia effettiva del rack arrotondato x_min=(hf*mn−ρ(1−sinαn)−rp sin²αt)/mn, distinta dal limite indicativo con denti virtuali; il profilo registra se il ramo è stato trimmato. Fonte per il limite standard e il ruolo della correzione: [KHK, Technical Data, sezioni 3.5–3.6](https://d2t1xqejof9utc.cloudfront.net/files/227482/gear_guide1.pdf?1634738312=).
+## Undercut and internal interference
 
-Nelle nuove coppie interne si richiede differenza denti > 9, oltre al controllo del cerchio di base. Questo è un filtro conservativo del generatore; la nota KHK sul limite 9 riguarda dentature standard a 20°, non costituisce una garanzia per altri angoli. Interferenza di taglio e profilo dell’utensile restano da verificare. Fonte: [KHK, Internal ring gears — design and considerations](https://khkgears.us/media/beqhhrye/gear-solutions_khk_internal-ring-gears-design-and-considerations.pdf).
+The indicative standard-rack condition is x minimum = ha* − zv sin²αn / 2, with zv = z for spur teeth and zv ≈ z/cos³β for helical gears. The virtual-tooth check remains a design approximation. The geometric warning now uses the actual rounded-rack threshold x_min=(hf*mn−ρ(1−sinαn)−rp sin²αt)/mn, distinct from the indicative virtual-tooth limit; the profile records whether the branch was trimmed. Source for the standard limit and the role of profile shift: [KHK, Technical Data, sections 3.5–3.6](https://d2t1xqejof9utc.cloudfront.net/files/227482/gear_guide1.pdf?1634738312=).
 
-Il vecchio preset planetary 18/18/54 diritto può entrare nella zona sotto il cerchio di base nella coppia satellite-corona. È conservato per compatibilità, con avviso esplicito e ricoprimento teorico nel report. Non è dichiarato privo di interferenze. Una combinazione 24/24/72 evita questo specifico avviso e conserva il rapporto 4:1; non è per questo un progetto dimensionato a resistenza.
+The new internal pairs require a tooth-count difference > 9, in addition to the base-circle check. This is a conservative generator filter; the KHK note on the limit of 9 concerns standard teeth at 20° and is not a guarantee for other angles. Cutting interference and tool profile remain to be checked. Source: [KHK, Internal ring gears — design and considerations](https://khkgears.us/media/beqhhrye/gear-solutions_khk_internal-ring-gears-design-and-considerations.pdf).
 
-## Cinematica e forze
+The old 18/18/54 spur planetary preset can enter the area below the base circle in the planet-ring pair. It is retained for compatibility, with an explicit warning and theoretical contact ratio in the report. It is not declared interference-free. A 24/24/72 combination avoids this specific warning and retains the 4:1 ratio; this does not make it a strength-rated design.
+
+<a id="cinematica-e-forze"></a>
+
+## Kinematics and forces
 
 ```
-Coppia esterna: i = −z2/z1
-Coppia interna ad assi fissi: i = +z2/z1
-Composto a due stadi esterni: i = (z2/z1)(z4/z3)
-Planetary corona fissa: i = 1 + zr/zs
-P ingresso = T ingresso × n ingresso × 2π/60
-n uscita = n ingresso / i
-|T uscita| = T ingresso × |i| × η complessivo
-Ft = 2000 |T| / d lavoro
+External pair: i = −z2/z1
+Fixed-axis internal pair: i = +z2/z1
+Compound with two external stages: i = (z2/z1)(z4/z3)
+Fixed-ring planetary: i = 1 + zr/zs
+P input = T input × n input × 2π/60
+n output = n input / i
+|T output| = T input × |i| × η overall
+Ft = 2000 |T| / d working
 Fr = Ft tan αw
 Fa = Ft tan β
 ```
 
-Nel composto, η stadio = √η complessivo è un’ipotesi esplicita per stimare la coppia intermedia. La variante coassiale richiede interassi uguali; gli alberi ingresso e uscita sono separati assialmente. Le due ruote intermedie devono essere solidali, ma il collegamento meccanico non è ancora progettato. Fonti didattiche: [JNTUA/JNTUK, Gear Trains, lezioni del prof. N. Mohan Rao](https://www.jntua.ac.in/gate-online-classes/registration/downloads/material/a159033042164.pdf), [University of Arkansas, Introduction to Mechanical Design and Manufacturing — Gearing Systems](https://uark.pressbooks.pub/mechanicaldesign/chapter/gearing-systems/). Quest’ultima usa talvolta il reciproco come convenzione del rapporto; qui è sempre esplicitato i = n ingresso/n uscita.
+In the compound train, η stage = √η overall is an explicit assumption for estimating intermediate torque. The coaxial variant requires equal centre distances; input and output shafts are axially separated. The two intermediate gears must be rigidly connected, but the mechanical connection has not yet been designed. Teaching sources: [JNTUA/JNTUK, Gear Trains, lectures by Prof. N. Mohan Rao](https://www.jntua.ac.in/gate-online-classes/registration/downloads/material/a159033042164.pdf), [University of Arkansas, Introduction to Mechanical Design and Manufacturing — Gearing Systems](https://uark.pressbooks.pub/mechanicaldesign/chapter/gearing-systems/). The latter sometimes uses the reciprocal ratio convention; here, i = n input/n output is always explicit.
 
-Le forze sono riferimenti nominali sulla ruota motrice, non reazioni complete dei supporti. Fr e Ft sono moduli; il segno Fa segue la mano di riferimento del pignone e non determina da solo la direzione della reazione nel montaggio. Per doppia elica il valore Fa è il riferimento conservativo a piena coppia di un’elica singola; la cancellazione complessiva richiede carichi simmetrici. Esempio di controprova: T = 100 N·m, d = 40 mm, αw = 21,515° → Ft = 5000 N, Fr ≈ 1971,1 N. Fonte: [Drivetrain Hub, Strength / Force Analysis](https://drivetrainhub.com/notebooks/gears/strength/Chapter%201%20-%20Force%20Analysis.html).
+The forces are nominal references on the driving gear, not complete support reactions. Fr and Ft are magnitudes; the sign of Fa follows the pinion's reference hand and does not by itself determine the direction of the reaction in the assembly. For double-helical gears, Fa is the conservative full-torque reference for a single helix; overall cancellation requires symmetric loads. Independent cross-check example: T = 100 N·m, d = 40 mm, αw = 21,515° → Ft = 5000 N, Fr ≈ 1971,1 N. Source: [Drivetrain Hub, Strength / Force Analysis](https://drivetrainhub.com/notebooks/gears/strength/Chapter%201%20-%20Force%20Analysis.html).
 
-Per il planetary sono conservate le condizioni di coassialità, equispaziamento e distanza fra satelliti. Sono riportati i ricoprimenti solare-satellite e satellite-corona di ogni stadio; non si inventa una ripartizione del carico dividendo semplicemente la coppia per il numero di satelliti. Riferimento: [Drivetrain Hub, Geometry / Planetary Gears](https://drivetrainhub.com/notebooks/gears/geometry/Chapter%204%20-%20Planetary%20Gears.html).
+For planetary gears, the coaxiality, equal-spacing and inter-planet distance conditions are retained. The sun-planet and planet-ring contact ratios of each stage are reported; load sharing is not invented by simply dividing torque by the number of planets. Reference: [Drivetrain Hub, Geometry / Planetary Gears](https://drivetrainhub.com/notebooks/gears/geometry/Chapter%204%20-%20Planetary%20Gears.html).
 
-## Cicloidale
+<a id="cicloidale"></a>
 
-Il profilo resta l’offset normale interno della traiettoria dei centri dei rulli. Si distinguono **gioco del profilo**, **gioco dei fori uscita**, **gioco assiale del montaggio** e **distanza fra i due dischi**. Il foro uscita ha raggio r perno + eccentricità + gioco uscita. Se una vecchia configurazione non specifica i nuovi valori, si usano rispettivamente il vecchio gioco del profilo e il vecchio gioco assiale.
+## Cycloidal
 
-Il campionamento adattivo confronta metà e quarti di ogni intervallo con la corda. È una soglia numerica, non una tolleranza di fabbricazione né un limite globale dimostrato. Il controllo di curvatura usa almeno 4096 campioni e un margine del 2% contro le cuspidi dell’offset; non è una prova analitica di assenza di cuspidi per qualunque parametro. Il rapporto è −(N rulli − 1).
+The profile remains the inward normal offset of the roller-centre trajectory. **Profile clearance**, **output-hole clearance**, **assembly axial clearance** and **distance between the two discs** are distinguished. The output-hole radius is r pin + eccentricity + output clearance. If an old configuration does not specify the new values, the old profile clearance and old axial clearance are used, respectively.
 
-La distinzione dei giochi è motivata da [Chen et al., ASME Journal of Mechanical Design, 2017, Analysis of a Cycloid Speed Reducer Considering Tooth Profile Modification and Clearance-Fit Output Mechanism](https://doi.org/10.1115/1.4035541). Le modifiche normali del profilo sono discusse in [A New Tooth Profile Modification Method of Cycloidal Gears in Precision Reducers for Robots, Applied Sciences 2020](https://www.mdpi.com/2076-3417/10/4/1266). Non è implementata la loro ottimizzazione né il modello di ripartizione elastica: il solo gioco non permette di stimare stress o precisione sotto carico.
+Adaptive sampling compares the midpoint and quarter points of each interval with the chord. This is a numerical threshold, not a manufacturing tolerance or a proven global bound. The curvature check uses at least 4096 samples and a 2% margin against offset cusps; it is not an analytical proof of cusp absence for every parameter. The ratio is −(N rollers − 1).
 
-## Vite e strain wave
+The separation of clearances is motivated by [Chen et al., ASME Journal of Mechanical Design, 2017, Analysis of a Cycloid Speed Reducer Considering Tooth Profile Modification and Clearance-Fit Output Mechanism](https://doi.org/10.1115/1.4035541). Normal profile modifications are discussed in [A New Tooth Profile Modification Method of Cycloidal Gears in Precision Reducers for Robots, Applied Sciences 2020](https://www.mdpi.com/2076-3417/10/4/1266). Their optimisation and elastic load-sharing model are not implemented: clearance alone does not allow stress or accuracy under load to be estimated.
+
+<a id="vite-e-strain-wave"></a>
+
+## Worm and strain wave
 
 For the worm pair, **m is the axial worm module**: lead L = π m starts,
 γ = atan(m starts / worm diameter), mn = m cos γ and
@@ -106,11 +122,15 @@ separate reported quantities. The same immutable material map drives preview
 and discrete interference poses. This is not an elastic, fatigue or loaded
 contact solution. See [strain-wave equations and references](strain-wave.md).
 
-## Consultazione ed esportazione
+<a id="consultazione-ed-esportazione"></a>
 
-**Configurazioni e file → Relazione di calcolo** mostra i risultati e gli avvisi. Ogni esportazione della distinta produce anche `.calculations.txt` e `.calculations.json`. Il JSON della distinta e i metadati del gruppo CAD conservano la sezione `analysis`. I dati di esercizio sono raccolti nel pannello espandibile **Esercizio e carichi** e non modificano la geometria.
+## Reading results and exporting
+
+**Configurations and files → Calculation report** shows results and warnings. Each bill-of-materials export also produces `.calculations.txt` and `.calculations.json`. The bill-of-materials JSON and CAD assembly metadata retain the `analysis` section. Operating data is collected in the expandable **Operating conditions and loads** panel and does not change the geometry.
 
 
-## Schemi cinematici
+<a id="schemi-cinematici"></a>
 
-Il rapporto è ingresso/uscita. Planetary, cicloidale e strain wave risolvono le sei permutazioni dei membri con velocità nulla del membro fissato. Il planetary bistadio propaga velocità e segno tra i due stadi. Le coppie ad assi paralleli, a corona interna e vite consentono l’inversione di ingresso e uscita; per la vite questo non garantisce la retroazionabilità. Vedi [IO-MODELS.md](io-models.md).
+## Kinematic arrangements
+
+The ratio is input/output. Planetary, cycloidal and strain wave solve all six member permutations with zero speed for the fixed member. The two-stage planetary propagates speed and sign between the two stages. Parallel-axis, internal-ring and worm pairs allow input and output to be reversed; for the worm, this does not guarantee backdrivability. See [IO-MODELS.md](io-models.md).

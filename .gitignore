@@ -32,3 +32,6 @@ AGENTS.md
 SKILL.md
 
 .venv/
+
+# Generated public website output stays outside source and application artifacts.
+/_site/

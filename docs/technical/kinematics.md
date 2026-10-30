@@ -1,27 +1,33 @@
-# Modalità cinematica
+<a id="modalità-cinematica"></a>
 
-Sopra il visualizzatore 3D, **Avvia movimento / Pausa** e **Posa iniziale** sono accessibili direttamente. Premi il pulsante con il valore della velocità e **Regola**: si apre una palette compatta in stile CAD, con testata grigia, pulsante di chiusura, stato, **Avvia / Pausa / Riprendi**, ritorno alla posa iniziale e slider **RPM d’ingresso**. Rimane aperta mentre ruoti il modello; chiuderla non arresta il moto. I dettagli sono espandibili.
+# Kinematic mode
 
-
-
-La riproduzione usa gli RPM effettivi: 60 rpm corrispondono a un giro al secondo dell’ingresso. Rapporti e versi restano quelli dello schema scelto. A velocità elevate il campionamento dello schermo può far apparire i denti fermi o invertiti: abbassa gli RPM per ispezionare il movimento. Con tutti gli ingressi a zero il modello resta fermo.
+Above the 3D viewer, **Start motion / Pause** and **Initial pose** are directly accessible. Press the speed-value button and **Adjust**: a compact CAD-style palette opens, with a grey header, close button, status, **Start / Pause / Resume**, return to the initial pose and an **Input RPM** slider. It stays open while you orbit the model; closing it does not stop motion. Details are expandable.
 
 
 
-Parametri errati fermano l’animazione; correggili per riavviarla. Avvia disattiva la vista esplosa. Camera, sezione e visibilità rimangono disponibili durante il moto.
-
-## Movimenti rappresentati
-
-- Ingranaggi, treni, vite e riduttori: rotazioni dei membri con velocità e assi propri.
-- Cicloidale: orbita eccentrica e rotazione del disco. Il disco è un organo interno orbitante, anche quando l’uscita è fissa.
-- Harmonic: deformazione prescritta del flexspline con passo uniforme lungo l’arco ellittico e denti orientati sulla normale locale, orientata dal generatore d’onda, con rotazione del materiale e fondo della coppa solidale alla flangia. Non rappresenta un’analisi elastica.
+Playback uses the actual RPM: 60 rpm corresponds to one input revolution per second. Ratios and directions remain those of the selected arrangement. At high speeds, screen sampling can make teeth appear stationary or reversed: lower the RPM to inspect motion. With all inputs at zero, the model stays still.
 
 
-## Esportazione
 
-L’animazione modifica soltanto il rendering dell’anteprima: geometria, parametri, distinta e comandi CAD conservano la posa di montaggio. STEP e STL rimangono coerenti con il modello nominale. **Esporta file… → Pacchetto completo** ripristina la posa iniziale prima di salvare anche il PNG.
+Invalid parameters stop animation; correct them to restart it. Start disables the exploded view. Camera, section and visibility remain available during motion.
 
-È una visualizzazione cinematica: non verifica collisioni durante il ciclo, contatto coniugato, carichi, elasticità, attrito o durata; non crea giunti animati nel documento SolidCraft.
+<a id="movimenti-rappresentati"></a>
+
+## Represented motions
+
+- Gears, trains, worm and reducers: member rotations with their own speeds and axes.
+- Cycloidal: eccentric orbit and disc rotation. The disc is an internal orbiting member, even when the output is fixed.
+- Harmonic: prescribed flexspline deformation with uniform pitch along the elliptical arc and teeth oriented along the local normal, oriented by the wave generator, with material rotation and the cup bottom rigidly connected to the flange. This does not represent an elastic analysis.
+
+
+<a id="esportazione"></a>
+
+## Export
+
+Animation changes only preview rendering: geometry, parameters, bill of materials and CAD commands retain the assembly pose. STEP and STL remain consistent with the nominal model. **Export files… → Complete package** restores the initial pose before also saving the PNG.
+
+This is a kinematic visualisation: it does not check collisions throughout the cycle, conjugate contact, loads, elasticity, friction or life; it does not create animated joints in the SolidCraft document.
 
 The generated strain-wave ring and its discrete moving-surface checks are described
 in the [strain-wave reference](strain-wave.md). Starting animation alone does not

@@ -1,0 +1,3 @@
+# Build-time only. Hosting the generated output requires no Python.
+markdown-it-py==3.0.0
+mdurl==0.1.2

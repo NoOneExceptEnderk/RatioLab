@@ -11,6 +11,8 @@ include scripts/*.py scripts/*.sh scripts/*.ps1 scripts/*.iss
 include .github/workflows/portable.yml .github/workflows/installers.yml
 recursive-include packaging *.py *.spec *.conf *.txt *.json *.ttf *.ico *.icns
 include examples/*.config.json
+prune website
+prune _site
 prune work
 prune design
 prune outputs

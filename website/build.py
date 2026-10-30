@@ -1,0 +1,206 @@
+#!/usr/bin/env python3
+"""Build the portable RatioLab website from canonical docs and public release assets."""
+from __future__ import annotations
+
+import argparse
+import html
+import json
+import os
+import re
+import shutil
+import subprocess
+import tempfile
+from html.parser import HTMLParser
+from pathlib import Path
+from urllib.parse import unquote, urlsplit
+from zipfile import ZIP_DEFLATED, ZipFile, ZipInfo
+
+from releases import REPOSITORY, cache_document, fetch_latest, load_cache, validate_release
+from render_docs import DOCUMENTS, build_docs, render_template
+from social_links import load_social_channels, render_discord_ctas, render_social_links
+
+WEBSITE = Path(__file__).resolve().parent
+REPOSITORY_ROOT = WEBSITE.parent
+STATIC_ASSETS = ('ratiolab-icon.png', 'ratiolab-logo-dark.png', 'workspace.png', 'site.css', 'site.js',
+                 'docs-search.js', 'planetary.json', 'cycloidal.json', 'worm.json', 'parallel.json',
+                 'harmonic.json', 'worm.bin', 'harmonic.bin', 'os-download.js', 'mechanism.js')
+
+
+def public_files():
+    return ['index.html', 'docs/index.html', *(doc.route for doc in DOCUMENTS),
+            *('assets/' + name for name in STATIC_ASSETS), 'assets/search-index.js']
+
+
+def source_provenance(repository_root, environ=None):
+    """Only name a commit when Git verifies the canonical docs match that commit."""
+    environ = os.environ if environ is None else environ
+    def git(*args):
+        result = subprocess.run(['git', '-C', str(repository_root), *args], capture_output=True, text=True, check=True)
+        return result.stdout.strip()
+    try:
+        revision = git('rev-parse', 'HEAD')
+        env_revision = environ.get('GITHUB_SHA')
+        paths = ['docs/' + doc.source for doc in DOCUMENTS]
+        git('ls-files', '--error-unmatch', '--', *paths)
+        if re.fullmatch(r'[0-9a-f]{40}', revision) and (not env_revision or env_revision == revision) and not git('status', '--porcelain', '--untracked-files=all', '--', 'docs'):
+            return revision, 'View source at ' + revision[:12]
+    except (OSError, subprocess.CalledProcessError):
+        pass
+    return 'main', 'View repository source (local checkout may differ)'
+
+
+class Page(HTMLParser):
+    def __init__(self, text):
+        super().__init__(convert_charrefs=True)
+        self.ids, self.urls = [], []
+        self.feed(text)
+    def handle_starttag(self, tag, attributes):
+        attrs = dict(attributes)
+        if 'id' in attrs:
+            self.ids.append(attrs['id'])
+        for attr in ('href', 'src'):
+            if attr in attrs:
+                self.urls.append(attrs[attr])
+
+
+def validate_output(directory):
+    expected = set(public_files())
+    actual = {p.relative_to(directory).as_posix() for p in directory.rglob('*') if p.is_file()}
+    if actual != expected or any(p.is_symlink() for p in directory.rglob('*')):
+        raise ValueError('Output must contain exactly the public website allowlist')
+    pages = {}
+    for path in sorted(directory.rglob('*.html')):
+        source = path.read_text(encoding='utf-8')
+        if re.search(r'\{\{[a-z_]+\}\}', source):
+            raise ValueError('Unresolved page template: ' + str(path))
+        page = Page(source)
+        if len(page.ids) != len(set(page.ids)):
+            raise ValueError('Duplicate HTML IDs: ' + str(path))
+        pages[path.resolve()] = page
+    for path, page in pages.items():
+        for url in page.urls:
+            parsed = urlsplit(url)
+            if parsed.scheme or parsed.netloc:
+                continue
+            target = (path.parent / unquote(parsed.path)).resolve() if parsed.path else path
+            if not target.is_relative_to(directory.resolve()) or not target.is_file():
+                raise ValueError('Broken local link: ' + str(path) + ': ' + url)
+            if parsed.fragment and target.suffix == '.html' and unquote(parsed.fragment) not in pages[target].ids:
+                raise ValueError('Broken local fragment: ' + str(path) + ': ' + url)
+
+
+def safe_output(output, repository_root, website_root):
+    raw = Path(output).absolute()
+    if raw.is_symlink():
+        raise ValueError('Output cannot be a symlink')
+    result = raw.resolve()
+    repo, website = repository_root.resolve(), website_root.resolve()
+    if result == repo or repo.is_relative_to(result) or result == website or result.is_relative_to(website):
+        raise ValueError('Output overlaps repository sources')
+    if result.is_relative_to(repo) and result != repo / '_site':
+        raise ValueError('An output inside the repository must be its _site directory')
+    if result.exists():
+        if not result.is_dir():
+            raise ValueError('Output must be a directory')
+        allowed = set(public_files())
+        for item in result.rglob('*'):
+            if item.is_symlink() or item.is_file() and item.relative_to(result).as_posix() not in allowed:
+                raise ValueError('Refusing to replace output containing non-website files')
+    return result
+
+
+def build_home(output_root, release):
+    values = {**release.downloads, 'version': release.version, 'repository': REPOSITORY,
+              'release': release.url, 'issues': REPOSITORY + '/issues', 'license': REPOSITORY + '/blob/main/LICENSE'}
+    escaped = {key: html.escape(value, quote=True) for key, value in values.items()}
+    channels = load_social_channels()
+    escaped.update(social_links=render_social_links(channels), **render_discord_ctas(channels))
+    template = (WEBSITE / 'index.template.html').read_text(encoding='utf-8')
+    (output_root / 'index.html').write_text(render_template(template, escaped), encoding='utf-8')
+
+
+def atomic_text(path, text):
+    temporary = path.with_name('.' + path.name + '.tmp')
+    try:
+        temporary.write_text(text, encoding='utf-8')
+        temporary.replace(path)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def build(*, offline=False, output=None, repository_root=REPOSITORY_ROOT, release_fetcher=fetch_latest):
+    repository_root = Path(repository_root).resolve()
+    output = safe_output(output or repository_root / '_site', repository_root, WEBSITE)
+    # Never touch the prior output when discovery is unavailable or incomplete.
+    release = load_cache(WEBSITE / 'release.json') if offline else validate_release(release_fetcher())
+    source_ref, source_label = source_provenance(repository_root)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    stage = Path(tempfile.mkdtemp(prefix='.' + output.name + '-build-', dir=output.parent))
+    old = None
+    try:
+        (stage / 'assets').mkdir()
+        for name in STATIC_ASSETS:
+            source = WEBSITE / 'assets' / name
+            if source.is_symlink() or not source.is_file():
+                raise ValueError('Missing or unsafe static asset: ' + name)
+            shutil.copyfile(source, stage / 'assets' / name)
+        build_home(stage, release)
+        sections = build_docs(stage, repository_root, source_ref=source_ref, source_label=source_label)
+        validate_output(stage)
+        if not offline:
+            atomic_text(WEBSITE / 'release.json', json.dumps(cache_document(release), indent=2) + '\n')
+        if output.exists():
+            old = Path(tempfile.mkdtemp(prefix='.' + output.name + '-previous-', dir=output.parent))
+            old.rmdir()
+            output.replace(old)
+        try:
+            stage.replace(output)
+        except BaseException:
+            if old:
+                old.replace(output)
+                old = None
+            raise
+        if old:
+            shutil.rmtree(old)
+            old = None
+        return {'output': str(output), 'version': release.version, 'pages': len(DOCUMENTS) + 2,
+                'files': len(public_files()), 'search_sections': sections, 'source_ref': source_ref}
+    finally:
+        if stage.exists():
+            shutil.rmtree(stage)
+
+
+def package_site(output, archive_path):
+    """Package existing reviewed output only; the artifact stays outside the site."""
+    output, archive_path = Path(output).resolve(), Path(archive_path).resolve()
+    if archive_path == output or archive_path.is_relative_to(output):
+        raise ValueError('Archive must be outside the public output directory')
+    validate_output(output)
+    archive_path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = archive_path.with_name('.' + archive_path.name + '.tmp')
+    try:
+        with ZipFile(temporary, 'w', compression=ZIP_DEFLATED, compresslevel=9) as archive:
+            for relative in sorted(public_files()):
+                info = ZipInfo(relative, date_time=(2026, 10, 30, 0, 0, 0))
+                info.compress_type = ZIP_DEFLATED
+                info.external_attr = 0o100644 << 16
+                archive.writestr(info, (output / relative).read_bytes(), compresslevel=9)
+        temporary.replace(archive_path)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--offline', action='store_true', help='Use only the strictly validated public release cache')
+    parser.add_argument('--output', type=Path, help='Output directory (default: repository _site)')
+    args = parser.parse_args()
+    try:
+        result = build(offline=args.offline, output=args.output)
+    except (OSError, ValueError) as error:
+        parser.exit(1, 'Website build failed: ' + str(error) + '\n')
+    print(json.dumps(result, indent=2))
+
+
+if __name__ == '__main__':
+    main()

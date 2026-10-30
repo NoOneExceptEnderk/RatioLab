@@ -1,15 +1,19 @@
-# Doppia elica, viti cilindriche e strain wave
+<a id="doppia-elica-viti-cilindriche-e-strain-wave"></a>
+
+# Double-helical gears, cylindrical worms and strain wave
 
 Dimensional geometry and ideal motion; no strength or production-readiness certification of a complete reducer.
 
-## Doppia elica: unite e separate
+<a id="doppia-elica-unite-e-separate"></a>
 
-- **Eliche unite**: gola zero, le due mani si incontrano al centro. Un solo corpo continuo.
-- **Eliche separate**: gola centrale regolabile e mozzo continuo sotto la gola. Un solo corpo, non due ingranaggi disconnessi.
+## Double-helical: joined and separated
 
-Per l’ingranaggio singolo si sceglie direttamente la variante. Per planetary, bistadio planetary, assi paralleli, composto e corona interna, il menu **Costruzione doppia elica** appare quando è selezionata una dentatura doppia.
+- **Joined helices**: zero gap, the two hands meet at the centre. One continuous body.
+- **Separated helices**: adjustable central gap and continuous hub beneath the gap. One body, not two disconnected gears.
 
-La gola è nascosta e forzata a zero nelle eliche unite; deve essere positiva nelle separate. I vecchi JSON con `gap: 0` vengono riconosciuti come uniti e quelli con gola positiva come separati. Il ricoprimento assiale continua a usare la larghezza di una singola metà attiva, senza contare la gola come dentatura. La cancellazione della spinta assiale richiede una ripartizione simmetrica del carico.
+For an individual gear, the variant is selected directly. For planetary, two-stage planetary, parallel-axis, compound and internal-ring trains, the **Double-helical construction** menu appears when double-helical teeth are selected.
+
+The gap is hidden and forced to zero for joined helices; it must be positive for separated helices. Old JSON files with `gap: 0` are recognised as joined and those with a positive gap as separated. The axial contact ratio continues to use the width of a single active half, without counting the gap as teeth. Axial-thrust cancellation requires symmetric load sharing.
 
 ## Cylindrical worm: ZA and ZI
 
@@ -23,37 +27,43 @@ See the [worm equations, original references, supported domain and numerical
 validation](worm.md). The ideal rigid generated envelope and discrete clearance
 checks do not certify a manufactured transmission, strength or self locking.
 
-## Strain wave: cup, flat cup e silk hat
+<a id="strain-wave-cup-flat-cup-e-silk-hat"></a>
 
-La geometria precedente era un semplice anello deformato. Ora sono disponibili:
+## Strain wave: cup, flat cup and silk hat
 
-- **Cup**: corpo a coppa con diaframma anulare sul fondo.
-- **Flat cup**: stessa architettura a coppa, con lunghezza iniziale ridotta e regolabile.
-- **Silk hat**: corpo aperto con flangia anulare rivolta verso l’esterno.
+The previous geometry was a simple deformed ring. The following are now available:
 
-Cup e flat cup includono un foro di uscita indipendente da quello della camma. Silk hat consente di scegliere la larghezza radiale della flangia. Il corpo flessibile è sempre **un unico solido** comprendente parete, diaframma/flangia e fascia dentata; la sezione passa gradualmente da circolare a deformata. Spessore parete, lunghezza corpo e spessore diaframma/flangia sono distinti.
+- **Cup**: cup-shaped body with an annular diaphragm at the bottom.
+- **Flat cup**: the same cup architecture, with reduced and adjustable initial length.
+- **Silk hat**: open body with an outward-facing annular flange.
 
-Queste architetture sono documentate nei [modelli ufficiali Harmonic Drive Systems: CSF, CSD e SHF](https://www.hds.co.jp/english/products/model/). I nomi descrivono l’architettura; non vengono riprodotte quote di uno specifico prodotto commerciale o assegnati codici d’ordine.
+Cup and flat cup include an output bore independent of the cam bore. Silk hat allows the radial flange width to be selected. The flexible body is always **one solid** comprising wall, diaphragm/flange and toothed band; the section gradually transitions from circular to deformed. Wall thickness, body length and diaphragm/flange thickness are distinct.
 
-L’ellisse primitiva usa a = rp + ampiezza; b è risolto numericamente affinché il perimetro sia 2πrp. La verifica indipendente usa 4096 punti. Il passo dei denti è ora uniforme sull’arco della linea primitiva, risolvendo l’integrale della velocità ellittica con otto armoniche e inversione di Newton. Gli offset radiali del profilo di riferimento diventano offset sulla normale locale all’ellisse, orientando i denti. La transizione assiale interpola la mappa circolare e quella ellittica; il moto usa identiche coordinate materiali immutabili e coefficienti nello shader. Il dominio numericamente verificato è q=(a²−b²)/(a²+b²)≤0,25. The ring is generated from the matching complete tooth sweep under this map; perimeter and pitch conservation alone are not its conjugacy check. Deformation remains prescribed, without an elastic solution.
+These architectures are documented in the [official Harmonic Drive Systems models: CSF, CSD and SHF](https://www.hds.co.jp/english/products/model/). The names describe the architecture; dimensions of a specific commercial product are not reproduced and order codes are not assigned.
 
-Il generatore d’onda e l’involucro del suo cuscinetto seguono il vano deformato con spessore e giochi radiali espliciti. Il cuscinetto è classificato come **sagoma da definire**, non come acquisto di catalogo. The flexible tooth reference is mapped with the local ellipse normal; the rigid ring uses its full generated outer swept envelope, including all branches and corners. Reference backlash and derived numerical enclosure relief are reported separately. This does not reproduce an industrial S-tooth profile or establish fatigue capacity. See [the equations, original references, sampled verification and remaining limits](strain-wave.md).
+The pitch ellipse uses a = rp + amplitude; b is solved numerically so that the perimeter is 2πrp. The independent check uses 4096 points. Tooth pitch is now uniform along the pitch-line arc, solving the integral of elliptical speed with eight harmonics and Newton inversion. Radial offsets of the reference profile become offsets along the local ellipse normal, orienting the teeth. The axial transition interpolates the circular and elliptical maps; motion uses identical immutable material coordinates and coefficients in the shader. The numerically verified domain is q=(a²−b²)/(a²+b²)≤0,25. The ring is generated from the matching complete tooth sweep under this map; perimeter and pitch conservation alone are not its conjugacy check. Deformation remains prescribed, without an elastic solution.
 
-### Due schemi cinematici
+The wave generator and its bearing envelope follow the deformed cavity with explicit thickness and radial clearances. The bearing is classified as an **envelope to be defined**, not a catalogue purchase. The flexible tooth reference is mapped with the local ellipse normal; the rigid ring uses its full generated outer swept envelope, including all branches and corners. Reference backlash and derived numerical enclosure relief are reported separately. This does not reproduce an industrial S-tooth profile or establish fatigue capacity. See [the equations, original references, sampled verification and remaining limits](strain-wave.md).
 
-Con zf denti sul flexspline e zc = zf + 2 sulla corona, ingresso al generatore d’onda:
+<a id="due-schemi-cinematici"></a>
+
+### Two kinematic arrangements
+
+With zf teeth on the flexspline and zc = zf + 2 on the ring, input at the wave generator:
 
 ```
-Corona fissa, uscita flexspline: i = zf / (zf − zc) = −zf/2
-Flexspline fisso, uscita corona: i = zc / (zc − zf) = +(zf+2)/2
+Fixed ring, flexspline output: i = zf / (zf − zc) = −zf/2
+Fixed flexspline, ring output: i = zc / (zc − zf) = +(zf+2)/2
 ```
 
-La geometria è la stessa; cambiano vincolo, uscita, rapporto firmato e relazione di calcolo. I vincoli sono descritti, senza creare giunti cinematici automatici nel CAD. Fonte: [Harmonic Drive LLC, Engineering Data, pagine 10–11 sui rapporti e configurazioni](https://global.harmonicdrive.net/_hd/content/documents1/CSG-CSF_GearUnits.pdf).
+The geometry is the same; the constraint, output, signed ratio and calculation report change. Constraints are described without creating automatic kinematic joints in CAD. Source: [Harmonic Drive LLC, Engineering Data, pages 10–11 on ratios and configurations](https://global.harmonicdrive.net/_hd/content/documents1/CSG-CSF_GearUnits.pdf).
 
-**Pancake non è un sinonimo di flat cup**: è un’architettura distinta con due circular spline. È documentata nella stessa fonte, ma non viene simulata rinominando una coppa corta. Non è inclusa nelle varianti di questa revisione.
+**Pancake is not a synonym for flat cup**: it is a distinct architecture with two circular splines. It is documented in the same source, but is not simulated by renaming a short cup. It is not included in the variants of this revision.
 
-## Verifiche e file
+<a id="verifiche-e-file"></a>
 
-Test: `PYTHONPATH=src python3 -m unittest discover -s tests -p 'test*.py'`. Sono controllati profili ZA, spessori, mani speculari, continuità, limiti dei codoli, perimetro d’onda, rapporti, giochi e identità delle facce preview/STEP anche per ZI sinistra e silk hat. La distinta tiene conto delle sezioni assiali nel codice del pezzo e nell’ingombro, per distinguere flange di dimensioni diverse.
+## Checks and files
 
-Configurazioni in [`examples/`](../../examples/). Distinte, relazioni e documenti CAD vengono creati nella cartella di esportazione scelta dall’utente. Per carichi nominali, unità e limiti generali vedere [CALCULATIONS.md](calculations.md).
+Tests: `PYTHONPATH=src python3 -m unittest discover -s tests -p 'test*.py'`. Checks cover ZA profiles, thicknesses, mirrored hands, continuity, journal limits, wave perimeter, ratios, clearances and preview/STEP face identity, including left-handed ZI and silk hat. The bill of materials accounts for axial sections in the part code and envelope, to distinguish flanges of different dimensions.
+
+Configurations in [`examples/`](../../examples/). Bills of materials, reports and CAD documents are created in the export folder selected by the user. For nominal loads, units and general limits, see [CALCULATIONS.md](calculations.md).

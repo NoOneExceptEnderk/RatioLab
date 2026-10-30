@@ -1,34 +1,44 @@
-# Modelli adattati ai collegamenti di ingresso e uscita
+<a id="modelli-adattati-ai-collegamenti-di-ingresso-e-uscita"></a>
 
-Il riquadro **Azionamento · ingresso e uscita** modifica anche i collegamenti geometrici degli schemi alternativi. Le configurazioni di base conservano i modelli e le compatibilità già esistenti.
+# Models adapted to input and output connections
 
-## Cosa cambia
+The **Drive · input and output** panel also modifies the geometric connections of alternative arrangements. The base configurations retain the existing models and compatibility.
 
-| Famiglia | Adattamento degli schemi alternativi |
+<a id="cosa-cambia"></a>
+
+## What changes
+
+| Family | Adaptation of alternative arrangements |
 |---|---|
-| Planetary, anche doppia elica | Rimossi alberi e fermi che presupponevano corona fissa; mozzi indipendenti per solare, portatore e corona. I passaggi del portatore lasciano libero l’albero centrale. I vecchi coperchi che attraverserebbero i nuovi attacchi vengono rimossi |
-| Planetary bistadio | Uscita del primo e ingresso del secondo collegati con due mozzi e una piastra intermedia: il collegamento cambia con i membri scelti. Gli attacchi esterni e i membri fissi restano indipendenti |
-| Cicloidale mono/doppio disco | Collegamenti all’albero eccentrico, flangia perni e carter della corona. Eliminati i vecchi alberi e coperchi incompatibili con il carter mobile. La sede dei rulli segue il membro corona |
-| Harmonic, cup/flat cup/hat | Attacco flexspline solo sul fondo/diaframma o sulla flangia rigida; albero del generatore e attacco anulare della corona sul lato aperto. La parte flessibile dentata non viene trattata come un mozzo rigido |
+| Planetary, including double-helical | Shafts and retainers that assumed a fixed ring are removed; independent hubs for the sun, carrier and ring. Carrier passages leave the central shaft clear. Old covers that would intersect the new mounts are removed |
+| Two-stage planetary | Output of the first stage and input of the second connected by two hubs and an intermediate plate: the connection changes with the selected members. External mounts and fixed members remain independent |
+| Single-/double-disc cycloidal | Connections to the eccentric shaft, pin flange and ring housing. Incompatible old shafts and covers are removed for the moving housing. The roller seat follows the ring member |
+| Harmonic, cup/flat cup/hat | Flexspline mount only on the bottom/diaphragm or rigid flange; generator shaft and annular ring mount on the open side. The flexible toothed part is not treated as a rigid hub |
 
 
-## Come leggere gli attacchi
+<a id="come-leggere-gli-attacchi"></a>
 
-- Arancio: ingresso, flangia con **4 fori nominali**.
-- Verde: uscita, flangia con **6 fori nominali**.
-- Grigio: membro da fissare, flangia con **8 fori nominali**.
+## Reading the mounts
 
-I mozzi toccano la faccia del membro indicato oppure occupano il suo foro come un albero nominale. I collegamenti coassiali usano fasce radiali e posizioni assiali distinte. L’estensione deriva dalla quota albero della famiglia, se presente, oppure da 8 mm; flange e pareti derivano dalle quote del modello. Le geometrie seguono le variazioni dei parametri.
+- Orange: input, flange with **4 nominal holes**.
+- Green: output, flange with **6 nominal holes**.
+- Grey: member to be fixed, flange with **8 nominal holes**.
 
-Quando scegli un nuovo schema con attacchi adattati, **Supporti** viene attivato per mostrarli. Puoi nasconderli nuovamente. Anteprima, STEP, STL e distinta usano gli stessi solidi; JSON e metadati mantengono gli identificatori degli schemi esistenti. La relazione JSON contiene `mount_interfaces`, con membro, ruolo, pezzo di appoggio, asse e quote; `interstage_mounting` descrive il collegamento fra i due stadi.
+Hubs touch the face of the indicated member or occupy its bore as a nominal shaft. Coaxial connections use distinct radial bands and axial positions. The extension comes from the family's shaft dimension, where present, or from 8 mm; flanges and walls come from the model dimensions. The geometry follows parameter changes.
 
-Per gli schemi alternativi planetary e cicloidali sono richieste quote manuali e hardware automatico disattivato: le vecchie sedi standard presuppongono la corona fissa. Il pannello offre il pulsante per passare alle quote manuali.
+When you choose a new arrangement with adapted mounts, **Supports** is enabled to show them. You can hide them again. Preview, STEP, STL and bill of materials use the same solids; JSON and metadata retain the existing arrangement identifiers. The JSON report contains `mount_interfaces`, with member, role, supporting part, axis and dimensions; `interstage_mounting` describes the connection between the two stages.
 
-## Limiti meccanici
+Alternative planetary and cycloidal arrangements require manual dimensions and automatic hardware disabled: the old standard seats assume a fixed ring. The panel provides a button for switching to manual dimensions.
 
-Questi sono **attacchi nominali**, non giunti industriali già dimensionati. I fori sono realmente presenti, ma non rappresentano una selezione di bulloni commerciali. Resta da definire il trasferimento della coppia fra albero e mozzo (linguetta, spline, serraggio o altro), con tolleranze, cuscinetti, arresti assiali e telaio. Una battuta fra due solidi non crea automaticamente un vincolo nel CAD.
+<a id="limiti-meccanici"></a>
 
-Le flange fisse richiedono un telaio esterno; i carter mobili richiedono supporti adeguati. Non sono verificate portata, fatica, rigidezza o tutto l’inviluppo di movimento. Il controllo geometrico riguarda la posa di riferimento.
+## Mechanical limits
 
-## Riferimenti
+These are **nominal mounts**, not industrial joints already sized for service. The holes are actually present, but do not represent a selection of commercial bolts. Torque transfer between shaft and hub (key, spline, clamping or another method) remains to be defined, together with tolerances, bearings, axial retainers and frame. Contact between two solids does not automatically create a CAD constraint.
+
+Fixed flanges require an external frame; moving housings require suitable supports. Load capacity, fatigue, stiffness and the complete swept envelope are not verified. The geometric check concerns the reference pose.
+
+<a id="riferimenti"></a>
+
+## References
 

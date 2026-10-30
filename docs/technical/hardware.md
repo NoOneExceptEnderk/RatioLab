@@ -1,50 +1,60 @@
-# Hardware standard e lavorazioni collegate
+<a id="hardware-standard-e-lavorazioni-collegate"></a>
 
-Nel pannello **Hardware e montaggio** scegli **Montaggio con componenti standard**. Puoi attivare separatamente Seeger, linguette, viteria e rasamenti, scegliere M3/M4/M5/M6 e lo spessore dei rasamenti. Le configurazioni precedenti conservano il comportamento senza hardware aggiuntivo.
+# Standard hardware and related machining
 
-## Cosa viene generato
+In the **Hardware and assembly** panel, choose **Assembly with standard components**. You can enable retaining rings, keys, fasteners and shims separately, select M3/M4/M5/M6 and the shim thickness. Previous configurations retain the behaviour without additional hardware.
 
-| Categoria | Componenti acquistabili | Lavorazioni / comportamento |
+<a id="cosa-viene-generato"></a>
+
+## What is generated
+
+| Category | Purchasable components | Machining / behaviour |
 |---|---|---|
-| Seeger esterni | Springmasters EXT0060, EXT0080, EXT0100, EXT0120, per alberi nominali 6/8/10/12 mm | Gola con diametro, larghezza e margine di estremità collegati alla scheda del componente |
-| Seeger interni | American Ring DIN472-013/016/019/022/026/028/030/032 | Due gole nella sede di ciascun cuscinetto di catalogo; larghezze e spessori delle parti vengono aumentati quando serve |
-| Linguette | Designazioni DIN 6885-1 B: sezioni 2×2, 3×3, 4×4 mm; lunghezza scelta in base allo spazio | Cava localizzata nell’albero; cava passante nel mozzo collegato. Estremità piane, senza assegnare automaticamente una classe di accoppiamento |
-| Viti e dadi | ISO 4762 M3–M6, dadi ISO 4032 e rondelle ISO 7089 | Quattro collegamenti passanti tra flange/coperchi esterni, con distanziali tubolari. Lunghezza calcolata sulla presa, rondelle, dado e sporgenza di almeno due passi |
-| Rasamenti | KIPP K1151, DIN 988; spessori 0,1 / 0,2 / 0,5 / 1 mm | Quote e quantità collegate agli arresti. Il diametro interno disponibile viene scelto per non interferire con l’albero |
-| Distanziali tubolari | Parti da realizzare, con codice interno SC-… | Colmano gli spazi fra ingranaggio e anelli interni dei cuscinetti, mantengono i rasamenti fuori dagli occhielli dei Seeger, oppure separano le flange dei tiranti |
+| External retaining rings | Springmasters EXT0060, EXT0080, EXT0100, EXT0120, for nominal 6/8/10/12 mm shafts | Groove diameter, width and end margin linked to the component data sheet |
+| Internal retaining rings | American Ring DIN472-013/016/019/022/026/028/030/032 | Two grooves in each catalogue bearing seat; part widths and thicknesses are increased where necessary |
+| Keys | DIN 6885-1 B designations: 2×2, 3×3, 4×4 mm sections; length selected according to available space | Localised shaft keyway; through keyway in the connected hub. Flat ends, without automatically assigning a fit class |
+| Screws and nuts | ISO 4762 M3–M6, ISO 4032 nuts and ISO 7089 washers | Four through connections between external flanges/covers, with tubular spacers. Length calculated from grip, washers, nut and protrusion of at least two pitches |
+| Shims | KIPP K1151, DIN 988; thicknesses 0,1 / 0,2 / 0,5 / 1 mm | Dimensions and quantities linked to the stops. The available internal diameter is selected to avoid interference with the shaft |
+| Tubular spacers | Parts to manufacture, with internal SC-… code | Fill gaps between gear and bearing inner rings, keep shims clear of retaining-ring lugs, or separate the tie-rod flanges |
 
-I dati sono in `hardware-catalog.json`, con fonti e data di verifica. I codici Springmasters, American Ring e KIPP identificano le rispettive voci di catalogo. Le sigle DIN/ISO delle linguette e della viteria sono **designazioni dimensionali**, non SKU di un produttore: materiale, classe di resistenza e finitura devono ancora essere selezionati. Le lunghezze delle viti sono una serie nominale del generatore; disponibilità del prodotto completo da verificare presso il fornitore scelto.
+The data is in `hardware-catalog.json`, with sources and verification date. Springmasters, American Ring and KIPP codes identify their respective catalogue entries. The DIN/ISO references for keys and fasteners are **dimensional designations**, not manufacturer SKUs: material, strength class and finish still need to be selected. Screw lengths are a nominal series used by the generator; availability of the complete product must be checked with the selected supplier.
 
-Le gole interne seguono le quote del catalogo metrico American Ring indicato, comprese le cifre arrotondate pubblicate; non rappresentano una tabella DIN universale valida per qualsiasi fornitore. Il margine di estremità adottato dal generatore per queste gole è indicato nei dati ed è da verificare sotto carico. Non vengono copiate le capacità di carico di un anello su un’altra geometria.
+Internal grooves follow the dimensions in the specified American Ring metric catalogue, including its published rounded figures; they are not a universal DIN table valid for any supplier. The end margin adopted by the generator for these grooves is stated in the data and must be verified under load. Ring load capacities are not copied onto another geometry.
 
-## Applicazione ai modelli
+<a id="applicazione-ai-modelli"></a>
 
-- **Ingranaggio singolo, quote libere:** albero aggiunto, linguetta con cave su albero e ingranaggio, rasamenti e Seeger esterni. Per aggiungere la viteria del telaio scegli il modo cuscinetti **a supporto dell’albero**, che fornisce le due flange da collegare.
-- **Ingranaggio con cuscinetti a supporto dell’albero:** cave e linguetta, Seeger interni nei portacuscinetti, arresti esterni, rasamenti e distanziali della catena assiale. La viteria collega i due portacuscinetti.
-- **Ingranaggio con cuscinetto nel foro:** ritenuta dell’anello esterno nel mozzo e distanziali sull’albero. La linguetta fra quel mozzo e quell’albero viene omessa: il cuscinetto deve consentire la rotazione relativa.
-- **Planetary:** cave e linguette fra alberi e solari, una per stadio quando lo spazio lo permette; cava e linguetta sull’estremità di uscita; arresti interni nei supporti/cuscinetti selezionati e fermo terminale dell’uscita. La ritenuta dei perni satelliti nelle flange resta esplicitamente da completare.
-- **Cycloidal:** ritenuta interna dei cuscinetti selezionati, cava/linguetta e fermo sull’estremità di uscita, viteria del carter. Il collegamento definitivo di camme, perni e flangia viene ancora segnalato fra i requisiti aperti.
+## Application to models
 
-Linguette e Seeger esterni partono dai diametri nominali 6, 8, 10 e 12 mm. Se un albero non è coperto, il programma segnala la scelta mancante nella distinta senza inventare un codice. La linguetta B minima inclusa è lunga 8 mm e richiede almeno 9 mm di mozzo. La cava di uscita è un’interfaccia: il mozzo dell’accessorio da collegare non viene inventato.
+- **Individual gear, free dimensions:** added shaft, key with shaft and gear keyways, shims and external retaining rings. To add frame fasteners, choose the **shaft-supporting** bearing mode, which provides the two flanges to connect.
+- **Gear with shaft-supporting bearings:** keyways and key, internal retaining rings in the bearing holders, external stops, shims and spacers in the axial stack. Fasteners connect the two bearing holders.
+- **Gear with a bearing in its bore:** outer-ring retention in the hub and spacers on the shaft. The key between that hub and shaft is omitted: the bearing must allow relative rotation.
+- **Planetary:** keyways and keys between shafts and sun gears, one per stage where space allows; keyway and key on the output end; internal stops in the selected supports/bearings and an output end retainer. Retention of planet pins in the flanges explicitly remains to be completed.
+- **Cycloidal:** internal retention of selected bearings, keyway/key and retainer on the output end, housing fasteners. The final connection of cams, pins and flange is still reported among the open requirements.
 
-La viteria passa **all’esterno dell’ingombro rotante**. Il generatore allarga le flange/coperchi e aggiunge quattro distanziali: il diametro complessivo aumenta ed è riportato nei risultati. Le teste sono sporgenti; non vengono dichiarati fori filettati o lamature che non esistono. I fori passanti adottano giochi diametrali di progetto: 0,4 mm per M3, 0,5 mm per M4/M5, 0,6 mm per M6. Se la vite necessaria supera 120 mm, la combinazione viene rifiutata.
+Keys and external retaining rings start from nominal diameters of 6, 8, 10 and 12 mm. If a shaft is not covered, the program reports the missing selection in the bill of materials without inventing a code. The smallest included type-B key is 8 mm long and requires at least 9 mm of hub. The output keyway is an interface: the hub of the accessory to be connected is not invented.
 
-## Geometria e distinta
+Fasteners pass **outside the rotating envelope**. The generator enlarges flanges/covers and adds four spacers: the overall diameter increases and is reported in the results. Heads protrude; threaded holes or counterbores that do not exist are not claimed. Through holes use design diametral clearances: 0,4 mm for M3, 0,5 mm for M4/M5, 0,6 mm for M6. If the required screw exceeds 120 mm, the combination is rejected.
 
-Gole, cave e fori sono presenti nei solidi, nella preview e nel CAD. Le parti modificate usano il trasferimento STEP BRep condiviso con la preview; non sono soltanto annotazioni nella distinta. Sezioni a gradino e cave con estremità piane non vengono raccordate da un loft liscio.
+<a id="geometria-e-distinta"></a>
 
-Gli anelli sono sagome montate a C, senza occhielli; viti e dadi hanno gli ingombri principali ma non filetti fisici o impronte dettagliate. Non usare queste sagome per produrre la viteria: sono componenti da acquistare. I distanziali terminali tengono i rasamenti grandi fuori dai piani dei Seeger interni. I distanziali e i rasamenti non modellano le piste dei cuscinetti: verificare l’appoggio sul solo anello previsto.
+## Geometry and bill of materials
 
-La distinta distingue **ACQUISTARE**, **REALIZZARE** e **DA DEFINIRE**. Nel TXT appare la sezione **Lavorazioni presenti nel modello**; il JSON include le operazioni e viene affiancato da `.machining.json`. Le quote Z delle lavorazioni sono locali alla rispettiva parte. Gole, cave e fori compaiono anche nei metadati del componente CAD `local.solidcraft.machining`; le quantità sono aggregate nella distinta nativa.
+Grooves, keyways and holes are present in the solids, preview and CAD. Modified parts use the STEP BRep transfer shared with the preview; they are not merely bill-of-materials annotations. Stepped sections and keyways with flat ends are not blended by a smooth loft.
 
-Esempi completi: `examples/double-helical-hardware.config.json`, `examples/planetary-hardware.config.json`, `examples/cycloidal-hardware.config.json`, con distinte e documenti in `examples/cad/`.
+Rings are mounted C-shaped envelopes, without lugs; screws and nuts have their main envelopes but no physical threads or detailed drives. Do not use these envelopes to manufacture fasteners: they are components to purchase. End spacers keep large shims clear of the internal retaining-ring planes. Spacers and shims do not model bearing races: verify support on the intended ring only.
 
-## Fonti primarie
+The bill of materials distinguishes **PURCHASE**, **MANUFACTURE** and **TO BE DEFINED**. The TXT contains the **Machining present in the model** section; the JSON includes the operations and is accompanied by `.machining.json`. Machining Z dimensions are local to each part. Grooves, keyways and holes also appear in the CAD component metadata `local.solidcraft.machining`; quantities are aggregated in the native bill of materials.
 
-- [Springmasters — EXT0060 e relativa gola](https://www.springmasters.com/shop/ext0060/), [EXT0080](https://www.springmasters.com/shop/ext0080/), [EXT0100](https://www.springmasters.com/shop/ext0100/), [EXT0120](https://www.springmasters.com/shop/ext0120/).
-- [American Ring — DIN 472, tabella metrica](https://www.americanring.com/products/ringseries.aspx?series=DIN472&units=metric).
-- [Ganter — cave DIN 6885-1](https://www.ganternorm.com/fileadmin/user_upload/downloads/technischer%20anhang/technical_information/6885-1.pdf), [Gardette — linguette tipo B](https://gardette.com/en/catalog/parallel-key-b).
-- [KIPP — rasamenti DIN 988](https://www.kippusa.com/en-us/products/METRIC/Machine-and-fixture-components/Screws-nuts-washers/Shim-washers-DIN-988/p/agid.32243).
-- [N.S. Socket Screws — ISO 4762](https://stock-api.socketscrews.co.uk/files/Final%20ISO%204762%20Website.pdf), [Böllhoff — dadi ISO 4032](https://eshop.boellhoff.de/out/media/pdf/ISO_4032_Stahl_8___en.pdf), [India Fastener Parts — rondelle ISO 7089](https://www.indiafastenersparts.com/documents/India_Specs/Metric_Flatwasher_ISO7089.pdf).
+Complete examples: `examples/double-helical-hardware.config.json`, `examples/planetary-hardware.config.json`, `examples/cycloidal-hardware.config.json`, with bills of materials and documents in `examples/cad/`.
 
-Verifica dei dati: 23 ottobre 2026. Restano da dimensionare carichi, materiali, tolleranze, serraggi e collegamenti dichiarati aperti. I modelli di studio harmonic e vite-corona non ricevono questo montaggio automatico.
+<a id="fonti-primarie"></a>
+
+## Primary sources
+
+- [Springmasters — EXT0060 and its groove](https://www.springmasters.com/shop/ext0060/), [EXT0080](https://www.springmasters.com/shop/ext0080/), [EXT0100](https://www.springmasters.com/shop/ext0100/), [EXT0120](https://www.springmasters.com/shop/ext0120/).
+- [American Ring — DIN 472, metric table](https://www.americanring.com/products/ringseries.aspx?series=DIN472&units=metric).
+- [Ganter — DIN 6885-1 keyways](https://www.ganternorm.com/fileadmin/user_upload/downloads/technischer%20anhang/technical_information/6885-1.pdf), [Gardette — type-B keys](https://gardette.com/en/catalog/parallel-key-b).
+- [KIPP — DIN 988 shims](https://www.kippusa.com/en-us/products/METRIC/Machine-and-fixture-components/Screws-nuts-washers/Shim-washers-DIN-988/p/agid.32243).
+- [N.S. Socket Screws — ISO 4762](https://stock-api.socketscrews.co.uk/files/Final%20ISO%204762%20Website.pdf), [Böllhoff — ISO 4032 nuts](https://eshop.boellhoff.de/out/media/pdf/ISO_4032_Stahl_8___en.pdf), [India Fastener Parts — ISO 7089 washers](https://www.indiafastenersparts.com/documents/India_Specs/Metric_Flatwasher_ISO7089.pdf).
+
+Data verification: 23 October 2026. Loads, materials, tolerances, tightening and connections declared open remain to be sized. The harmonic and worm-wheel study models do not receive this automatic assembly.

@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.4 — 2026-10-30
+
+- Add maintained responsive public website sources, with five interactive
+  mechanism examples, platform-specific downloads and community links.
+- Build the website and its search index directly from the canonical English
+  documentation, preserving legacy heading links without a second docs snapshot.
+- Add an isolated static-site build and website CI that validate the latest
+  public stable release and its uploaded installer assets before updating links.
+
 ## 0.1.3 — 2026-10-30
 
 - Write release-verification fixture sources as explicit UTF-8 bytes so Windows
