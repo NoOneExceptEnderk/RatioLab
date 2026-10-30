@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.3 — 2026-10-30
+
+- Write release-verification fixture sources as explicit UTF-8 bytes so Windows
+  newline conversion cannot make them differ from the fixture archives. The
+  production artifact verifier retains its exact byte comparisons.
+- Update current release and download references to 0.1.3. Native package
+  availability and platform verification still depend on the release CI results.
+
 ## 0.1.2 — 2026-10-30
 
 - Correct installed GUI and MCP verification to require the complete ten-family

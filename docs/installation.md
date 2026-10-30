@@ -4,7 +4,7 @@ RatioLab is a desktop application. **Use the bundled installer for your system:*
 Python, GTK and the application libraries are included. No command line or
 separate development environment is needed for Windows/macOS or the Linux `.deb`.
 
-[Download release 0.1.2](https://github.com/NoOneExceptEnderk/RatioLab/releases/tag/v0.1.2)
+[Download release 0.1.3](https://github.com/NoOneExceptEnderk/RatioLab/releases/tag/v0.1.3)
 
 Release packages are published after their native CI checks pass. Consult the release
 notes for completed platform checks; platform requirements do not imply that every
@@ -14,7 +14,7 @@ GPU, driver or CAD integration has been tested.
 
 Supported: 64-bit Intel/AMD Windows 11, build 22000 or newer.
 
-1. Download [Windows Setup](https://github.com/NoOneExceptEnderk/RatioLab/releases/download/v0.1.2/RatioLab-0.1.2-windows-x86_64-setup.exe).
+1. Download [Windows Setup](https://github.com/NoOneExceptEnderk/RatioLab/releases/download/v0.1.3/RatioLab-0.1.3-windows-x86_64-setup.exe).
 2. Open the downloaded `.exe` and follow Setup. It installs for your user account.
 3. Open **Start → RatioLab**.
 
@@ -30,7 +30,7 @@ Supported: **macOS 15 or newer**, with separate Apple Silicon and Intel installe
 To identify your Mac, open **Apple menu → About This Mac**: an Apple M-series chip
 uses the Apple Silicon download; an Intel processor uses the Intel download.
 
-1. Download the [Apple Silicon DMG](https://github.com/NoOneExceptEnderk/RatioLab/releases/download/v0.1.2/RatioLab-0.1.2-macos-arm64.dmg) or [Intel DMG](https://github.com/NoOneExceptEnderk/RatioLab/releases/download/v0.1.2/RatioLab-0.1.2-macos-x86_64.dmg).
+1. Download the [Apple Silicon DMG](https://github.com/NoOneExceptEnderk/RatioLab/releases/download/v0.1.3/RatioLab-0.1.3-macos-arm64.dmg) or [Intel DMG](https://github.com/NoOneExceptEnderk/RatioLab/releases/download/v0.1.3/RatioLab-0.1.3-macos-x86_64.dmg).
 2. Open the DMG and drag **RatioLab** onto **Applications**.
 3. Eject the disk image, then open RatioLab from Applications.
 
@@ -47,7 +47,7 @@ build baseline. Older systems and ARM Linux are not covered by these installers.
 
 ### Debian/Ubuntu package
 
-1. Download [the `.deb` package](https://github.com/NoOneExceptEnderk/RatioLab/releases/download/v0.1.2/ratiolab_0.1.2_amd64.deb).
+1. Download [the `.deb` package](https://github.com/NoOneExceptEnderk/RatioLab/releases/download/v0.1.3/ratiolab_0.1.3_amd64.deb).
 2. Open it with your software installer and choose **Install**.
 3. Launch RatioLab from your application menu.
 
@@ -55,18 +55,18 @@ The package installs under `/opt/ratiolab`. Remove it through your package manag
 
 ### Per-user installer for compatible Linux systems
 
-Download [the `.run` installer](https://github.com/NoOneExceptEnderk/RatioLab/releases/download/v0.1.2/RatioLab-0.1.2-linux-x86_64.run).
+Download [the `.run` installer](https://github.com/NoOneExceptEnderk/RatioLab/releases/download/v0.1.3/RatioLab-0.1.3-linux-x86_64.run).
 Open a terminal in the download folder and run:
 
 ```sh
-sh RatioLab-0.1.2-linux-x86_64.run
+sh RatioLab-0.1.3-linux-x86_64.run
 ```
 
 Follow the prompts, then launch RatioLab from your application menu. The default
 location is `~/.local/share/ratiolab/app`; no administrator password is needed.
 To remove this installation, run `uninstall.sh` in that folder.
 
-A [portable `.tar.gz` archive](https://github.com/NoOneExceptEnderk/RatioLab/releases/download/v0.1.2/RatioLab-0.1.2-linux-x86_64.tar.gz)
+A [portable `.tar.gz` archive](https://github.com/NoOneExceptEnderk/RatioLab/releases/download/v0.1.3/RatioLab-0.1.3-linux-x86_64.tar.gz)
 contains the same runtime and `install.sh` for alternative installations.
 
 ## First launch and graphics

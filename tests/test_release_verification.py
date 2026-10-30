@@ -53,7 +53,7 @@ class ArtifactVerificationTests(unittest.TestCase):
                      'LICENSE-DejaVu.txt','AUTHORS-DejaVu.txt','SOURCE.json'):
             sources['packaging/fonts/'+name]='fixture font asset'
         for name,body in sources.items():
-            path=self.root/name;path.parent.mkdir(parents=True,exist_ok=True);path.write_text(body)
+            path=self.root/name;path.parent.mkdir(parents=True,exist_ok=True);path.write_bytes(body.encode('utf-8'))
         self.payload={'fixture.py':sources['src/fixture.py'],
                       'ratiolab_resources/__init__.py':'',
                       'ratiolab_resources/version.json':sources['src/ratiolab_resources/version.json'],
