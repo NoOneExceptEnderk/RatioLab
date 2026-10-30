@@ -55,6 +55,7 @@ jobs:
         run: |
           xvfb-run -a "$RUNNER_TEMP/bundle-env/bin/python" scripts/build-bundle.py --gui
           PYTHONPATH=src "$RUNNER_TEMP/bundle-env/bin/python" -m unittest discover -s tests -p 'test_bundles.py' -v
+          PYTHONPATH=src "$RUNNER_TEMP/bundle-env/bin/python" -m unittest discover -s tests -p 'test_release_verification.py' -v
           PYTHONPATH=src "$RUNNER_TEMP/bundle-env/bin/python" -m unittest discover -s tests -p 'test_gui_runner.py' -v
           PYTHONPATH=src "$RUNNER_TEMP/bundle-env/bin/python" -m unittest discover -s tests -p 'test_external_programs.py' -v
           PYTHONPATH=src "$RUNNER_TEMP/bundle-env/bin/python" -m unittest discover -s tests -p 'test_installers_linux.py' -v
@@ -108,6 +109,7 @@ jobs:
           export PYGI_DLL_PATH="$(cygpath -w /ucrt64/bin)"
           /ucrt64/bin/python.exe scripts/build-bundle.py
           PYTHONPATH=src /ucrt64/bin/python.exe -m unittest discover -s tests -p 'test_bundles.py' -v
+          PYTHONPATH=src /ucrt64/bin/python.exe -m unittest discover -s tests -p 'test_release_verification.py' -v
           PYTHONPATH=src /ucrt64/bin/python.exe -m unittest discover -s tests -p 'test_gui_runner.py' -v
           PYTHONPATH=src /ucrt64/bin/python.exe -m unittest discover -s tests -p 'test_external_programs.py' -v
           echo "RATIOLAB_NATIVE_PYTHON=$(cygpath -w /ucrt64/bin/python.exe)" >> "$GITHUB_ENV"
@@ -165,6 +167,9 @@ jobs:
     runs-on: ${{ matrix.runner }}
     env:
       MACOSX_DEPLOYMENT_TARGET: '15.0'
+      # Hosted macOS compositors may stall in GSK's software GPU pipeline.
+      # This changes only the GTK shell; GtkGLArea still proves native OpenGL.
+      GSK_RENDERER: cairo
     steps:
       - uses: actions/checkout@v4
       - name: Install a coherent Homebrew native build runtime
@@ -178,6 +183,7 @@ jobs:
         run: |
           "$RUNNER_TEMP/bundle-env/bin/python" scripts/build-bundle.py
           PYTHONPATH=src "$RUNNER_TEMP/bundle-env/bin/python" -m unittest discover -s tests -p 'test_bundles.py' -v
+          PYTHONPATH=src "$RUNNER_TEMP/bundle-env/bin/python" -m unittest discover -s tests -p 'test_release_verification.py' -v
           PYTHONPATH=src "$RUNNER_TEMP/bundle-env/bin/python" -m unittest discover -s tests -p 'test_gui_runner.py' -v
           PYTHONPATH=src "$RUNNER_TEMP/bundle-env/bin/python" -m unittest discover -s tests -p 'test_external_programs.py' -v
           codesign --verify --deep --strict dist/bundles/macos-${{ matrix.arch }}/RatioLab.app

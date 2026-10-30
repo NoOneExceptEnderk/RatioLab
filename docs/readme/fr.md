@@ -17,28 +17,26 @@
 **Téléchargez l'un des programmes d'installation ci-dessous. Python, GTK et les bibliothèques nécessaires sont inclus.**
 Vous n'avez pas besoin de télécharger le code source ni d'installer des outils de développement.
 
-Version actuelle : **0.1.0 Preview 2** — une version préliminaire ; vos retours sont les bienvenus.
+Version actuelle : **0.1.2**.
 
-Les téléchargements pour Windows et Linux incluent l'intégration avec Fusion ; Linux se connecte
-à Fusion exécuté avec Wine. Windows inclut également les correctifs graphiques.
-Les téléchargements pour macOS conservent la compilation d'origine de Preview 2.
+Les paquets sont publiés après la réussite des contrôles CI natifs. Consultez les notes de version pour les résultats par plateforme et les limites de signature indiquées ci-dessous.
 
 | Votre ordinateur | Téléchargement | Marche à suivre |
 |---|---|---|
-| Windows 11, Intel/AMD 64 bits | [Programme d'installation Windows](https://github.com/NoOneExceptEnderk/RatioLab/releases/download/v0.1.0-preview.2/RatioLab-0.1.0-windows-x86_64-setup.exe) | Ouvrez le programme d'installation, puis lancez RatioLab depuis le menu Démarrer. |
-| macOS 15+, Apple Silicon (M1 ou plus récent) | [DMG pour Apple Silicon](https://github.com/NoOneExceptEnderk/RatioLab/releases/download/v0.1.0-preview.2/RatioLab-0.1.0-macos-arm64.dmg) | Ouvrez le DMG et faites glisser RatioLab dans Applications. |
-| macOS 15+, Intel | [DMG pour Intel](https://github.com/NoOneExceptEnderk/RatioLab/releases/download/v0.1.0-preview.2/RatioLab-0.1.0-macos-x86_64.dmg) | Ouvrez le DMG et faites glisser RatioLab dans Applications. |
-| Ubuntu 24.04+ / Linux compatible, x86-64 | [Paquet Debian/Ubuntu](https://github.com/NoOneExceptEnderk/RatioLab/releases/download/v0.1.0-preview.2/ratiolab_0.1.0_amd64.deb) · [Autre programme d'installation Linux](https://github.com/NoOneExceptEnderk/RatioLab/releases/download/v0.1.0-preview.2/RatioLab-0.1.0-linux-x86_64.run) | Ouvrez le fichier `.deb` avec votre gestionnaire d'installation de logiciels. Pour le fichier `.run`, suivez le guide d'installation. |
+| Windows 11, Intel/AMD 64 bits | [Programme d'installation Windows](https://github.com/NoOneExceptEnderk/RatioLab/releases/download/v0.1.2/RatioLab-0.1.2-windows-x86_64-setup.exe) | Ouvrez le programme d'installation, puis lancez RatioLab depuis le menu Démarrer. |
+| macOS 15+, Apple Silicon (M1 ou plus récent) | [DMG pour Apple Silicon](https://github.com/NoOneExceptEnderk/RatioLab/releases/download/v0.1.2/RatioLab-0.1.2-macos-arm64.dmg) | Ouvrez le DMG et faites glisser RatioLab dans Applications. |
+| macOS 15+, Intel | [DMG pour Intel](https://github.com/NoOneExceptEnderk/RatioLab/releases/download/v0.1.2/RatioLab-0.1.2-macos-x86_64.dmg) | Ouvrez le DMG et faites glisser RatioLab dans Applications. |
+| Ubuntu 24.04+ / Linux compatible, x86-64 | [Paquet Debian/Ubuntu](https://github.com/NoOneExceptEnderk/RatioLab/releases/download/v0.1.2/ratiolab_0.1.2_amd64.deb) · [Autre programme d'installation Linux](https://github.com/NoOneExceptEnderk/RatioLab/releases/download/v0.1.2/RatioLab-0.1.2-linux-x86_64.run) | Ouvrez le fichier `.deb` avec votre gestionnaire d'installation de logiciels. Pour le fichier `.run`, suivez le guide d'installation. |
 
 Linux nécessite glibc 2.39 ou une version ultérieure. Un pilote graphique compatible est nécessaire sur tous les systèmes.
 Le programme d'installation Windows n'est pas signé ; macOS utilise une signature ad hoc sans notarisation Apple.
 Votre système peut afficher un avertissement concernant un éditeur inconnu ou bloquer le lancement.
 
-[Guide d'installation, configuration requise et désinstallation (en anglais)](../installation.md) · [Tous les fichiers de la version et leurs sommes de contrôle](https://github.com/NoOneExceptEnderk/RatioLab/releases/tag/v0.1.0-preview.2)
+[Guide d'installation, configuration requise et désinstallation (en anglais)](../installation.md) · [Tous les fichiers de la version et leurs sommes de contrôle](https://github.com/NoOneExceptEnderk/RatioLab/releases/tag/v0.1.2)
 
 ## Ce que vous pouvez faire
 
-- Construire neuf familles d'engrenages et de réducteurs : à denture droite, hélicoïdaux, à double hélice, planétaires, cycloïdaux, à onde de déformation, à vis sans fin, à arbres parallèles et à denture intérieure.
+- Construire dix familles d’engrenages et de transmissions : à denture droite, hélicoïdaux, à double hélice, planétaires, cycloïdaux, à onde de déformation, à vis sans fin, à arbres parallèles, à denture intérieure et différentiels coniques avec configurations de poignet ou classiques.
 - Modifier les paramètres et examiner un modèle 3D animé avec sélection des composants et mesures par échantillonnage.
 - Enregistrer des projets, annuler des modifications, rechercher parmi des combinaisons finies de paramètres et effectuer des contrôles discrets d'interférence.
 - Exporter des fichiers STEP, STL, SVG/DXF, des listes de composants, des rapports de calcul ou des ensembles complets.
@@ -56,11 +54,7 @@ L'interface de l'application est en anglais.
 
 ## Limites actuelles
 
-Cette version préliminaire fournit des modèles d'étude géométrique et cinématique. Elle ne certifie
-ni la résistance, ni la durée de vie, ni l'aptitude à la fabrication. Les contrôles d'interférence et
-les mesures utilisent des surfaces échantillonnées ; les constructions à vis sans fin et à onde de déformation restent
-des modèles d'étude. Lisez la section sur la [précision et les limites (en anglais)](../user-guide.md#accuracy-and-limitations)
-avant d'utiliser les conceptions exportées.
+RatioLab génère une géométrie dimensionnelle et un mouvement idéal. Les contrôles de construction et les limites numériques documentés ne certifient ni la résistance, ni la durée de vie, ni l’aptitude à la fabrication. Les contrôles d’interférence et les mesures utilisent des surfaces échantillonnées ; la déformation du mécanisme à onde est prescrite, sans solution élastique. Avant d’utiliser les modèles exportés, consultez la [précision et les limites (en anglais)](../user-guide.md#accuracy-and-limitations).
 
 ## Communauté
 

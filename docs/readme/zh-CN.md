@@ -17,28 +17,26 @@
 **请下载下方的安装包，其中已包含 Python、GTK 和所需的库。**
 无需下载源代码，也无需安装开发工具。
 
-当前版本：**0.1.0 Preview 2**，属于早期版本，欢迎反馈。
+当前版本：**0.1.2**。
 
-Windows 和 Linux 安装包包含 Fusion 集成功能；Linux 可连接到通过 Wine 运行的 Fusion。
-Windows 版本还包含图形显示修复。
-macOS 安装包仍为最初的 Preview 2 构建版本。
+各平台安装包通过原生 CI 检查后才会发布。平台验证结果请参阅发布说明，签名限制见下文。
 
 | 你的计算机 | 下载 | 操作步骤 |
 |---|---|---|
-| Windows 11，64 位 Intel/AMD | [Windows 安装程序](https://github.com/NoOneExceptEnderk/RatioLab/releases/download/v0.1.0-preview.2/RatioLab-0.1.0-windows-x86_64-setup.exe) | 打开安装程序，然后从“开始”菜单启动 RatioLab。 |
-| macOS 15+，Apple Silicon（M1 或更新型号） | [Apple Silicon DMG](https://github.com/NoOneExceptEnderk/RatioLab/releases/download/v0.1.0-preview.2/RatioLab-0.1.0-macos-arm64.dmg) | 打开 DMG，将 RatioLab 拖入“应用程序”文件夹。 |
-| macOS 15+，Intel | [Intel DMG](https://github.com/NoOneExceptEnderk/RatioLab/releases/download/v0.1.0-preview.2/RatioLab-0.1.0-macos-x86_64.dmg) | 打开 DMG，将 RatioLab 拖入“应用程序”文件夹。 |
-| Ubuntu 24.04+ / 兼容的 Linux，x86-64 | [Debian/Ubuntu 软件包](https://github.com/NoOneExceptEnderk/RatioLab/releases/download/v0.1.0-preview.2/ratiolab_0.1.0_amd64.deb) · [其他 Linux 安装程序](https://github.com/NoOneExceptEnderk/RatioLab/releases/download/v0.1.0-preview.2/RatioLab-0.1.0-linux-x86_64.run) | 使用系统的软件安装工具打开 `.deb`。对于 `.run`，请按照安装指南操作。 |
+| Windows 11，64 位 Intel/AMD | [Windows 安装程序](https://github.com/NoOneExceptEnderk/RatioLab/releases/download/v0.1.2/RatioLab-0.1.2-windows-x86_64-setup.exe) | 打开安装程序，然后从“开始”菜单启动 RatioLab。 |
+| macOS 15+，Apple Silicon（M1 或更新型号） | [Apple Silicon DMG](https://github.com/NoOneExceptEnderk/RatioLab/releases/download/v0.1.2/RatioLab-0.1.2-macos-arm64.dmg) | 打开 DMG，将 RatioLab 拖入“应用程序”文件夹。 |
+| macOS 15+，Intel | [Intel DMG](https://github.com/NoOneExceptEnderk/RatioLab/releases/download/v0.1.2/RatioLab-0.1.2-macos-x86_64.dmg) | 打开 DMG，将 RatioLab 拖入“应用程序”文件夹。 |
+| Ubuntu 24.04+ / 兼容的 Linux，x86-64 | [Debian/Ubuntu 软件包](https://github.com/NoOneExceptEnderk/RatioLab/releases/download/v0.1.2/ratiolab_0.1.2_amd64.deb) · [其他 Linux 安装程序](https://github.com/NoOneExceptEnderk/RatioLab/releases/download/v0.1.2/RatioLab-0.1.2-linux-x86_64.run) | 使用系统的软件安装工具打开 `.deb`。对于 `.run`，请按照安装指南操作。 |
 
 Linux 需要 glibc 2.39 或更新版本。所有系统都需要兼容的显卡驱动程序。
 Windows 安装程序未签名；macOS 版本采用临时签名（ad-hoc signing），未经 Apple 公证。
 系统可能会显示“未知发布者”警告或阻止启动。
 
-[安装指南、系统要求与卸载（英文）](../installation.md) · [所有发布文件与校验和](https://github.com/NoOneExceptEnderk/RatioLab/releases/tag/v0.1.0-preview.2)
+[安装指南、系统要求与卸载（英文）](../installation.md) · [所有发布文件与校验和](https://github.com/NoOneExceptEnderk/RatioLab/releases/tag/v0.1.2)
 
 ## 功能
 
-- 构建九类齿轮或减速器：直齿、斜齿、双斜齿（人字齿）、行星、摆线、谐波（strain wave）、蜗杆、平行轴和内齿轮。
+- 创建十类齿轮和传动机构：直齿、斜齿、双斜齿、行星、摆线、谐波、蜗杆、平行轴、内齿轮，以及腕部或经典配置的锥齿轮差速器。
 - 编辑参数，查看带动画的 3D 模型，并选择组件、进行基于采样的测量。
 - 保存项目、撤销更改、搜索有限的参数组合，并执行离散干涉检查。
 - 导出 STEP、STL、SVG/DXF、组件清单、计算报告或完整文件包。
@@ -56,9 +54,7 @@ Windows 安装程序未签名；macOS 版本采用临时签名（ad-hoc signing�
 
 ## 当前限制
 
-此预览版提供用于几何与运动学研究的模型，并不认证其强度、使用寿命或制造就绪程度。
-干涉检查与测量使用采样表面；蜗杆与谐波传动结构仍属于研究模型。
-在使用导出的设计之前，请阅读[精度与限制（英文）](../user-guide.md#accuracy-and-limitations)。
+RatioLab 生成尺寸几何与理想运动。文档中的结构检查和数值采样限制并不认证强度、使用寿命或制造就绪程度。干涉检查与测量使用采样表面；谐波传动采用规定的变形，而非弹性求解。使用导出设计前，请阅读[精度与限制（英文）](../user-guide.md#accuracy-and-limitations)。
 
 ## 社区
 

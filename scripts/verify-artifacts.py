@@ -26,6 +26,7 @@ def verify(folder):
                 payloads = {name: archive.read(name) for name in files if not name.endswith('/')}
             required = modules | resources | {
                 'ratiolab_resources/INSTALL.md', 'ratiolab_resources/MCP.md',
+                'ratiolab_resources/CHANGELOG.md',
                 'ratiolab_resources/LICENSE', 'ratiolab_resources/COPYRIGHT',
             }
             assert required <= files, f'{artifact}: missing {required-files}'
@@ -43,6 +44,7 @@ def verify(folder):
             for source, destination in (
                 ('LICENSE', 'LICENSE'), ('COPYRIGHT', 'COPYRIGHT'),
                 ('docs/installation.md', 'INSTALL.md'), ('docs/mcp.md', 'MCP.md'),
+                ('CHANGELOG.md', 'CHANGELOG.md'),
             ):
                 assert payloads['ratiolab_resources/'+destination] == (root/source).read_bytes(), destination
             metadata = next(name for name in files if name.endswith('.dist-info/METADATA'))
@@ -70,7 +72,7 @@ def verify(folder):
         for name in files:
             path = PurePosixPath(name)
             assert not set(path.parts) & {'work', 'design', 'outputs', 'generated', 'generati', '.git', '.aws', '.codex', '.agents', '.claude', '__pycache__'}, name
-            assert path.name not in {'ui-preferences.json', 'preferenze-ui.json', 'custom-materials.json', 'materiali-custom.json',
+            assert path.name not in {'ui-preferences.json', 'preferenze-ui.json', 'updates.json', 'custom-materials.json', 'materiali-custom.json',
                                      'TODO.md', 'VERIFICATION.md', 'AGENTS.md', 'SKILL.md'}, name
             assert path.suffix not in {'.token', '.pyc'}, name
         for name, body in payloads.items():

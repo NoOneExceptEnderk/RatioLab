@@ -31,6 +31,7 @@ jobs:
         run: |
           "$RUNNER_TEMP/ratiolab-env/bin/python" -m build
           "$RUNNER_TEMP/ratiolab-env/bin/python" scripts/verify-artifacts.py dist
+          PYTHONPATH=src "$RUNNER_TEMP/ratiolab-env/bin/python" -m unittest discover -s tests -p 'test_release_verification.py' -v
       - name: Test Fusion client and bridge from source
         run: |
           PYTHONPATH=src "$RUNNER_TEMP/ratiolab-env/bin/python" -m unittest discover -s tests -p 'test_fusion_connection.py' -v
@@ -85,6 +86,7 @@ jobs:
         run: |
           /ucrt64/bin/python.exe -m build --no-isolation
           /ucrt64/bin/python.exe scripts/verify-artifacts.py dist
+          PYTHONPATH=src /ucrt64/bin/python.exe -m unittest discover -s tests -p 'test_release_verification.py' -v
       - name: Test Fusion client and bridge from source
         run: |
           PYTHONPATH=src /ucrt64/bin/python.exe -m unittest discover -s tests -p 'test_fusion_connection.py' -v
@@ -114,6 +116,9 @@ jobs:
 
   macos:
     runs-on: macos-15
+    env:
+      # Keep hosted GTK composition separate from the GLArea renderer proof.
+      GSK_RENDERER: cairo
     steps:
       - uses: actions/checkout@v4
       - name: Select the Homebrew Python that loads GTK
@@ -127,6 +132,7 @@ jobs:
         run: |
           "$RUNNER_TEMP/ratiolab-env/bin/python" -m build
           "$RUNNER_TEMP/ratiolab-env/bin/python" scripts/verify-artifacts.py dist
+          PYTHONPATH=src "$RUNNER_TEMP/ratiolab-env/bin/python" -m unittest discover -s tests -p 'test_release_verification.py' -v
       - name: Test Fusion client and bridge from source
         run: |
           PYTHONPATH=src "$RUNNER_TEMP/ratiolab-env/bin/python" -m unittest discover -s tests -p 'test_fusion_connection.py' -v

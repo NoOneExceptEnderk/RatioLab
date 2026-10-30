@@ -21,6 +21,12 @@ automated checks; tests are part of the source distribution and are excluded
 from the installed wheel and native application. GUI checks need a working
 desktop/GL context; Linux CI uses Xvfb and Mesa.
 
+Hosted macOS CI sets `GSK_RENDERER=cairo` for GTK shell composition after an
+observed GSK software-GPU compositor stall. This does not change RatioLab's
+product defaults or its `Gtk.GLArea`: the preview still has to initialize and
+render with native OpenGL and pass the same framebuffer/workspace checks and
+180-second workspace deadline. CI results must confirm the runner-specific fix.
+
 For a quick source launch use `./launch.sh`. A headless source command from
 the repository root can use `PYTHONPATH=src python3 -m ratiolab_cli --diagnose`.
 On PowerShell, set `$env:PYTHONPATH = "src"` before the corresponding command.
@@ -197,7 +203,7 @@ To install a wheel instead (replace the example wheel path):
 
 ```sh
 /usr/bin/python3 -m venv --system-site-packages "$HOME/.local/share/ratiolab/venv"
-"$HOME/.local/share/ratiolab/venv/bin/python" -m pip install --no-deps /path/to/ratiolab-0.1.0-py3-none-any.whl
+"$HOME/.local/share/ratiolab/venv/bin/python" -m pip install --no-deps /path/to/ratiolab-0.1.2-py3-none-any.whl
 "$HOME/.local/share/ratiolab/venv/bin/ratiolab" --diagnose
 "$HOME/.local/share/ratiolab/venv/bin/ratiolab-install-desktop"
 ```
@@ -213,7 +219,7 @@ pacman -S --needed mingw-w64-ucrt-x86_64-python mingw-w64-ucrt-x86_64-python-pip
 ```
 
 Unpack the RatioLab source archive in a folder you own, navigate there in that
-UCRT64 terminal (`cd /c/Users/YourName/Downloads/ratiolab-0.1.0` for example), then:
+UCRT64 terminal (`cd /c/Users/YourName/Downloads/ratiolab-0.1.2` for example), then:
 
 ```sh
 bash scripts/install-windows-msys2.sh
@@ -230,7 +236,7 @@ installation, not a portable executable.
 
 For a wheel, create the same environment with
 `/ucrt64/bin/python.exe -m venv --system-site-packages "$HOME/.local/share/ratiolab/venv"`,
-then run its `bin/python.exe -m pip install --no-deps /c/path/to/ratiolab-0.1.0-py3-none-any.whl`.
+then run its `bin/python.exe -m pip install --no-deps /c/path/to/ratiolab-0.1.2-py3-none-any.whl`.
 Run from the UCRT64 terminal so GTK's native resource paths remain available.
 RatioLab also adds that Python installation's `bin` to DLL discovery before
 importing PyGObject. Windows ARM64 is not covered by this UCRT64 x86-64 recipe.
@@ -257,8 +263,8 @@ logged-in macOS desktop session; no XQuartz is needed for GTK's Quartz backend.
 
 For a wheel, source `scripts/macos-python.sh`, set
 `python=$(choose_macos_python)`, create a `--system-site-packages` environment with
-that interpreter, then use its `bin/python -m pip install --no-deps /path/to/ratiolab-0.1.0-py3-none-any.whl`.
-For a self-contained app, use the DMGs described above. Those preview builds
+that interpreter, then use its `bin/python -m pip install --no-deps /path/to/ratiolab-0.1.2-py3-none-any.whl`.
+For a self-contained app, use the DMGs described above. Those packages
 use ad-hoc signing, without a Developer ID identity or Apple notarization.
 
 ## Check the installation

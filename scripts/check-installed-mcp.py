@@ -13,6 +13,17 @@ from threading import Thread
 
 MODERN = '2026-07-28'
 LEGACY = '2025-11-25'
+EXPECTED_FAMILIES = frozenset(('spur', 'helical', 'double', 'planetary', 'cycloidal',
+                             'harmonic', 'worm', 'parallel', 'internal', 'differential'))
+
+
+def verify_families(families):
+    """Require every supported family once, including the differential."""
+    if not isinstance(families, list) or not all(isinstance(row, dict) and isinstance(row.get('id'), str) for row in families):
+        raise RuntimeError('Installed MCP returned an invalid family inventory')
+    ids = [row['id'] for row in families]
+    if len(ids) != len(EXPECTED_FAMILIES) or set(ids) != EXPECTED_FAMILIES:
+        raise RuntimeError('Installed MCP family inventory differs from the supported catalog')
 
 
 class Client:
@@ -113,7 +124,7 @@ def check(executable, report=None, *, module=False, environment=None):
                 tools = client.request('tools/list')['tools']
                 assert len(tools)>=13 and len({t['name'] for t in tools})==len(tools)
                 families = client.tool('discover',{})['families']
-                assert len(families)==9
+                verify_families(families)
                 model = client.tool('project_create',dict(family='parallel',parameters=dict(pinion=20,wheel=60)))
                 handle, revision = model['handle'],model['revision']
                 changed = client.tool('project_update',dict(handle=handle,revision=revision,parameters=dict(wheel=66)))

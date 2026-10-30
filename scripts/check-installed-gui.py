@@ -11,6 +11,9 @@ from pathlib import Path
 import subprocess
 import sys
 
+EXPECTED_FAMILIES = frozenset(('spur', 'helical', 'double', 'planetary', 'cycloidal',
+                             'harmonic', 'worm', 'parallel', 'internal', 'differential'))
+
 
 def _run_workspace(command, report):
     """Preserve a native stack on macOS when the workspace exceeds its deadline."""
@@ -62,9 +65,11 @@ def check(executable, folder, require=False):
         report = folder/'gui-workspace.json'
         _run_workspace([str(executable), '--self-test-gui', '--report', str(report)], report)
         workspace = json.loads(report.read_text(encoding='utf-8'))
+        previews = workspace.get('preview_families', [])
         if (workspace.get('self_test') != 'passed' or workspace.get('workspace_export') != 'passed'
                 or len(workspace.get('features', {})) != 6
-                or len(workspace.get('preview_families', [])) != 9
+                or not isinstance(previews, list) or not all(isinstance(v, str) for v in previews)
+                or len(previews) != len(EXPECTED_FAMILIES) or set(previews) != EXPECTED_FAMILIES
                 or any(v != 'passed' for v in workspace['features'].values())):
             raise RuntimeError('Installed GUI workspace/features check failed')
         result = dict(gui='passed', runtime=runtime, workspace=workspace)

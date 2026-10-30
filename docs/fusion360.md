@@ -7,9 +7,9 @@ connection. No cloud upload or external Python installation is needed by the bri
 
 The updated Windows and Linux installers include this integration. Live Fusion
 2705.1.30 imports have been tested on Windows. Linux can connect to community
-Wine ports as described below. The current macOS Preview 2 download predates
-the integration; macOS users need a build from the updated sources. Native macOS
-and Fusion-under-Wine testing are pending.
+Wine ports as described below. Native macOS Fusion and Fusion-under-Wine
+validation remain pending; a successful application CI check does not establish
+Fusion interoperability on those platforms.
 
 ## First connection
 

@@ -178,6 +178,29 @@ class GuiEventLoopTests(unittest.TestCase):
 
 
 class NativeGuiChecksTests(unittest.TestCase):
+    def test_current_catalog_passes_and_missing_duplicate_or_substituted_families_fail(self):
+        from geometry import FAMILIES
+        self.assertEqual(gui_check.EXPECTED_FAMILIES,set(FAMILIES))
+        ids=list(FAMILIES)
+        variants=[(ids,True),(list(reversed(ids)),True),(ids[:-1],False),
+                  (ids[:-1]+[ids[0]],False),(ids[:-1]+['unknown'],False)]
+        with tempfile.TemporaryDirectory() as temporary:
+            folder=Path(temporary)
+            def run(command,**kwargs):
+                Path(command[-1]).write_text(json.dumps(dict(bundled=True,preview='rendered')))
+                return type('Result',(),{'returncode':0})()
+            for families,valid in variants:
+                def workspace(command,report):
+                    report.write_text(json.dumps(dict(self_test='passed',workspace_export='passed',
+                        features={str(k):'passed' for k in range(6)},preview_families=families)))
+                with self.subTest(families=families),patch.object(gui_check.subprocess,'run',side_effect=run), \
+                        patch.object(gui_check,'_run_workspace',side_effect=workspace),patch('builtins.print'):
+                    if valid:
+                        gui_check.check(Path('RatioLab.exe'),folder)
+                        self.assertEqual(json.loads((folder/'gui-result.json').read_text())['gui'],'passed')
+                    else:
+                        with self.assertRaisesRegex(RuntimeError,'workspace/features'):gui_check.check(Path('RatioLab.exe'),folder)
+
     def probe(self, folder, message, code, require=False):
         def run(*args, **kwargs):
             (folder/'gui-diagnostic.json').write_text(message, encoding='utf-8')

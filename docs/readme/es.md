@@ -17,28 +17,26 @@
 **Descarga uno de los instaladores siguientes. Python, GTK y las bibliotecas necesarias están incluidos.**
 No necesitas descargar el código fuente ni instalar herramientas de desarrollo.
 
-Versión actual: **0.1.0 Preview 2** — una versión preliminar; tus comentarios son bienvenidos.
+Versión actual: **0.1.2**.
 
-Las descargas para Windows y Linux incluyen la integración con Fusion; Linux se conecta
-a Fusion ejecutado mediante Wine. Windows también incluye las correcciones gráficas.
-Las descargas para macOS conservan la compilación original de Preview 2.
+Los paquetes se publican tras superar las comprobaciones nativas de CI. Consulta las notas de la versión para los resultados por plataforma y las limitaciones de firma indicadas abajo.
 
 | Tu equipo | Descarga | Qué hacer |
 |---|---|---|
-| Windows 11, Intel/AMD de 64 bits | [Instalador de Windows](https://github.com/NoOneExceptEnderk/RatioLab/releases/download/v0.1.0-preview.2/RatioLab-0.1.0-windows-x86_64-setup.exe) | Abre el instalador y luego inicia RatioLab desde Inicio. |
-| macOS 15+, Apple Silicon (M1 o posterior) | [DMG para Apple Silicon](https://github.com/NoOneExceptEnderk/RatioLab/releases/download/v0.1.0-preview.2/RatioLab-0.1.0-macos-arm64.dmg) | Abre el DMG y arrastra RatioLab a Aplicaciones. |
-| macOS 15+, Intel | [DMG para Intel](https://github.com/NoOneExceptEnderk/RatioLab/releases/download/v0.1.0-preview.2/RatioLab-0.1.0-macos-x86_64.dmg) | Abre el DMG y arrastra RatioLab a Aplicaciones. |
-| Ubuntu 24.04+ / Linux compatible, x86-64 | [Paquete Debian/Ubuntu](https://github.com/NoOneExceptEnderk/RatioLab/releases/download/v0.1.0-preview.2/ratiolab_0.1.0_amd64.deb) · [Otro instalador para Linux](https://github.com/NoOneExceptEnderk/RatioLab/releases/download/v0.1.0-preview.2/RatioLab-0.1.0-linux-x86_64.run) | Abre el archivo `.deb` con tu instalador de software. Para el archivo `.run`, sigue la guía de instalación. |
+| Windows 11, Intel/AMD de 64 bits | [Instalador de Windows](https://github.com/NoOneExceptEnderk/RatioLab/releases/download/v0.1.2/RatioLab-0.1.2-windows-x86_64-setup.exe) | Abre el instalador y luego inicia RatioLab desde Inicio. |
+| macOS 15+, Apple Silicon (M1 o posterior) | [DMG para Apple Silicon](https://github.com/NoOneExceptEnderk/RatioLab/releases/download/v0.1.2/RatioLab-0.1.2-macos-arm64.dmg) | Abre el DMG y arrastra RatioLab a Aplicaciones. |
+| macOS 15+, Intel | [DMG para Intel](https://github.com/NoOneExceptEnderk/RatioLab/releases/download/v0.1.2/RatioLab-0.1.2-macos-x86_64.dmg) | Abre el DMG y arrastra RatioLab a Aplicaciones. |
+| Ubuntu 24.04+ / Linux compatible, x86-64 | [Paquete Debian/Ubuntu](https://github.com/NoOneExceptEnderk/RatioLab/releases/download/v0.1.2/ratiolab_0.1.2_amd64.deb) · [Otro instalador para Linux](https://github.com/NoOneExceptEnderk/RatioLab/releases/download/v0.1.2/RatioLab-0.1.2-linux-x86_64.run) | Abre el archivo `.deb` con tu instalador de software. Para el archivo `.run`, sigue la guía de instalación. |
 
 Linux requiere glibc 2.39 o posterior. Todos los sistemas requieren un controlador gráfico compatible.
 El instalador de Windows no está firmado; macOS utiliza una firma ad hoc sin notarización de Apple.
 Tu sistema puede mostrar una advertencia de editor desconocido o bloquear el inicio.
 
-[Guía de instalación, requisitos y desinstalación (en inglés)](../installation.md) · [Todos los archivos de la versión y sus sumas de verificación](https://github.com/NoOneExceptEnderk/RatioLab/releases/tag/v0.1.0-preview.2)
+[Guía de instalación, requisitos y desinstalación (en inglés)](../installation.md) · [Todos los archivos de la versión y sus sumas de verificación](https://github.com/NoOneExceptEnderk/RatioLab/releases/tag/v0.1.2)
 
 ## Qué puedes hacer
 
-- Crear nueve familias de engranajes y reductores: engranajes rectos, helicoidales, de doble hélice, planetarios, cicloidales, de onda de deformación, de tornillo sin fin, de ejes paralelos y de dentado interior.
+- Crear diez familias de engranajes y transmisiones: rectos, helicoidales, de doble hélice, planetarios, cicloidales, de onda de deformación, de tornillo sin fin, de ejes paralelos, de dentado interior y diferenciales cónicos con configuraciones de muñeca o clásicas.
 - Editar parámetros e inspeccionar un modelo 3D animado con selección de componentes y mediciones por muestreo.
 - Guardar proyectos, deshacer cambios, buscar entre combinaciones finitas de parámetros y ejecutar comprobaciones discretas de interferencias.
 - Exportar STEP, STL, SVG/DXF, listas de componentes, informes de cálculo o paquetes completos.
@@ -56,11 +54,7 @@ La interfaz de la aplicación está en inglés.
 
 ## Limitaciones actuales
 
-Esta versión preliminar ofrece modelos para estudios geométricos y cinemáticos. No certifica
-la resistencia, la vida útil ni la aptitud para la fabricación. Las comprobaciones de interferencias y
-las mediciones utilizan superficies muestreadas; las construcciones de tornillo sin fin y de onda de deformación siguen siendo
-modelos de estudio. Lee la sección sobre [precisión y limitaciones (en inglés)](../user-guide.md#accuracy-and-limitations)
-antes de utilizar los diseños exportados.
+RatioLab genera geometría dimensional y movimiento ideal. Las comprobaciones constructivas y los límites numéricos documentados no certifican resistencia, vida útil ni aptitud para fabricación. Las comprobaciones de interferencias y las mediciones usan superficies muestreadas; la deformación del mecanismo de onda es prescrita, no una solución elástica. Antes de usar los diseños exportados, consulta la [precisión y las limitaciones (en inglés)](../user-guide.md#accuracy-and-limitations).
 
 ## Comunidad
 

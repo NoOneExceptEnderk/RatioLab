@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.1.2 — 2026-10-30
+
+- Correct installed GUI and MCP verification to require the complete ten-family
+  catalog, including the bevel differential, and reject missing, duplicate or
+  substituted family IDs.
+- Verify the packaged changelog and its exact source contents while retaining
+  strict resource inventories and excluding private updater state.
+- Use Cairo for the GTK shell on hosted macOS CI runners after a compositor
+  stall. Native OpenGL preview checks and their deadlines remain unchanged;
+  the next CI run must establish whether this resolves the runner timeout.
+- Align current download links and installation documentation with the stable
+  release. Platform checks and signing limitations remain explicit; availability
+  of native packages depends on their release build and verification results.
+
 ## 0.1.1 — 2026-10-30
 
 ### Added
