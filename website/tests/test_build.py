@@ -15,6 +15,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 from urllib.error import URLError
 from urllib.parse import unquote, urlsplit
+from xml.etree import ElementTree as ET
 
 from markdown_it import MarkdownIt
 
@@ -22,6 +23,7 @@ WEBSITE = Path(__file__).resolve().parents[1]
 REPO = WEBSITE.parent
 sys.path.insert(0, str(WEBSITE))
 import build
+from seo import HOME_DESCRIPTION, HOME_TITLE, IMAGE, IMAGE_ALT, ORIGIN, canonical, json_script, metadata
 from releases import REPOSITORY, asset_names, cache_document, fetch_latest, load_cache, validate_release
 from render_docs import DOCUMENTS, render_markdown, rewrite_url
 
@@ -65,7 +67,7 @@ def asset_versions(directory):
             parsed = urlsplit(url)
             if parsed.scheme or parsed.netloc or Path(parsed.path).suffix not in ('.css', '.js'):
                 continue
-            target = (path.parent / unquote(parsed.path)).resolve()
+            target = (directory / unquote(parsed.path).lstrip('/') if parsed.path.startswith('/') else path.parent / unquote(parsed.path)).resolve()
             expected = 'v=' + hashlib.sha256(target.read_bytes()).hexdigest()[:16]
             if parsed.query != expected:
                 raise AssertionError(f'{path}: {url} does not match {expected}')
@@ -189,13 +191,13 @@ class BuildTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory) / 'site'
             result = build.build(offline=True, output=output)
-            self.assertEqual(result['files'], 33)
-            self.assertEqual(result['pages'], 17)
+            self.assertEqual(result['files'], 36)
+            self.assertEqual(result['pages'], 18)
             self.assertEqual(set(hashes(output)), set(build.public_files()))
             build.validate_output(output)
             for name in build.STATIC_ASSETS:
                 self.assertEqual((output / 'assets' / name).read_bytes(), (WEBSITE / 'assets' / name).read_bytes())
-            forbidden = ('.py', '.md', '.txt', '.zip')
+            forbidden = ('.py', '.md', '.zip')
             self.assertFalse(any(p.endswith(forbidden) or '/work/' in p or 'docs-source' in p for p in hashes(output)))
             index = json.loads((output / 'assets/search-index.js').read_text().removeprefix('window.RATIOLAB_SEARCH_INDEX=').removesuffix(';\n'))
             self.assertEqual({e['page'] for e in index}, {'Documentation', *(d.title for d in DOCUMENTS)})
@@ -203,7 +205,7 @@ class BuildTests(unittest.TestCase):
             self.assertTrue(any('two independent' in e['text'].lower() for e in index))
             for entry in index:
                 route, _, fragment = entry['url'].partition('#')
-                page = build.Page((output / route).read_text())
+                page = build.Page((output / route / 'index.html').read_text())
                 if fragment:
                     self.assertIn(fragment, page.ids)
             home = Content((output / 'index.html').read_text())
@@ -211,6 +213,110 @@ class BuildTests(unittest.TestCase):
             release = load_cache(WEBSITE / 'release.json')
             self.assertEqual(downloads, {url for key, url in release.downloads.items() if key != 'checksums'})
         self.assertEqual(before, hashes(WEBSITE / 'assets'))
+
+    def test_canonical_metadata_sitemap_and_schema_match_published_pages_and_release(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / 'site'
+            build.build(offline=True, output=output)
+            routes = ['index.html', 'docs/index.html', *(d.route for d in DOCUMENTS)]
+            namespace = {'s': 'http://www.sitemaps.org/schemas/sitemap/0.9'}
+            sitemap = ET.parse(output / 'sitemap.xml')
+            self.assertEqual([item.text for item in sitemap.findall('s:url/s:loc', namespace)], [canonical(r) for r in routes])
+            self.assertEqual({node.tag.rsplit('}', 1)[-1] for node in sitemap.iter()}, {'urlset', 'url', 'loc'})
+            self.assertEqual((output / 'robots.txt').read_text(), 'User-agent: *\nAllow: /\n\nSitemap: https://ratiolab.dev/sitemap.xml\n')
+            titles, descriptions = [], []
+            for route in routes:
+                source = (output / route).read_text()
+                page = Content(source)
+                metas = {attrs.get('name', attrs.get('property')): attrs.get('content') for tag, attrs in page.tags if tag == 'meta'}
+                canonicals = [attrs['href'] for tag, attrs in page.tags if tag == 'link' and attrs.get('rel') == 'canonical']
+                self.assertEqual(canonicals, [canonical(route)])
+                self.assertTrue(canonicals[0].startswith(ORIGIN + '/'))
+                self.assertTrue(canonicals[0].endswith('/'))
+                self.assertNotIn('robots', metas)
+                title = re.search(r'<title>(.*?)</title>', source).group(1)
+                titles.append(title)
+                descriptions.append(metas['description'])
+                for prefix in ('og:', 'twitter:'):
+                    self.assertEqual(metas[prefix + 'image'], IMAGE)
+                    self.assertEqual(metas[prefix + 'image:alt'], IMAGE_ALT)
+                    self.assertEqual(metas[prefix + 'description'], metas['description'])
+                self.assertEqual(metas['og:url'], canonical(route))
+                self.assertEqual(metas['twitter:card'], 'summary_large_image')
+                self.assertNotIn('twitter:site', metas)
+                for tag, attrs in page.tags:
+                    href = attrs.get('href', '')
+                    if tag == 'a' and not urlsplit(href).scheme:
+                        self.assertFalse(urlsplit(href).path.endswith('index.html'), href)
+                structured = json.loads(re.search(r'<script type="application/ld\+json">(.*?)</script>', source, re.S).group(1))
+                if route == 'index.html':
+                    self.assertEqual(title, HOME_TITLE)
+                    self.assertEqual(metas['description'], HOME_DESCRIPTION)
+                    graph = {node['@type']: node for node in structured['@graph']}
+                    self.assertEqual(set(graph), {'WebSite', 'SoftwareApplication'})
+                    software = graph['SoftwareApplication']
+                    release = load_cache(WEBSITE / 'release.json')
+                    self.assertEqual(software['softwareVersion'], release.version)
+                    self.assertEqual(set(software['downloadUrl']), {url for key, url in release.downloads.items() if key != 'checksums'})
+                    self.assertEqual(software['offers']['price'], '0')
+                    self.assertTrue(software['isAccessibleForFree'])
+                    self.assertTrue(software['license'].endswith('/LICENSE'))
+                    self.assertNotIn('aggregateRating', software)
+                    self.assertNotIn('review', software)
+                elif route == 'docs/index.html':
+                    self.assertEqual(structured['@type'], 'CollectionPage')
+                    self.assertEqual(structured['name'], 'Documentation')
+                    self.assertEqual(structured['url'], canonical(route))
+                    self.assertEqual(structured['isPartOf'], {'@id': ORIGIN + '/#website'})
+                else:
+                    self.assertEqual(structured['@type'], 'BreadcrumbList')
+                    crumbs = structured['itemListElement']
+                    self.assertEqual(len(crumbs), 2)
+                    self.assertEqual(crumbs[0]['item'], ORIGIN + '/docs/')
+                    self.assertEqual(crumbs[-1]['item'], canonical(route))
+                    self.assertEqual([c['position'] for c in crumbs], list(range(1, len(crumbs) + 1)))
+            self.assertEqual(len(set(titles)), 17)
+            self.assertEqual(len(set(descriptions)), 17)
+
+    def test_404_is_noindex_uses_root_assets_and_upgrades_old_output_safely(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / 'site'
+            build.build(offline=True, output=output)
+            for relative in ('404.html', 'sitemap.xml', 'robots.txt'):
+                (output / relative).unlink()
+            self.assertEqual(len(hashes(output)), 33)
+            build.build(offline=True, output=output)
+            page = Content((output / '404.html').read_text())
+            metas = {a.get('name'): a.get('content') for tag, a in page.tags if tag == 'meta'}
+            self.assertEqual(metas['robots'], 'noindex, follow')
+            self.assertFalse(any(tag == 'link' and a.get('rel') == 'canonical' for tag, a in page.tags))
+            for tag, attrs in page.tags:
+                for key in ('src', 'href'):
+                    if key in attrs:
+                        self.assertTrue(attrs[key].startswith('/'), (tag, attrs[key]))
+            self.assertEqual(len(hashes(output)), 36)
+            asset_versions(output)
+            previous = hashes(output)
+            build.build(offline=True, output=output)
+            self.assertEqual(previous, hashes(output))
+            (output / 'private.txt').write_text('keep')
+            with self.assertRaises(ValueError):
+                build.build(offline=True, output=output)
+            self.assertEqual((output / 'private.txt').read_text(), 'keep')
+
+    def test_metadata_escapes_attributes_and_structured_data_script_boundaries(self):
+        unsafe = '</script><script>alert("x")</script> & \"quoted\" \u2028'
+        source = metadata('index.html', unsafe, unsafe, schema={'name': unsafe})
+        page = Content(source)
+        scripts = [(tag, attrs) for tag, attrs in page.tags if tag == 'script']
+        self.assertEqual(scripts, [('script', {'type': 'application/ld+json'})])
+        self.assertNotIn('<title></script>', source)
+        self.assertIn('&lt;/script&gt;', source)
+        encoded = re.search(r'<script type="application/ld\+json">(.*?)</script>', source, re.S).group(1)
+        self.assertEqual(json.loads(encoded), {'name': unsafe})
+        self.assertNotIn('<', encoded)
+        self.assertNotIn('\u2028', encoded)
+        self.assertEqual(json.loads(json_script({'x': unsafe}).split('>', 1)[1].rsplit('</script>', 1)[0]), {'x': unsafe})
 
     def test_asset_urls_are_deterministic_and_only_changed_content_is_invalidated(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -223,7 +329,7 @@ class BuildTests(unittest.TestCase):
                 versions = asset_versions(output)
                 self.assertTrue(versions)
                 css_pages = {route for route, url in versions if Path(url).name == 'site.css'}
-                self.assertEqual(css_pages, {'index.html', 'docs/index.html', *(d.route for d in DOCUMENTS)})
+                self.assertEqual(css_pages, {'index.html', '404.html', 'docs/index.html', *(d.route for d in DOCUMENTS)})
                 build.version_assets(output)
                 self.assertEqual(before, hashes(output), 'Finalization must be idempotent')
                 build.build(offline=True, output=output)

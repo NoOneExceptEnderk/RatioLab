@@ -1,6 +1,6 @@
 # RatioLab public website
 
-Static website, download links and searchable English documentation. The build reads all 15 canonical guides directly from `docs/`; there is no second documentation snapshot to synchronise. Output is the repository's `_site/` directory: 17 HTML pages and 16 assets. Hosting needs no Python, application server or database.
+Static website, download links and searchable English documentation. The build reads all 15 canonical guides directly from `docs/`; there is no second documentation snapshot to synchronise. Output is the repository's `_site/` directory: 17 canonical HTML pages, a custom 404 page, 16 assets, `sitemap.xml` and `robots.txt` (36 public files). Hosting needs no Python, application server or database.
 
 ## Build and check
 
@@ -50,3 +50,31 @@ The GitHub `Public website` workflow tests and uploads `_site/` as an artifact o
 Edit the two templates and `assets/` for presentation changes. The approved logo, screenshot, JavaScript and five canonical 3D examples are local assets. There are no analytics, remote fonts or embedded social widgets. Discord and GitHub links are configured in `social.json`.
 
 A normal website build never regenerates geometry. Maintainers can explicitly run `python3 website/generate_showcase.py` from an application development environment to refresh the five canonical examples from `src/`. This is a separate operation that requires the generator's application-side dependencies and a stable source checkout. The website's ordinary build and tests do not import that engine.
+
+## Search metadata and discovery
+
+The production origin is `https://ratiolab.dev`, configured in `website/seo.py`.
+Every published page has a unique title and description, an HTTPS apex canonical
+URL ending in `/`, and Open Graph/Twitter previews using the real workspace
+screenshot. Local internal page links use directory URLs and keep their fragment
+anchors. Preview builds deliberately name the production canonical origin.
+See Google's [canonical URL guidance](https://developers.google.com/search/docs/crawling-indexing/consolidate-duplicate-urls).
+
+The homepage includes `WebSite` and [SoftwareApplication](https://schema.org/SoftwareApplication)
+structured data. Application version and download URLs come from the same
+validated public release used by the download controls, rather than the source
+checkout version. The 15 guides have two-level breadcrumbs; the documentation overview declares
+a `CollectionPage`. No ratings, reviews or search ranking claims are added.
+
+The build generates [a sitemap](https://developers.google.com/search/docs/crawling-indexing/sitemaps/build-sitemap)
+for the 17 canonical pages at `https://ratiolab.dev/sitemap.xml` and advertises it
+in `robots.txt`. It does not invent update dates or crawler priorities. A top-level
+`404.html` is marked `noindex` and uses root-relative assets, so nested missing
+addresses retain working styling. Cloudflare Pages [serves this custom 404 instead
+of treating the site as a single-page application](https://developers.cloudflare.com/pages/configuration/serving-pages/).
+
+Optionally [verify ownership in Google Search Console](https://support.google.com/webmasters/answer/9008080)
+(for example, a Domain property through DNS) and [submit the sitemap](https://support.google.com/webmasters/answer/7451001).
+These are manual account steps; no verification tokens or credentials belong in
+this repository. Metadata and sitemap availability do not guarantee indexing or
+particular search results.

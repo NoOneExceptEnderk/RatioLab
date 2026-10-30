@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.8 — 2026-10-30
+
+- Add canonical URLs, social previews and structured search metadata using the
+  actual public release, plus a generated sitemap and crawler discovery file.
+- Use consistent directory links and provide a noindex 404 page with working
+  assets for missing nested addresses.
+
 ## 0.1.7 — 2026-10-30
 
 - Refine the homepage workspace composition with a prominent framed application

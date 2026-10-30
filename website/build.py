@@ -18,6 +18,7 @@ from zipfile import ZIP_DEFLATED, ZipFile, ZipInfo
 
 from releases import REPOSITORY, cache_document, fetch_latest, load_cache, validate_release
 from render_docs import DOCUMENTS, build_docs, render_template
+from seo import HOME_DESCRIPTION, HOME_TITLE, directory_links, discovery_files, home_schema, metadata
 from social_links import load_social_channels, render_discord_ctas, render_social_links
 
 WEBSITE = Path(__file__).resolve().parent
@@ -28,7 +29,7 @@ STATIC_ASSETS = ('ratiolab-icon.png', 'ratiolab-logo-dark.png', 'workspace.png',
 
 
 def public_files():
-    return ['index.html', 'docs/index.html', *(doc.route for doc in DOCUMENTS),
+    return ['index.html', 'docs/index.html', *(doc.route for doc in DOCUMENTS), '404.html', 'sitemap.xml', 'robots.txt',
             *('assets/' + name for name in STATIC_ASSETS), 'assets/search-index.js']
 
 
@@ -95,10 +96,10 @@ def version_assets(directory):
                     continue
                 parsed = urlsplit(html.unescape(match[3]))
                 decoded = unquote(parsed.path)
-                if parsed.scheme or parsed.netloc or not re.fullmatch(r'(?:\.\./)*assets/[\w.-]+\.(?:css|js)', decoded):
+                if parsed.scheme or parsed.netloc or not re.fullmatch(r'(?:/|(?:\.\./)*)assets/[\w.-]+\.(?:css|js)', decoded):
                     continue
                 name = Path(decoded).name
-                target = (self.path.parent / decoded).resolve()
+                target = (directory / decoded.lstrip('/') if decoded.startswith('/') else self.path.parent / decoded).resolve()
                 if name not in fingerprints or target != directory / 'assets' / name:
                     continue
                 url = parsed.path + '?v=' + fingerprints[name]
@@ -133,7 +134,10 @@ def validate_output(directory):
             parsed = urlsplit(url)
             if parsed.scheme or parsed.netloc:
                 continue
-            target = (path.parent / unquote(parsed.path)).resolve() if parsed.path else path
+            decoded = unquote(parsed.path)
+            target = (directory / decoded.lstrip('/') if decoded.startswith('/') else path.parent / decoded).resolve() if decoded else path
+            if target.is_dir():
+                target = target / 'index.html'
             if not target.is_relative_to(directory.resolve()) or not target.is_file():
                 raise ValueError('Broken local link: ' + str(path) + ': ' + url)
             if parsed.fragment and target.suffix == '.html' and unquote(parsed.fragment) not in pages[target].ids:
@@ -165,6 +169,7 @@ def build_home(output_root, release):
               'release': release.url, 'issues': REPOSITORY + '/issues', 'license': REPOSITORY + '/blob/main/LICENSE'}
     escaped = {key: html.escape(value, quote=True) for key, value in values.items()}
     channels = load_social_channels()
+    escaped['seo_head'] = metadata('index.html', HOME_TITLE, HOME_DESCRIPTION, schema=home_schema(release))
     escaped.update(social_links=render_social_links(channels), **render_discord_ctas(channels))
     template = (WEBSITE / 'index.template.html').read_text(encoding='utf-8')
     (output_root / 'index.html').write_text(render_template(template, escaped), encoding='utf-8')
@@ -197,6 +202,9 @@ def build(*, offline=False, output=None, repository_root=REPOSITORY_ROOT, releas
             shutil.copyfile(source, stage / 'assets' / name)
         build_home(stage, release)
         sections = build_docs(stage, repository_root, source_ref=source_ref, source_label=source_label)
+        routes = ['index.html', 'docs/index.html', *(doc.route for doc in DOCUMENTS)]
+        discovery_files(stage, routes)
+        directory_links(stage, routes)
         version_assets(stage)
         validate_output(stage)
         if not offline:
@@ -215,7 +223,7 @@ def build(*, offline=False, output=None, repository_root=REPOSITORY_ROOT, releas
         if old:
             shutil.rmtree(old)
             old = None
-        return {'output': str(output), 'version': release.version, 'pages': len(DOCUMENTS) + 2,
+        return {'output': str(output), 'version': release.version, 'pages': len(DOCUMENTS) + 3,
                 'files': len(public_files()), 'search_sections': sections, 'source_ref': source_ref}
     finally:
         if stage.exists():

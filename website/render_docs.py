@@ -13,6 +13,7 @@ from pathlib import Path
 from urllib.parse import quote, unquote, urlsplit, urlunsplit
 
 from markdown_it import MarkdownIt
+from seo import documentation_schema, metadata
 from social_links import load_social_channels, render_discord_ctas, render_social_links
 
 ROOT = Path(__file__).resolve().parent
@@ -246,6 +247,7 @@ def build_docs(output_root: Path, repository_root: Path, *, source_ref="main", s
         toc = '<ul>' + ''.join(f'<li class="toc-level-{level}"><a href="#{html.escape(anchor, quote=True)}">{html.escape(title)}</a></li>' for level, title, anchor in headings if level == 2) + '</ul>'
         source_url = REPOSITORY + ("/blob/" + source_ref + "/docs/" + document.source if document.source else "/tree/" + source_ref + "/docs")
         values = {"root": site_root(route), "title": html.escape(document.title), "description": html.escape(document.description, quote=True), "eyebrow": html.escape(document.section), "body": body, "toc": toc, "sidebar": sidebar(route), "source_url": html.escape(source_url, quote=True), "source_label": html.escape(source_label), "language": "en", "language_label": "English · canonical documentation", "social_links": social_links, **discord_ctas}
+        values["seo_head"] = metadata(route, document.title + " — RatioLab docs", document.description, schema=documentation_schema(route, document.title))
         output = output_root / route
         output.parent.mkdir(parents=True, exist_ok=True)
         output.write_text(render_template(template, values), encoding="utf-8")
@@ -257,7 +259,7 @@ def build_docs(output_root: Path, repository_root: Path, *, source_ref="main", s
             heading = re.search(r'<h([12]) id="([^"]*)">(.*?)</h\1>', chunk, re.S)
             anchor = "#" + heading[2] if heading else ""
             title = plain_text(heading[3]) if heading else document.title
-            index.append({"title": title, "page": document.title, "url": route + anchor, "section": document.section, "language": "en", "text": plain_text(chunk)})
+            index.append({"title": title, "page": document.title, "url": route.removesuffix("index.html") + anchor, "section": document.section, "language": "en", "text": plain_text(chunk)})
     serialized = json.dumps(index, ensure_ascii=False, separators=(",", ":")).replace("<", "\\u003c").replace("\u2028", "\\u2028").replace("\u2029", "\\u2029")
     (output_root / "assets/search-index.js").write_text("window.RATIOLAB_SEARCH_INDEX=" + serialized + ";\n", encoding="utf-8")
     return len(index)
