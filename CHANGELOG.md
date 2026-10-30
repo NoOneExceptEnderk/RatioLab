@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.5 — 2026-10-30
+
+- Replace promotional homepage cards with the actual desktop workspace,
+  compact downloads and a factual inventory of models and tools.
+- Remove lower-homepage scroll reveals and reading progress decoration.
+
 ## 0.1.4 — 2026-10-30
 
 - Add maintained responsive public website sources, with five interactive
