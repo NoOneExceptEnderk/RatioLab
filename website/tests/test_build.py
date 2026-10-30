@@ -14,6 +14,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 from urllib.error import URLError
+from urllib.parse import unquote, urlsplit
 
 from markdown_it import MarkdownIt
 
@@ -51,6 +52,25 @@ class Content(HTMLParser):
 def hashes(directory):
     return {p.relative_to(directory).as_posix(): hashlib.sha256(p.read_bytes()).hexdigest()
             for p in directory.rglob('*') if p.is_file()}
+
+
+def asset_versions(directory):
+    """Assert every native local CSS/JS URL matches its actual output bytes."""
+    references = {}
+    for path in directory.rglob('*.html'):
+        for tag, attrs in Content(path.read_text()).tags:
+            url = attrs.get('src') if tag == 'script' else attrs.get('href') if tag == 'link' else None
+            if not url:
+                continue
+            parsed = urlsplit(url)
+            if parsed.scheme or parsed.netloc or Path(parsed.path).suffix not in ('.css', '.js'):
+                continue
+            target = (path.parent / unquote(parsed.path)).resolve()
+            expected = 'v=' + hashlib.sha256(target.read_bytes()).hexdigest()[:16]
+            if parsed.query != expected:
+                raise AssertionError(f'{path}: {url} does not match {expected}')
+            references[(path.relative_to(directory).as_posix(), parsed.path)] = parsed.query
+    return references
 
 
 class RenderingTests(unittest.TestCase):
@@ -192,6 +212,58 @@ class BuildTests(unittest.TestCase):
             self.assertEqual(downloads, {url for key, url in release.downloads.items() if key != 'checksums'})
         self.assertEqual(before, hashes(WEBSITE / 'assets'))
 
+    def test_asset_urls_are_deterministic_and_only_changed_content_is_invalidated(self):
+        with tempfile.TemporaryDirectory() as directory:
+            website = Path(directory) / 'website'
+            shutil.copytree(WEBSITE, website)
+            output = Path(directory) / 'site'
+            with patch('build.WEBSITE', website):
+                build.build(offline=True, output=output)
+                before = hashes(output)
+                versions = asset_versions(output)
+                self.assertTrue(versions)
+                css_pages = {route for route, url in versions if Path(url).name == 'site.css'}
+                self.assertEqual(css_pages, {'index.html', 'docs/index.html', *(d.route for d in DOCUMENTS)})
+                build.version_assets(output)
+                self.assertEqual(before, hashes(output), 'Finalization must be idempotent')
+                build.build(offline=True, output=output)
+                self.assertEqual(before, hashes(output), 'Identical offline builds must be deterministic')
+                source = website / 'assets/site.css'
+                source.write_text(source.read_text() + '\n/* cache freshness probe */\n')
+                build.build(offline=True, output=output)
+                changed = asset_versions(output)
+                self.assertEqual(versions.keys(), changed.keys())
+                for key, previous in versions.items():
+                    if key[1].endswith('/site.css'):
+                        self.assertNotEqual(previous, changed[key], key)
+                    else:
+                        self.assertEqual(previous, changed[key], key)
+                self.assertEqual(set(hashes(output)), set(build.public_files()))
+                for name in build.STATIC_ASSETS:
+                    self.assertEqual((output / 'assets' / name).read_bytes(), (website / 'assets' / name).read_bytes())
+
+    def test_asset_finalization_leaves_external_urls_and_non_asset_content_unchanged(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / 'site'
+            build.build(offline=True, output=output)
+            page = output / 'docs/index.html'
+            untouched = ('<a href="../assets/site.js">Source link</a>'
+                         '<script src="https://example.com/assets/site.js"></script>'
+                         '<script src="//example.com/assets/site.js"></script>'
+                         '<script>const sample = \'<script src="assets/site.js">\';</script>'
+                         '<pre>&lt;script src="assets/site.js"&gt;</pre>'
+                         '<link rel="icon" href="../assets/site.css">'
+                         '<script src="../assets/not-allowlisted.js"></script>')
+            page.write_text(page.read_text() + untouched +
+                            '<script src="../assets/site.js?old=1#probe"></script>')
+            build.version_assets(output)
+            rewritten = page.read_text()
+            self.assertIn(untouched, rewritten)
+            digest = hashlib.sha256((output / 'assets/site.js').read_bytes()).hexdigest()[:16]
+            self.assertIn(f'<script src="../assets/site.js?v={digest}#probe"></script>', rewritten)
+            build.version_assets(output)
+            self.assertEqual(rewritten, page.read_text())
+
     def test_canonical_edit_refreshes_html_and_search_on_every_build(self):
         with tempfile.TemporaryDirectory() as directory:
             repo = Path(directory) / 'repository'
@@ -204,11 +276,18 @@ class BuildTests(unittest.TestCase):
             build.build(offline=True, repository_root=repo)
             for relative in ('docs/user-guide/index.html', 'assets/search-index.js'):
                 self.assertIn(first, (output / relative).read_text())
+            before_versions = asset_versions(output)
             doc.write_text(doc.read_text().replace(first, second))
             build.build(offline=True, repository_root=repo)
             for relative in ('docs/user-guide/index.html', 'assets/search-index.js'):
                 self.assertIn(second, (output / relative).read_text())
                 self.assertNotIn(first, (output / relative).read_text())
+            after_versions = asset_versions(output)
+            for key, previous in before_versions.items():
+                if key[1].endswith('/search-index.js'):
+                    self.assertNotEqual(previous, after_versions[key], key)
+                else:
+                    self.assertEqual(previous, after_versions[key], key)
 
     def test_api_failure_or_missing_canonical_source_preserves_prior_output(self):
         with tempfile.TemporaryDirectory() as directory:

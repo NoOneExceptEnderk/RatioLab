@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.6 — 2026-10-30
+
+- Add content-based CSS and JavaScript URLs to generated pages so browser
+  caches refresh when website assets or the documentation search index change.
+
 ## 0.1.5 — 2026-10-30
 
 - Replace promotional homepage cards with the actual desktop workspace,
