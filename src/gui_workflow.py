@@ -18,11 +18,181 @@ def searchable_dropdown(labels):
     dropdown.set_enable_search(True)
     return dropdown
 
-def roundtrip_text(value, digits=2):
-    """Use ordinary UI decimals only when they roundtrip to the same float."""
+def _numeric_parts(value):
+    import re
+    return re.fullmatch(r'([+-]?)(?:(\d+)(?:[.,](\d+))?|[.,](\d+))([eE][+-]?\d+)?', str(value).strip())
+
+
+def normalized_numeric_text(value, *, low=None, high=None, integer=False):
+    """Remove redundant zeros without rounding any explicitly entered digits."""
+    from math import isfinite
+    original = str(value)
+    match = _numeric_parts(original)
+    if not match:
+        return original
+    number = float(original.strip().replace(',', '.'))
+    if (not isfinite(number) or low is not None and number < low
+            or high is not None and number > high or integer and not number.is_integer()):
+        return original
+    sign, whole, fraction, leading_fraction, exponent = match.groups()
+    whole = (whole or '0').lstrip('0') or '0'
+    fraction = (fraction or leading_fraction or '').rstrip('0')
+    if whole == '0' and not fraction:
+        return '0'
+    result = ('-' if sign == '-' else '') + whole + ('.' + fraction if fraction else '')
+    if exponent:
+        power = exponent[1:]
+        negative = power.startswith('-')
+        power = power.lstrip('+-').lstrip('0')
+        if power:
+            result += 'e' + ('-' if negative else '') + power
+    return result
+
+
+def roundtrip_text(value, digits=6):
+    """Compact automatic values; retain tiny nonzero values in scientific form."""
     value = float(value)
-    text = format(value, f'.{digits}f')
-    return text if float(text) == value else repr(value)
+    result = format(value, f'.{digits}f')
+    if value and float(result) == 0:
+        result = format(value, f'.{digits}e')
+    return normalized_numeric_text(result)
+
+
+def _track_numeric_entry(widget):
+    if getattr(widget, '_numeric_tracking', False):
+        return
+    widget._numeric_tracking = True
+    def edited(entry):
+        if not getattr(entry, '_numeric_setting', False):
+            entry._numeric_exact = None
+            entry._numeric_typed_text = entry.get_text()
+    widget.connect('changed', edited)
+
+
+def numeric_is_automatic(widget):
+    """Whether the visible text represents a separately preserved exact value."""
+    return (getattr(widget, '_numeric_exact', None) is not None
+            and (getattr(widget, '_numeric_setting', False)
+                 or widget.get_text() == getattr(widget, '_numeric_display', None)))
+
+
+def numeric_value(widget):
+    """Read the exact automatic value or the complete, unrounded user input."""
+    if numeric_is_automatic(widget):
+        return widget._numeric_exact
+    return float(widget.get_text().strip().replace(',', '.'))
+
+
+def numeric_snapshot_text(widget):
+    """Keep automatic display rounding out of project history and recovery."""
+    return repr(widget._numeric_exact) if numeric_is_automatic(widget) else widget.get_text()
+
+
+def set_numeric_value(widget, value):
+    """Display an automatic value while preserving its exact numeric backing."""
+    _track_numeric_entry(widget)
+    value = float(value)
+    typed = getattr(widget, '_numeric_typed_text', None)
+    if typed is not None:
+        try:
+            if float(typed.strip().replace(',', '.')) == value:
+                widget._numeric_setting = True
+                try:
+                    if isinstance(widget, Gtk.SpinButton):
+                        widget.set_value(value)
+                finally:
+                    widget._numeric_setting = False
+                return  # Refreshes must not replace a deliberate precise edit.
+        except ValueError:
+            pass
+    shown = roundtrip_text(value)
+    widget._numeric_exact, widget._numeric_display = value, shown
+    widget._numeric_typed_text = None
+    widget._numeric_setting = True
+    try:
+        if isinstance(widget, Gtk.SpinButton):
+            widget.set_value(value)
+        if widget.get_text() != shown:
+            widget.set_text(shown)
+    finally:
+        widget._numeric_setting = False
+
+
+def _set_explicit_numeric_text(widget, compact):
+    # GTK emits an empty changed event before the replacement. Observers must
+    # still see the same numeric value during this purely cosmetic rewrite.
+    widget._numeric_exact = float(compact.replace(',', '.'))
+    widget._numeric_display = compact
+    widget._numeric_setting = True
+    try:
+        widget.set_text(compact)
+    finally:
+        widget._numeric_setting = False
+        widget._numeric_exact = None
+        widget._numeric_typed_text = compact
+
+
+def _normalize_numeric_entry(widget, *, low=None, high=None, integer=False):
+    if numeric_is_automatic(widget):
+        return
+    original = widget.get_text()
+    compact = normalized_numeric_text(original, low=low, high=high, integer=integer)
+    if compact != original:
+        _set_explicit_numeric_text(widget, compact)
+
+
+def bind_numeric_entry(widget, *, low=None, high=None, integer=False):
+    """Normalize a scalar entry only on Enter or focus loss, never while typing."""
+    _track_numeric_entry(widget)
+    def commit(*args):
+        _normalize_numeric_entry(widget, low=low, high=high, integer=integer)
+    widget.connect('activate', commit)
+    focus = Gtk.EventControllerFocus()
+    focus.connect('leave', commit)
+    widget.add_controller(focus)
+
+
+def bind_numeric_spin(widget, *, low=None, high=None, integer=False, app=None):
+    """Preserve exact typed and automatic values across GTK's native updates."""
+    from math import isfinite
+    _track_numeric_entry(widget)
+    adjustment = widget.get_adjustment()
+    low = adjustment.get_lower() if low is None else low
+    high = adjustment.get_upper() if high is None else high
+    widget.set_update_policy(Gtk.SpinButtonUpdatePolicy.IF_VALID)
+    last = [widget.get_value()]
+    committing = [False]
+    def output(spin):
+        current = spin.get_value()
+        previous, last[0] = last[0], current
+        if (not committing[0] and not getattr(spin, '_numeric_setting', False)
+                and not (app and app.building) and current != previous):
+            set_numeric_value(spin, current)
+        return True
+    def input_value(spin, unused):
+        # GTK's default parser rounds to set_digits(). Parse ourselves and reject
+        # that native conversion, leaving invalid/incomplete text untouched.
+        original = spin.get_text()
+        compact = normalized_numeric_text(original, low=low, high=high, integer=integer)
+        try:
+            number = numeric_value(spin)
+            complete = _numeric_parts(original) is not None
+            if (not complete or not isfinite(number) or low is not None and number < low
+                    or high is not None and number > high or integer and not number.is_integer()):
+                return Gtk.INPUT_ERROR
+        except ValueError:
+            return Gtk.INPUT_ERROR
+        committing[0] = True
+        try:
+            spin.set_value(number)
+            if not numeric_is_automatic(spin) and compact != original:
+                _set_explicit_numeric_text(spin, compact)
+        finally:
+            committing[0] = False
+        return Gtk.INPUT_ERROR
+    widget.connect('input', input_value)
+    widget.connect('output', output)
+    widget.connect('activate', lambda spin: spin.update())
 
 
 def text(value, style='muted'):
@@ -180,6 +350,9 @@ def preserve_scroll(app):
 def geometry_groups(app, specs):
     """Assign geometric fields to stable, family-specific groups."""
     from geometry import INTEGER
+    from parameter_help_ui import controller
+    help_controller = controller(app)
+    help_controller.reset()
     import re
     groups = {}
     def group(key, title):
@@ -231,7 +404,6 @@ def geometry_groups(app, specs):
         row = Gtk.Box(spacing=7)
         name = Gtk.Label(label=caption, xalign=0, wrap=True, hexpand=True, css_classes=['field-label'])
         name.set_max_width_chars(20)
-        name.set_tooltip_text(label)
         row.append(name)
         spin = Gtk.SpinButton.new_with_range(low, high, step)
         value = app.field_values.get(key, default)
@@ -245,27 +417,8 @@ def geometry_groups(app, specs):
         spin.set_max_width_chars(8)
         spin.set_alignment(1)
         spin.set_tooltip_text(label)
-        last_adjustment = [spin.get_value()]
-        def preserve_entry_text(widget, low=low, high=high, last=last_adjustment):
-            # GTK's default output rounds valid edits to set_digits(). Preserve
-            # the entered float through update/focus-out as well as incomplete
-            # input. Arrow buttons have a new adjustment value and need output.
-            current = widget.get_value()
-            previous, last[0] = last[0], current
-            if app.building:
-                return True  # The caller supplies its exact intended float.
-            try:
-                from math import isfinite
-                number = float(widget.get_text().strip().replace(',', '.'))
-                if not isfinite(number) or not low <= number <= high:
-                    return True
-            except ValueError:
-                return True
-            if number != current and current != previous:
-                widget.set_text(roundtrip_text(current, widget.get_digits()))
-            return True
-        spin.connect('output', preserve_entry_text)
-        spin.set_text(roundtrip_text(value, spin.get_digits()))
+        bind_numeric_spin(spin, low=low, high=high, integer=key in INTEGER, app=app)
+        set_numeric_value(spin, value)
         spin.connect('value-changed', app.changed)
         spin.connect('changed', app.changed)
         name.set_mnemonic_widget(spin)
@@ -273,6 +426,7 @@ def geometry_groups(app, specs):
         units = Gtk.Label(label=unit, xalign=0, css_classes=['muted'])
         units.set_width_chars(3)
         row.append(units)
+        help_controller.bind(name, spin, key, row)
         container.append(row)
         feedback = text('', 'error')
         feedback.set_visible(False)
@@ -375,6 +529,8 @@ def reveal_error(app):
     app.inputs[key].grab_focus()
 
 def update_family(app):
+    from parameter_help_ui import bind_options
+    bind_options(app)
     description = CATALOG[app.family][1]
     app.selector.set_tooltip_text(description)
     # Construction notices are decided from the generated model below.

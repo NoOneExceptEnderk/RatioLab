@@ -13,7 +13,7 @@ prepare_native_runtime()
 import gi
 gi.require_version('Gtk','4.0')
 from gi.repository import Gtk, Gdk, GLib, GObject
-from motion import build_plan,IDENTITY,wrapped_angle
+from motion import build_plan,IDENTITY,wrapped_angle,same_geometry
 from gl_loader import load_epoxy, bind_function
 
 
@@ -344,14 +344,17 @@ class Preview3D(Gtk.GLArea):
         except GLib.Error as error:
             self.set_error(error)
             return None
-    def set_design(self,design):
+    def set_design(self,design,*,reuse_scene=False):
         changed=design is not self.design
-        speed_keys={'input_rpm','input_b_rpm','output_difference_rpm'}
-        keep_phase=bool(design and self.design and design.family==self.design.family and {k:v for k,v in design.values.items() if k not in speed_keys}=={k:v for k,v in self.design.values.items() if k not in speed_keys})
+        keep_phase=bool(design and same_geometry(self.design,design.family,design.values))
+        if reuse_scene and not keep_phase:raise ValueError('Scene reuse requires identical geometry.')
+        self.advance_motion(GLib.get_monotonic_time()/1000000)
         if self.design is not None and (not design or design.family!=self.design.family or design.values!=self.design.values):self.clear_inspection()
-        self.design=design;self.scene=build_scene(design,self.show_support,self.show_housing,self.exploded) if design else None;self.dirty=True
+        self.design=design
+        if not reuse_scene:
+            self.scene=build_scene(design,self.show_support,self.show_housing,self.exploded) if design else None;self.dirty=True
         if changed:
-            previous=self.motion_plan if keep_phase and design.family=='differential' else None
+            previous=self.motion_plan if keep_phase else None
             self.motion_plan=build_plan(design,previous,self.motion_phase) if design else None
             if not keep_phase:self.motion_phase=0.;self.motion_last=None
             self.motion_valid=True
@@ -360,7 +363,7 @@ class Preview3D(Gtk.GLArea):
         self.queue_render()
     def show_inspection(self,phase,indices):
         self.set_motion_playing(False)
-        if self.design and self.design.family=='differential' and self.inspection_motion_plan is None:
+        if self.design and self.inspection_motion_plan is None:
             self.inspection_motion_plan=self.motion_plan
             self.motion_plan=build_plan(self.design)
         self.inspection_phase=float(phase);self.inspection_indices=tuple(indices)
@@ -377,24 +380,32 @@ class Preview3D(Gtk.GLArea):
         playing=bool(playing and self.motion_valid and self.motion_plan and self.motion_plan.supported and not self.exploded and not self.failure)
         self.motion_playing=playing
         if playing:
-            self.motion_enabled=True;self.motion_last=None
+            self.motion_enabled=True;self.motion_last=GLib.get_monotonic_time()/1000000
             if not self.motion_tick:self.motion_tick=self.add_tick_callback(self.on_motion_tick)
         elif self.motion_tick:
             self.remove_tick_callback(self.motion_tick);self.motion_tick=0;self.motion_last=None
         self.queue_render();self.emit('motion-state')
     def on_motion_tick(self,widget,clock):
         if not self.motion_playing:self.motion_tick=0;return False
-        now=clock.get_frame_time()/1000000
+        self.advance_motion(clock.get_frame_time()/1000000)
+        self.queue_render();return True
+    def advance_motion(self,now):
+        """Integrate the old rates up to an event before replacing them.
+
+        GDK frame times and GLib monotonic times share microsecond units and
+        origin. A frame older than an input event must never rewind this clock.
+        """
+        if not self.motion_playing:return
         if self.motion_last is not None:
             if self.design and 'input_rpm' in self.design.values:
                 keys=('input_rpm','output_difference_rpm') if self.design.family=='differential' and self.design.values.get('configuration')=='classic' else ('input_rpm','input_b_rpm','secondary_rpm')
                 rpm=self.motion_plan.reference_rpm if any(self.design.values.get(key,0) for key in keys) else 0
             else:rpm=12*self.motion_speed
             self.motion_phase+=max(0,now-self.motion_last)*2*pi/60*rpm
-        self.motion_last=now;self.queue_render();return True
+        self.motion_last=max(now,self.motion_last) if self.motion_last is not None else now
     def reset_motion(self):
         self.clear_inspection();self.set_motion_playing(False);self.motion_phase=0.;self.motion_enabled=False
-        if self.design and self.design.family=='differential':self.motion_plan=build_plan(self.design)
+        if self.design:self.motion_plan=build_plan(self.design)
         self.queue_render();self.emit('motion-state')
     def invalidate_motion(self):
         self.clear_inspection();self.motion_valid=False;self.set_motion_playing(False)

@@ -11,11 +11,14 @@ from gi.repository import Gtk, Gio, GLib
 import app_paths
 from geometry import FAMILIES, VARIANTS, defaults, generate
 from project_document import Document, Store, atomic_json, equivalent
+from gui_workflow import (numeric_value, numeric_snapshot_text, numeric_is_automatic,
+                          set_numeric_value)
 
 
 class ProjectActions:
     def init_projects(self):
         self.raw_edits = getattr(self, 'raw_edits', {})
+        self.automatic_edits = getattr(self, 'automatic_edits', {})
         self.project_restoring = False
         self.project_dialog = None
         self.project_store = Store(app_paths.data_dir()/'projects')
@@ -39,24 +42,33 @@ class ProjectActions:
         values = dict(self.values.get(self.family, defaults(self.family)))
         values.update(getattr(self, 'option_values', {}))
         raw = dict(getattr(self, 'raw_edits', {}).get(self.family, {}))
+        automatic = set(getattr(self, 'automatic_edits', {}).get(self.family, []))
         for key, widget in self.inputs.items():
             if not widget.get_sensitive():
                 # Derived displays are recomputed, rather than user edits. Keep
                 # any earlier manual text separately for a return to manual mode.
                 values.pop(key, None)
                 continue
-            raw[key] = widget.get_text()
+            raw[key] = numeric_snapshot_text(widget)
+            if numeric_is_automatic(widget):
+                automatic.add(key)
+            else:
+                automatic.discard(key)
             try:
-                value = float(raw[key].strip().replace(',', '.'))
+                value = numeric_value(widget)
                 if isfinite(value):
                     values[key] = value
             except ValueError:
                 pass
         if hasattr(self, 'motion_rpm'):
             values['input_rpm'] = self.motion_rpm
-            raw['input_rpm'] = self.motion_speed_text.get_text()
+            raw['input_rpm'] = numeric_snapshot_text(self.motion_speed_text)
+            if numeric_is_automatic(self.motion_speed_text):
+                automatic.add('input_rpm')
+            else:
+                automatic.discard('input_rpm')
             try:
-                number = float(raw['input_rpm'].strip().replace(',', '.'))
+                number = numeric_value(self.motion_speed_text)
                 if isfinite(number):
                     values['input_rpm'] = number
             except ValueError:
@@ -70,11 +82,15 @@ class ProjectActions:
         if not hasattr(self, 'raw_edits'):
             self.raw_edits = {}
         self.raw_edits[self.family] = raw
+        if not hasattr(self, 'automatic_edits'):
+            self.automatic_edits = {}
+        self.automatic_edits[self.family] = sorted(automatic.intersection(raw))
         return values
 
     def project_snapshot(self):
         self.collect_fields()
-        return deepcopy(dict(family=self.family, values=self.values, raw=self.raw_edits))
+        return deepcopy(dict(family=self.family, values=self.values, raw=self.raw_edits,
+                             automatic=self.automatic_edits))
 
     def project_changed(self, group=None):
         if not hasattr(self, 'document') or not self.project_alive or self.project_restoring or self.building:
@@ -83,6 +99,8 @@ class ProjectActions:
         if hasattr(self, 'interference'):self.interference.changed(snapshot)
         if hasattr(self, 'combination_search'):self.combination_search.changed(snapshot)
         if hasattr(self, 'components'):self.components.changed(snapshot)
+        if hasattr(self, 'gear_measurement'):self.gear_measurement.changed(snapshot)
+        if hasattr(self, 'backlash'):self.backlash.changed(snapshot)
         if self.document.record(snapshot, group):
             self.undo_reset.set_visible(False)
             self.update_document()
@@ -98,8 +116,12 @@ class ProjectActions:
                 self.update_document()
 
     def settle_project(self):
-        # Capture incomplete input first. A successful refresh may normalize a
-        # valid edit in place; failed validation preserves its exact raw text.
+        # Commit adjustments before a dialog captures its revision token. Later
+        # focus loss must not apply the same numeric edit after that snapshot.
+        # The numeric binder preserves invalid and incomplete entry text.
+        for widget in tuple(self.inputs.values()):
+            if widget.get_sensitive():
+                widget.update()
         self.project_changed()
         self.refresh()
 
@@ -126,6 +148,8 @@ class ProjectActions:
 
     def restore_project_snapshot(self, snapshot):
         if hasattr(self, 'components'):self.components.invalidate()
+        if hasattr(self, 'gear_measurement'):self.gear_measurement.invalidate()
+        if hasattr(self, 'backlash'):self.backlash.invalidate()
         if hasattr(self, 'interference'):self.interference.invalidate('Document replaced · run a new check')
         if hasattr(self, 'combination_search'):self.combination_search.invalidate('Document replaced · run a new search')
         self.project_restoring = True
@@ -133,6 +157,7 @@ class ProjectActions:
             self.family = snapshot['family']
             self.values = deepcopy(snapshot['values'])
             self.raw_edits = deepcopy(snapshot['raw'])
+            self.automatic_edits = deepcopy(snapshot.get('automatic', {}))
             self.building = True
             self.selector.set_selected(list(FAMILIES).index(self.family))
             self.make_fields()
@@ -141,19 +166,34 @@ class ProjectActions:
             self.project_restoring = False
 
     def restore_raw_fields(self):
+        automatic = set(getattr(self, 'automatic_edits', {}).get(self.family, []))
         for key, value in getattr(self, 'raw_edits', {}).get(self.family, {}).items():
             if key in self.inputs and self.inputs[key].get_sensitive():
-                self.inputs[key].set_text(value)
+                widget = self.inputs[key]
+                if key in automatic:
+                    try:
+                        number = float(value.strip().replace(',', '.'))
+                        if isfinite(number):
+                            set_numeric_value(widget, number)
+                            continue
+                    except ValueError:
+                        pass
+                widget.set_text(value)
             elif key == 'input_rpm' and hasattr(self, 'motion_rpm'):
-                self.motion_speed_text.set_text(value)
-                self.motion_rate_editing = True
+                self.motion_rate_editing = key not in automatic
                 try:
                     number = float(value.strip().replace(',', '.'))
                     low, high = self.motion_rate_limits
                     if not isfinite(number) or not low <= number <= high:
                         raise ValueError('Input speed is outside its allowed range.')
+                    if key in automatic:
+                        set_numeric_value(self.motion_speed_text, number)
+                    else:
+                        self.motion_speed_text.set_text(value)
                     self.motion_rpm = number
                 except ValueError:
+                    self.motion_speed_text.set_text(value)
+                    self.motion_rate_editing = True
                     self.motion_input_invalid = True
                     self.motion_rate_error.set_text('Complete a valid input speed.')
                     self.motion_rate_error.set_visible(True)
@@ -202,6 +242,8 @@ class ProjectActions:
             raise
         self.document = Document(self.project_snapshot(), path)
         if hasattr(self,'components') and self.design:self.components.refreshed(self.design)
+        if hasattr(self,'gear_measurement') and self.design:self.gear_measurement.refreshed(self.design)
+        if hasattr(self,'backlash') and self.design:self.backlash.refreshed(self.design)
         self.update_document()
         if path:
             self.remember_project(path)
@@ -451,6 +493,8 @@ class ProjectActions:
                             raise
                         self.document = recovered
                         if hasattr(self,'components') and self.design:self.components.refreshed(self.design)
+                        if hasattr(self,'gear_measurement') and self.design:self.gear_measurement.refreshed(self.design)
+                        if hasattr(self,'backlash') and self.design:self.backlash.refreshed(self.design)
                         self.update_document()
                         path.unlink()
                         self.status_text('Interrupted session restored. Review the parameters before saving.')

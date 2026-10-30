@@ -52,6 +52,38 @@ class DocumentTests(unittest.TestCase):
         self.assertEqual(d.undo(), snapshot())
         self.assertEqual(d.redo(), snapshot('abc'))
 
+    def test_automatic_display_and_equivalent_explicit_edit_share_checkpoint(self):
+        automatic = snapshot()
+        automatic['raw']['planetary'].clear()
+        d = Document(automatic)
+        self.assertFalse(d.record(snapshot('00018.000')))
+        self.assertFalse(d.dirty)
+        changed = snapshot('18.0000001')
+        changed['values']['planetary']['sun'] = 18.0000001
+        self.assertTrue(d.record(changed))
+        self.assertTrue(d.dirty)
+        self.assertEqual(d.undo(), automatic)
+        self.assertFalse(d.dirty)
+        self.assertTrue(d.record(snapshot('-')))
+
+    def test_automatic_display_provenance_survives_recovery_without_dirtying_format(self):
+        automatic = snapshot()
+        automatic['automatic'] = {'planetary': ['sun']}
+        d = Document(automatic)
+        self.assertFalse(d.record(snapshot('18.000')))
+        self.assertFalse(d.dirty)
+        changed = deepcopy(automatic)
+        changed['raw']['planetary']['sun'] = 'unfinished'
+        changed['automatic']['planetary'] = []
+        self.assertTrue(d.record(changed))
+        with TemporaryDirectory() as folder:
+            store = Store(folder)
+            store.checkpoint(d)
+            restored = store.read_recovery(store.session, {'planetary'})
+            self.assertEqual(restored.current, changed)
+            self.assertEqual(restored.clean, automatic)
+            self.assertEqual(restored.undo(), automatic)
+
     def test_snapshot_is_not_aliased_and_history_is_bounded(self):
         original = snapshot();d = Document(original)
         original['raw']['planetary']['sun'] = 'bad'

@@ -201,6 +201,9 @@ def validate(family, supplied):
                 raise ValueError('Second stage input/output arrangement unavailable.')
     values.update(options(family, supplied))
     values.update(hardware_options(family, supplied))
+    from backdrivability import physical_inputs, enforce
+    values.update(physical_inputs(family, supplied))
+    enforce(family, values)
     if family in ('spur', 'helical', 'double', 'planetary', 'harmonic', 'worm', 'parallel', 'internal'):
         m = values['module']
         z = values.get('teeth', values.get('sun', 24))
@@ -609,6 +612,7 @@ def generate(family, supplied=None):
         d.metrics = [f'Pitch diameter: {m * z / cos(radians(beta)):.3f} mm', f'Teeth: {z} · normal module: {m:g} mm', f'Total twist: {p.twist:.2f}°']
         from engineering import gear_dimensions, force_components, gear_warnings
         g = gear_dimensions(z, m, pa, beta, v['profile_shift'], v['addendum'], v['dedendum'], backlash=b)
+        g['tooth_thickness'] = p.profile_metadata['tooth_profile']['tooth_thickness']
         d.analysis['gear'] = g
         d.analysis['forces'] = force_components(v['input_torque'], 2 * g['pitch_radius'], g['alpha_t'], beta)
         d.metrics.append(f"Tip Ø {2 * g['tip_radius']:.3f} · Root Ø {2 * g['root_radius']:.3f} mm · αt {g['alpha_t']:.3f}°")

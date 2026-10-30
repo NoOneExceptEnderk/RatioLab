@@ -8,7 +8,8 @@ No ISO/AGMA strength verification or elastic load-distribution analysis.
 from math import pi, sin, cos, tan, atan, acos, sqrt, radians, degrees
 LOAD_FIELDS = [('input_rpm', 'Input speed [rpm]', 1500, 0, 100000, 50), ('input_torque', 'Input torque [N·m]', 1, 0, 10000, 0.1), ('efficiency', 'Assumed overall efficiency [%]', 90, 1, 100, 1)]
 
-def gear_dimensions(z, m, pressure=20, beta=0, x=0, ha=1, hf=1.25, backlash=0.15):
+def gear_dimensions(z, m, pressure=20, beta=0, x=0, ha=1, hf=1.25, backlash=0.15, internal=False):
+    """Cylindrical dimensions; ``normal_thickness`` remains nominal for compatibility."""
     b = radians(beta)
     an = radians(pressure)
     mt = m / cos(b)
@@ -17,7 +18,13 @@ def gear_dimensions(z, m, pressure=20, beta=0, x=0, ha=1, hf=1.25, backlash=0.15
     from tooth_profiles import rack_parameters
     tool=rack_parameters(z,mt,degrees(at),backlash=backlash,depth=m,shift=x,normal_pressure=pressure,hf=hf)
     rack_minimum=(hf*m-tool['tip_radius']*(1-sin(an))-r*sin(at)**2)/m
-    return dict(rack_minimum_shift=rack_minimum, teeth=z, mn=m, mt=mt, alpha_n=pressure, alpha_t=degrees(at), beta=beta, x=x, pitch_radius=r, base_radius=r * cos(at), tip_radius=r + m * (ha + x), root_radius=r - m * (hf - x), virtual_teeth=z / cos(b) ** 3, minimum_shift=ha - z / cos(b) ** 3 * sin(an) ** 2 / 2, normal_thickness=m * (pi / 2 + 2 * x * tan(an)))
+    nominal = m * (pi / 2 + 2 * x * tan(an))
+    return dict(rack_minimum_shift=rack_minimum, teeth=z, mn=m, mt=mt, alpha_n=pressure, alpha_t=degrees(at), beta=beta, x=x, pitch_radius=r, base_radius=r * cos(at), tip_radius=r-m*ha if internal else r+m*(ha+x), root_radius=r+m*hf if internal else r-m*(hf-x), internal=internal, virtual_teeth=z / cos(b) ** 3, minimum_shift=ha - z / cos(b) ** 3 * sin(an) ** 2 / 2, normal_thickness=nominal,
+                nominal_reference_normal_thickness_mm=nominal,
+                reference_normal_thickness_with_allowance_mm=nominal-backlash*cos(b)/2,
+                nominal_reference_transverse_thickness_mm=nominal/cos(b),
+                reference_transverse_thickness_with_allowance_mm=nominal/cos(b)-backlash/2,
+                reference_thickness_basis='theoretical reference arcs; useful generated involute must be checked separately')
 
 
 def gear_warnings(gear):
@@ -42,9 +49,7 @@ def geometry_warnings(design):
 def mesh(z1, z2, m, pressure=20, beta=0, width=10, x=0, center_extra=0, internal=False, gap=0, strict=True, backlash=0):
     """Balance x1=x, x2=-x for external pairs only; use explicit working distance."""
     a1 = gear_dimensions(z1, m, pressure, beta, x, backlash=backlash)
-    a2 = gear_dimensions(z2, m, pressure, beta, 0 if internal else -x, backlash=backlash)
-    if internal:
-        a2.update(tip_radius=a2['pitch_radius'] - m, root_radius=a2['pitch_radius'] + 1.25 * m, internal=True)
+    a2 = gear_dimensions(z2, m, pressure, beta, 0 if internal else -x, backlash=backlash, internal=internal)
     r1 = a1['pitch_radius']
     r2 = a2['pitch_radius']
     at = radians(a1['alpha_t'])
@@ -88,12 +93,19 @@ def mesh(z1, z2, m, pressure=20, beta=0, width=10, x=0, center_extra=0, internal
         if g['x'] + 1e-09 < g['rack_minimum_shift']:
             warnings.append(f'Wheel {k}: rounded-rack undercut; actual envelope and trimming are recorded per part.')
     from tooth_profiles import external_half, internal_half
+    from gear_measurement import wildhaber_span, default_gauge
     endpoints=lambda fn,a,b:[fn(a),fn(b)]
     def usable(g,ring=False):
         if ring:
             _,info=internal_half(g['teeth'],g['mt'],g['alpha_t'],backlash,m,1,1.25,endpoints)
+            g['tooth_thickness'] = info['tooth_thickness']
+            g['wildhaber_span'] = wildhaber_span(info['measurement_geometry'])
+            g['over_gauges'] = default_gauge(info['measurement_geometry'])
             return sqrt(max(0,info['involute_end_radius_mm']**2-g['base_radius']**2))
         _,info=external_half(g['teeth'],g['mt'],g['alpha_t'],backlash,m,g['x'],pressure,1,1.25,endpoints)
+        g['tooth_thickness'] = info['tooth_thickness']
+        g['wildhaber_span'] = wildhaber_span(info['measurement_geometry'])
+        g['over_gauges'] = default_gauge(info['measurement_geometry'])
         return sqrt(max(0,info['involute_start_radius_mm']**2-g['base_radius']**2))
     lower1=usable(a1);bound2=usable(a2,internal);span=a*sin(aw)
     lower=max(lower1,g2-span if internal else span-g2)
@@ -112,6 +124,30 @@ def force_components(torque, diameter, pressure, beta=0):
 def attach_report(d):
     v = d.values
     r = d.analysis
+    if d.family in ('spur', 'helical', 'double', 'parallel', 'internal', 'planetary'):
+        from gear_measurement import wildhaber_span, default_gauge
+        for part in d.parts:
+            profile = part.profile_metadata.get('tooth_profile', {})
+            thickness = profile.get('tooth_thickness')
+            if thickness is None:
+                continue
+            span = wildhaber_span(profile['measurement_geometry'])
+            profile['wildhaber_span'] = span
+            gauges = default_gauge(profile['measurement_geometry'])
+            profile['over_gauges'] = gauges
+            if 'gear' in r:
+                r['gear']['wildhaber_span'] = span
+                r['gear']['over_gauges'] = gauges
+            if span['status'] == 'ok':
+                chosen = next(q for q in span['usable_spans'] if q['k'] == span['recommended_k'])
+                d.metrics.append(f"{part.name}: Wildhaber W{chosen['k']} {chosen['span_mm']:.4f} mm recommended · contact R {chosen['contact_radius_mm']:.4f} mm · {len(span['usable_spans'])} usable k in calculation report")
+            else:
+                d.metrics.append(f"{part.name}: Wildhaber span unavailable · {span['reason']}")
+            ref, tip = thickness['reference'], thickness['tip']
+            actual = ref['generated_transverse_arc_mm']
+            reference = f"{actual:.4f} mm generated" if actual is not None else 'outside usable involute'
+            d.metrics.append(f"{part.name}: reference tooth arc {ref['nominal_transverse_arc_mm']:.4f} mm nominal / {reference} (transverse)")
+            d.metrics.append(f"{part.name}: tip chord {tip['generated_transverse_chord_mm']:.4f} mm transverse · chord/mn {thickness['tip_chord_over_normal_module']:.4f} (geometry only)")
     if d.family == 'differential':
         if v.get('configuration','wrist')=='classic':
             r['input']=dict(carrier_rpm=v['input_rpm'],prescribed_side_difference_rpm=v['output_difference_rpm'],
@@ -176,6 +212,31 @@ def report_text(d):
             lines.append(f"  Rack normal tip radius {tool['tip_radius']:.6f} mm · shift {tool['shift']:g} · undercut trimmed {p['undercut_trimmed']} · usable involute starts at R {p['involute_start_radius_mm']:.6f} mm.")
         elif 'blend_radius_mm' in p:
             lines.append(f"  Internal blend radius {p['blend_radius_mm']:.6f} mm (nominal {p['nominal_blend_radius_mm']:.6f}; adapted {p['blend_radius_adapted']}); not cutter generated.")
+        if d.family in ('spur', 'helical', 'double', 'parallel', 'internal', 'planetary') and 'tooth_thickness' in p:
+            thickness = p['tooth_thickness']
+            lines.append(f"  Tooth thickness ({'internal' if thickness['internal'] else 'external'}): total transverse pair backlash {thickness['pair_backlash_transverse_mm']:.6f} mm; per-gear reference reduction {thickness['per_gear_reference_reduction_transverse_mm']:.6f} mm.")
+            for label in ('reference', 'tip'):
+                q = thickness[label]
+                lines.append(f"  {label.capitalize()} R {q['radius_mm']:.6f} mm: nominal transverse arc {q['nominal_transverse_arc_mm']:.6f} mm; nominal normal arc {q['nominal_normal_arc_mm']:.6f} mm.")
+                if q['on_usable_involute']:
+                    lines.append(f"    Generated transverse arc {q['generated_transverse_arc_mm']:.6f} mm; generated normal arc {q['generated_normal_arc_mm']:.6f} mm; transverse chord {q['generated_transverse_chord_mm']:.6f} mm.")
+                else:
+                    lines.append('    Generated thickness unavailable: circle lies outside the usable involute after root trimming/blending.')
+            lines.append(f"  Tip transverse chord / normal module: {thickness['tip_chord_over_normal_module']:.6f}; geometric thin-tip quantity only, no minimum safe thickness or structural capacity calculated.")
+            lines.append('  Thickness basis: '+thickness['basis']+'.')
+        if 'wildhaber_span' in p:
+            span = p['wildhaber_span']
+            lines.append('  Wildhaber span: '+span['scope']+'.')
+            if span['status'] == 'ok':
+                lines.append(f"    Recommended k={span['recommended_k']}: {span['recommendation_basis']}; choose any usable k below.")
+                for q in span['usable_spans']:
+                    lines.append(f"    k={q['k']}: W_k {q['span_mm']:.6f} mm; both contacts R {q['contact_radius_mm']:.6f} mm (diameter {q['contact_diameter_mm']:.6f} mm); root/tip involute margins {q['root_margin_mm']:.6f}/{q['tip_margin_mm']:.6f} mm.")
+            else:
+                lines.append('    Unavailable: '+span['reason'])
+            lines.append('    '+span['basis']+'.')
+        if 'over_gauges' in p:
+            from gear_measurement import gauge_report_lines
+            lines.extend('  '+line for line in gauge_report_lines(p['over_gauges']))
         lines.append('  Domain: '+p['domain'])
     if 'wave_mapping' in r:
         q=r['wave_mapping']

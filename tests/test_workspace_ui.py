@@ -113,9 +113,10 @@ class WorkspaceTests(unittest.TestCase):
             def __init__(self,t):self.t=t
             def get_frame_time(self):return self.t
         a.canvas.reset_motion()
-        a.canvas.set_motion_playing(True)
-        a.canvas.on_motion_tick(a.canvas,Clock(0))
-        a.canvas.on_motion_tick(a.canvas,Clock(1000000))
+        with patch('preview3d.GLib.get_monotonic_time',return_value=10000000):
+            a.canvas.set_motion_playing(True)
+            a.canvas.on_motion_tick(a.canvas,Clock(10000000))
+            a.canvas.on_motion_tick(a.canvas,Clock(11000000))
         a.canvas.set_motion_playing(False)
         self.assertAlmostEqual(a.canvas.motion_phase,12*2*pi/60)
         # Either speed can change without jumping back to the initial pose.
@@ -262,8 +263,10 @@ class WorkspaceTests(unittest.TestCase):
         class Clock:
             def __init__(self,t):self.t=t
             def get_frame_time(self):return self.t
-        a.canvas.reset_motion();a.canvas.set_motion_playing(True)
-        a.canvas.on_motion_tick(a.canvas,Clock(0));a.canvas.on_motion_tick(a.canvas,Clock(1000000))
+        a.canvas.reset_motion()
+        with patch('preview3d.GLib.get_monotonic_time',return_value=10000000):
+            a.canvas.set_motion_playing(True)
+            a.canvas.on_motion_tick(a.canvas,Clock(10000000));a.canvas.on_motion_tick(a.canvas,Clock(11000000))
         a.canvas.set_motion_playing(False)
         self.assertAlmostEqual(a.canvas.motion_phase,12*2*pi/60)
         carrier=next(i for i,p in enumerate(a.design.parts) if p.name=='Pin_spider')
@@ -277,8 +280,10 @@ class WorkspaceTests(unittest.TestCase):
             for x,y in zip(old,a.canvas.motion_plan.matrix(i,phase)):self.assertAlmostEqual(x,y,places=10)
         saved=a.config();a.load_config_data(saved);self.assertEqual(a.config(),saved)
         a.rebuild_options(dict(input_rpm=0,output_difference_rpm=0,input_b_rpm=99))
-        a.canvas.reset_motion();a.canvas.set_motion_playing(True)
-        a.canvas.on_motion_tick(a.canvas,Clock(0));a.canvas.on_motion_tick(a.canvas,Clock(1000000))
+        a.canvas.reset_motion()
+        with patch('preview3d.GLib.get_monotonic_time',return_value=20000000):
+            a.canvas.set_motion_playing(True)
+            a.canvas.on_motion_tick(a.canvas,Clock(20000000));a.canvas.on_motion_tick(a.canvas,Clock(21000000))
         a.canvas.set_motion_playing(False)
         self.assertEqual(a.canvas.motion_phase,0,'The inactive legacy B speed must not drive classic playback')
         a.differential_selectors['configuration'].set_selected(list(CONFIGURATIONS).index('wrist'))
@@ -316,25 +321,51 @@ class WorkspaceTests(unittest.TestCase):
         self.assertTrue(a.refresh())
 
     def test_precise_speed_and_speed_errors_share_validation(self):
+        from math import pi
         a = self.app
         a.motion_speed_text.set_text('125,375')
         a.motion_speed_text.emit('activate')
         self.assertEqual(a.config()['parameters']['input_rpm'],125.375)
-        a.canvas.set_motion_playing(True)
-        a.canvas.motion_phase=1.4
-        a.motion_speed_text.set_text('72.125')
-        a.motion_speed_text.emit('activate')
-        self.assertTrue(a.canvas.motion_playing)
-        self.assertEqual(a.canvas.motion_phase,1.4)
-        a.motion_speed_text.set_text('nan')
-        a.motion_speed_text.emit('activate')
-        self.assertTrue(a.motion_rate_error.get_visible())
-        self.assertFalse(a.export_menu.get_sensitive())
-        self.assertFalse(a.canvas.motion_playing)
-        self.assertEqual(a.error_field,'input_rpm')
-        a.motion_speed_text.set_text('1500')
-        a.motion_speed_text.emit('activate')
-        self.assertTrue(a.export_menu.get_sensitive())
+        with patch('preview3d.GLib.get_monotonic_time',return_value=10000000) as clock:
+            a.canvas.set_motion_playing(True)
+            a.canvas.motion_phase=1.4
+            previous=a.canvas.motion_plan
+            clock.return_value=10250000
+            a.motion_speed_text.set_text('72.125')
+            a.motion_speed_text.emit('activate')
+            self.assertTrue(a.canvas.motion_playing)
+            phase=1.4+.25*125.375*2*pi/60
+            self.assertAlmostEqual(a.canvas.motion_phase,phase)
+            for i in range(len(a.design.parts)):
+                for x,y in zip(previous.matrix(i,phase),a.canvas.motion_plan.matrix(i,phase)):
+                    self.assertAlmostEqual(x,y,places=10)
+            a.motion_speed_text.set_text('nan')
+            a.motion_speed_text.emit('activate')
+            self.assertTrue(a.motion_rate_error.get_visible())
+            self.assertFalse(a.export_menu.get_sensitive())
+            self.assertFalse(a.send_btn.get_sensitive())
+            self.assertFalse(a.fusion_send_btn.get_sensitive())
+            self.assertTrue(a.canvas.motion_playing)
+            self.assertEqual(a.motion_rpm,72.125)
+            self.assertEqual(a.design.values['input_rpm'],72.125)
+            self.assertEqual(a.error_field,'input_rpm')
+            self.assertFalse(a.refresh())
+            self.assertTrue(a.canvas.motion_playing)
+            with self.assertRaises(ValueError):a.config()
+            invalid_path=Path(self.folder.name)/'invalid-rpm.json'
+            a.save_project(path=invalid_path)
+            self.assertFalse(invalid_path.exists())
+            with patch.object(a,'background') as worker:
+                a.export_step();a.send();a.send_fusion()
+            self.assertFalse(worker.called)
+            self.assertTrue(a.canvas.motion_playing)
+            self.assertEqual(a.error_field,'input_rpm')
+            a.motion_speed_text.set_text('1500')
+            a.motion_speed_text.emit('activate')
+            self.assertTrue(a.export_menu.get_sensitive())
+            self.assertTrue(a.send_btn.get_sensitive())
+            self.assertTrue(a.fusion_send_btn.get_sensitive())
+            self.assertTrue(a.canvas.motion_playing)
 
     def test_linked_dimensions_explain_source_without_changing_page(self):
         a = self.app

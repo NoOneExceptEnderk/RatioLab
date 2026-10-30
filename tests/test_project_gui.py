@@ -190,6 +190,27 @@ class ProjectGuiTests(unittest.TestCase):
         self.assertEqual(a.document.path,self.path)
         self.assertIn(str(self.path),a.document_label.get_text())
 
+    def test_focused_numeric_edit_settles_before_repeated_new_cancel_and_save(self):
+        a=self.app
+        for number in (2.25,2.5,2.75):
+            with self.subTest(module=number):
+                a.load_config_data(dict(format='solidcraft-riduttori/1',family='helical',
+                                        parameters=generate('helical').values),self.path)
+                a.win.present();a.inputs['module'].grab_focus();pump(.03)
+                a.inputs['module'].set_text(str(number))
+                identity=a.document.identity
+                a.new_project();self.answer(Gtk.ResponseType.CANCEL)
+                self.assertEqual(a.document.identity,identity)
+                self.assertEqual(a.inputs['module'].get_value(),number)
+                a.new_project();self.answer(Gtk.ResponseType.ACCEPT)
+                self.assertTrue(self.path.is_file(),
+                    f'Save did not create {self.path}; status={a.status.get_text()!r}; '
+                    f'token={a.document.token!r}; path={a.document.path!r}; '
+                    f'dialog={a.project_dialog!r}')
+                self.assertEqual(json.loads(self.path.read_text())['parameters']['module'],number)
+                self.assertEqual(a.family,'parallel')
+                self.assertFalse(a.document.dirty)
+
     def test_failed_save_during_replacement_keeps_document_and_old_file(self):
         a=self.app;a.save_project();before=self.path.read_bytes()
         a.inputs['module'].set_text('2.25');identity=a.document.identity
@@ -258,6 +279,108 @@ class ProjectGuiTests(unittest.TestCase):
         a.undo_project()
         self.assertEqual(a.config()['parameters']['module'],module)
         self.assertFalse(a.document.dirty)
+
+    def test_automatic_decimal_limit_preserves_exact_values_history_and_save(self):
+        a=self.app
+        values=generate('helical',dict(module=1.23456789123,input_rpm=1234.123456789123,
+                                      input_torque=1.234567891234e-20)).values
+        a.load_config_data(dict(format='solidcraft-riduttori/1',family='helical',parameters=values),self.path)
+        self.assertEqual(a.inputs['module'].get_text(),'1.234568')
+        self.assertEqual(a.inputs['module'].get_value(),values['module'])
+        self.assertEqual(a.motion_speed_text.get_text(),'1234.123457')
+        self.assertEqual(a.inputs['input_torque'].get_text(),'1.234568e-20')
+        for _ in range(2):
+            a.inputs['module'].update()
+            a.inputs['module'].emit('activate')
+            self.assertEqual(a.inputs['module'].get_value(),values['module'])
+            a.inputs['input_torque'].update()
+            a.refresh();a.project_changed();a.make_fields()
+            self.assertEqual(a.config()['parameters'],values)
+            self.assertEqual(a.inputs['module'].get_text(),'1.234568')
+            self.assertEqual(a.motion_speed_text.get_text(),'1234.123457')
+            self.assertFalse(a.document.dirty)
+            self.assertEqual(len(a.document.states),1)
+        a.save_project()
+        self.assertEqual(json.loads(self.path.read_text())['parameters'],values)
+        a.load_config_data(json.loads(self.path.read_text()),self.path)
+        self.assertEqual(a.config()['parameters'],values)
+        self.assertEqual(a.inputs['module'].get_text(),'1.234568')
+        self.assertFalse(a.document.dirty)
+        a.inputs['module'].spin(Gtk.SpinType.STEP_FORWARD,.1)
+        expected=values['module']+.1
+        self.assertEqual(a.inputs['module'].get_value(),expected)
+        self.assertEqual(a.config()['parameters']['module'],expected)
+        self.assertEqual(a.inputs['module'].get_text(),'1.334568')
+        self.assertTrue(a.document.dirty)
+        a.undo_project()
+        self.assertEqual(a.config()['parameters'],values)
+        self.assertFalse(a.document.dirty)
+
+    def test_committed_zeros_leave_all_explicit_significant_digits(self):
+        a=self.app
+        for key,typed,compact in (
+                ('module','0002.34000','2.34'),
+                ('module','0002.1234567890123456700','2.12345678901234567'),
+                ('module','0002.34000e+000','2.34'),
+                ('teeth','00030.000','30'),
+                ('input_torque','0000.00000000001000','0.00000000001'),
+                ('input_torque','0001.2345678901234500e-0020','1.23456789012345e-20')):
+            with self.subTest(key=key,typed=typed):
+                widget=a.inputs[key]
+                widget.set_text(typed)
+                self.assertEqual(widget.get_text(),typed)
+                count=len(a.document.states)
+                if key=='teeth':
+                    widget.emit('activate')
+                else:
+                    widget.update()
+                self.assertEqual(widget.get_text(),compact)
+                self.assertEqual(a.config()['parameters'][key],float(typed))
+                self.assertEqual(len(a.document.states),count)
+                a.refresh()
+                self.assertEqual(widget.get_text(),compact)
+        typed='001234.12345678901234567000'
+        a.motion_speed_text.set_text(typed)
+        self.assertEqual(a.motion_speed_text.get_text(),typed)
+        count=len(a.document.states)
+        a.motion_speed_text.emit('activate')
+        self.assertEqual(a.motion_speed_text.get_text(),'1234.12345678901234567')
+        self.assertEqual(a.config()['parameters']['input_rpm'],float(typed))
+        self.assertEqual(len(a.document.states),count)
+        a.refresh();a.make_fields()
+        self.assertEqual(a.motion_speed_text.get_text(),'1234.12345678901234567')
+        a.save_project()
+        self.assertEqual(json.loads(self.path.read_text())['parameters']['input_rpm'],float(typed))
+
+    def test_committing_equivalent_zeros_stays_clean_and_incomplete_input_survives(self):
+        a=self.app
+        a.inputs['module'].set_text('0002.0000')
+        count=len(a.document.states)
+        a.inputs['module'].update()
+        self.assertEqual(a.inputs['module'].get_text(),'2')
+        self.assertFalse(a.document.dirty)
+        self.assertEqual(len(a.document.states),count)
+        for typed in ('-', '.', '2.', '1e', '1e-', 'bad', '999999', 'nan'):
+            with self.subTest(typed=typed):
+                a.inputs['module'].set_text(typed)
+                a.inputs['module'].update()
+                self.assertEqual(a.inputs['module'].get_text(),typed)
+        a.inputs['teeth'].set_text('0030.5000')
+        a.inputs['teeth'].update()
+        self.assertEqual(a.inputs['teeth'].get_text(),'0030.5000')
+
+    def test_focus_leave_compacts_numeric_entry_after_typing(self):
+        a=self.app
+        a.win.present();a.inputs['module'].grab_focus();pump(.04)
+        a.inputs['module'].set_text('0002.50000')
+        self.assertEqual(a.inputs['module'].get_text(),'0002.50000')
+        a.inputs['width'].grab_focus();pump(.06)
+        self.assertEqual(a.inputs['module'].get_text(),'2.5')
+        a.motion_speed_text.grab_focus();pump(.04)
+        a.motion_speed_text.set_text('001234.50000')
+        self.assertEqual(a.motion_speed_text.get_text(),'001234.50000')
+        a.inputs['module'].grab_focus();pump(.06)
+        self.assertEqual(a.motion_speed_text.get_text(),'1234.5')
 
     def test_fractional_integer_is_not_rounded_and_failed_rebuild_rolls_back(self):
         a=self.app

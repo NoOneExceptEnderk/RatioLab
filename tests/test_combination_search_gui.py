@@ -67,6 +67,24 @@ class CombinationSearchGuiTests(unittest.TestCase):
     def changed_proposal(self):
         return next(p for p in self.c.result.proposals if p.changes)
 
+    def test_compact_automatic_ratio_keeps_exact_search_target_and_typed_precision(self):
+        a,c = self.app,self.c
+        a.load_config_data(dict(format='solidcraft-riduttori/1', family='parallel',
+                               parameters=generate('parallel', dict(pinion=21, wheel=64)).values))
+        c.populate()
+        ratio = abs(a.design.analysis['signed_ratio'])
+        self.assertEqual(c.fields['target'].get_text(), '3.047619')
+        self.assertEqual(c.read_settings().target, ratio)
+        c.fields['target'].set_text('0003.123456789000')
+        c.fields['target'].emit('activate')
+        self.assertEqual(c.fields['target'].get_text(), '3.123456789')
+        self.assertEqual(c.read_settings().target, 3.123456789)
+        c.fields['target'].set_text('1e-')
+        c.fields['target'].emit('activate')
+        self.assertEqual(c.fields['target'].get_text(), '1e-')
+        with self.assertRaises(ValueError):
+            c.read_settings()
+
     def test_apply_one_undo_redo_same_document_path_other_families_and_save(self):
         a=self.app;c=self.c
         a.values['spur']=generate('spur',{'teeth':28}).values

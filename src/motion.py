@@ -5,7 +5,104 @@ Phase is the reference angle in radians; the viewer advances it at the input
 operating RPM. Matrices are column-major, with translation in world millimetres.
 """
 from dataclasses import dataclass, field
-from math import sin, cos, sqrt, pi, atan2, remainder
+from math import sin, cos, sqrt, pi, atan2, remainder, isfinite
+from copy import copy, deepcopy
+
+SPEED_KEYS = frozenset(('input_rpm', 'input_b_rpm', 'output_difference_rpm'))
+
+
+def same_geometry(design, family, values):
+    """The supported rotary families have no speed-dependent construction."""
+    return bool(design and design.family == family and
+                {k: v for k, v in design.values.items() if k not in SPEED_KEYS} ==
+                {k: v for k, v in values.items() if k not in SPEED_KEYS})
+
+
+def update_operating_rates(design, values):
+    """Update operating metadata using the existing solvers, sharing surfaces.
+
+    This requires identical validated geometry. Mount construction, tooth reports
+    and nominal forces do not depend on operating speed. Their geometry and
+    analysis records are shared read-only; only operating records are copied.
+    """
+    if not same_geometry(design, design.family, values):
+        raise ValueError('Operating-rate update requires identical geometry.')
+    from geometry import get_specs
+    for key, label, default, low, high, step in get_specs(design.family, values.get('variant'), values.get('double_style')):
+        if key in SPEED_KEYS:
+            value = values.get(key, default)
+            if isinstance(value, bool) or not isfinite(value) or not low <= value <= high:
+                raise ValueError(f'{label}: must be between {low} and {high}')
+    from kinematics import TRIPLES, PAIRS, solve, coefficients
+    d = copy(design)
+    d.values = dict(values)
+    d.analysis = dict(design.analysis)
+    for key in ('input', 'output', 'kinematics', 'interstage_mounting'):
+        if key in d.analysis:d.analysis[key] = deepcopy(d.analysis[key])
+    d.metrics = list(design.metrics)
+    d.parts = [copy(p) for p in design.parts]
+    for p in d.parts:
+        p.port = dict(p.port)
+    f, v, r = d.family, d.values, d.analysis
+    rpm = v['input_rpm']
+    if f == 'differential':
+        from differential_wrist import rates, classic_rates
+        classic = v.get('configuration') == 'classic'
+        speeds = (classic_rates(rpm, v['output_difference_rpm'], v['side_teeth'], v['output_teeth'])
+                  if classic else rates(rpm, v['input_b_rpm'], v['side_teeth'], v['output_teeth']))
+        r['kinematics']['rates_rpm'] = speeds
+        transverse = speeds['spider_spin' if classic else 'output_spin']
+        a, b = (speeds['side_a'], speeds['side_b']) if classic else (rpm, v['input_b_rpm'])
+        if classic:
+            r['kinematics']['prescribed_difference_rpm'] = v['output_difference_rpm']
+            r['input'].update(carrier_rpm=rpm, prescribed_side_difference_rpm=v['output_difference_rpm'])
+            d.metrics[:2] = [f"Carrier input: {speeds['carrier']:+g} rpm · prescribed B−A: {v['output_difference_rpm']:+g} rpm",
+                             f"Side outputs A / B: {a:+g} / {b:+g} rpm · internal spider spin: {transverse:+g} rpm"]
+        else:
+            r['input'].update(input_a_rpm=rpm, input_b_rpm=v['input_b_rpm'])
+            d.metrics[:2] = [f"Inputs A / B: {a:+g} / {b:+g} rpm",
+                             f"Carrier tilt: {speeds['carrier']:+g} rpm · relative output spin: {transverse:+g} rpm"]
+        for p in d.parts:
+            member = p.port.get('member')
+            if 'rpm' in p.port:
+                p.port['rpm'] = a if member == 'A' else b if member == 'B' else speeds['carrier'] if member == 'carrier' else transverse
+            if member in ('output', 'spider'):
+                p.port.update(carrier_rpm=speeds['carrier'], relative_spin_rpm=transverse)
+        return d
+    if f in TRIPLES:
+        stages = r['kinematics']['stage_results']
+        speed = rpm
+        for stage, old in enumerate(stages, 1):
+            q = solve(coefficients(f, v, stage), v['io_scheme2' if stage == 2 else 'io_scheme'], speed)
+            old.update(q)
+            speed = q['rates_rpm'][q['output']]
+        for p in d.parts:
+            port = p.port
+            if not port:
+                continue
+            q = stages[port.get('stage', 1)-1]
+            member = port.get('member')
+            if member == 'disc':
+                port.update(rpm=q['rates_rpm']['output'], orbital_rpm=q['rates_rpm']['eccentric'])
+            elif member in q['rates_rpm']:
+                port['rpm'] = q['rates_rpm'][member]
+        if 'interstage_mounting' in r:
+            q = stages[0]
+            r['interstage_mounting']['rpm'] = q['rates_rpm'][q['output']]
+    elif f in PAIRS:
+        ratio = r['signed_ratio']
+        a = rpm if v['io_scheme'] == 'forward' else rpm/ratio
+        b = rpm/ratio if v['io_scheme'] == 'forward' else rpm
+        for p in d.parts:
+            if 'rpm' in p.port:
+                p.port['rpm'] = a if p.port['member'] == 'A' else b
+    r['input'].update(rpm=rpm, power_W=v['input_torque']*rpm*2*pi/60)
+    if 'output' in r:
+        out = r['output']
+        out.update(rpm=rpm/r['signed_ratio'], power_W=r['input']['power_W']*r['assumed_efficiency'])
+        nominal = f"Nominal output {out['rpm']:.2f} rpm · estimated torque {out['torque_magnitude_Nm']:.3f} N·m (assumed η {r['assumed_efficiency']*100:g}%)"
+        d.metrics = [nominal if line.startswith('Nominal output ') else line for line in d.metrics]
+    return d
 IDENTITY = (1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0)
 
 def wrapped_angle(angle):
@@ -70,6 +167,8 @@ class MotionPlan:
     # to its carrier. Offsets retain physical pose when either speed changes.
     angular_rates: dict = field(default_factory=dict)
     angular_offsets: dict = field(default_factory=dict)
+    coordinate_rates: dict = field(default_factory=dict)
+    coordinate_offsets: dict = field(default_factory=dict)
     # Full labelled orientation period; geometric tooth symmetry is not assumed.
 
     def matrix(self, index, phase):
@@ -82,9 +181,9 @@ class MotionPlan:
         return self.flex[index](phase) if index in self.flex else None
 
 def build_plan(d, previous=None, phase=0):
-    """Build nominal motion, retaining differential angles for a speed-only rebuild.
+    """Build nominal motion, retaining every angle for a speed-only rebuild.
 
-    Callers may pass a previous differential plan only when geometry is identical.
+    Callers may pass a previous plan only when geometry is identical.
     The phase is its current display phase, not an elapsed time in seconds.
     """
     plan = MotionPlan()
@@ -99,11 +198,30 @@ def build_plan(d, previous=None, phase=0):
     if primary == secondary == 0:
         plan.message = 'Operating speed is 0 rpm: the model stays stationary.'
 
+    def angle(key, rate):
+        plan.coordinate_rates[key] = rate
+        offset = 0.0
+        if previous is not None and key in previous.coordinate_rates:
+            offset = previous.coordinate_offsets[key] + phase*(previous.coordinate_rates[key]-rate)
+        plan.coordinate_offsets[key] = offset
+        return lambda phase: rate*phase+offset
+
     def spin(index, rpm, pivot=None, axis=None):
         p = parts[index]
         o, a = part_axis(p)
-        plan.poses[index] = rigid(rpm / ref, pivot or o, axis or a)
+        value = angle((index, 'spin'), rpm/ref)
+        plan.poses[index] = lambda phase: rotation(value(phase), axis or a, pivot or o)
         plan.rates[index] = (rpm / ref,)
+
+    def orbit(index, spin, orbit, center):
+        turning = angle((index, 'spin'), spin)
+        circling = angle((index, 'orbit'), orbit)
+        x, y = center
+        def pose(phase):
+            a = circling(phase)
+            return multiply(translation(x*cos(a)-y*sin(a)-x, x*sin(a)+y*cos(a)-y),
+                            rotation(turning(phase), pivot=(x, y, 0)))
+        plan.poses[index] = pose
     for i, p in enumerate(parts):
         if 'rpm' in p.port:
             global_axis = f in ('planetary', 'cycloidal', 'harmonic')
@@ -125,7 +243,7 @@ def build_plan(d, previous=None, phase=0):
                 zs = v['sun2' if stage == 2 else 'sun']
                 zp = v['planet2' if stage == 2 else 'planet']
                 wp = wc - zs / zp * (ws - wc)
-                plan.poses[i] = orbital(wp / ref, wc / ref, p.center)
+                orbit(i, wp/ref, wc/ref, p.center)
                 plan.rates[i] = (wp / ref, wc / ref)
             elif 'shaft_input' in name:
                 spin(i, stages[0]['rates_rpm']['sun'])
@@ -137,10 +255,10 @@ def build_plan(d, previous=None, phase=0):
         wo = rates['output']
         for i, p in enumerate(parts):
             if p.name.startswith('Disc_cycloidal'):
-                plan.poses[i] = orbital(wo / ref, we / ref, p.center)
+                orbit(i, wo/ref, we/ref, p.center)
                 plan.rates[i] = (wo / ref, we / ref)
             elif p.name.startswith('Bearing_eccentric'):
-                plan.poses[i] = orbital(0, we / ref, p.center)
+                orbit(i, 0, we/ref, p.center)
                 plan.rates[i] = (we / ref,)
     elif f == 'harmonic':
         rates = d.analysis['kinematics']['stage_results'][0]['rates_rpm']
@@ -154,7 +272,9 @@ def build_plan(d, previous=None, phase=0):
             if p.name.startswith('Flexspline'):
                 plan.poses.pop(i, None)
                 plan.rates[i] = (wf, we)
-                plan.flex[i] = lambda phase, we=we, wf=wf: (wf * phase, we * phase, a, b, rp, length, t)
+                material = angle((i, 'spin'), wf)
+                wave = angle((i, 'wave'), we)
+                plan.flex[i] = lambda phase, material=material, wave=wave: (material(phase), wave(phase), a, b, rp, length, t)
             elif p.name == 'Bearing_wave_envelope':
                 spin(i, rates['wave'])
         plan.message = 'Prescribed strain-wave deformation and rotation of the three members. This is not an elastic analysis.'

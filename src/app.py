@@ -27,6 +27,7 @@ import profile_export
 import package_export
 import io_controls
 import motion_controls
+from motion import SPEED_KEYS, same_geometry, update_operating_rates
 import gui_workflow
 import result_controls
 import workspace_ui
@@ -54,6 +55,8 @@ class ReducerApp(ProjectActions, Gtk.Application):
         self.update_playback_bar()
         self.init_projects()
         if self.design:self.components.refreshed(self.design)
+        if self.design:self.gear_measurement.refreshed(self.design)
+        if self.design:self.backlash.refreshed(self.design)
         self.win.present()
         self.updates.start()
         GLib.timeout_add(500, self.check_graphics)
@@ -115,23 +118,37 @@ class ReducerApp(ProjectActions, Gtk.Application):
         result=dict(self.values.get(self.family,{}))
         result.update(getattr(self,"option_values",{}))
         for key,spin in self.inputs.items():
-            try:result[key]=float(spin.get_text().strip().replace(',','.'))
+            try:result[key]=gui_workflow.numeric_value(spin)
             except ValueError:
                 self.error_field=key;spin.add_css_class('field-error');raise ValueError('Complete the numeric value: '+self.input_labels[key])
             else:spin.remove_css_class('field-error')
         if hasattr(self,'motion_rpm'):
             from math import isfinite
             try:
-                rpm=float(self.motion_speed_text.get_text().strip().replace(',','.'))
+                rpm=(self.motion_rpm if self.motion_rate_editing else
+                     gui_workflow.numeric_value(self.motion_speed_text))
                 low,high=self.motion_rate_limits
                 if not isfinite(rpm) or not low<=rpm<=high:raise ValueError()
             except ValueError:
                 self.error_field='input_rpm';raise ValueError('Complete a valid input speed.')
             result['input_rpm']=rpm
-            self.motion_input_invalid=False
+            if not self.motion_rate_editing:self.motion_input_invalid=False
+            if self.motion_input_invalid:self.error_field='input_rpm'
             self.motion_rpm=rpm
         if self.family in VARIANTS:result['variant']=list(VARIANTS[self.family])[self.variant_selector.get_selected()]
         return result
+    def collect_fields(self):
+        values=super().collect_fields()
+        # Recovery/history retain the draft text separately from the speed
+        # currently driving the model, including a complete unconfirmed number.
+        if hasattr(self,'motion_rpm') and self.motion_rate_editing:
+            values['input_rpm']=self.motion_rpm
+        return values
+    def restore_raw_fields(self):
+        committed=getattr(self,'motion_rpm',None)
+        super().restore_raw_fields()
+        if committed is not None and self.motion_rate_editing:
+            self.motion_rpm=committed
     def change_variant(self,*args):
         if self.building:return
         self.remember();self.make_fields()
@@ -146,6 +163,11 @@ class ReducerApp(ProjectActions, Gtk.Application):
         self.values[self.family].update(changes)
         for key in changes:self.raw_edits.get(self.family,{}).pop(key,None)
         self.make_fields()
+    def project_changed(self,group=None):
+        if not hasattr(self,'document') or not self.project_alive or self.project_restoring or self.building:
+            return
+        if io_controls.reject_forbidden_edit(self):return
+        return super().project_changed(group)
     def change_family(self,*args):
         if self.building:return
         self.remember();self.family=list(FAMILIES)[self.selector.get_selected()];self.make_fields()
@@ -290,8 +312,10 @@ class ReducerApp(ProjectActions, Gtk.Application):
         # Option rebuilds record after normalization; bind to the resulting
         # revision only when this very rebuild generated valid geometry.
         if generated and hasattr(self,'components'):self.components.refreshed(self.design)
+        if generated and hasattr(self,'gear_measurement'):self.gear_measurement.refreshed(self.design)
+        if generated and hasattr(self,'backlash'):self.backlash.refreshed(self.design)
     def changed(self,*args):
-        if self.building:
+        if self.building or getattr(self,'_settling_motion_inputs',False) or args and getattr(args[0], '_numeric_setting', False):
             return
         if args and ',' in args[0].get_text():
             widget = args[0]
@@ -300,6 +324,17 @@ class ReducerApp(ProjectActions, Gtk.Application):
             widget.set_position(position)
             return
         key=next((key for key,w in self.inputs.items() if args and w is args[0]),'input_rpm')
+        if io_controls.reject_forbidden_edit(self,key):return
+        if io_controls.defer_empty_physical_text(self,key):return
+        if key in SPEED_KEYS and self.design is not None:
+            try:
+                values=self.read_values()
+                if same_geometry(self.design,self.family,values):
+                    self.project_changed((self.family,key))
+                    self.refresh()
+                    return
+            except ValueError:
+                pass
         self.project_changed((self.family,key))
         self.send_btn.set_sensitive(False)
         self.fusion_send_btn.set_sensitive(False)
@@ -319,15 +354,68 @@ class ReducerApp(ProjectActions, Gtk.Application):
         self.refresh()
         return False
 
+    def settle_project(self):
+        # Saving or starting an operation explicitly confirms the focused RPM
+        # entry, just as Enter/focus loss does. Ordinary refreshes keep its draft.
+        if hasattr(self,'end_motion_rate_drag'):self.end_motion_rate_drag()
+        if hasattr(self,'commit_motion_rate'):self.commit_motion_rate()
+        # SpinButton.update emits transient changes even for unchanged values.
+        # The parent records and validates the complete batch after all updates.
+        self._settling_motion_inputs=True
+        try:return super().settle_project()
+        finally:self._settling_motion_inputs=False
+
+    def config(self):
+        # A requested export/save is a confirmation; a repaint is not. Invalid
+        # drafts stay visible and recoverable without stopping the last motion.
+        if hasattr(self,'end_motion_rate_drag'):self.end_motion_rate_drag()
+        if hasattr(self,'commit_motion_rate'):self.commit_motion_rate()
+        if getattr(self,'motion_input_invalid',False):
+            raise ValueError('Complete a valid input speed.')
+        return super().config()
+
+    def apply_motion_rate(self,group=None,now=None):
+        """Record live speed revisions immediately; checkpoint after the burst."""
+        if self.building:return
+        if io_controls.reject_forbidden_edit(self):return
+        if hasattr(self,'document') and self.project_alive and not self.project_restoring:
+            snapshot=self.project_snapshot()
+            for name in ('interference','combination_search','components','gear_measurement','backlash'):
+                controller=getattr(self,name,None)
+                if controller:controller.changed(snapshot)
+            # Keep a physical drag in one undo step even if it pauses or crosses
+            # the saved RPM. A revision from another action ends this grouping.
+            transaction=(group,self.document.token)
+            continued=now is not None and getattr(self,'_motion_rate_transaction',None)==transaction
+            changed=(self.document.reconcile(snapshot) if continued else
+                     self.document.record(snapshot,group,now=now))
+            if changed:
+                if now is not None:self._motion_rate_transaction=(group,self.document.token)
+                self.undo_reset.set_visible(False)
+                self.undo_button.set_sensitive(self.document.index>0 and not self.busy)
+                self.redo_button.set_sensitive(False)
+                self.win.set_title(f'{"• " if self.document.dirty else ""}{self.document.path.name if self.document.path else "Untitled"} — RatioLab')
+                if getattr(self,'motion_document_pending',0):GLib.source_remove(self.motion_document_pending)
+                self.motion_document_pending=GLib.timeout_add(250,self.flush_motion_document)
+        self.refresh()
+
+    def flush_motion_document(self):
+        if getattr(self,'motion_document_pending',0):
+            GLib.source_remove(self.motion_document_pending);self.motion_document_pending=0
+        if getattr(self,'project_alive',False):self.update_document()
+        return False
+
     def refresh(self):
         if self.pending:
             GLib.source_remove(self.pending)
             self.pending = 0
+        if io_controls.reject_forbidden_edit(self):return False
         reconcile_token=self.project_reconcile_token()
         try:
             values = self.read_values()
-            design = generate(self.family, values)
-            self.canvas.set_design(design)
+            rate_only = same_geometry(self.design,self.family,values)
+            design = update_operating_rates(self.design,values) if rate_only else generate(self.family, values)
+            self.canvas.set_design(design,reuse_scene=rate_only)
             self.design = design
             if getattr(self,'hardware_warning_labels',None):
                 from pair_assembly import hardware_warnings
@@ -353,8 +441,7 @@ class ReducerApp(ProjectActions, Gtk.Application):
             self.building = True
             for key, spin in self.inputs.items():
                 if key in design.values and (mode != 'manual' or key in linked):
-                    spin.set_value(design.values[key])
-                    spin.set_text(gui_workflow.roundtrip_text(design.values[key],spin.get_digits()))
+                    gui_workflow.set_numeric_value(spin,design.values[key])
                 spin.set_sensitive(key not in linked)
                 if key in linked:
                     spin.add_css_class('derived')
@@ -393,24 +480,29 @@ class ReducerApp(ProjectActions, Gtk.Application):
             self.parameter_error.set_visible(False)
             for feedback in self.field_feedback.values():feedback.set_visible(False)
             self.error_reveal.set_visible(False)
-            self.export_menu.set_sensitive(not self.busy)
+            operating_valid=not getattr(self,'motion_input_invalid',False)
+            self.export_menu.set_sensitive(not self.busy and operating_valid)
             self.empty.set_visible(False)
             self.empty.remove_css_class('invalid')
-            self.send_btn.set_sensitive(not self.busy)
-            self.fusion_send_btn.set_sensitive(not self.busy)
+            self.send_btn.set_sensitive(not self.busy and operating_valid)
+            self.fusion_send_btn.set_sensitive(not self.busy and operating_valid)
             self.live_label.set_text('✓ Geometry generated')
             self.status.remove_css_class('error')
             if not self.busy:
-                self.status_text('✓ Geometry generated')
+                self.status_text('✓ Geometry generated' if operating_valid else 'Complete a valid input speed.')
             self.reconcile_project(reconcile_token)
             self.interference.refreshed(design)
             self.combination_search.refreshed(design)
             self.components.refreshed(design)
-            return True
+            self.gear_measurement.refreshed(design)
+            self.backlash.refreshed(design)
+            return operating_valid
         except Exception as e:
             self.building = False
             self.design = None
             self.components.invalidate('Invalid configuration · selection cleared')
+            self.gear_measurement.invalidate('Invalid configuration · measurement cleared')
+            self.backlash.invalidate('Invalid configuration · proposal cleared')
             self.interference.invalidate('Invalid configuration · check blocked')
             self.combination_search.invalidate('Invalid configuration · search blocked')
             self.export_menu.set_sensitive(False)

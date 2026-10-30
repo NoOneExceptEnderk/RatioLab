@@ -72,6 +72,12 @@ def solve(a, scheme, rpm):
 def apply(d):
     f = d.family
     v = d.values
+    from backdrivability import enforce
+    assessment = enforce(f, v)
+    if f in ('worm', 'harmonic'):
+        d.analysis['backdrivability'] = assessment
+        if assessment['status'] != 'not_evaluated':
+            d.notes.append(assessment['message'] + ' ' + assessment['limits'])
     opts = options(f)
     if not opts:
         return
@@ -137,8 +143,6 @@ def apply(d):
             if member:
                 driving = (member == 'A') == (scheme == 'forward')
                 p.port = dict(member=member, role='input' if driving else 'output', rpm=a_speed if member == 'A' else b_speed)
-        if f == 'worm' and scheme == 'reverse':
-            d.notes.append('Wheel driven: ideal kinematic relation only; backdrivability depends on helix angle, friction, lubrication and load. The generator does not guarantee the worm can be backdriven.')
     if scheme != default(f):
         from mounting import pairs
         if f in PAIRS and f not in TRIPLES:

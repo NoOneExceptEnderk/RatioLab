@@ -34,6 +34,13 @@ Alternative planetary and cycloidal arrangements require manual dimensions and a
 
 ## Mechanical limits
 
+Worm wheel input is checked against the explicit static tooth friction and
+reference-cylinder geometry. Known static self-locking requests are refused;
+unknown friction remains an explicitly indeterminate ideal relation. Output-driven
+strain-wave arrangements require measured hardware breakaway data before a
+physical conclusion can be drawn. The shared check also applies to configuration
+files and headless operations. See the [criterion and limits](calculations.md#static-worm-backdrivability).
+
 These are **nominal mounts**, not industrial joints already sized for service. The holes are actually present, but do not represent a selection of commercial bolts. Torque transfer between shaft and hub (key, spline, clamping or another method) remains to be defined, together with tolerances, bearings, axial retainers and frame. Contact between two solids does not automatically create a CAD constraint.
 
 Fixed flanges require an external frame; moving housings require suitable supports. Load capacity, fatigue, stiffness and the complete swept envelope are not verified. The geometric check concerns the reference pose.

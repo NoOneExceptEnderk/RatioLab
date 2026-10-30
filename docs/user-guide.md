@@ -18,7 +18,9 @@ Parameters update the preview and calculations automatically. Main geometry, sha
 
 **New**, **Open…**, **Save**, **Save As…**, **Recent…**, **Undo / Redo** and **Export…** stay in the header. The document line shows its full path and any unsaved changes. **CAD integrations** groups SolidCraft and Autodesk Fusion connection, status and creation. The bottom bar provides model status, component count, bill of materials, calculation report and notes. The panel remembers its active tab, advanced section and scroll position when choices rebuild its fields. Linked dimensions explain their source and provide **Change source…** to open the relevant Assembly section.
 
-Invalid input remains visible, with a field message when the generator identifies the cause. Geometry actions are blocked immediately while an update is pending. Invalid geometry or speed stops motion; the last valid model of the same family remains visible with an explicit warning that it does not match the current parameters. No automatic correction replaces an invalid numeric entry on focus loss.
+Invalid input remains visible, with a field message when the generator identifies the cause. Geometry actions are blocked immediately while a geometry update is pending. Invalid geometry stops motion; the last valid model of the same family remains visible with an explicit warning that it does not match the current parameters. An incomplete or unconfirmed RPM entry keeps motion at the last valid speed. Pressing Enter, leaving the speed field or requesting a save/export confirms the entry; failed confirmation shows a field error and blocks geometry exports and CAD transfers until the speed is corrected, while prior motion continues. No automatic correction replaces an invalid numeric entry on focus loss.
+
+Numeric fields omit unnecessary leading and trailing zeros when you press Enter or leave a completed entry. Automatically displayed values use up to six decimal places (scientific notation for very small values), while calculations and saved projects retain their full precision. Explicitly entered decimal places are preserved, apart from redundant zeros; no additional decimal rounding is applied to typed input.
 
 Saved configurations from earlier versions still load their geometry and kinematics. Obsolete material, stress and production settings are ignored and omitted from newly saved configurations and reports. Previously exported files remain independent snapshots.
 
@@ -287,7 +289,26 @@ locked baseline, budgets, coverage and retained proposals.
 
 **Motion → Drive · input and output** selects which member is driven, which delivers motion, and which is fixed. Planetary, cycloidal and strain wave drives offer all six physical member combinations. The planetary two-stage variants have independent connections for each stage.
 
-Parallel shaft, internal gear and worm drives offer forward/reverse operation. Reverse kinematics do not guarantee worm backdrivability. Role colors and nominal mounting interfaces follow the selected arrangement; see [IO-MODELS.md](technical/io-models.md).
+Parallel shaft, internal gear and worm drives offer forward/reverse operation.
+For a worm drive, **Static tooth friction coefficient μ** is optional explicit
+physical data for the actual tooth contact and conditions; no value is inferred.
+**Apply coefficient** validates it before changing the design. With wheel input,
+RatioLab blocks the configuration when static friction reaches or exceeds the
+lead-angle/normal-pressure-angle limit. The refusal explains the coefficient and
+limit and keeps the previous valid design and project. A geometry edit that
+crosses the same limit is refused as well. Motor rotation direction does not select wheel input. The existing per-family
+speed input range still applies.
+
+Below the limit the state is **potentially backdrivable**, without a guarantee of
+real startup. With no coefficient, including older projects, the state is
+**indeterminate** and wheel-driven motion is explicitly an ideal kinematic
+relation. **Clear coefficient · unknown** removes that physical evidence and
+shows this uncertainty; it does not alter the physical assembly. The coefficient
+and assessment are retained in project/calculation metadata. Output-driven
+strain-wave arrangements are also indeterminate without measured breakaway torque
+and operating conditions for that hardware. Commercial catalog data are not
+assigned to generated geometry. These checks do not certify a safety brake or
+load holding. See the [static mesh criterion and limits](technical/calculations.md#static-worm-backdrivability). Role colors and nominal mounting interfaces follow the selected arrangement; see [IO-MODELS.md](technical/io-models.md).
 
 ## Printed cycloidal eccentric shaft
 
@@ -358,6 +379,33 @@ solidcraft-cli run model.script.json --out part.step
 
 For a complete package, run this command from **inside the package directory**. Its STEP references are relative to that directory, so the whole package can be moved together. The CAD script retains the existing native-sketch/faceted-surface path; the standalone `assembly.step` uses the circular-surface improvements described above.
 
+## Theoretical gear metrology
+
+Open **Tools → Gear metrology…** to select a cylindrical gear component,
+enter a gauge diameter in mm and choose **Balls** or **Axial rollers**. Click
+**Calculate** to see the theoretical dimension over external gauges or between
+internal gauges, tooth-count parity, useful involute contact radius and root/tip
+margins. The default diameter targets a useful reference contact; choose your
+own diameter when needed. It is not a stock gauge size recommendation.
+
+This tool supports external/internal spur teeth. Balls make point contacts;
+axial rollers make line contacts with the same ideal transverse dimension.
+Helical and double-helical measurements explicitly report unsupported.
+Unavailable solutions explain root/blend or beyond-tip contacts, inability to
+seat, or conservative gauge/jaw-clearance limits. Conservative root/tip-circle
+checks may exclude usable gauges. Axial instrument access, finite roller length,
+tolerances and elastic contact are not calculated.
+
+**Export selected report · TXT + JSON** saves the query and its source component,
+revision, parameters and actual involute geometry in a new folder under the
+export destination. Queries do not change project parameters or undo history.
+Editing parameters, including incomplete input, clears the old result; calculate
+again after the model updates. Standard calculation reports and analysis exports
+also include the default theoretical gauge measurement, nominal/generated tooth
+thickness, and every geometrically usable external-spur Wildhaber tooth span.
+These results quantify geometry and provide no safe thin-tip limit or strength
+rating. See the [equations and supported domains](technical/calculations.md).
+
 ## Accuracy and limitations
 
 These are dimensional design models, not certified production designs. Materials, manufacturing tolerances, lubrication, seals, fastening details, strength, bearing life and load capacity must be defined and verified. Reports provide nominal geometry, contact ratios, kinematic relations and static force estimates using assumed operating data; no ISO/AGMA strength verification is performed.
@@ -365,3 +413,38 @@ These are dimensional design models, not certified production designs. Materials
 External cylindrical gears use a rounded normal rack envelope at the root, with trimming against the usable involute where undercut occurs. The tool's normal circular corner becomes an ellipse in transverse helical sections. Internal gears use a circular blend tangent to the involute and dedendum circle; a pinion-cutter envelope and cutter interference checks remain unimplemented. Involutes and root curves use adaptive midpoint/quarter checks at a nominal 0.015 mm chord threshold. Shared circular profiles use a maximum radial sampling deviation of 0.002 mm where specified. These sample thresholds do not certify global analytical profile error. Tool parameters, method, domain and usable involute limits are recorded in the calculation and CAD/profile metadata. The reports retain nominal contact ratios and additionally report usable involute contact ratios after root trimming/blending. Worm wheels use the matching screw helicoid envelope, including the swept generating-tip root transition. Strain-wave rings use the full swept outline of a thickened matching flexible tooth under the prescribed ellipse pitch-arc/normal map; the same material map drives animation and interference checks. Numerical ring enclosure relief is recorded separately from reference tooth backlash. These constructions and the spherical involute bevel flanks are documented with their supported domains and numerical limits in the [worm](technical/worm.md), [strain-wave](technical/strain-wave.md) and [differential](technical/differential.md) references. Tubes and freeform surfaces use their documented sampling. Complex bodies have a 250,000 face limit.
 
 Strain-wave deformation is prescribed, without an elastic or loaded-contact solution. Reference tooth-thickness allowance does not establish loaded rotational lost motion. Nominal interface contact is not proof of torque transmission. Tests on presets do not certify all parameter combinations.
+
+
+## Solve working backlash
+
+For a **parallel external pair**, open **Tools → Solve working backlash…** and
+enter the desired **working transverse tangential backlash** in mm. This is the
+circumferential clearance at the working pitch circles; it differs from the
+configured reference tooth allowance and from normal or radial backlash. Spur,
+helical and double-helical pair variants are supported. Internal, planetary and
+individual-gear centre adjustment is unavailable.
+
+Click **Calculate & preview**. The tool solves the exact centre-distance relation,
+generates a candidate, checks its actual useful involute contact ratio and runs
+the existing discrete interference checker asynchronously. The report shows
+current/proposed centre distance, change, reproduced backlash, contact ratio,
+findings, sampled coverage and resource limits. Expand the interference settings
+to choose a finer angular step, more poses or more time. Coarse default sampling
+can miss collisions between poses; complete sampled coverage does not establish
+continuous clearance or strength. Same-member boundary contacts remain unresolved
+interfaces and appear separately from suspect intersections.
+
+The small 3D view shows the proposal independently; the project's parameters,
+main view, inspection pose, motion and Undo history remain unchanged during a
+query. **Cancel / clear preview** stops cooperatively and clears the proposal.
+Unreachable targets or rejected geometry explain the reason; partial or suspect
+interference results cannot be applied.
+
+After reviewing a ready proposal, click **Apply centre distance** intentionally.
+It changes only the centre-distance parameter as one Undo step. Undo restores
+the previous parameters; Redo reapplies them. Parameter edits (including
+incomplete input), Undo/Redo, document replacement and closing the tool clear
+old proposals. The ordinary calculation report reflects the applied model.
+**Export TXT + JSON** saves the separate query, its source revision and parameters,
+requested/proposed values, full discrete check and proposed/applied context in a
+new folder under the export destination.

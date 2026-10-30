@@ -1,5 +1,34 @@
 # Changelog
 
+## 0.1.9 — 2026-10-30
+
+- Add offline parameter guides with family-specific explanations, units and
+  original diagrams, available from labels by hover or keyboard, with a
+  keep-open option and expandable **Show diagram** illustrations.
+- Adjust live motion speeds without rebuilding geometry or re-uploading the
+  preview meshes, preserving accumulated poses through speed changes and stops.
+  Group slider adjustments into one Undo step and retain precise numeric entry.
+- Add theoretical gear metrology over/between balls or axial rollers for external
+  and internal spur involutes, with separate TXT/JSON query exports. Include tooth
+  thickness and usable external-spur Wildhaber spans in calculation reports;
+  helical gauge measurements remain unsupported.
+- Solve working transverse tangential backlash by centre-distance adjustment for
+  parallel external spur, helical and double-helical pairs. Preview regenerated
+  proposals with discrete interference checks, then explicitly apply the centre
+  distance as one Undo step; sampled checks do not establish continuous clearance.
+
+- Screen wheel-driven worm configurations with an explicit static tooth friction
+  coefficient and reference-cylinder geometry; refuse a known static self-locking
+  request while preserving the valid design. Explain indeterminate and potentially
+  backdrivable cases separately, including output-driven strain-wave arrangements.
+
+- Remove redundant leading and trailing zeros when numeric input is confirmed.
+  Automatic values display up to six decimal places, using scientific notation
+  for very small values; explicitly entered precision is preserved.
+- Preserve exact numeric values in calculations, saved projects and history,
+  including manual values restored after exploring derived presets. Commit
+  pending numeric edits before opening project replacement or save dialogs.
+
 ## 0.1.8 — 2026-10-30
 
 - Add canonical URLs, social previews and structured search metadata using the

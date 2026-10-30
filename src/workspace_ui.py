@@ -333,6 +333,10 @@ def build(app, labels):
     app.combination_search = SearchController(app, app.tools)
     from components_ui import Controller as ComponentsController
     app.components = ComponentsController(app, app.tools)
+    from gear_measurement_ui import Controller as MeasurementController
+    app.gear_measurement = MeasurementController(app, app.tools)
+    from backlash_ui import Controller as BacklashController
+    app.backlash = BacklashController(app, app.tools)
     def pick_mode_changed(*_):
         mode = app.pick_mode.get_selected()
         if mode == 2:

@@ -85,7 +85,11 @@ def _integer(value, name, low, high):
 
 
 def _number(value, name, low, high):
-    if type(value) not in (int, float) or not low <= value <= high or not isfinite(value):
+    try:
+        valid = type(value) in (int, float) and low <= value <= high and isfinite(value)
+    except OverflowError:
+        valid = False
+    if not valid:
         raise AgentError('invalid_arguments', f'{name} must be a finite number in [{low}, {high}].')
     return value
 
@@ -127,6 +131,9 @@ def _option_fields(family):
         fields['io_scheme'] = dict(type='string', enum=list(kinematics.options(family)))
         if family == 'planetary':
             fields['io_scheme2'] = deepcopy(fields['io_scheme'])
+    if family == 'worm':
+        fields['worm_static_friction'] = dict(type='number', minimum=0,
+            description='Explicit static tooth friction coefficient; omit when unknown. Not inferred from materials.')
     if family == 'harmonic':
         fields['harmonic_output'] = dict(type='string', enum=list(HARMONIC_OUTPUTS))
     if family == 'cycloidal':
@@ -157,7 +164,7 @@ def checked_parameters(family, parameters):
             if 'enum' in field and value not in field['enum']:
                 raise AgentError('invalid_parameters', key+' is not an available option.', allowed=field['enum'])
             if field['type'] == 'number':
-                _number(value, key, field['minimum'], field['maximum'])
+                _number(value, key, field.get('minimum', -float('inf')), field.get('maximum', float('inf')))
     try:
         return validate(family, deepcopy(parameters))
     except (ValueError, TypeError, OverflowError) as error:

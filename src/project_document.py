@@ -31,14 +31,22 @@ def atomic_json(path, value):
 
 def comparable(snapshot):
     result = deepcopy(snapshot)
-    for fields in result.get('raw', {}).values():
-        for key, text in fields.items():
+    result.pop('automatic', None)
+    for family, fields in list(result.get('raw', {}).items()):
+        for key, text in list(fields.items()):
             try:
                 number = float(text.strip().replace(',', '.'))
                 if isfinite(number):
-                    fields[key] = number
+                    if result.get('values', {}).get(family, {}).get(key) == number:
+                        # Automatic displays need no raw edit. Equivalent user
+                        # text must not create a formatting-only history step.
+                        fields.pop(key)
+                    else:
+                        fields[key] = number
             except ValueError:
                 pass
+        if not fields:
+            result['raw'].pop(family)
     return result
 
 
@@ -130,7 +138,9 @@ class Document:
 
 
 def validate_snapshot(value, families):
-    if not isinstance(value, dict) or set(value) != {'family', 'values', 'raw'}:
+    if (not isinstance(value, dict)
+            or set(value) not in ({'family', 'values', 'raw'},
+                                 {'family', 'values', 'raw', 'automatic'})):
         raise ValueError('Invalid recovery snapshot')
     if value['family'] not in families:
         raise ValueError('Unsupported recovery family')
@@ -148,6 +158,14 @@ def validate_snapshot(value, families):
         if family not in families or not isinstance(fields, dict) or not all(
                 isinstance(k, str) and isinstance(v, str) for k, v in fields.items()):
             raise ValueError('Invalid recovery text')
+    automatic = value.get('automatic', {})
+    if not isinstance(automatic, dict):
+        raise ValueError('Invalid recovery numeric display metadata')
+    for family, keys in automatic.items():
+        if (family not in families or not isinstance(keys, list)
+                or not all(isinstance(key, str) and key in value['raw'].get(family, {})
+                           for key in keys)):
+            raise ValueError('Invalid recovery numeric display metadata')
     return deepcopy(value)
 
 

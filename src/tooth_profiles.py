@@ -11,6 +11,43 @@ from math import sin, cos, tan, atan, atan2, acos, sqrt, hypot, pi, radians
 TOLERANCE = 0.015
 
 
+def tooth_thickness(z, mt, mn, rp, rb, tip, half, nominal_half,
+                    involute_start, involute_end, internal=False):
+    """Analytical widths of the constructed cylindrical involute, in mm.
+
+    ISO 21771:2007 4.7, equations (38)-(41), (48)-(49), translated to
+    positive physical radii and an explicit internal flag. The two angular
+    inputs come from the actual profile construction, including its allowance.
+    Chords are transverse straight distances; normal widths are helical arcs.
+    """
+    cb = mn / mt
+    direction = -1 if internal else 1
+    inv = lambda r: sqrt(max(0, (r / rb) ** 2 - 1)) - acos(min(1, rb / r))
+
+    def at_radius(radius):
+        correction = direction * (inv(rp) - inv(radius))
+        nominal_angle = nominal_half + correction
+        actual_angle = half + correction
+        usable = involute_start - 1e-9 <= radius <= involute_end + 1e-9
+        # tan(beta_y) = radius/rp * tan(beta); handedness cannot change a width.
+        cos_beta_y = 1 / sqrt(1 + (radius / rp) ** 2 * max(0, 1 / cb ** 2 - 1))
+        return dict(radius_mm=radius, on_usable_involute=usable,
+                    nominal_transverse_arc_mm=2 * radius * nominal_angle,
+                    nominal_normal_arc_mm=2 * radius * nominal_angle * cos_beta_y,
+                    generated_transverse_arc_mm=2 * radius * actual_angle if usable else None,
+                    generated_normal_arc_mm=2 * radius * actual_angle * cos_beta_y if usable else None,
+                    generated_transverse_chord_mm=2 * radius * sin(actual_angle) if usable else None)
+
+    reference = at_radius(rp)
+    tip_result = at_radius(tip)
+    return dict(internal=internal, reference=reference, tip=tip_result,
+                pair_backlash_transverse_mm=4 * rp * (nominal_half - half),
+                per_gear_reference_reduction_transverse_mm=2 * rp * (nominal_half - half),
+                tip_chord_over_normal_module=tip_result['generated_transverse_chord_mm'] / mn,
+                basis='analytic involute widths before chord sampling; equal split of transverse pair backlash',
+                scope='undeformed cylindrical involute; normal widths are helical arcs, chords are transverse; no strength or minimum safe tip thickness evaluated')
+
+
 def rack_parameters(z, mt, pressure, backlash=0.15, depth=None, shift=0,
                     normal_pressure=None, hf=1.25):
     mn = mt if depth is None else depth
@@ -107,6 +144,16 @@ def external_half(z, mt, pressure, backlash, depth, shift, normal_pressure, ha, 
                   root_radius_mm=root, tip_radius_mm=tip,
                   chord_threshold_mm=TOLERANCE,
                   domain='external cylindrical; normal circular rack tip; no protuberance or tip relief')
+    metadata['tooth_thickness'] = tooth_thickness(
+        z, mt, mn, rp, rb, tip, half,
+        pi/(2*z)+2*shift*tan(tool['alpha_normal'])/z, start_r, tip)
+    metadata['measurement_geometry'] = dict(
+        teeth=z, reference_radius_mm=rp, base_radius_mm=rb,
+        reference_half_angle_rad=half, transverse_pressure_angle_rad=tool['alpha_transverse'],
+        helix_angle_abs_deg=acos(min(1, mn/mt))*180/pi, internal=False,
+        involute_start_radius_mm=start_r, involute_end_radius_mm=tip,
+        root_radius_mm=root, tip_radius_mm=tip,
+        scope='undeformed cylindrical involute before chord sampling')
     return points,metadata
 
 
@@ -158,8 +205,18 @@ def internal_half(z, mt, pressure, backlash, depth, ha, hf, sample):
     join,cx,cy,t0,t1=solution
     flank=sample(lambda r:(r*cos(angle(r)),r*sin(angle(r))),tip,join)
     arc=sample(lambda t:(cx+rho*cos(t),cy+rho*sin(t)),t0,t1)
-    return flank[:-1]+arc,dict(method='tangent circular internal root construction',
+    metadata = dict(method='tangent circular internal root construction',
         generated=False,blend_radius_mm=rho,nominal_blend_radius_mm=nominal_rho,
         blend_radius_adapted=rho<nominal_rho,involute_end_radius_mm=join,
         root_radius_mm=root,tip_radius_mm=tip,chord_threshold_mm=TOLERANCE,
         domain='unshifted internal involute; pinion-cutter envelope/interference unverified')
+    metadata['tooth_thickness'] = tooth_thickness(
+        z, mt, depth, rp, rb, tip, half, pi/(2*z), tip, join, internal=True)
+    metadata['measurement_geometry'] = dict(
+        teeth=z, reference_radius_mm=rp, base_radius_mm=rb,
+        reference_half_angle_rad=half, transverse_pressure_angle_rad=radians(pressure),
+        helix_angle_abs_deg=acos(min(1, depth/mt))*180/pi, internal=True,
+        involute_start_radius_mm=tip, involute_end_radius_mm=join,
+        root_radius_mm=root, tip_radius_mm=tip,
+        scope='undeformed cylindrical involute before chord sampling; constructed internal root blend')
+    return flank[:-1]+arc,metadata

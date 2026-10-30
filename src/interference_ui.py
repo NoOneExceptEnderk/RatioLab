@@ -12,6 +12,7 @@ from gi.repository import Gtk, GLib, Gio
 from project_document import equivalent
 from workspace_tools import actions, details
 from interference import analyze, Settings
+from gui_workflow import bind_numeric_spin, numeric_value, set_numeric_value
 
 
 def label(text):
@@ -73,6 +74,9 @@ class Controller:
         controls.attach(label('Phase step [°]'),0,0,1,1);self.step=Gtk.SpinButton.new_with_range(.1,180,.5);self.step.set_digits(1);self.step.set_value(30);controls.attach(self.step,1,0,1,1)
         controls.attach(label('Boundary tolerance [mm]'),0,1,1,1);self.tolerance=Gtk.SpinButton.new_with_range(.000001,1,.001);self.tolerance.set_digits(6);self.tolerance.set_value(.01);controls.attach(self.tolerance,1,1,1,1)
         controls.attach(label('Time limit [s]'),0,2,1,1);self.seconds=Gtk.SpinButton.new_with_range(1,3600,10);self.seconds.set_value(120);controls.attach(self.seconds,1,2,1,1)
+        for field in (self.step, self.tolerance, self.seconds):
+            bind_numeric_spin(field)
+            set_numeric_value(field, field.get_value())
         buttons=actions(box)
         self.run_button=Gtk.Button(label='Check cycle');self.run_button.connect('clicked',lambda _:self.start());buttons.append(self.run_button)
         self.cancel_button=Gtk.Button(label='Cancel');self.cancel_button.connect('clicked',lambda _:self.stop());buttons.append(self.cancel_button)
@@ -117,10 +121,14 @@ class Controller:
         app.project_changed()
         if not app.refresh():
             self.invalidate('Invalid configuration · check blocked');return
+        try:
+            settings=settings or Settings(step_degrees=numeric_value(self.step),tolerance_mm=numeric_value(self.tolerance),max_seconds=numeric_value(self.seconds))
+            settings.validate()
+        except ValueError as error:
+            self.invalidate('Invalid check settings: '+str(error));return
         self.invalidate('Preparing check…')
         self.snapshot=deepcopy(app.project_snapshot());self.design_key=self.key(app.design)
         design=deepcopy(app.design);revision=app.document.token;self.revision=revision;serial=self.serial
-        settings=settings or Settings(step_degrees=self.step.get_value(),tolerance_mm=self.tolerance.get_value(),max_seconds=self.seconds.get_value())
         if self.window:self.setup.set_expanded(False)
         event=Event();self.cancel=event
         self.run_button.set_sensitive(False);self.cancel_button.set_sensitive(True)

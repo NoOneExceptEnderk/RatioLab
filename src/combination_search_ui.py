@@ -13,6 +13,7 @@ from geometry import generate, INTEGER, FAMILIES as FAMILY_TITLES
 from project_document import equivalent
 from workspace_tools import actions, details
 from combination_search import FAMILIES, COUNT_KEYS, Settings, variables, parse_grid, search
+from gui_workflow import bind_numeric_entry, numeric_value, numeric_snapshot_text, set_numeric_value
 
 
 def label(text):
@@ -213,9 +214,11 @@ class Controller:
         self.fields['target'].grab_focus()
 
     def numeric_entry(self, text):
-        # Entry deliberately preserves incomplete/invalid edits; no focus-out rounding.
-        return Gtk.Entry(text=text, width_chars=5, max_width_chars=8,
-                         hexpand=True, input_purpose=Gtk.InputPurpose.NUMBER)
+        entry = Gtk.Entry(width_chars=5, max_width_chars=8,
+                          hexpand=True, input_purpose=Gtk.InputPurpose.NUMBER)
+        bind_numeric_entry(entry)
+        set_numeric_value(entry, float(text))
+        return entry
 
     def add_field(self, parent, key, title, value):
         row = Gtk.Box(spacing=6)
@@ -294,7 +297,7 @@ class Controller:
                 for caption, initial in (('From', low), ('To', high), ('Step', stride)):
                     column = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
                     column.append(label(caption))
-                    entry = self.numeric_entry(f'{initial:.15g}')
+                    entry = self.numeric_entry(initial)
                     entry.set_tooltip_text(title + ' · ' + caption)
                     column.append(entry)
                     ranges.append(column)
@@ -326,7 +329,7 @@ class Controller:
                 custom.connect('changed', custom_changed)
                 self.update_axis_view(key)
             ratio = app.design.analysis['signed_ratio']
-            self.fields['target'].set_text(f'{abs(ratio):.15g}')
+            set_numeric_value(self.fields['target'], abs(ratio))
         self.populating = False
         self.update_domain()
 
@@ -349,8 +352,8 @@ class Controller:
         except ValueError as error:
             errors.append(str(error))
         try:
-            target = float(self.fields['target'].get_text().strip())
-            tolerance_percent = float(self.fields['tolerance'].get_text().strip())
+            target = numeric_value(self.fields['target'])
+            tolerance_percent = numeric_value(self.fields['tolerance'])
             Settings(target=target, tolerance_percent=tolerance_percent).validate()
             tolerance = tolerance_percent / 100
             low, high = target*(1-tolerance), target*(1+tolerance)
@@ -383,7 +386,7 @@ class Controller:
             if c['mode'].get_selected() == 1:
                 values = parse_grid(c['custom'].get_text())
             else:
-                texts = [entry.get_text().strip() for entry in c['inputs']]
+                texts = [numeric_snapshot_text(entry).strip() for entry in c['inputs']]
                 # Range fields each accept one number, never a grid/list expression.
                 numbers = [float(text) for text in texts]
                 if not all(map(isfinite, numbers)):
@@ -416,7 +419,7 @@ class Controller:
         for key, entry in self.fields.items():
             message = ''
             try:
-                value = float(entry.get_text().strip())
+                value = numeric_value(entry)
                 if not isfinite(value):
                     raise ValueError('Enter a finite number.')
                 low, high = limits[key]
@@ -637,6 +640,7 @@ class Controller:
             return False
         app.document.record(app.project_snapshot())
         if hasattr(app,'components'):app.components.refreshed(app.design)
+        if hasattr(app,'gear_measurement'):app.gear_measurement.refreshed(app.design)
         app.undo_reset.set_visible(False)
         app.document.barrier()
         app.update_document()

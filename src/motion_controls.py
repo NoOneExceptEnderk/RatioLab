@@ -3,8 +3,10 @@
 """Single viewport transport bar and a speed-adjustment popover."""
 import gi
 gi.require_version('Gtk', '4.0')
-from gi.repository import Gtk
+from gi.repository import Gtk, GLib, Gdk
 from math import log1p, expm1, isfinite, copysign
+from gui_workflow import (set_numeric_value, numeric_value,
+                          _track_numeric_entry, _normalize_numeric_entry)
 
 
 def scale_rpm(value):
@@ -31,6 +33,7 @@ def install(app, container):
     row.append(caption)
     entry = Gtk.Entry(css_classes=['motion-rate'])
     entry.set_enable_undo(False)
+    _track_numeric_entry(entry)
     entry.set_width_chars(8)
     entry.set_max_width_chars(10)
     entry.set_alignment(1)
@@ -73,9 +76,11 @@ def install(app, container):
     app.motion_rate_error = error
     app.motion_rate_editing = False
     app.motion_input_invalid = False
+    drag_time = None
+    drag_group = None
     def show_value(value):
         app.motion_syncing = True
-        entry.set_text(str(int(value)) if float(value).is_integer() else repr(float(value)))
+        set_numeric_value(entry, value)
         app.motion_syncing = False
     def apply_rate(value):
         low, high = getattr(app, 'motion_rate_limits', (0, 100000))
@@ -91,7 +96,7 @@ def install(app, container):
         show_value(value)
         if hasattr(app, 'motion_rpm'):
             app.motion_rpm = value
-            app.changed()
+            app.apply_motion_rate(drag_group or (app.family, 'input_rpm'),now=drag_time)
         else:
             app.canvas.set_motion_speed(value / 12)
     def commit(*args):
@@ -99,18 +104,22 @@ def install(app, container):
             return
         try:
             try:
-                value = float(entry.get_text().strip().replace(',', '.'))
+                value = numeric_value(entry)
             except ValueError:
                 raise ValueError('Enter a valid number, for example 125.5.')
+            low, high = getattr(app, 'motion_rate_limits', (0, 100000))
+            _normalize_numeric_entry(entry, low=low, high=high)
             apply_rate(value)
-            if hasattr(app, 'motion_rpm'):
-                app.refresh()
         except ValueError as exc:
             app.motion_input_invalid = True
+            app.error_field = 'input_rpm'
             entry.add_css_class('field-error')
             error.set_text(str(exc))
             error.set_visible(True)
-            app.refresh()
+            for name in ('export_menu','send_btn','fusion_send_btn'):
+                action=getattr(app,name,None)
+                if action is not None:action.set_sensitive(False)
+    app.commit_motion_rate = commit
     def editing(*args):
         if not getattr(app, 'motion_syncing', False):
             app.motion_rate_editing = True
@@ -123,6 +132,41 @@ def install(app, container):
     entry.add_controller(focus)
     slider.connect('value-changed', lambda w: apply_rate(round(unscale_rpm(w.get_value())))
                    if not getattr(app, 'motion_syncing', False) else None)
+    def begin_drag(*args):
+        nonlocal drag_time, drag_group
+        drag_time = GLib.get_monotonic_time()/1000000
+        drag_group = (app.family, 'input_rpm', object())
+        if hasattr(app,'document'):app.document.barrier()
+    def end_drag(*args):
+        nonlocal drag_time, drag_group
+        active=drag_group is not None
+        drag_time = drag_group = None
+        if not active:return
+        if hasattr(app,'document'):app.document.barrier()
+        if hasattr(app,'flush_motion_document'):app.flush_motion_document()
+    popup.connect('closed',end_drag)
+    # Observe the sequence without competing with the scale's own drag gesture.
+    # A GestureClick can be cancelled as soon as that gesture claims the drag.
+    events = Gtk.EventControllerLegacy()
+    events.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
+    def slider_event(controller,event):
+        event=event or controller.get_current_event()
+        if event is None:return False
+        kind=event.get_event_type()
+        if kind in (Gdk.EventType.BUTTON_PRESS,Gdk.EventType.TOUCH_BEGIN):begin_drag()
+        elif kind in (Gdk.EventType.BUTTON_RELEASE,Gdk.EventType.TOUCH_END,Gdk.EventType.TOUCH_CANCEL,Gdk.EventType.GRAB_BROKEN):end_drag()
+        return False
+    events.connect('event',slider_event)
+    slider.add_controller(events)
+    app.begin_motion_rate_drag = begin_drag
+    app.end_motion_rate_drag = end_drag
+    def dispose(*args):
+        nonlocal drag_time, drag_group
+        drag_time = drag_group = None
+        if getattr(app,'motion_document_pending',0):
+            GLib.source_remove(app.motion_document_pending)
+            app.motion_document_pending=0
+    container.connect('unrealize',dispose)
     for title, delta in [('−1', -1), ('+1', 1)]:
         step = Gtk.Button(label=title)
         step.set_tooltip_text(f'Change input speed by {delta:+d} rpm')
@@ -153,12 +197,14 @@ def install(app, container):
 
 def configure(app,values,specs):
  """Bind the single RPM control to the saved input, including loaded configs."""
+ if hasattr(app,'end_motion_rate_drag'):app.end_motion_rate_drag()
  app.motion_syncing=True;app.motion_rate_editing=False;app.motion_input_invalid=False;app.motion_speed_text.remove_css_class('field-error');app.motion_rate_error.set_visible(False)
  rpm_spec=next((s for s in specs if s[0]=='input_rpm'),None)
  speed=app.motion_speed;speed.clear_marks()
  if rpm_spec:
   _,_,default,low,high,_=rpm_spec;app.motion_rate_limits=(low,high);app.motion_unit.set_text('rpm');app.motion_rpm=values.get('input_rpm',default)
-  app.motion_speed_text.set_text(str(int(app.motion_rpm)) if float(app.motion_rpm).is_integer() else repr(float(app.motion_rpm)))
+  app.motion_speed_text._numeric_typed_text=None
+  set_numeric_value(app.motion_speed_text,app.motion_rpm)
   speed.set_range(scale_rpm(low),scale_rpm(high));speed.set_value(scale_rpm(app.motion_rpm))
   for rpm in (-100000,0,100000):
    if low<=rpm<=high:speed.add_mark(scale_rpm(rpm),Gtk.PositionType.BOTTOM,'−100k' if rpm==-100000 else '100k' if rpm==100000 else str(rpm))
