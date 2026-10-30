@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.7 — 2026-10-30
+
+- Refine the homepage workspace composition with a prominent framed application
+  screenshot, a pale download section and structured model and project resources.
+
 ## 0.1.6 — 2026-10-30
 
 - Add content-based CSS and JavaScript URLs to generated pages so browser
