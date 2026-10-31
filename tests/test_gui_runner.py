@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-only
 """Keep native timeout diagnostics separate from the application's JSON report."""
 import importlib.util
+import json
 from pathlib import Path
 import subprocess
 import tempfile
@@ -15,6 +16,77 @@ spec.loader.exec_module(runner)
 
 
 class NativeGuiRunnerTests(unittest.TestCase):
+    def test_failed_probe_retains_capability_reason_from_separate_diagnostic_log(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            folder = Path(temporary)
+            reason = 'RatioLab runtime check failed: A graphical desktop session is required for --diagnose-gui'
+            def probe(command, **kwargs):
+                report = Path(command[-1])
+                report.write_text('', encoding='utf-8')
+                report.with_suffix('.stderr.log').write_text(reason, encoding='utf-8')
+                return subprocess.CompletedProcess(command, 1)
+            with patch.object(runner.subprocess, 'run', side_effect=probe), patch('builtins.print'):
+                runner.check(Path('RatioLab'), folder)
+                result = json.loads((folder/'gui-result.json').read_text())
+                self.assertEqual(result['gui'], 'unavailable_on_runner')
+                self.assertIn(reason, result['reason'])
+                with self.assertRaisesRegex(RuntimeError, 'Installed GUI diagnostic failed'):
+                    runner.check(Path('RatioLab'), folder, require=True)
+
+    def test_application_error_in_diagnostic_log_cannot_be_treated_as_capability_absence(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            folder = Path(temporary)
+            def probe(command, **kwargs):
+                report = Path(command[-1])
+                report.write_text('', encoding='utf-8')
+                report.with_suffix('.stderr.log').write_text('shader compilation failed', encoding='utf-8')
+                return subprocess.CompletedProcess(command, 1)
+            with patch.object(runner.subprocess, 'run', side_effect=probe), \
+                    self.assertRaisesRegex(RuntimeError, 'shader compilation failed'):
+                runner.check(Path('RatioLab'), folder)
+
+    def test_failed_new_probe_cannot_reuse_a_stale_capability_reason(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            folder = Path(temporary)
+            report = folder/'gui-diagnostic.json'
+            report.with_suffix('.stderr.log').write_text(
+                'gdk-gl-error-quark: No GL implementation is available', encoding='utf-8')
+            def probe(command, **kwargs):
+                Path(command[-1]).write_text('unexpected loader failure', encoding='utf-8')
+                return subprocess.CompletedProcess(command, 1)
+            with patch.object(runner.subprocess, 'run', side_effect=probe), \
+                    self.assertRaisesRegex(RuntimeError, 'unexpected loader failure'):
+                runner.check(Path('RatioLab'), folder)
+
+    def test_mixed_application_output_cannot_be_downgraded_by_a_capability_phrase(self):
+        reason = 'RatioLab runtime check failed: gdk-gl-error-quark: No GL implementation is available (0)'
+        cases = (
+            (json.dumps({'bundled': True, 'preview': 'rendered'}), reason),
+            ('', 'Traceback (most recent call last):\nRuntimeError: unexpected callback\n'+reason),
+            ('', reason+'\nadditional application failure'),
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            folder = Path(temporary)
+            for output, diagnostic in cases:
+                def probe(command, **kwargs):
+                    report = Path(command[-1])
+                    report.write_text(output, encoding='utf-8')
+                    report.with_suffix('.stderr.log').write_text(diagnostic, encoding='utf-8')
+                    return subprocess.CompletedProcess(command, 1)
+                with self.subTest(output=output, diagnostic=diagnostic), \
+                        patch.object(runner.subprocess, 'run', side_effect=probe), \
+                        self.assertRaisesRegex(RuntimeError, 'Installed GUI diagnostic failed'):
+                    runner.check(Path('RatioLab'), folder)
+            # A sole actual GLib capability error retains its optional status.
+            def probe(command, **kwargs):
+                report = Path(command[-1])
+                report.write_text('', encoding='utf-8')
+                report.with_suffix('.stderr.log').write_text(reason, encoding='utf-8')
+                return subprocess.CompletedProcess(command, 1)
+            with patch.object(runner.subprocess, 'run', side_effect=probe), patch('builtins.print'):
+                runner.check(Path('RatioLab'), folder)
+            self.assertEqual(json.loads((folder/'gui-result.json').read_text())['gui'], 'unavailable_on_runner')
+
     def test_success_and_application_exit_keep_the_original_result(self):
         process = Mock()
         with patch.object(runner.subprocess, 'Popen', return_value=process):

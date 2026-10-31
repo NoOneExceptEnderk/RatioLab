@@ -8,6 +8,7 @@ crashes, timeouts, shader failures and other application errors remain failures.
 import argparse
 import json
 from pathlib import Path
+import re
 import subprocess
 import sys
 
@@ -46,16 +47,27 @@ def check(executable, folder, require=False):
     folder = Path(folder).resolve()
     folder.mkdir(parents=True, exist_ok=True)
     diagnostic = folder/'gui-diagnostic.json'
+    errors = diagnostic.with_suffix('.stderr.log')
+    # A failed new process must not inherit a previous probe's capability reason.
+    diagnostic.unlink(missing_ok=True)
+    errors.unlink(missing_ok=True)
     probe = subprocess.run([str(executable), '--diagnose-gui', '--report', str(diagnostic)],
                            timeout=90, check=False)
     text = diagnostic.read_text(encoding='utf-8')
     if probe.returncode:
+        if errors.is_file():
+            text += errors.read_text(encoding='utf-8')
         # These are capability errors from the display/GL context, not renderer
         # errors. Keep the exact diagnostic available in the uploaded report.
         absent = ('RatioLab runtime check failed: A graphical desktop session is required for --diagnose-gui',
-                  'gdk-gl-error-quark: No GL implementation is available',
-                  'gdk-gl-error-quark: Unable to create a GL context')
-        if probe.returncode != 1 or require or not any(reason in text for reason in absent):
+                  'RatioLab runtime check failed: gdk-gl-error-quark: No GL implementation is available',
+                  'RatioLab runtime check failed: gdk-gl-error-quark: Unable to create a GL context')
+        # Recognize one complete CLI error only. Mixed warnings, traceback or
+        # successful JSON must not turn an application failure into a missing GPU.
+        message = text.strip()
+        capability_absent = message in absent or any(
+            re.fullmatch(re.escape(reason)+r' \([0-9]+\)', message) for reason in absent[1:])
+        if probe.returncode != 1 or require or not capability_absent:
             raise RuntimeError(f'Installed GUI diagnostic failed ({probe.returncode}): {text}')
         result = dict(gui='unavailable_on_runner', reason=text, exit_code=probe.returncode)
     else:

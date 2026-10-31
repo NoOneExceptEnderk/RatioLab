@@ -278,6 +278,20 @@ class BundleIntegrityTests(unittest.TestCase):
             for name in names:
                 (addin/name).write_bytes((source/name).read_bytes())
             self.assertEqual(builder.verify_bundle(bundle, run=False, check_manifest=False)['structure'], 'passed')
+            # Failure diagnostics must survive the temporary report's cleanup.
+            reports = []
+            def failed_self_test(command, **kwargs):
+                report = Path(command[-1])
+                reports.append(report)
+                report.write_text('{"self_test": "passed"}', encoding='utf-8')
+                report.with_suffix('.stderr.log').write_text(
+                    'RuntimeError: unhandled workspace callback', encoding='utf-8')
+                return builder.subprocess.CompletedProcess(command, 1, stdout='', stderr='native diagnostic')
+            with patch.object(builder.subprocess, 'run', side_effect=failed_self_test), \
+                    self.assertRaisesRegex(RuntimeError, 'unhandled workspace callback') as raised:
+                builder.verify_bundle(bundle, check_manifest=False)
+            self.assertIn('native diagnostic', str(raised.exception))
+            self.assertFalse(reports[0].parent.exists())
             for name in names:
                 with self.subTest(name=name):
                     target = addin/name

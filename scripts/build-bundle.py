@@ -177,7 +177,11 @@ def verify_bundle(bundle, *, gui=False, run=True, check_manifest=True):
                                        capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=180)
             output = report.read_text(encoding='utf-8') if report.is_file() else completed.stdout
             if completed.returncode:
-                raise RuntimeError(f'Frozen self-test failed ({completed.returncode}):\n{output}\n{completed.stderr}')
+                diagnostic = report.with_suffix('.stderr.log')
+                errors = completed.stderr
+                if diagnostic.is_file():
+                    errors += '\n'+diagnostic.read_text(encoding='utf-8')
+                raise RuntimeError(f'Frozen self-test failed ({completed.returncode}):\n{output}\n{errors}')
             runtime_report = json.loads(output)
             if runtime_report.get('self_test') != 'passed' or not runtime_report.get('bundled'):
                 raise RuntimeError(f'Frozen self-test did not prove a bundled runtime: {output}')

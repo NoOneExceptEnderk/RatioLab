@@ -1,5 +1,19 @@
 # Changelog
 
+Versioned source entries do not imply that downloadable installers are available.
+See [GitHub releases](https://github.com/NoOneExceptEnderk/RatioLab/releases) for
+published packages and their verification results.
+
+## Unreleased
+
+## Installer publication recovery — 2026-10-31
+
+- Repair native 0.1.9 diagnostic and self-test reports by separating JSON output
+  from warning/error logs, preserving callback failures and strict GUI checks.
+- Retain separate Linux installed-GUI diagnostics in CI verification artifacts.
+- This packaging-only recovery keeps source version 0.1.9; it does not include
+  the browser application or other pending development changes.
+
 ## 0.1.9 — 2026-10-30
 
 - Add offline parameter guides with family-specific explanations, units and

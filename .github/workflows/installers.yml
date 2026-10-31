@@ -79,6 +79,7 @@ jobs:
           name: ratiolab-linux-verification
           path: |
             ${{ runner.temp }}/linux-installed.json
+            ${{ runner.temp }}/linux-installed.stderr.log
             ${{ runner.temp }}/linux-mcp.json
           if-no-files-found: ignore
       - uses: actions/upload-artifact@v4
