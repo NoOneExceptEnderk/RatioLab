@@ -17,22 +17,22 @@
 **Transfira um dos instaladores abaixo. Python, GTK e as bibliotecas necessárias estão incluídos.**
 Não precisa de transferir o código-fonte nem de instalar ferramentas de desenvolvimento.
 
-Versão atual: **0.1.9**.
+Versão atual: **0.1.11**.
 
 Os pacotes são publicados após passarem nas verificações nativas de CI. Consulte as notas da versão para os resultados por plataforma e as limitações de assinatura indicadas abaixo.
 
 | O seu computador | Transferência | O que fazer |
 |---|---|---|
-| Windows 11, Intel/AMD de 64 bits | [Instalador para Windows](https://github.com/NoOneExceptEnderk/RatioLab/releases/download/v0.1.9/RatioLab-0.1.9-windows-x86_64-setup.exe) | Abra o instalador e depois inicie o RatioLab a partir do menu Iniciar. |
-| macOS 15+, Apple Silicon (M1 ou mais recente) | [DMG para Apple Silicon](https://github.com/NoOneExceptEnderk/RatioLab/releases/download/v0.1.9/RatioLab-0.1.9-macos-arm64.dmg) | Abra o DMG e arraste o RatioLab para Aplicações. |
-| macOS 15+, Intel | [DMG para Intel](https://github.com/NoOneExceptEnderk/RatioLab/releases/download/v0.1.9/RatioLab-0.1.9-macos-x86_64.dmg) | Abra o DMG e arraste o RatioLab para Aplicações. |
-| Ubuntu 24.04+ / Linux compatível, x86-64 | [Pacote Debian/Ubuntu](https://github.com/NoOneExceptEnderk/RatioLab/releases/download/v0.1.9/ratiolab_0.1.9_amd64.deb) · [Outro instalador para Linux](https://github.com/NoOneExceptEnderk/RatioLab/releases/download/v0.1.9/RatioLab-0.1.9-linux-x86_64.run) | Abra o ficheiro `.deb` com o seu instalador de software. Para o ficheiro `.run`, siga o guia de instalação. |
+| Windows 11, Intel/AMD de 64 bits | [Instalador para Windows](https://github.com/NoOneExceptEnderk/RatioLab/releases/download/v0.1.11/RatioLab-0.1.11-windows-x86_64-setup.exe) | Abra o instalador e depois inicie o RatioLab a partir do menu Iniciar. |
+| macOS 15+, Apple Silicon (M1 ou mais recente) | [DMG para Apple Silicon](https://github.com/NoOneExceptEnderk/RatioLab/releases/download/v0.1.11/RatioLab-0.1.11-macos-arm64.dmg) | Abra o DMG e arraste o RatioLab para Aplicações. |
+| macOS 15+, Intel | [DMG para Intel](https://github.com/NoOneExceptEnderk/RatioLab/releases/download/v0.1.11/RatioLab-0.1.11-macos-x86_64.dmg) | Abra o DMG e arraste o RatioLab para Aplicações. |
+| Ubuntu 24.04+ / Linux compatível, x86-64 | [Pacote Debian/Ubuntu](https://github.com/NoOneExceptEnderk/RatioLab/releases/download/v0.1.11/ratiolab_0.1.11_amd64.deb) · [Outro instalador para Linux](https://github.com/NoOneExceptEnderk/RatioLab/releases/download/v0.1.11/RatioLab-0.1.11-linux-x86_64.run) | Abra o ficheiro `.deb` com o seu instalador de software. Para o ficheiro `.run`, siga o guia de instalação. |
 
 O Linux requer glibc 2.39 ou mais recente. Todos os sistemas requerem um controlador gráfico compatível.
 O instalador para Windows não está assinado; o macOS utiliza uma assinatura ad hoc sem notarização da Apple.
 O sistema pode apresentar um aviso de editor desconhecido ou bloquear o início da aplicação.
 
-[Guia de instalação, requisitos e desinstalação (em inglês)](../installation.md) · [Todos os ficheiros da versão e somas de verificação](https://github.com/NoOneExceptEnderk/RatioLab/releases/tag/v0.1.9)
+[Guia de instalação, requisitos e desinstalação (em inglês)](../installation.md) · [Todos os ficheiros da versão e somas de verificação](https://github.com/NoOneExceptEnderk/RatioLab/releases/tag/v0.1.11)
 
 ## O que pode fazer
 

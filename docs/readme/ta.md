@@ -17,22 +17,22 @@
 **கீழேயுள்ள நிறுவியைப் பதிவிறக்கவும். Python, GTK மற்றும் தேவையான நூலகங்கள் இதில் சேர்க்கப்பட்டுள்ளன.**
 மூலக் குறியீட்டைப் பதிவிறக்கவோ மென்பொருள் உருவாக்கக் கருவிகளை நிறுவவோ தேவையில்லை.
 
-தற்போதைய வெளியீடு: **0.1.9**.
+தற்போதைய வெளியீடு: **0.1.11**.
 
 தளத்திற்கான CI சோதனைகள் வெற்றியடைந்த பிறகே நிறுவல் தொகுப்புகள் வெளியிடப்படும். தளச் சரிபார்ப்பு முடிவுகளுக்கு வெளியீட்டுக் குறிப்புகளையும், கையொப்ப வரம்புகளுக்கு கீழுள்ள விவரங்களையும் பார்க்கவும்.
 
 | உங்கள் கணினி | பதிவிறக்கம் | செய்ய வேண்டியது |
 |---|---|---|
-| Windows 11, 64-bit Intel/AMD | [Windows நிறுவி](https://github.com/NoOneExceptEnderk/RatioLab/releases/download/v0.1.9/RatioLab-0.1.9-windows-x86_64-setup.exe) | நிறுவியைத் திறந்து நிறுவிய பிறகு, Start பட்டியலிலிருந்து RatioLab ஐத் தொடங்கவும். |
-| macOS 15+, Apple Silicon (M1 அல்லது அதற்குப் பிந்தையது) | [Apple Silicon DMG](https://github.com/NoOneExceptEnderk/RatioLab/releases/download/v0.1.9/RatioLab-0.1.9-macos-arm64.dmg) | DMG ஐத் திறந்து RatioLab ஐ Applications கோப்புறைக்கு இழுக்கவும். |
-| macOS 15+, Intel | [Intel DMG](https://github.com/NoOneExceptEnderk/RatioLab/releases/download/v0.1.9/RatioLab-0.1.9-macos-x86_64.dmg) | DMG ஐத் திறந்து RatioLab ஐ Applications கோப்புறைக்கு இழுக்கவும். |
-| Ubuntu 24.04+ / இணக்கமான Linux, x86-64 | [Debian/Ubuntu தொகுப்பு](https://github.com/NoOneExceptEnderk/RatioLab/releases/download/v0.1.9/ratiolab_0.1.9_amd64.deb) · [பிற Linux நிறுவி](https://github.com/NoOneExceptEnderk/RatioLab/releases/download/v0.1.9/RatioLab-0.1.9-linux-x86_64.run) | உங்கள் மென்பொருள் நிறுவியால் `.deb` ஐத் திறக்கவும். `.run` கோப்பிற்கு நிறுவல் வழிகாட்டியைப் பின்பற்றவும். |
+| Windows 11, 64-bit Intel/AMD | [Windows நிறுவி](https://github.com/NoOneExceptEnderk/RatioLab/releases/download/v0.1.11/RatioLab-0.1.11-windows-x86_64-setup.exe) | நிறுவியைத் திறந்து நிறுவிய பிறகு, Start பட்டியலிலிருந்து RatioLab ஐத் தொடங்கவும். |
+| macOS 15+, Apple Silicon (M1 அல்லது அதற்குப் பிந்தையது) | [Apple Silicon DMG](https://github.com/NoOneExceptEnderk/RatioLab/releases/download/v0.1.11/RatioLab-0.1.11-macos-arm64.dmg) | DMG ஐத் திறந்து RatioLab ஐ Applications கோப்புறைக்கு இழுக்கவும். |
+| macOS 15+, Intel | [Intel DMG](https://github.com/NoOneExceptEnderk/RatioLab/releases/download/v0.1.11/RatioLab-0.1.11-macos-x86_64.dmg) | DMG ஐத் திறந்து RatioLab ஐ Applications கோப்புறைக்கு இழுக்கவும். |
+| Ubuntu 24.04+ / இணக்கமான Linux, x86-64 | [Debian/Ubuntu தொகுப்பு](https://github.com/NoOneExceptEnderk/RatioLab/releases/download/v0.1.11/ratiolab_0.1.11_amd64.deb) · [பிற Linux நிறுவி](https://github.com/NoOneExceptEnderk/RatioLab/releases/download/v0.1.11/RatioLab-0.1.11-linux-x86_64.run) | உங்கள் மென்பொருள் நிறுவியால் `.deb` ஐத் திறக்கவும். `.run` கோப்பிற்கு நிறுவல் வழிகாட்டியைப் பின்பற்றவும். |
 
 Linux க்கு glibc 2.39 அல்லது அதற்குப் பிந்தைய பதிப்பு தேவை. எல்லா இயக்க முறைமைகளிலும் இணக்கமான வரைகலை இயக்கி தேவை.
 Windows நிறுவியில் மின்னொப்பம் இல்லை; macOS பதிப்பு Apple அங்கீகாரம் (notarization) இல்லாத ad-hoc மின்னொப்பத்தைப் பயன்படுத்துகிறது.
 அடையாளம் தெரியாத வெளியீட்டாளர் பற்றிய எச்சரிக்கையை உங்கள் இயக்க முறைமை காட்டலாம் அல்லது தொடங்குவதைத் தடுக்கலாம்.
 
-[நிறுவல் வழிகாட்டி, தேவைகள் மற்றும் அகற்றுதல் (ஆங்கிலத்தில்)](../installation.md) · [அனைத்து வெளியீட்டுக் கோப்புகளும் சரிபார்ப்புத் தொகைகளும்](https://github.com/NoOneExceptEnderk/RatioLab/releases/tag/v0.1.9)
+[நிறுவல் வழிகாட்டி, தேவைகள் மற்றும் அகற்றுதல் (ஆங்கிலத்தில்)](../installation.md) · [அனைத்து வெளியீட்டுக் கோப்புகளும் சரிபார்ப்புத் தொகைகளும்](https://github.com/NoOneExceptEnderk/RatioLab/releases/tag/v0.1.11)
 
 ## நீங்கள் செய்யக்கூடியவை
 
