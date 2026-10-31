@@ -2,7 +2,7 @@
 
 # Nominal calculations and technical references
 
-Revision of 30 October 2026. The formulas were implemented in the project without copying code or tables from the references. `engineering.py`, `gear_measurement.py` and `backlash_solver.py` contain the calculations; `geometry.py`, `assemblies.py` and `geartrains.py` produce the geometry.
+Revision of 31 October 2026. The formulas were implemented in the project without copying code or tables from the references. `engineering.py`, `gear_measurement.py` and `backlash_solver.py` contain the calculations; `geometry.py`, `assemblies.py` and `geartrains.py` produce the geometry. `internal_mesh.py` plans and verifies paired planetary internal geometry.
 
 <a id="convenzioni"></a>
 
@@ -226,7 +226,7 @@ g2 = sqrt(ra2² − rb2²)
 j working = j nominal × a/a0 + Δj
 ```
 
-For an internal pair, a0 = (d2 − d1)/2 and the numerator of εα becomes g1 − g2 + a sin αw; ra2 is the internal tip radius. The historical contact_transverse/contact_total values retain the nominal tip/base calculation. profile_contact_transverse/profile_contact_total instead intersect the two actual involute intervals after trimming/blend; the report exposes both and warns if the second total is less than one. The corrected calculation excludes contact on fillets and does not check 3D collisions or chamfers. These are not loaded-contact analyses. Source: [Drivetrain Hub, Geometry / Helical Gears, Gear Mesh and Contact Ratio sections](https://drivetrainhub.com/notebooks/gears/geometry/Chapter%203%20-%20Helical%20Gears.html).
+For an internal pair, a0 = (d2 − d1)/2 and the numerator of εα becomes g1 − g2 + a sin αw; ra2 is the internal tip radius. The contact_transverse/contact_total fields use the nominal tip/base calculation; paired planetary rings use their actual derived shortened tip here, while standalone internal pairs retain their former nominal tip. profile_contact_transverse/profile_contact_total instead intersect the two actual involute intervals after trimming/blend; the report exposes both and warns if the second total is less than one. The corrected calculation excludes contact on fillets and does not check 3D collisions or chamfers. These are not loaded-contact analyses. Source: [Drivetrain Hub, Geometry / Helical Gears, Gear Mesh and Contact Ratio sections](https://drivetrainhub.com/notebooks/gears/geometry/Chapter%203%20-%20Helical%20Gears.html).
 
 The generator rejects total contact ratio < 1 and involute interference in the new pairs. For double-helical gears, b active is **(width − gap)/2**, even when the gap is zero: the two halves are not treated as one continuous helix. Δj is additional to the backlash already configured.
 
@@ -307,7 +307,107 @@ The indicative standard-rack condition is x minimum = ha* − zv sin²αn / 2, w
 
 The new internal pairs require a tooth-count difference > 9, in addition to the base-circle check. This is a conservative generator filter; the KHK note on the limit of 9 concerns standard teeth at 20° and is not a guarantee for other angles. Cutting interference and tool profile remain to be checked. Source: [KHK, Internal ring gears — design and considerations](https://khkgears.us/media/beqhhrye/gear-solutions_khk_internal-ring-gears-design-and-considerations.pdf).
 
-The old 18/18/54 spur planetary preset can enter the area below the base circle in the planet-ring pair. It is retained for compatibility, with an explicit warning and theoretical contact ratio in the report. It is not declared interference-free. A 24/24/72 combination avoids this specific warning and retains the 4:1 ratio; this does not make it a strength-rated design.
+### Paired planetary rings
+
+Planetary rings use `planetary_paired_involute_v1`. The 18/18/54 default,
+reference circles, centre distance, external sun/planet rack profiles and outer
+assembly dimensions remain unchanged. The ring teeth are deliberately shortened;
+the derived addendum and amount removed appear in metrics and reports. This
+construction applies to every stage. Standalone fixed-axis internal gears retain
+their former tangent blend and cutter/interference warnings.
+
+Let `rp=mt*zp/2`, `rR=mt*zr/2`, `a=rR-rp`, with planet involute start `sP`
+read from the actual rounded-rack construction and tip `tP=rp+mn`. All radii and
+roll lengths below are millimetres. With shared chord threshold `c=.015 mm`,
+choose `delta=max(.05*mn,4*c)`, requiring `delta<.25*mn`. Derive
+
+```
+tR = max(rR-mn, a+sP+delta)
+haR = (rR-tR)/mn
+sR >= a+tP+delta
+```
+
+Here `tR` is ring tip radius and `sR` its involute/blend join. The root circle
+`rR+1.25*mn` stays fixed. If necessary a bracketed reduction of the tangent
+blend radius moves `sR` outwards. The chosen short blend arc has monotonically
+increasing radius; each sampled blend segment is checked against the join.
+Planetary ring tip arcs use circumscribed tangent segments, preserving the exact
+minimum radius `tR` that inscribed chords would slightly violate. This changes
+only the planetary ring sampling branch. Reference tooth thickness and metrology
+continue to describe the underlying involute and nominal tip circle; sampled
+profile provenance is recorded separately.
+
+The reverse triangle inequality excludes all ring material from the planet
+root/fillet disc: `|PX|>=|OX|-a>=sP+delta`. Conversely all planet material has
+`|OX|<=a+tP<sR`, excluding the ring blend/root region. Generated polygon radial
+bounds are checked as well. These exclusions do not alone establish that the
+remaining involute/tip boundaries clear each other.
+
+With `bp=rp*cos(alpha_t)`, `bR=rR*cos(alpha_t)`, and `S=a*sin(alpha_t)`, require
+all of the nominal line-of-action interval to lie on the actual involutes:
+
+```
+u_min = sqrt(tR²-bR²)-S
+u_max = sqrt(tP²-bp²)
+u_min >= sqrt(sP²-bp²)
+u_max+S <= sqrt(sR²-bR²)
+epsilon_alpha = (u_max-u_min)/(pi*mt*cos(alpha_t)) >= 1
+```
+
+Failure to fit either radial margin or the complete useful interval is an
+explicit generation error. Contact ratio and ring metrology use this same
+construction; a second standard-addendum ring is never substituted in analysis.
+For `mn=2 mm`, `alpha_n=20°`, backlash `.15 mm`, the 18/54 spur pair has
+`tR=53.0144672122 mm`, `haR=.492766393913`, and `epsilon_alpha=1.29305835719`.
+The 24/72 result is `tR=70.7458971127 mm`, `haR=.627051443641`,
+`epsilon_alpha=1.47028518182`. For 18/54 at helix 20°/25° the respective
+transverse ratios are `1.26468347522`/`1.23741370572` (either hand).
+
+The remaining numerical check uses the **generated closed transverse polygons**.
+In a frame with ring axis at `(0,0)` and planet axis initially `(a,0)`, the phases
+are `phiR=(zp/zr)*phiP` plus the assembly's neutral-backlash offsets. Both
+outlines repeat after `phiP=2*pi/zp`, so one full tooth period covers arbitrary
+forward, reversed or stationary input. A segment BVH checks proper boundary
+crossings, exact segment distances and containment; vertex containment alone
+would miss crossings in a concave void.
+
+For midpoint `q` and interval half-width `h`, express the planet in the fixed
+ring frame as `X(q)=R(-k*q)(a,0)+R((1-k)*q)p`, `k=zp/zr`. Its displacement is
+bounded by `B=(a*k+RmaxP*abs(1-k))*h`. Distance to the fixed ring boundary is
+1-Lipschitz under this displacement. Valid midpoint containment and separation
+`d(q)>B+guard` therefore certify that interval. Uncertified intervals are bisected.
+The floating-point implementation uses a positive numerical guard (`1e-7 mm`);
+it is a conservative numerical check, not an exact-arithmetic proof.
+
+Results are `clear`, `collision` or `unresolved`, with a witness where available,
+observed minimum distance, certified separation lower bound, interval count and
+limits. The observed minimum is never labelled a certified minimum. Proper
+crossing/failed containment rejects generation; touch, tiny separation, zero or
+numerically tiny backlash, depth/budget exhaustion and unsupported construction
+remain visibly unresolved. Planetary generation uses a finite operational budget of 1024 interval
+evaluations; the verifier API permits at most 4096. Other limits are depth 20
+and 30000 combined vertices, and at most 16 immutable geometry keys are
+cached. Width, torque and RPM do not invalidate the transverse pair cache;
+different stages are checked independently. Equal-spacing planetary phasing is
+still required before equivalent planets can reuse a pair result.
+
+A clear result certifies separation only for these unloaded neutral-backlash
+polylines. It does not cover the whole backlash range, loaded contact, or the
+unsampled analytic curves: the adaptive chord sampler is not a proven global
+Hausdorff bound. Matching internal helices satisfy
+`thetaR(z)=(zp/zr)*thetaP(z)`; double helices share the same triangular axial
+function on both halves. Groove cores are bounded by the planet's inscribed origin-centred disc; ring groove voids contain a disc enclosing the base void. Common radial vertex directions and the origin/edge triangle fans preserve the subset relation across ideal shoulders. Unsupported bounds remain unresolved.
+Thus supported ideal twisted transverse sections inherit the 2D phase result.
+CAD/STL interpolation between axial stations and its triangles are excluded.
+Cutter-envelope, radial assembly, tooling, manufacturing, strength, wear and
+standards conformity remain unverified. The generic cutter limitation is a
+report note for clear paired planetary geometry, not a collision warning; every
+unresolved paired result and legacy internal warning remains visible.
+
+These equations follow from circle/line geometry, rigid rotations and the
+triangle inequality. The KHK reference above distinguishes involute, trochoid
+and trimming interference (pp.28–30); its cutter-specific and standard-tooth
+limits do not certify this derived construction.
 
 <a id="cinematica-e-forze"></a>
 

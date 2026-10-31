@@ -6,6 +6,32 @@ published packages and their verification results.
 
 ## Unreleased
 
+## 0.1.11 — 2026-10-31
+
+### Added
+
+- Add persistent Light and Dark desktop themes in View, applied immediately to
+  the workspace, dialogs and 3D preview. Changing text size keeps the selected
+  theme.
+- Replace the desktop preview's Exploded toggle with a continuous Explode slider
+  from 0 to 1, with picking at fractional poses and exact preview-state
+  restoration. Changing the amount pauses motion and clears measurement points;
+  starting motion or choosing Initial pose returns to the assembled pose.
+  Geometry exports and package previews retain nominal assembly coordinates.
+
+### Fixed
+
+- Derive planetary ring tooth height and root clearance from the actual mating
+  planet profile, keeping the complete nominal contact path on usable involutes.
+  Tooth counts, ratios, sun/planet profiles and outer assembly dimensions stay
+  unchanged; regenerating older projects intentionally produces the corrected
+  inner ring contour. Reports expose the derived geometry and contact ratio.
+- Check planetary transverse polygons over their full neutral-backlash tooth
+  period with bounded continuous phase subdivision and cached geometry results.
+  Keep unresolved clearance visible, including zero/tiny-backlash and exhausted
+  checks, and reject detected collisions. These checks do not certify unsampled
+  curves, exported 3D interpolation, loaded contact or manufacturing tooling.
+
 ## 0.1.10 — 2026-10-31
 
 ### Added

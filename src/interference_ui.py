@@ -198,7 +198,7 @@ class Controller:
         app=self.app
         if hasattr(app,'components'):app.components.restore();app.components.clear_points()
         if self.saved_view is None:
-            self.saved_view={k:w.get_active() for k,w in app.view_options.items()}
+            self.saved_view=app.view_state()
         for key in ('exploded','section'):app.view_options[key].set_active(False)
         for key in ('support','housing'):app.view_options[key].set_active(True)
         result=row.finding
@@ -208,8 +208,7 @@ class Controller:
     def restore_view(self):
         self.app.canvas.clear_inspection()
         saved=self.saved_view;self.saved_view=None
-        if saved:
-            for key,value in saved.items():self.app.view_options[key].set_active(value)
+        if saved:self.app.restore_view_state(saved)
 
     def save(self):
         if not self.result or not self.current(self.serial):return

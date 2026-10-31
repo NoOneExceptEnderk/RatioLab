@@ -7,7 +7,7 @@ import gi
 
 gi.require_version('Gtk', '4.0')
 from gi.repository import Gtk, Gdk, GLib
-from workspace_ui import CSS
+from workspace_ui import CSS, theme_css
 
 
 def pump():
@@ -120,6 +120,46 @@ class WorkspaceThemeTests(unittest.TestCase):
         pump()
         self.assert_color(label, (233, 238, 244))
         self.assert_color(row_label, (233, 238, 244))
+
+    def test_light_palette_updates_existing_dialog_popover_and_native_children(self):
+        spin = Gtk.SpinButton.new_with_range(0, 100, 1)
+        primary = Gtk.Button(label='Export', css_classes=['primary'])
+        check = Gtk.CheckButton(label='Housing', active=True)
+        muted = Gtk.Label(label='Secondary', css_classes=['muted'])
+        error = Gtk.Label(label='Invalid', css_classes=['error'])
+        menu = Gtk.MenuButton(label='Open')
+        popup = Gtk.Popover()
+        menu.set_popover(popup)
+        popup_label = Gtk.Label(label='Popover text')
+        popup.set_child(popup_label)
+        for widget in (spin, primary, check, muted, error, menu):
+            self.box.append(widget)
+        dialog = Gtk.Window(transient_for=self.window, css_classes=['reducers'])
+        self.addCleanup(dialog.destroy)
+        dialog_label = Gtk.Label(label='Dialog text')
+        dialog.set_child(dialog_label)
+        self.show()
+        dialog.present()
+        popup.popup()
+        pump()
+        # Reuse the provider with already mapped native children and windows.
+        self.providers[-1].load_from_data(theme_css('light', 2))
+        for _ in range(4):
+            pump()  # Allow the native theme's foreground transition to settle.
+        spin_text = next(w for w in descendants(spin) if w.get_css_name() == 'text')
+        primary_label = next(w for w in descendants(primary) if isinstance(w, Gtk.Label))
+        check_node = next(w for w in descendants(check) if w.get_css_name() == 'check')
+        for widget in (spin_text, popup_label, dialog_label):
+            self.assert_color(widget, (38, 56, 70))
+        self.assert_color(primary_label, (255, 255, 255))
+        self.assert_color(check_node, (255, 255, 255))
+        self.assert_color(muted, (98, 115, 128))
+        self.assert_color(error, (155, 54, 43))
+        self.providers[-1].load_from_data(theme_css('dark', 1))
+        for _ in range(4):
+            pump()
+        for widget in (spin_text, popup_label, dialog_label):
+            self.assert_color(widget, (233, 238, 244))
 
 
 if __name__ == '__main__':

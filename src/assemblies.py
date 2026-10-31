@@ -25,11 +25,13 @@ def planetary(d):
     wall=v['housing_wall'];outside=max_ring+c+wall;bolt=min(1.5,v['rim']/4);ratio=1
     if v['rim']<2:raise ValueError('The assembly with fasteners requires a ring at least 2 mm thick.')
     bearingwall=max(.6,min(1.5,m*.65));rbearing=rshaft+bearingwall
-    stage_tops=[];ringholes=[]
+    stage_tops=[];ringholes=[];pair_plans=[]
+    from internal_mesh import plan_planetary_internal_pair, validate_axial_pair
     for index,(zs,zp,w,z0) in enumerate(stages):
         tag=f'S{index+1}';zr=zs+2*zp;a=mt*(zs+zp)/2;ratio*=1+zr/zs
+        plan=plan_planetary_internal_pair(zp,zr,m,pa,beta,backlash);pair_plans.append(plan)
         def gear(name,teeth,center=(0,0),phase=0,helix=0,internal=False):
-            p=gear_part(tag+'_'+name,teeth,m,pa,backlash,w,bore,center,phase,helix,internal,v['rim'],z0)
+            p=gear_part(tag+'_'+name,teeth,m,pa,backlash,w,bore,center,phase,helix,internal,v['rim'],z0,ha=plan['ring_addendum_coefficient'] if internal else 1, minimum_join_radius_mm=plan['minimum_join_radius_mm'] if internal else None)
             if variant in ('double','two_stage_double'):
                 p.double=True;p.gap=v['gap'];p.core_radius=min(hypot(x,y) for x,y in p.outer)*.96
                 if not internal and bore/2>=p.core_radius-.25:raise ValueError('Bore too large for the continuous double helix hub.')
@@ -37,9 +39,17 @@ def planetary(d):
         gear('Sun',zs,helix=beta)
         for j in range(n):
             theta=TAU*j/n;phase=(pi+theta*(zs+zp))/zp+pi
-            gear(f'Planet_{j+1}',zp,polar(a,theta),phase,-beta)
+            planet=gear(f'Planet_{j+1}',zp,polar(a,theta),phase,-beta)
         ring_phase=(zp*(pi/zp+pi)-pi)/zr
         ring=gear('Ring',zr,phase=ring_phase,helix=-beta,internal=True)
+        axial_failure=validate_axial_pair(planet,ring,zp,zr)
+        if axial_failure:
+            plan['verification'].update(status='unresolved',failure_reason=axial_failure,certified_separation_lower_bound_mm=None)
+        else:
+            plan['verification']['axial_scope']='Ideal spur/twisted transverse sections; common phase ratio and groove material subsets; excludes exported surface interpolation.'
+        ring.profile_metadata['tooth_profile']['construction_version']=plan['construction_version']
+        if abs(ring.profile_metadata['tooth_profile']['involute_end_radius_mm']-plan['ring_join_radius_mm'])>1e-8:
+            raise ValueError('Paired ring contour and plan disagree.')
         rring=mt*zr/2+1.25*m+v['rim'];fixR=rring-v['rim']/2
         # Axial fixing holes are entirely outside the roots of the internal teeth.
         holes=[circle(bolt,32,polar(fixR,TAU*j/4+pi/4)) for j in range(4)] if not beta else []
@@ -71,14 +81,17 @@ def planetary(d):
     annulus(d,'Bearing_output_envelope',rbearing-.02,rshaft+.02,t,top,color=BEARING)
     label={'spur':'Single stage · spur','helical':'Single stage · helical','double':'Single stage · double helical','two_stage':'Two stages in cascade','two_stage_double':'Two stages · double helical'}[variant]
     d.metrics=[label+f' · reduction {ratio:.5g}:1',f'{len(stages)} stages · {n} planets per stage',f'Z sun / planet / ring: '+ ' → '.join(f'{zs}/{zp}/{zs+2*zp}' for zs,zp,w,z in stages),f'Housing diameter {2*outside:.2f} mm · body length {top+t-bottom:.2f} mm']
+    for i,plan in enumerate(pair_plans,1):
+        d.metrics.append(f"Stage {i} ring: derived ha {plan['ring_addendum_coefficient']:.6f} · tip shortened {plan['ring_tip_relief_mm']:.4f} mm · neutral transverse polygon clearance {plan['verification']['status']}")
     from engineering import mesh
     d.analysis.update(signed_ratio=ratio,meshes=[])
-    for zs,zp,w,z0 in stages:
+    for (zs,zp,w,z0),plan in zip(stages,pair_plans):
         active=(w-v.get('gap',0))/2 if variant in ('double','two_stage_double') else w
         for a,b,internal in [(zs,zp,False),(zp,zs+2*zp,True)]:
-            q=mesh(a,b,m,pa,beta,active,internal=internal,strict=False,backlash=backlash)
+            q=mesh(a,b,m,pa,beta,active,internal=internal,strict=False,backlash=backlash,internal_plan=plan if internal else None)
     # Do not divide torque by planet count: the load-sharing factor is unknown.
             q['torque_factor']=None;d.analysis['meshes'].append(q)
+    d.notes.append('Planetary rings use paired shortened involute teeth (planetary_paired_involute_v1). Neutral-backlash transverse polygon verification excludes unsampled analytic curves, exported 3D triangle interpolation, cutter envelopes, radial assembly and manufacturing checks.')
     d.notes.append('Contact ratio calculated for both meshes of each stage. Forces per planet are not estimated: actual load sharing requires stiffness and load distribution factors.')
     d.notes.extend(['Fixed ring; sun input and carrier output. In two stage models, the first stage output drives the second stage sun.',
         'Dimensional assembly with flanges, pins, shafts, housing and bearing envelopes. Seats, fasteners and fits are nominal: keys, threads, seals and catalog bearings are not generated. No automatic CAD motion joints.'])

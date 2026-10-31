@@ -27,7 +27,7 @@ MODULES = (
     'hardware_catalog', 'interference', 'kinematics', 'motion', 'mounting', 'package_export',
     'pair_assembly', 'parameter_help', 'printed_shaft', 'profile_export',
     'selected_export', 'solid_geometry', 'special_drives', 'standard_parts',
-    'stl_export', 'tooth_profiles', 'wave_envelope', 'wave_geometry', 'worm_geometry',
+    'stl_export', 'tooth_profiles', 'internal_mesh', 'wave_envelope', 'wave_geometry', 'worm_geometry',
 )
 RESOURCES = ('__init__.py', 'version.json', 'bearing-catalog.json', 'hardware-catalog.json')
 ASSETS = ('engine-client.js', 'worker.js', 'index.html', 'app.css',

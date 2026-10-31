@@ -114,7 +114,10 @@ class EngineeringTests(unittest.TestCase):
 
     def test_reports_exports_and_planetary_warning(self):
         d = generate('planetary')
-        self.assertTrue(any(('Internal involute interference' in n for n in d.notes)))
+        self.assertEqual(d.analysis['meshes'][1]['internal_pair_construction']['verification']['status'], 'clear')
+        self.assertFalse(any('Internal involute interference' in n for n in d.notes))
+        unresolved = generate('planetary', {'backlash': 0})
+        self.assertTrue(any('polygon clearance unresolved' in n for n in unresolved.notes))
         self.assertTrue(all(('forces' not in q for q in d.analysis['meshes'])))
         d = generate('parallel')
         with tempfile.TemporaryDirectory() as folder:

@@ -153,9 +153,29 @@ class ReducerApp(ProjectActions, Gtk.Application):
         if self.building:return
         self.remember();self.make_fields()
     def change_view_options(self,*args):
-        if not hasattr(self,'view_options'):return
-        self.canvas.set_options(*(self.view_options[k].get_active() for k in ['support','housing','exploded','section']))
+        if not hasattr(self,'view_options') or getattr(self,'explode_syncing',False):return
+        if args and args[0] is self.view_options['exploded']:
+            self.set_explosion(float(args[0].get_active()));return
+        amount=self.explode_slider.get_value()
+        self.canvas.set_options(self.view_options['support'].get_active(),self.view_options['housing'].get_active(),amount,self.view_options['section'].get_active())
         self.hidden_hint.set_visible(bool(self.canvas.scene and not self.canvas.scene.parts))
+    def sync_explosion_control(self):
+        self.explode_syncing=True
+        try:
+            self.explode_slider.set_value(self.canvas.exploded)
+            self.view_options['exploded'].set_active(bool(self.canvas.exploded))
+        finally:self.explode_syncing=False
+    def set_explosion(self,amount):
+        self.explode_syncing=True
+        try:self.explode_slider.set_value(amount)
+        finally:self.explode_syncing=False
+        self.change_view_options()
+    def view_state(self):
+        return {k:self.canvas.exploded if k=='exploded' else w.get_active() for k,w in self.view_options.items()}
+    def restore_view_state(self,state):
+        for key,value in state.items():
+            if key=='exploded':self.set_explosion(value)
+            else:self.view_options[key].set_active(value)
     def remember(self):
         if hasattr(self,'inputs'):self.collect_fields()
     def rebuild_options(self, changes):

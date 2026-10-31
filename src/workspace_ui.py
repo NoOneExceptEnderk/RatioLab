@@ -10,94 +10,221 @@ import motion_controls
 from preview3d import Preview3D
 from math import cos, sin, hypot, atan2, pi
 
-CSS = b'''
-window.reducers { background: #1d2229; color: #e9eef4; font-size: 14px; }
+# Colors are shared by the workspace, its dialogs and popovers. The light
+# palette follows the preserved initial web theme without changing the layout.
+THEMES = ('dark', 'light')
+_PALETTES = {
+    'dark': {
+        'window': '#1d2229',
+        'text': '#e9eef4',
+        'muted': '#acb9c9',
+        'accent': '#7cc8c8',
+        'on_accent': '#102a2c',
+        'line': '#38414d',
+        'surface': '#242b34',
+        'hover': '#303a46',
+        'focus': '#9bd8d8',
+        'field_label': '#dce4ed',
+        'input': '#151b22',
+        'active': '#29343e',
+        'selected': '#30434a',
+        'preview': '#11161d',
+        'preview_state': '#253642',
+        'preview_text': '#cde4e8',
+        'preview_line': '#405465',
+        'error_bg': '#382623',
+        'error': '#ffb1a5',
+        'error_line': '#9b6257',
+        'number': '#f0f6fb',
+        'warning_bg': '#302a20',
+        'warning_line': '#504534',
+        'invalid_line': '#704940',
+        'warning': '#efbf79',
+        'derived': '#27313b',
+        'field_error': '#f1a596',
+        'io_line': '#718499',
+        'io_input': '#e9a45d',
+        'io_output': '#74c8a4',
+        'io_result': '#addbdd',
+        'status': '#a9cdbb',
+        'trough': '#3c4754',
+        'slider': '#d2dce6',
+    },
+    'light': {
+        'window': '#f7f9fa',
+        'text': '#263846',
+        'muted': '#627380',
+        'accent': '#aa633d',
+        'on_accent': '#ffffff',
+        'line': '#d6dfe5',
+        'surface': '#ffffff',
+        'hover': '#eef3f5',
+        'focus': '#a15b35',
+        'field_label': '#354c5b',
+        'input': '#ffffff',
+        'active': '#e9eef1',
+        'selected': '#ead8cb',
+        'preview': '#e9eef1',
+        'preview_state': '#f7f9fa',
+        'preview_text': '#425565',
+        'preview_line': '#bbcbd5',
+        'error_bg': '#fbe9e5',
+        'error': '#9b362b',
+        'error_line': '#bc7368',
+        'number': '#122638',
+        'warning_bg': '#f8edda',
+        'warning_line': '#d7b98d',
+        'invalid_line': '#bc7368',
+        'warning': '#805518',
+        'derived': '#edf2f5',
+        'field_error': '#9b362b',
+        'io_line': '#718499',
+        'io_input': '#a15b35',
+        'io_output': '#28775b',
+        'io_result': '#466777',
+        'status': '#37694f',
+        'trough': '#c6d2da',
+        'slider': '#263846',
+    },
+}
+
+_CSS_TEMPLATE = '''
+window.reducers { background: @rl_window; color: @rl_text; font-size: 14px; }
 /* Native themes can set foregrounds on child nodes (notably spinbutton text).
    Reset those nodes to inheritance before applying our semantic colors. */
 .reducers * { color: inherit; }
 .reducers button:disabled, .reducers entry:disabled, .reducers spinbutton:disabled,
-.reducers dropdown:disabled, .reducers checkbutton:disabled, .reducers textview:disabled { color: #acb9c9; }
-.reducers selection { background: #7cc8c8; color: #102a2c; }
-.reducers headerbar { background: #1d2229; border-bottom: 1px solid #38414d; box-shadow: none; min-height: 48px; }
+.reducers dropdown:disabled, .reducers checkbutton:disabled, .reducers textview:disabled { color: @rl_muted; }
+.reducers selection { background: @rl_accent; color: @rl_on_accent; }
+.reducers checkbutton check { background: @rl_input; border-color: @rl_line; box-shadow: none; }
+.reducers checkbutton check:checked { background: @rl_accent; color: @rl_on_accent; border-color: @rl_accent; }
+.reducers checkbutton:focus-visible check { outline: 2px solid @rl_focus; outline-offset: 1px; }
+.reducers separator { background: @rl_line; }
+.reducers headerbar { background: @rl_window; border-bottom: 1px solid @rl_line; box-shadow: none; min-height: 48px; }
 .reducers headerbar windowcontrols button { background: transparent; border: 0; box-shadow: none; }
-.reducers button { background: #242b34; color: #e9eef4; border: 1px solid #38414d; border-radius: 5px; box-shadow: none; min-height: 28px; padding: 4px 10px; }
-.reducers button:hover { background: #303a46; }
+.reducers button { background: @rl_surface; color: @rl_text; border: 1px solid @rl_line; border-radius: 5px; box-shadow: none; min-height: 28px; padding: 4px 10px; }
+.reducers button:hover { background: @rl_hover; }
 .reducers button.flat { background: transparent; border-color: transparent; }
-.reducers button:focus-visible, .reducers entry:focus, .reducers spinbutton:focus-within { outline: 2px solid #9bd8d8; outline-offset: 1px; }
+.reducers button:focus-visible, .reducers entry:focus, .reducers spinbutton:focus-within { outline: 2px solid @rl_focus; outline-offset: 1px; }
 .reducers button:disabled { opacity: 0.5; }
-.reducers .sidebar { background: #1d2229; }
-.reducers .model-picker { padding: 18px; border-bottom: 1px solid #38414d; }
-.reducers .field-label { color: #dce4ed; font-size: 13px; }
-.reducers .muted, .reducers .result-title, .reducers .result-detail { color: #acb9c9; font-size: 12px; }
+.reducers .sidebar { background: @rl_window; }
+.reducers .model-picker { padding: 18px; border-bottom: 1px solid @rl_line; }
+.reducers .field-label { color: @rl_field_label; font-size: 13px; }
+.reducers .muted, .reducers .result-title, .reducers .result-detail { color: @rl_muted; font-size: 12px; }
 .reducers .step-title, .reducers .parameter-heading { font-weight: 600; font-size: 14px; }
-.reducers .action-title { font-weight: 600; color: #e9eef4; }
-.reducers dropdown > button { background: #151b22; border: 1px solid #38414d; border-radius: 4px; min-height: 31px; padding: 3px 8px; }
-.reducers spinbutton { background: #151b22; border: 1px solid #38414d; border-radius: 4px; min-height: 30px; }
+.reducers .action-title { font-weight: 600; color: @rl_text; }
+.reducers dropdown > button { background: @rl_input; border: 1px solid @rl_line; border-radius: 4px; min-height: 31px; padding: 3px 8px; }
+.reducers spinbutton { background: @rl_input; border: 1px solid @rl_line; border-radius: 4px; min-height: 30px; }
 .reducers spinbutton button { background: transparent; border: 0; min-width: 16px; padding: 2px; }
-.reducers entry { background: #151b22; color: #e9eef4; border: 1px solid #38414d; border-radius: 4px; min-height: 30px; }
-.reducers .page-nav { padding: 7px 8px; border-bottom: 1px solid #38414d; }
+.reducers entry { background: @rl_input; color: @rl_text; border: 1px solid @rl_line; border-radius: 4px; min-height: 30px; }
+.reducers .page-nav { padding: 7px 8px; border-bottom: 1px solid @rl_line; }
 .reducers .page-nav button { background: transparent; border-color: transparent; padding: 5px 9px; font-size: 12px; }
-.reducers .page-nav button:checked { background: #29343e; box-shadow: inset 0 -2px #7cc8c8; }
+.reducers .page-nav button:checked { background: @rl_active; box-shadow: inset 0 -2px @rl_accent; }
 .reducers .parameter-scroll { padding: 16px 18px; }
 .reducers .parameter-group { padding-bottom: 12px; }
-.reducers .sidebar-actions { padding: 9px 12px; border-top: 1px solid #38414d; }
+.reducers .sidebar-actions { padding: 9px 12px; border-top: 1px solid @rl_line; }
 .reducers .sidebar-actions button { font-size: 12px; }
 .reducers expander > title { padding: 9px 0; font-weight: 500; font-size: 13px; }
-.reducers button.primary, .reducers menubutton.primary > button { background: #7cc8c8; color: #102a2c; border-color: #7cc8c8; font-weight: 600; }
-.reducers .viewbar { padding: 8px 14px; border-bottom: 1px solid #38414d; }
+.reducers button.primary, .reducers menubutton.primary > button { background: @rl_accent; color: @rl_on_accent; border-color: @rl_accent; font-weight: 600; }
+.reducers .viewbar { padding: 8px 14px; border-bottom: 1px solid @rl_line; }
 .reducers .viewbar button { min-height: 25px; font-size: 12px; padding: 3px 10px; }
-.reducers .viewbar button:checked { background: #30434a; border-color: #7cc8c8; }
+.reducers .viewbar button:checked { background: @rl_selected; border-color: @rl_accent; }
 .reducers .viewbar checkbutton { font-size: 12px; }
-.reducers .preview-frame { background: #11161d; }
-.reducers .preview-state { background: #253642; color: #cde4e8; border: 1px solid #405465; border-radius: 4px; padding: 5px 9px; font-size: 12px; }
-.reducers .preview-state.invalid { background: #382623; color: #ffb1a5; border-color: #9b6257; }
-.reducers .playback-bar { padding: 9px 14px; border-top: 1px solid #38414d; border-bottom: 1px solid #38414d; }
+.reducers .preview-frame { background: @rl_preview; }
+.reducers .preview-state { background: @rl_preview_state; color: @rl_preview_text; border: 1px solid @rl_preview_line; border-radius: 4px; padding: 5px 9px; font-size: 12px; }
+.reducers .preview-state.invalid { background: @rl_error_bg; color: @rl_error; border-color: @rl_error_line; }
+.reducers .playback-bar { padding: 9px 14px; border-top: 1px solid @rl_line; border-bottom: 1px solid @rl_line; }
 .reducers .playback-bar button { font-size: 13px; }
 .reducers .playback-bar entry { font-variant-numeric: tabular-nums; }
 .reducers .results-strip { padding: 13px 17px; }
 .reducers .metric-card { padding: 0 12px; background: transparent; border-radius: 0; }
-.reducers .result-number { color: #f0f6fb; font-size: 25px; font-weight: 500; }
-.reducers .result-small { color: #f0f6fb; font-size: 20px; font-weight: 500; }
-.reducers .result-unit { color: #acb9c9; font-size: 12px; }
+.reducers .result-number { color: @rl_number; font-size: 25px; font-weight: 500; }
+.reducers .result-small { color: @rl_number; font-size: 20px; font-weight: 500; }
+.reducers .result-unit { color: @rl_muted; font-size: 12px; }
 .reducers .result-title { font-size: 12px; }
 .reducers .metric-card:disabled { opacity: 0.5; }
-.reducers .warning-bar { background: #302a20; border-top: 1px solid #504534; padding: 7px 14px; }
-.reducers .warning-bar.invalid { background: #382623; border-color: #704940; }
-.reducers .warning-bar.invalid .study { color: #ffb1a5; }
-.reducers .study { color: #efbf79; font-size: 12px; }
-.reducers .error { color: #ffb1a5; font-size: 12px; }
-.reducers .derived { background: #27313b; }
-.reducers .derived-output { background: #151b22; border: 1px solid #38414d; border-left: 2px solid #7cc8c8; border-radius: 4px; padding: 4px 8px; font-size: 16px; min-width: 42px; }
-.reducers .field-error { border-color: #f1a596; }
+.reducers .warning-bar { background: @rl_warning_bg; border-top: 1px solid @rl_warning_line; padding: 7px 14px; }
+.reducers .warning-bar.invalid { background: @rl_error_bg; border-color: @rl_invalid_line; }
+.reducers .warning-bar.invalid .study { color: @rl_error; }
+.reducers .study { color: @rl_warning; font-size: 12px; }
+.reducers .error { color: @rl_error; font-size: 12px; }
+.reducers .derived { background: @rl_derived; }
+.reducers .derived-output { background: @rl_input; border: 1px solid @rl_line; border-left: 2px solid @rl_accent; border-radius: 4px; padding: 4px 8px; font-size: 16px; min-width: 42px; }
+.reducers .field-error { border-color: @rl_field_error; }
 .reducers .field-feedback { padding: 2px 0 3px; }
-.reducers .io-role { padding: 6px 7px; background: #242b34; border-left: 2px solid #718499; }
-.reducers .io-input { border-left-color: #e9a45d; }
-.reducers .io-output { border-left-color: #74c8a4; }
+.reducers .io-role { padding: 6px 7px; background: @rl_surface; border-left: 2px solid @rl_io_line; }
+.reducers .io-input { border-left-color: @rl_io_input; }
+.reducers .io-output { border-left-color: @rl_io_output; }
 .reducers .io-value { font-weight: 500; }
-.reducers .io-result { color: #addbdd; font-size: 12px; }
-.reducers .footer { padding: 8px 15px; border-top: 1px solid #38414d; }
+.reducers .io-result { color: @rl_io_result; font-size: 12px; }
+.reducers .footer { padding: 8px 15px; border-top: 1px solid @rl_line; }
 .reducers .footer button { font-size: 12px; }
-.reducers .status { color: #a9cdbb; font-size: 12px; }
-.reducers .status.error { color: #ffb1a5; }
-.reducers .connected { color: #a9cdbb; }
-.reducers .motion-input-error { color: #ffb1a5; font-size: 12px; }
-.reducers popover > contents { background: #1d2229; color: #e9eef4; border: 1px solid #38414d; border-radius: 7px; padding: 12px; }
-.reducers .tool-dock { background: #242b34; border-left: 1px solid #38414d; }
-.reducers .tool-nav { padding: 7px; border-bottom: 1px solid #38414d; }
+.reducers .status { color: @rl_status; font-size: 12px; }
+.reducers .status.error { color: @rl_error; }
+.reducers .connected { color: @rl_status; }
+.reducers .motion-input-error { color: @rl_error; font-size: 12px; }
+.reducers popover > contents { background: @rl_window; color: @rl_text; border: 1px solid @rl_line; border-radius: 7px; padding: 12px; }
+.reducers popover list, .reducers popover listview { background: @rl_input; color: @rl_text; }
+.reducers popover row:selected { background: @rl_selected; color: @rl_text; }
+.reducers popover row:hover, .reducers popover modelbutton:hover { background: @rl_hover; }
+.reducers progressbar trough { background: @rl_trough; }
+.reducers progressbar progress { background: @rl_accent; border-color: @rl_accent; }
+.reducers .tool-dock { background: @rl_surface; border-left: 1px solid @rl_line; }
+.reducers .tool-nav { padding: 7px; border-bottom: 1px solid @rl_line; }
 .reducers .tool-nav button { padding: 3px 7px; font-size: 12px; }
-.reducers .tool-nav button:checked { border-color: #7cc8c8; background: #30434a; }
-.reducers .tool-dock list { background: #151b22; border: 1px solid #38414d; border-radius: 4px; }
-.reducers .tool-dock row { padding: 8px; border-bottom: 1px solid #38414d; }
-.reducers .tool-dock row:selected { background: #30434a; color: #e9eef4; }
-.reducers textview text { background: #151b22; color: #e9eef4; }
+.reducers .tool-nav button:checked { border-color: @rl_accent; background: @rl_selected; }
+.reducers .tool-dock list { background: @rl_input; border: 1px solid @rl_line; border-radius: 4px; }
+.reducers .tool-dock row { padding: 8px; border-bottom: 1px solid @rl_line; }
+.reducers .tool-dock row:selected { background: @rl_selected; color: @rl_text; }
+.reducers textview text { background: @rl_input; color: @rl_text; }
 .reducers .tool-dock flowboxchild { padding: 0; }
-.reducers .measurement { background: #151b22; border: 1px solid #38414d; border-radius: 5px; padding: 10px; font-variant-numeric: tabular-nums; }
+.reducers .measurement { background: @rl_input; border: 1px solid @rl_line; border-radius: 5px; padding: 10px; font-variant-numeric: tabular-nums; }
 .reducers .document-name { font-weight: 600; }
-.reducers .motion-palette scale trough { min-height: 4px; background: #3c4754; }
-.reducers .motion-palette scale highlight { background: #7cc8c8; }
-.reducers .motion-palette scale slider { min-width: 18px; min-height: 18px; margin: -7px 0; padding: 0; background: #d2dce6; }
+.reducers .motion-palette scale trough { min-height: 4px; background: @rl_trough; }
+.reducers .motion-palette scale highlight { background: @rl_accent; }
+.reducers .motion-palette scale slider { min-width: 18px; min-height: 18px; margin: -7px 0; padding: 0; background: @rl_slider; }
+.reducers .explode-control scale trough { min-height: 4px; background: @rl_trough; border-color: @rl_trough; box-shadow: none; }
+.reducers .explode-control scale highlight { background: @rl_accent; border-color: @rl_accent; box-shadow: none; }
+.reducers .explode-control scale slider { min-width: 18px; min-height: 18px; margin: -7px 0; padding: 0; background: @rl_slider; border-color: @rl_slider; box-shadow: none; }
 '''
 
+def theme_css(theme='dark', text_scale=0):
+    """Build one complete palette so scaling never restores a previous theme."""
+    import re
+    theme = theme if theme in THEMES else 'dark'
+    factor = (1, 1.25, 1.5)[text_scale]
+    definitions = ''.join(f'@define-color rl_{key} {value};\n'
+                          for key, value in _PALETTES[theme].items())
+    scaled = re.sub(r'font-size: (\d+)px',
+                    lambda match: f'font-size: {int(match[1])*factor:g}px',
+                    _CSS_TEMPLATE)
+    return (definitions + scaled).encode('utf-8')
+
+
+# Preserve the original public constant for consumers of the default dark style.
+CSS = theme_css()
+
+
+def apply_theme(app):
+    """Apply display preferences without refreshing geometry or document state."""
+    scale = app.text_size.get_selected() if hasattr(app, 'text_size') else 0
+    app.workspace_style.load_from_data(theme_css(app.workspace_theme, scale))
+    if hasattr(app, 'canvas'):
+        app.canvas.set_theme(app.workspace_theme)
+    if hasattr(app, 'axes'):
+        app.axes.queue_draw()
+
+
+def change_theme(app, widget):
+    from app_paths import save_preferences
+    app.workspace_theme = THEMES[widget.get_selected()]
+    apply_theme(app)
+    try:
+        save_preferences(legacy_root=app.BASE, theme=app.workspace_theme)
+        app.theme_error.set_visible(False)
+    except OSError:
+        # Keep the usable session preference even on a read-only user profile.
+        app.theme_error.set_visible(True)
 
 def margins(widget, value):
     for setter in (widget.set_margin_start, widget.set_margin_end,
@@ -114,7 +241,7 @@ def install_axes(app, overlay):
     margins(axes, 12)
     def draw(widget, cr, width, height):
         cr.translate(width/2, height/2)
-        cr.set_source_rgb(.76, .84, .9)
+        cr.set_source_rgb(*app.canvas.palette['axes'])
         cr.set_line_width(1.4)
         cr.set_font_size(12)
         c, s = cos(app.canvas.yaw), sin(app.canvas.yaw)
@@ -134,12 +261,13 @@ def install_axes(app, overlay):
             cr.move_to(x+4, y-4)
             cr.show_text(name)
     axes.set_draw_func(draw)
+    app.axes = axes
     app.canvas.connect('view-changed', lambda *_: axes.queue_draw())
     overlay.add_overlay(axes)
 
 
 def build(app, labels):
-    from app_paths import APP_ID, resource_path
+    from app_paths import APP_ID, resource_path, load_preferences
     brand_dir = resource_path('branding')
     # A flat PNG lookup has no registered sizes, so GTK cannot populate native
     # window icons. Keep a standard hicolor theme for source, wheels and bundles.
@@ -150,7 +278,9 @@ def build(app, labels):
     app.win.add_css_class('reducers')
     app.win.set_default_size(1600, 1000)
     provider = Gtk.CssProvider()
-    provider.load_from_data(CSS)
+    saved_theme = load_preferences(legacy_root=app.BASE).get('theme', 'dark')
+    app.workspace_theme = saved_theme if saved_theme in THEMES else 'dark'
+    provider.load_from_data(theme_css(app.workspace_theme))
     app.workspace_style = provider
     Gtk.StyleContext.add_provider_for_display(Gdk.Display.get_default(), provider,
                                               Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
@@ -256,6 +386,7 @@ def build(app, labels):
     toolbar = Gtk.Box(spacing=8, css_classes=['viewbar'])
     right.append(toolbar)
     app.canvas = Preview3D()
+    app.canvas.set_theme(app.workspace_theme)
     app.view_buttons = {}
     views = Gtk.Box(spacing=4)
     toolbar.append(views)
@@ -283,23 +414,46 @@ def build(app, labels):
     visibility.set_popover(popup)
     view_body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=9)
     popup.set_child(view_body)
+    view_body.append(Gtk.Label(label='Theme', xalign=0, css_classes=['muted']))
+    app.theme_selector = Gtk.DropDown.new_from_strings(['Dark', 'Light'])
+    app.theme_selector.set_selected(THEMES.index(app.workspace_theme))
+    app.theme_selector.set_tooltip_text('Appearance only. Saved for future sessions.')
+    view_body.append(app.theme_selector)
+    app.theme_error = Gtk.Label(label='Theme changed for this session. Could not save preference.',
+                                wrap=True, max_width_chars=30, visible=False, css_classes=['error'])
+    view_body.append(app.theme_error)
+    app.theme_selector.connect('notify::selected', lambda widget, *_: change_theme(app, widget))
+    view_body.append(Gtk.Separator())
     view_body.append(Gtk.Label(label='Text size', xalign=0, css_classes=['muted']))
     app.text_size = Gtk.DropDown.new_from_strings(['100%', '125%', '150%'])
     view_body.append(app.text_size)
-    def text_size_changed(widget, *_):
-        import re
-        factor = (1, 1.25, 1.5)[widget.get_selected()]
-        scaled = re.sub(rb'font-size: (\d+)px', lambda m: f'font-size: {int(m[1])*factor:g}px'.encode(), CSS)
-        app.workspace_style.load_from_data(scaled)
-    app.text_size.connect('notify::selected', text_size_changed)
+    app.text_size.connect('notify::selected', lambda *_: apply_theme(app))
     view_body.append(Gtk.Separator())
     app.view_options = {}
     for key, title in [('support','Supports'), ('housing','Housing'), ('exploded','Exploded'), ('section','Section')]:
         check = Gtk.CheckButton(label=title)
         check.set_tooltip_text('Preview only. Export always uses nominal coordinates and its explicit component scope.')
         check.connect('toggled', app.change_view_options)
-        view_body.append(check)
+        # Keep the old binary API for existing integrations. The continuous
+        # slider below is the only visible explosion control.
+        if key!='exploded':view_body.append(check)
         app.view_options[key] = check
+    view_body.append(Gtk.Separator())
+    explode_box=Gtk.Box(orientation=Gtk.Orientation.VERTICAL,spacing=6,css_classes=['explode-control'])
+    explode_title=Gtk.Label(label='Explode',xalign=0)
+    explode_box.append(explode_title)
+    app.explode_slider=Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL,0.,1.,.01)
+    app.explode_slider.set_digits(2)
+    app.explode_slider.set_draw_value(True)
+    app.explode_slider.set_size_request(220,-1)
+    app.explode_slider.set_hexpand(True)
+    app.explode_slider.update_property([Gtk.AccessibleProperty.LABEL],['Explode'])
+    app.explode_slider.set_tooltip_text('Preview only · assembled 0 to fully exploded 1. Pauses motion. Exports use nominal coordinates.')
+    app.explode_slider.connect('value-changed',app.change_view_options)
+    explode_box.append(app.explode_slider)
+    explode_box.append(Gtk.Label(label='Preview only · nominal export coordinates',xalign=0,wrap=True,max_width_chars=30,css_classes=['muted']))
+    view_body.append(explode_box)
+    app.canvas.connect('display-state',lambda *_:app.sync_explosion_control())
     overlay = Gtk.Overlay(css_classes=['preview-frame'])
     overlay.set_child(app.canvas)
     overlay.set_vexpand(True)

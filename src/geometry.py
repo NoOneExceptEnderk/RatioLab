@@ -329,7 +329,7 @@ def sample_curve(fn, a, b, tolerance=0.015, depth=0):
         return [start, end]
     return sample_curve(fn, a, mid, tolerance, depth + 1)[:-1] + sample_curve(fn, mid, b, tolerance, depth + 1)
 
-def involute(z, m, pressure=20, backlash=0.15, internal=False, samples=4, depth_module=None, shift=0, normal_pressure=None, ha=1, hf=1.25, metadata=None):
+def involute(z, m, pressure=20, backlash=0.15, internal=False, samples=4, depth_module=None, shift=0, normal_pressure=None, ha=1, hf=1.25, metadata=None, minimum_join_radius_mm=None):
     """Involute with a rack-generated external root or constructed ring blend.
 
     ``samples`` remains a compatibility argument. All curves use the shared
@@ -341,7 +341,7 @@ def involute(z, m, pressure=20, backlash=0.15, internal=False, samples=4, depth_
     if internal:
         if shift:
             raise ValueError('Shifted internal rings require a dedicated shaping cutter model.')
-        flank, info = internal_half(z, m, pressure, backlash, depth, ha, hf, sample_curve)
+        flank, info = internal_half(z, m, pressure, backlash, depth, ha, hf, sample_curve, minimum_join_radius_mm)
     else:
         flank, info = external_half(z, m, pressure, backlash, depth, shift, normal_pressure, ha, hf, sample_curve)
     if metadata is not None:
@@ -354,12 +354,35 @@ def involute(z, m, pressure=20, backlash=0.15, internal=False, samples=4, depth_
     points=[]
     for k in range(z):
         a=k*pitch
-        local=sample_curve(lambda q:polar(root,q),-pitch/2,-ar)[:-1]
+        root_left=sample_curve(lambda q:polar(root,q),-pitch/2,-ar)
+        root_right=sample_curve(lambda q:polar(root,q),ar,pitch/2)
+        if internal and minimum_join_radius_mm is not None:
+            # Root-circle chords belong to the excluded non-involute region.
+            # Reject a chord that cuts inside the selected blend join.
+            for arc in (root_left,root_right):
+                for p0,p1 in zip(arc,arc[1:]):
+                    dx=p1[0]-p0[0];dy=p1[1]-p0[1];den=dx*dx+dy*dy
+                    q=max(0,min(1,-(p0[0]*dx+p0[1]*dy)/den)) if den else 0
+                    if hypot(p0[0]+q*dx,p0[1]+q*dy)<info['involute_end_radius_mm']-1e-8:
+                        raise ValueError('Paired ring root chord violates its radial exclusion.')
+        local=root_left[:-1]
         local += [(x,-y) for x,y in reversed(right)]
-        local += sample_curve(lambda q:polar(tip,q),-at,at)[1:-1]
+        tip_arc=sample_curve(lambda q:polar(tip,q),-at,at)
+        if internal and minimum_join_radius_mm is not None:
+            # Circumscribed tangents preserve the exact radial exclusion;
+            # ordinary inscribed chords would dip below the planned tip radius.
+            circumscribed=[tip_arc[0]]
+            for p0,p1 in zip(tip_arc,tip_arc[1:]):
+                q0=atan2(p0[1],p0[0]);q1=atan2(p1[1],p1[0])
+                circumscribed.extend((polar(tip/cos((q1-q0)/2),(q0+q1)/2),p1))
+            tip_arc=circumscribed
+            info['tip_sampling']='circumscribed tangent segments; radial exclusion preserved'
+        local += tip_arc[1:-1]
         local += right
-        local += sample_curve(lambda q:polar(root,q),ar,pitch/2)[1:]
+        local += root_right[1:]
         points.extend(transformed(local,angle=a))
+    if metadata is not None:
+        metadata.update(info)
     return clean(points)
 
 def cycloid(n, R, e, pin, clearance=0, samples=None, tolerance=0.01):
@@ -573,12 +596,12 @@ class Design:
         add('component.activate', component='root')
         return cmds
 
-def gear_part(name, z, m, pressure, backlash, width, bore=0, center=(0, 0), phase=0, helix=0, internal=False, rim=5, zoff=0, shift=0, ha=1, hf=1.25):
+def gear_part(name, z, m, pressure, backlash, width, bore=0, center=(0, 0), phase=0, helix=0, internal=False, rim=5, zoff=0, shift=0, ha=1, hf=1.25, minimum_join_radius_mm=None):
     """Build from normal module/pressure; pressure and helix are degrees, phase radians."""
     mt = m / cos(radians(helix))
     at = degrees(atan(tan(radians(pressure)) / cos(radians(helix))))
     profile_info = {}
-    outline = transformed(involute(z, mt, at, backlash, internal, depth_module=m, shift=shift, normal_pressure=pressure, ha=ha, hf=hf, metadata=profile_info), angle=phase)
+    outline = transformed(involute(z, mt, at, backlash, internal, depth_module=m, shift=shift, normal_pressure=pressure, ha=ha, hf=hf, metadata=profile_info, minimum_join_radius_mm=minimum_join_radius_mm), angle=phase)
     if not internal and bore / 2 >= min((hypot(x, y) for x, y in outline)) - 0.25:
         raise ValueError(f'{name}: bore too large for the tooth root diameter.')
     outer = circle(mt * z / 2 + hf * m + rim) if internal else outline

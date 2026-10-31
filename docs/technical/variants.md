@@ -15,6 +15,32 @@ For an individual gear, the variant is selected directly. For planetary, two-sta
 
 The gap is hidden and forced to zero for joined helices; it must be positive for separated helices. Old JSON files with `gap: 0` are recognised as joined and those with a positive gap as separated. The axial contact ratio continues to use the width of a single active half, without counting the gap as teeth. Axial-thrust cancellation requires symmetric load sharing.
 
+## Planetary paired internal contact
+
+All five planetary variants use the same paired internal construction, including
+each distinct stage of a two-stage model. The ring addendum is derived from the
+actual mating planet's involute start, and the ring blend is kept outside the
+planet's radial reach. Reports expose the significant ring-tip shortening and
+the continuous transverse polygon clearance status. See the [construction,
+equations, numerical verification and limits](calculations.md#paired-planetary-rings).
+
+Saved projects keep their tooth counts, dimensions, RPM and existing schema.
+Regenerating an older planetary project deliberately changes its inner ring
+contour, identified in metadata by `planetary_paired_involute_v1`; previously
+exported meshes or CAD bodies are unaffected. Sun and planet profiles, reference
+circles and outer housing dimensions retain their former construction.
+Standalone internal pairs retain their previous geometry and warnings.
+
+A clear status covers the generated unloaded neutral-backlash transverse
+polygons over their full phase period. Matching helix phase ratios and groove
+material subsets extend this result to ideal transverse sections of helical and
+double-helical variants, including both hands. It does not certify unsampled
+analytic curves or interpolation between exported CAD/STL stations. Zero/tiny
+backlash, touching boundaries or exhausted verification limits remain unresolved;
+a detected proper polygon collision rejects generation. The ring remains a
+nominal involute/tangent construction, not a pinion-cutter envelope or a claim of
+manufacturing readiness, strength or load sharing.
+
 ## Cylindrical worm: ZA and ZI
 
 ZA retains straight axial screw flanks; ZI retains a transverse involute screw.

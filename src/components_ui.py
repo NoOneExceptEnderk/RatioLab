@@ -162,15 +162,14 @@ class Controller:
         if not self.current() or not self.selected:return
         app=self.app
         app.interference.restore_view()
-        if self.saved_filters is None:self.saved_filters={k:w.get_active() for k,w in app.view_options.items()}
+        if self.saved_filters is None:self.saved_filters=app.view_state()
         app.canvas.isolated_indices=self.selected
         for key in ('support','housing'):app.view_options[key].set_active(True)
         self.populate();self.update();app.canvas.queue_render()
 
     def restore(self):
         saved=self.saved_filters;self.saved_filters=None;self.app.canvas.isolated_indices=None
-        if saved:
-            for key,value in saved.items():self.app.view_options[key].set_active(value)
+        if saved:self.app.restore_view_state(saved)
         self.app.canvas.queue_render()
         if self.window:self.populate();self.update()
 
@@ -187,8 +186,18 @@ class Controller:
         return (c.motion_enabled,c.inspection_phase if c.inspection_phase is not None else c.motion_phase,c.exploded,c.section,c.motion_playing)
 
     def display_changed(self,*_):
-        if self.points and (self.pose_key()!=self.pose or any(index not in self.visible_indices() for index,_ in self.points)):self.clear_points()
-        self.populate();self.update();self.markers.queue_draw()
+        # Only retain triangles for the current continuous placement, rather
+        # than accumulating a full mesh for each slider stop.
+        if self.cache and next(iter(self.cache))[1]!=self.app.canvas.exploded:self.cache={}
+        visible=self.visible_indices()
+        if self.points and (self.pose_key()!=self.pose or any(index not in visible for index,_ in self.points)):self.clear_points()
+        # Explosion and phase do not change the nominal bounds or list labels.
+        # Rebuilding those surfaces for every slider event defeats the cached
+        # GPU scene, especially with several large components selected.
+        state=(visible,self.selected,self.saved_filters is not None,self.revision)
+        if state!=getattr(self,'display_list_state',None):
+            self.display_list_state=state;self.populate();self.update()
+        self.markers.queue_draw()
 
     def inspection_changed(self,*_):
         if self.app.canvas.inspection_phase is not None:self.restore()
@@ -261,7 +270,7 @@ class Controller:
         design=deepcopy(app.design);config=deepcopy(app.config());png=None
         if kind=='package':
             canvas=app.canvas
-            saved=dict(options={k:w.get_active() for k,w in app.view_options.items()},isolated=canvas.isolated_indices,
+            saved=dict(options=app.view_state(),isolated=canvas.isolated_indices,
                 enabled=canvas.motion_enabled,phase=canvas.motion_phase,plan=canvas.inspection_motion_plan or canvas.motion_plan,inspection=canvas.inspection_phase,inspection_indices=canvas.inspection_indices,playing=canvas.motion_playing,points=deepcopy(self.points),pose=self.pose,measurement=self.measure_text.get_text() if self.window else '')
             try:
                 canvas.reset_motion()
@@ -273,7 +282,7 @@ class Controller:
                 png=captured[0][0]
             except Exception as error:app.status_text(str(error));return
             finally:
-                for key,value in saved['options'].items():app.view_options[key].set_active(value)
+                app.restore_view_state(saved['options'])
                 canvas.isolated_indices=saved['isolated'];canvas.motion_phase=saved['phase'];canvas.motion_enabled=saved['enabled'];canvas.motion_plan=saved['plan']
                 if saved['inspection'] is not None:canvas.show_inspection(saved['inspection'],saved['inspection_indices'])
                 if saved['playing']:canvas.set_motion_playing(True)

@@ -46,10 +46,15 @@ def geometry_warnings(design):
     return list(dict.fromkeys(warnings))
 
 
-def mesh(z1, z2, m, pressure=20, beta=0, width=10, x=0, center_extra=0, internal=False, gap=0, strict=True, backlash=0):
+def mesh(z1, z2, m, pressure=20, beta=0, width=10, x=0, center_extra=0, internal=False, gap=0, strict=True, backlash=0, internal_plan=None):
     """Balance x1=x, x2=-x for external pairs only; use explicit working distance."""
     a1 = gear_dimensions(z1, m, pressure, beta, x, backlash=backlash)
     a2 = gear_dimensions(z2, m, pressure, beta, 0 if internal else -x, backlash=backlash, internal=internal)
+    if internal_plan is not None:
+        expected=dict(zp=z1,zr=z2,mn=m,alpha_n_deg=pressure,beta_deg=beta,backlash_mm=backlash)
+        if not internal or internal_plan.get('construction_inputs')!=expected or x!=0 or center_extra!=0:
+            raise ValueError('Paired internal plan does not match the mesh construction inputs.')
+        a2['tip_radius']=internal_plan['ring_tip_radius_mm']
     r1 = a1['pitch_radius']
     r2 = a2['pitch_radius']
     at = radians(a1['alpha_t'])
@@ -60,7 +65,7 @@ def mesh(z1, z2, m, pressure=20, beta=0, width=10, x=0, center_extra=0, internal
     aw = acos(a0 * cos(at) / a)
     ra1 = a1['tip_radius']
     rb1 = a1['base_radius']
-    ra2 = r2 - m if internal else a2['tip_radius']
+    ra2 = a2['tip_radius']
     rb2 = a2['base_radius']
     if ra1 <= rb1 or ra2 <= rb2:
         raise ValueError('Tip circle below the base circle: unsupported gear pair.')
@@ -86,7 +91,7 @@ def mesh(z1, z2, m, pressure=20, beta=0, width=10, x=0, center_extra=0, internal
             if strict:
                 raise ValueError('Internal involute interference at the pinion: increase planet/pinion tooth count.')
             warnings.append('Internal involute interference: theoretical contact extends below the planet base circle. The generated root does not establish a valid internal contact path; increase tooth count or redesign the pair.')
-        warnings.append('Axial ring assembly; the tangent root construction is not a pinion-cutter envelope. Check involute, trochoid and trimming interference for the actual cutter.')
+        if internal_plan is None: warnings.append('Axial ring assembly; the tangent root construction is not a pinion-cutter envelope. Check involute, trochoid and trimming interference for the actual cutter.')
     for k, g in enumerate((a1, a2), 1):
         if internal and k == 2:
             continue
@@ -97,7 +102,10 @@ def mesh(z1, z2, m, pressure=20, beta=0, width=10, x=0, center_extra=0, internal
     endpoints=lambda fn,a,b:[fn(a),fn(b)]
     def usable(g,ring=False):
         if ring:
-            _,info=internal_half(g['teeth'],g['mt'],g['alpha_t'],backlash,m,1,1.25,endpoints)
+            if internal_plan is not None:
+                info=internal_plan['ring_profile']
+            else:
+                _,info=internal_half(g['teeth'],g['mt'],g['alpha_t'],backlash,m,1,1.25,endpoints)
             g['tooth_thickness'] = info['tooth_thickness']
             g['wildhaber_span'] = wildhaber_span(info['measurement_geometry'])
             g['over_gauges'] = default_gauge(info['measurement_geometry'])
@@ -113,9 +121,13 @@ def mesh(z1, z2, m, pressure=20, beta=0, width=10, x=0, center_extra=0, internal
     usable_ea=max(0,upper-lower)/(pi*a1['mt']*cos(at))
     if usable_ea+eb<1:
         warnings.append('Usable involute contact ratio after root trimming/blending is below 1; nominal tip/base-circle ratio overstates the active flank. Change tooth counts or tooth geometry to maintain continuous engagement.')
-    return dict(profile_contact_transverse=usable_ea, profile_contact_total=usable_ea+eb,
+    if internal_plan is not None and internal_plan['verification']['status']!='clear':
+        warnings.append('Planetary internal polygon clearance unresolved: '+internal_plan['verification']['failure_reason'])
+    result=dict(profile_contact_transverse=usable_ea, profile_contact_total=usable_ea+eb,
                 profile_contact_basis='intersection of usable involute intervals after root envelope/blend; excludes fillet contact, elastic deflection and 3D interference',
                 z1=z1, z2=z2, internal=internal, center_distance_mm=a, reference_center_mm=a0, working_pressure_deg=degrees(aw), contact_transverse=ea, contact_overlap=eb, contact_total=ea + eb, extra_backlash_mm=added, nominal_pair_backlash_mm=backlash, working_pair_backlash_mm=backlash * a / a0 + (added or 0), gear1=a1, gear2=a2, warnings=warnings)
+    if internal_plan is not None:result['internal_pair_construction']=internal_plan
+    return result
 
 def force_components(torque, diameter, pressure, beta=0):
     ft = 2000 * abs(torque) / diameter
@@ -197,6 +209,10 @@ def report_text(d):
     for i, q in enumerate(r.get('meshes', []), 1):
         lines.append(f"Mesh {i}: Z {q['z1']}/{q['z2']} · centre distance {q['center_distance_mm']:.6f} mm · αw {q['working_pressure_deg']:.6f}°")
         lines.append(f"  εα {q['contact_transverse']:.6f} · εβ {q['contact_overlap']:.6f} · ε total {q['contact_total']:.6f}")
+        if q.get('internal_pair_construction'):
+            plan=q['internal_pair_construction'];check=plan['verification']
+            lines.append(f"  Paired ring {plan['construction_version']}: ha {plan['ring_addendum_coefficient']:.9f}; tip relief {plan['ring_tip_relief_mm']:.6f} mm; radial exclusion margins {plan['planet_root_exclusion_margin_mm']:.6f}/{plan['ring_root_exclusion_margin_mm']:.6f} mm.")
+            lines.append(f"  Neutral transverse polygon clearance: {check['status']}; {check['evaluated_intervals']} intervals; certified separation lower bound {check['certified_separation_lower_bound_mm']} mm. {check['scope']}")
         lines.append(f"  Usable involute after root trimming/blending: εα {q['profile_contact_transverse']:.6f} · ε total {q['profile_contact_total']:.6f}; no fillet-contact or 3D collision solution.")
         for k in ('gear1', 'gear2'):
             g = q[k]

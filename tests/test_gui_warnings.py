@@ -36,13 +36,19 @@ class GeometryWarningTests(unittest.TestCase):
         app.study.set_visible.assert_called_with(False)
         app.study.set_text.assert_called_with('')
 
-    def test_internal_interference_is_visible(self):
+    def test_planetary_verified_pair_clears_and_unresolved_remains_visible(self):
         design = generate('planetary')
-        self.assertTrue(any('Internal involute interference' in w
-                            for w in geometry_warnings(design)))
-        label = self.label_for(design)
+        self.assertEqual(geometry_warnings(design), [])
+        self.label_for(design).set_visible.assert_called_once_with(False)
+        unresolved = generate('planetary', {'backlash': 0})
+        self.assertTrue(any('polygon clearance unresolved' in w
+                            for w in geometry_warnings(unresolved)))
+        label = self.label_for(unresolved)
         label.set_visible.assert_called_once_with(True)
-        self.assertIn('Internal involute interference', label.set_text.call_args.args[0])
+        self.assertIn('polygon clearance unresolved', label.set_text.call_args.args[0])
+        legacy = generate('internal')
+        self.assertTrue(any('pinion-cutter' in w for w in geometry_warnings(legacy)))
+        self.label_for(legacy).set_visible.assert_called_once_with(True)
 
     def test_generated_profiles_clear_both_construction_notices(self):
         for family in ('worm', 'differential', 'harmonic'):

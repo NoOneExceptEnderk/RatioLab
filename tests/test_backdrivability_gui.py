@@ -207,9 +207,21 @@ class BackdrivabilityGuiTests(unittest.TestCase):
     def test_persistent_empty_physical_field_retains_normal_invalid_draft_workflow(self):
         a = self.app
         a.inputs['diameter'].set_text('')
-        pump(.15)
+        # Allow normal deferred replay and auto-refresh to run even when a
+        # layout/render callback consumes the former fixed pump duration.
+        deadline = time.monotonic()+2
+        context = GLib.MainContext.default()
+        while not (a.document.current.get('raw', {}).get('worm', {}).get('diameter') == ''
+                   and a.design is None
+                   and 'Complete the numeric value' in a.parameter_error.get_text()):
+            if time.monotonic() >= deadline:
+                break
+            if context.pending():
+                context.iteration(False)
+            else:
+                time.sleep(.002)
         self.assertEqual(a.document.current['raw']['worm']['diameter'], '')
-        self.assertIsNone(a.design)
+        self.assertTrue(a.design is None, 'Empty physical input retained a valid design')
         self.assertIn('Complete the numeric value', a.parameter_error.get_text())
 
     def test_empty_physical_edit_is_recorded_before_continuously_ready_layout_work(self):

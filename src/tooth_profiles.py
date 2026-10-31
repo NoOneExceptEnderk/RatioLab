@@ -157,7 +157,7 @@ def external_half(z, mt, pressure, backlash, depth, shift, normal_pressure, ha, 
     return points,metadata
 
 
-def internal_half(z, mt, pressure, backlash, depth, ha, hf, sample):
+def internal_half(z, mt, pressure, backlash, depth, ha, hf, sample, minimum_join_radius_mm=None):
     """Positive internal flank, tip to root; tangent circular construction.
 
     Deliberately NOT a shaping-cutter envelope. A circular
@@ -202,9 +202,35 @@ def internal_half(z, mt, pressure, backlash, depth, ha, hf, sample):
             raise ValueError('Internal ring has no resolvable tangent root blend.')
         solution=solve(rho)
         if not fits(solution):raise ValueError('Unable to construct a simple internal root blend.')
+    if minimum_join_radius_mm is not None:
+        if minimum_join_radius_mm >= root or minimum_join_radius_mm <= tip:
+            raise ValueError('Paired ring blend join is outside the available radial domain.')
+        if solution[0] < minimum_join_radius_mm:
+            # On this tangent-circle branch a smaller blend approaches the
+            # root circle. Bracket the requested join without changing root.
+            low=max(1e-8,depth*1e-8); high=rho
+            near=solve(low)
+            if not fits(near) or near[0] < minimum_join_radius_mm:
+                raise ValueError('Paired ring has no resolvable blend with the requested radial margin.')
+            for _ in range(50):
+                mid=(low+high)/2; trial=solve(mid)
+                if fits(trial) and trial[0]>=minimum_join_radius_mm: low=mid
+                else: high=mid
+            rho=low; solution=solve(rho)
     join,cx,cy,t0,t1=solution
+    if minimum_join_radius_mm is not None:
+        # d|C+rho e(t)|^2/dt has the sign of sin(arg(C)-t).
+        # The selected short arc ends at arg(C)+2k*pi and is radial increasing.
+        if t1-t0 >= pi or abs(sin(t1-atan2(cy,cx)))>1e-8:
+            raise ValueError('Paired ring blend is not radially monotone.')
     flank=sample(lambda r:(r*cos(angle(r)),r*sin(angle(r))),tip,join)
     arc=sample(lambda t:(cx+rho*cos(t),cy+rho*sin(t)),t0,t1)
+    if minimum_join_radius_mm is not None:
+        for p,q in zip(arc,arc[1:]):
+            dx=q[0]-p[0];dy=q[1]-p[1];den=dx*dx+dy*dy
+            t=max(0,min(1,-(p[0]*dx+p[1]*dy)/den)) if den else 0
+            if hypot(p[0]+t*dx,p[1]+t*dy)<join-1e-8:
+                raise ValueError('Sampled paired ring blend violates its radial exclusion.')
     metadata = dict(method='tangent circular internal root construction',
         generated=False,blend_radius_mm=rho,nominal_blend_radius_mm=nominal_rho,
         blend_radius_adapted=rho<nominal_rho,involute_end_radius_mm=join,

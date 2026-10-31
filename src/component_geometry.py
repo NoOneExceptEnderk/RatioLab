@@ -15,12 +15,21 @@ from motion import transform
 
 
 def displayed_part(design, index, exploded=False):
+    """Interpolate the established desktop display placement, never export geometry."""
+    amount=max(0.,min(1.,float(exploded)))
     p=design.parts[index]
-    if not exploded:return p
+    if not amount:return p
     mid=sum(q.z+q.width/2 for q in design.parts)/len(design.parts)
     offset=(p.z+p.width/2-mid)*1.1
     if p.role!='gear':offset+=8 if p.z+p.width/2>=mid else -8
-    return replace(p,z=p.z+offset,center=tuple(v*1.12 for v in p.center))
+    return replace(p,z=p.z+offset*amount,center=tuple(v*(1+.12*amount) for v in p.center))
+
+
+def explosion_offset(design,index,amount=1.):
+    """World translation of displayed_part, including framed and X-axis parts."""
+    from solid_geometry import point
+    source=design.parts[index];shown=displayed_part(design,index,amount)
+    return sub(point(shown,(0,0),0,0),point(source,(0,0),0,0))
 
 
 def triangles(part):

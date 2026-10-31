@@ -20,7 +20,7 @@ from gl_loader import load_epoxy, bind_function
 
 
 from solid_geometry import point,section_loops,PALETTE
-from component_geometry import displayed_part
+from component_geometry import displayed_part,explosion_offset
 
 
 def normal(a,b,c):
@@ -47,6 +47,7 @@ class MeshPart:
     caps: list
     color: tuple
     source_index: int = 0
+    explosion: tuple = (0.,0.,0.)
 
 @dataclass
 class Scene:
@@ -59,11 +60,10 @@ class Scene:
     materials: array
 
 
-def build_scene(design,show_support=False,show_housing=False,exploded=False):
+def build_scene(design,show_support=False,show_housing=False,exploded=False,*,frame_explosion=False):
     from dataclasses import replace
     from geometry import profile_sections,section_holes
     data=array('f');parts=[];allpoints=[]
-    mid=sum(p.z+p.width/2 for p in design.parts)/len(design.parts)
     for index,source in enumerate(design.parts):
         if source.role=='support' and not show_support:continue
         if source.role=='housing' and not show_housing:continue
@@ -117,6 +117,13 @@ def build_scene(design,show_support=False,show_housing=False,exploded=False):
         edge=(begin,len(data)//6-begin)
         color=PALETTE[index%len(PALETTE)] if p.color==(.35,.72,.9) else p.color
         parts.append(MeshPart(side,edge,caps,color,index))
+    # A single stable envelope fits both endpoints. The actual vertex buffers
+    # remain nominal; slider events only change the per-part display uniform.
+    for mesh in parts:
+        mesh.explosion=explosion_offset(design,mesh.source_index)
+        if frame_explosion:
+            start=mesh.side[0];end=mesh.edges[0]+mesh.edges[1]
+            allpoints.extend(tuple(data[6*i+j]+mesh.explosion[j] for j in range(3)) for i in range(start,end))
     if not allpoints:
         from solid_geometry import faces
         allpoints=[q for part in design.parts for face in faces(part) for loop in face for q in loop]
@@ -192,6 +199,7 @@ uniform vec2 orbit;
 uniform vec3 projection;
 uniform float edge;
 uniform mat4 model;
+uniform vec3 explosion;
 uniform vec4 flexShape; // flex material angle, wave angle, ellipse a,b
 uniform vec4 flexBody;  // pitch radius, body length, diaphragm, enabled
 uniform vec4 arcFirst;
@@ -250,7 +258,7 @@ vec3 deform(vec3 p){
  }
  return p;
 }
-void main(){world=(model*vec4(deform(position),1.0)).xyz;vec3 p=rotate(world-center);gl_Position=vec4(p.x*projection.x,p.y*projection.y,-p.z*projection.z-edge*0.00005,1);vec3 nn=normal;if(flexBody.w>0.5){vec2 oldT,newT;waveFrame(material.x,material.y,material.z,0.0,0.0,oldT);waveFrame(material.x,material.y,material.z,flexShape.x,flexShape.y,newT);vec2 oldN=vec2(oldT.y,-oldT.x),newN=vec2(newT.y,-newT.x);nn.xy=dot(nn.xy,oldT)*newT+dot(nn.xy,oldN)*newN;}n=rotate(mat3(model)*nn);}
+void main(){world=(model*vec4(deform(position),1.0)).xyz+explosion;vec3 p=rotate(world-center);gl_Position=vec4(p.x*projection.x,p.y*projection.y,-p.z*projection.z-edge*0.00005,1);vec3 nn=normal;if(flexBody.w>0.5){vec2 oldT,newT;waveFrame(material.x,material.y,material.z,0.0,0.0,oldT);waveFrame(material.x,material.y,material.z,flexShape.x,flexShape.y,newT);vec2 oldN=vec2(oldT.y,-oldT.x),newN=vec2(newT.y,-newT.x);nn.xy=dot(nn.xy,oldT)*newT+dot(nn.xy,oldN)*newN;}n=rotate(mat3(model)*nn);}
 '''
 FRAGMENT='''#version 330 core
 in vec3 n;
@@ -317,6 +325,16 @@ def framebuffer_argb32(pixels, width, height):
     return raw
 
 
+# Display-only colors: scene vertices, model materials and export data are untouched.
+PREVIEW_PALETTES = {
+    'dark': {'background': (.065, .085, .115), 'grid': (.12, .16, .205),
+             'axes': (.76, .84, .9), 'selection': (1., .78, .18)},
+    'light': {'background': (233/255, 238/255, 241/255),
+              'grid': (190/255, 203/255, 212/255), 'axes': (66/255, 85/255, 101/255),
+              'selection': (.72, .36, .14)},
+}
+
+
 class Preview3D(Gtk.GLArea):
     __gsignals__ = {'view-changed': (GObject.SignalFlags.RUN_FIRST, None, (str,)), 'motion-state': (GObject.SignalFlags.RUN_FIRST, None, ()), 'inspection-state': (GObject.SignalFlags.RUN_FIRST, None, ()), 'component-click': (GObject.SignalFlags.RUN_FIRST, None, (float,float,bool)), 'display-state': (GObject.SignalFlags.RUN_FIRST, None, ())}
     def __init__(self, use_es=None):
@@ -326,10 +344,12 @@ class Preview3D(Gtk.GLArea):
         self.set_allowed_apis((Gdk.GLAPI.GL|Gdk.GLAPI.GLES) if use_es is None else
                               Gdk.GLAPI.GLES if use_es else Gdk.GLAPI.GL)
         self.set_required_version(3,0 if use_es else 3)
+        self.theme = 'dark'
+        self.palette = PREVIEW_PALETTES[self.theme]
         self.use_es=None
         self.set_has_depth_buffer(True);self.set_has_stencil_buffer(True);self.set_auto_render(False)
         self.set_hexpand(True);self.set_vexpand(True);self.set_size_request(320,280)
-        self.design=None;self.show_support=False;self.show_housing=False;self.exploded=False;self.section=False;self.scene=None;self.dirty=False;self.gl=None;self.failure=None;self.zoom=1.;self.yaw=radians(-35);self.tilt=radians(-55)
+        self.design=None;self.show_support=False;self.show_housing=False;self.exploded=0.;self.section=False;self.scene=None;self.dirty=False;self.gl=None;self.failure=None;self.zoom=1.;self.yaw=radians(-35);self.tilt=radians(-55)
         self.inspection_phase=None;self.inspection_indices=();self.inspection_motion_plan=None
         self.selected_indices=();self.isolated_indices=None;self.drag_distance=0.;self.rendered_phase=0.
         self.motion_plan=None;self.motion_enabled=False;self.motion_playing=False;self.motion_speed=1.;self.motion_phase=0.;self.motion_tick=0;self.motion_last=None;self.motion_valid=True
@@ -338,6 +358,11 @@ class Preview3D(Gtk.GLArea):
         scroll=Gtk.EventControllerScroll.new(Gtk.EventControllerScrollFlags.VERTICAL);scroll.connect('scroll',self.scroll);self.add_controller(scroll)
         self.set_tooltip_text('Drag to rotate · scroll to zoom · double click to fit')
         click=Gtk.GestureClick.new();click.set_button(1);click.connect('released',self.component_click);self.add_controller(click)
+    def set_theme(self, theme):
+        self.palette = PREVIEW_PALETTES[theme]
+        self.theme = theme
+        self.queue_render()
+
     def do_create_context(self):
         try:
             return create_preview_context(self.get_native().get_surface(),self.get_allowed_apis())
@@ -352,7 +377,7 @@ class Preview3D(Gtk.GLArea):
         if self.design is not None and (not design or design.family!=self.design.family or design.values!=self.design.values):self.clear_inspection()
         self.design=design
         if not reuse_scene:
-            self.scene=build_scene(design,self.show_support,self.show_housing,self.exploded) if design else None;self.dirty=True
+            self.scene=build_scene(design,self.show_support,self.show_housing,frame_explosion=True) if design else None;self.dirty=True
         if changed:
             previous=self.motion_plan if keep_phase else None
             self.motion_plan=build_plan(design,previous,self.motion_phase) if design else None
@@ -376,7 +401,9 @@ class Preview3D(Gtk.GLArea):
         self.queue_render()
         if changed:self.emit('inspection-state')
     def set_motion_playing(self,playing):
-        if playing:self.clear_inspection()
+        if playing:
+            if self.exploded:self.set_options(self.show_support,self.show_housing,0.,self.section)
+            self.clear_inspection()
         playing=bool(playing and self.motion_valid and self.motion_plan and self.motion_plan.supported and not self.exploded and not self.failure)
         self.motion_playing=playing
         if playing:
@@ -405,6 +432,7 @@ class Preview3D(Gtk.GLArea):
         self.motion_last=max(now,self.motion_last) if self.motion_last is not None else now
     def reset_motion(self):
         self.clear_inspection();self.set_motion_playing(False);self.motion_phase=0.;self.motion_enabled=False
+        if self.exploded:self.set_options(self.show_support,self.show_housing,0.,self.section)
         if self.design:self.motion_plan=build_plan(self.design)
         self.queue_render();self.emit('motion-state')
     def invalidate_motion(self):
@@ -412,9 +440,15 @@ class Preview3D(Gtk.GLArea):
     def set_motion_speed(self,speed):
         self.motion_speed=max(0.,min(5.,float(speed)));self.emit('motion-state')
     def set_options(self,support,housing,exploded,section):
+        exploded=max(0.,min(1.,float(exploded)))
+        rebuild=(support,housing)!=(self.show_support,self.show_housing)
         if exploded or section:self.clear_inspection()
-        if exploded:self.set_motion_playing(False)
-        self.show_support=support;self.show_housing=housing;self.exploded=exploded;self.section=section;self.set_design(self.design);self.emit('display-state')
+        if exploded!=self.exploded and self.motion_playing:
+            self.advance_motion(GLib.get_monotonic_time()/1000000)
+            self.set_motion_playing(False)
+        self.show_support=support;self.show_housing=housing;self.exploded=exploded;self.section=section
+        if rebuild:self.set_design(self.design)
+        self.queue_render();self.emit('display-state')
     def view(self,name):
         if name=='top':self.yaw=0;self.tilt=0
         elif name=='front':self.yaw=0;self.tilt=-pi/2
@@ -443,7 +477,7 @@ class Preview3D(Gtk.GLArea):
             self.program=g.CreateProgram();g.AttachShader(self.program,vs);g.AttachShader(self.program,fs);g.LinkProgram(self.program)
             status=C.c_int();g.GetProgramiv(self.program,0x8B82,C.byref(status));g.DeleteShader(vs);g.DeleteShader(fs)
             if not status.value:raise RuntimeError('Could not initialize the 3D shader')
-            self.locations={k:g.GetUniformLocation(self.program,k.encode()) for k in ['center','orbit','projection','color','lit','edge','section','model','flexShape','flexBody','arcFirst','arcSecond','ropeShape','ropeEnds','ropeLeft','ropeRight','ropeWheel']}
+            self.locations={k:g.GetUniformLocation(self.program,k.encode()) for k in ['center','orbit','projection','color','lit','edge','section','model','explosion','flexShape','flexBody','arcFirst','arcSecond','ropeShape','ropeEnds','ropeLeft','ropeRight','ropeWheel']}
             self.vao=C.c_uint();self.vbo=C.c_uint();g.GenVertexArrays(1,C.byref(self.vao));g.GenBuffers(1,C.byref(self.vbo));g.BindVertexArray(self.vao.value);g.BindBuffer(0x8892,self.vbo.value)
             for index,offset in [(0,0),(1,12)]:g.EnableVertexAttribArray(index);g.VertexAttribPointer(index,3,0x1406,0,24,C.c_void_p(offset))
             self.material_vbo=C.c_uint();g.GenBuffers(1,C.byref(self.material_vbo));g.BindBuffer(0x8892,self.material_vbo.value);g.EnableVertexAttribArray(2);g.VertexAttribPointer(2,3,0x1406,0,12,C.c_void_p(0))
@@ -478,6 +512,7 @@ class Preview3D(Gtk.GLArea):
             raise
     def motion_uniforms(self,index):
         g=self.gl;loc=self.locations;phase=self.inspection_phase if self.inspection_phase is not None else self.motion_phase
+        g.Uniform3f(loc['explosion'],0.,0.,0.)
         plan=self.motion_plan if (self.motion_enabled or self.inspection_phase is not None) and not self.exploded else None
         matrix=plan.matrix(index,phase) if plan and index is not None else IDENTITY
         g.UniformMatrix4fv(loc['model'],1,0,(C.c_float*16)(*matrix))
@@ -495,7 +530,7 @@ class Preview3D(Gtk.GLArea):
     def on_render(self,area,context):
         if not self.gl or self.failure:return True
         g=self.gl;ratio=self.get_scale_factor();w,h=self.get_width()*ratio,self.get_height()*ratio
-        g.Viewport(0,0,w,h);g.ClearColor(.065,.085,.115,1);g.DepthMask(1);g.ColorMask(1,1,1,1);g.StencilMask(0xFF);g.Clear(0x4000|0x0100|0x0400)
+        g.Viewport(0,0,w,h);g.ClearColor(*self.palette['background'],1);g.DepthMask(1);g.ColorMask(1,1,1,1);g.StencilMask(0xFF);g.Clear(0x4000|0x0100|0x0400)
         if not self.scene:return True
         s=self.scene;g.UseProgram(self.program);g.BindVertexArray(self.vao.value);g.BindBuffer(0x8892,self.vbo.value)
         if self.dirty:
@@ -508,12 +543,13 @@ class Preview3D(Gtk.GLArea):
         g.Uniform3f(loc['projection'],scale/max(aspect,1),scale*min(aspect,1),1/(s.radius*4))
         self.motion_uniforms(None)
         g.Uniform1f(loc['edge'],0);g.Enable(0x0B71);g.DepthFunc(0x0203);g.Disable(0x0B90)
-        g.Uniform1f(loc['lit'],0);g.Uniform3f(loc['color'],.12,.16,.205);g.DrawArrays(1,*s.grid)
+        g.Uniform1f(loc['lit'],0);g.Uniform3f(loc['color'],*self.palette['grid']);g.DrawArrays(1,*s.grid)
         self.rendered_phase=self.inspection_phase if self.inspection_phase is not None else self.motion_phase
         for part in s.parts:
             if self.isolated_indices is not None and part.source_index not in self.isolated_indices:continue
             self.motion_uniforms(part.source_index)
-            color=((1.,.42,.08) if part.source_index==self.inspection_indices[0] else (.95,.12,.65)) if part.source_index in self.inspection_indices else (.28,.32,.37) if self.inspection_phase is not None else (1.,.78,.18) if part.source_index in self.selected_indices else part.color
+            g.Uniform3f(loc['explosion'],*(v*self.exploded for v in part.explosion))
+            color=((1.,.42,.08) if part.source_index==self.inspection_indices[0] else (.95,.12,.65)) if part.source_index in self.inspection_indices else (.28,.32,.37) if self.inspection_phase is not None else self.palette['selection'] if part.source_index in self.selected_indices else part.color
             g.Uniform1f(loc['lit'],1);g.Uniform3f(loc['color'],*color);g.Enable(0x8037);g.PolygonOffset(1,1);g.DrawArrays(4,*part.side)
             for cap in part.caps:
                 g.StencilMask(1);g.Clear(0x0400);g.Enable(0x0B90);g.Disable(0x0B71);g.DepthMask(0);g.ColorMask(0,0,0,0)
