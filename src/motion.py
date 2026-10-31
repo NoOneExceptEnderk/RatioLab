@@ -25,6 +25,9 @@ def update_operating_rates(design, values):
     and nominal forces do not depend on operating speed. Their geometry and
     analysis records are shared read-only; only operating records are copied.
     """
+    if design.family == 'wolfrom':
+        from wolfrom import prepare
+        prepare(values)
     if not same_geometry(design, design.family, values):
         raise ValueError('Operating-rate update requires identical geometry.')
     from geometry import get_specs
@@ -69,7 +72,10 @@ def update_operating_rates(design, values):
             if member in ('output', 'spider'):
                 p.port.update(carrier_rpm=speeds['carrier'], relative_spin_rpm=transverse)
         return d
-    if f in TRIPLES:
+    if f == 'wolfrom':
+        from wolfrom import apply_kinematics
+        apply_kinematics(d)
+    elif f in TRIPLES:
         stages = r['kinematics']['stage_results']
         speed = rpm
         for stage, old in enumerate(stages, 1):
@@ -224,12 +230,18 @@ def build_plan(d, previous=None, phase=0):
         plan.poses[index] = pose
     for i, p in enumerate(parts):
         if 'rpm' in p.port:
-            global_axis = f in ('planetary', 'cycloidal', 'harmonic')
+            global_axis = f in ('planetary', 'cycloidal', 'harmonic', 'wolfrom')
             spin(i, p.port['rpm'], (0, 0, 0) if global_axis else None)
     if f in ('spur', 'helical', 'double'):
         for i, p in enumerate(parts):
             if p.role == 'gear' or p.name.startswith(('Shaft', 'Key')):
                 spin(i, primary)
+    elif f == 'wolfrom':
+        rates = d.analysis['kinematics']['rates_rpm']
+        for i, p in enumerate(parts):
+            if p.port.get('member') == 'planet':
+                orbit(i, rates['planet']/ref, rates['carrier']/ref, p.center)
+                plan.rates[i] = (rates['planet']/ref, rates['carrier']/ref)
     elif f == 'planetary':
         stages = d.analysis['kinematics']['stage_results']
         for i, p in enumerate(parts):

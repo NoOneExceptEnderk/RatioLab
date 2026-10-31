@@ -136,7 +136,7 @@ def force_components(torque, diameter, pressure, beta=0):
 def attach_report(d):
     v = d.values
     r = d.analysis
-    if d.family in ('spur', 'helical', 'double', 'parallel', 'internal', 'planetary'):
+    if d.family in ('spur', 'helical', 'double', 'parallel', 'internal', 'planetary', 'wolfrom'):
         from gear_measurement import wildhaber_span, default_gauge
         for part in d.parts:
             profile = part.profile_metadata.get('tooth_profile', {})
@@ -228,7 +228,7 @@ def report_text(d):
             lines.append(f"  Rack normal tip radius {tool['tip_radius']:.6f} mm · shift {tool['shift']:g} · undercut trimmed {p['undercut_trimmed']} · usable involute starts at R {p['involute_start_radius_mm']:.6f} mm.")
         elif 'blend_radius_mm' in p:
             lines.append(f"  Internal blend radius {p['blend_radius_mm']:.6f} mm (nominal {p['nominal_blend_radius_mm']:.6f}; adapted {p['blend_radius_adapted']}); not cutter generated.")
-        if d.family in ('spur', 'helical', 'double', 'parallel', 'internal', 'planetary') and 'tooth_thickness' in p:
+        if d.family in ('spur', 'helical', 'double', 'parallel', 'internal', 'planetary', 'wolfrom') and 'tooth_thickness' in p:
             thickness = p['tooth_thickness']
             lines.append(f"  Tooth thickness ({'internal' if thickness['internal'] else 'external'}): total transverse pair backlash {thickness['pair_backlash_transverse_mm']:.6f} mm; per-gear reference reduction {thickness['per_gear_reference_reduction_transverse_mm']:.6f} mm.")
             for label in ('reference', 'tip'):

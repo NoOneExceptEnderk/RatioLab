@@ -13,7 +13,7 @@ import subprocess
 import sys
 
 EXPECTED_FAMILIES = frozenset(('spur', 'helical', 'double', 'planetary', 'cycloidal',
-                             'harmonic', 'worm', 'parallel', 'internal', 'differential'))
+                             'harmonic', 'worm', 'parallel', 'internal', 'differential', 'wolfrom'))
 
 
 def _run_workspace(command, report):

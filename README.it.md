@@ -34,7 +34,7 @@ firma ad-hoc e non è notarizzata da Apple. Il sistema può mostrare un avviso o
 
 ## Cosa puoi fare
 
-- Generare dieci famiglie di ingranaggi e trasmissioni, inclusi differenziali conici in configurazione polso o classica.
+- Generare undici famiglie di ingranaggi e trasmissioni, inclusi differenziali conici in configurazione polso o classica e riduttori Wolfrom a due dentature diritte.
 - Modificare i parametri, osservare l’anteprima 3D animata e selezionare i componenti.
 - Salvare progetti, annullare modifiche, cercare combinazioni e controllare le interferenze con campionamento discreto.
 - Esportare STEP, STL, SVG/DXF, distinte, relazioni di calcolo e pacchetti completi.

@@ -33,6 +33,20 @@ def build(app, values, variant, choice):
     app.io_mode_buttons = {}
     app.io_results = []
     app.io_policy_note = None
+    app.io_policy_error = None
+    if app.family == 'wolfrom':
+        app.io_frame.set_visible(True)
+        app.io_frame.set_label('Fixed Wolfrom drive connections')
+        app.option_values['io_scheme'] = 'sun_output_ring'
+        row(box, 'Input · apply motion here', 'Sun', 'io-input')
+        row(box, 'Fixed to frame', 'First ring', 'io-role')
+        row(box, 'Output · connect the load here', 'Second ring · exposed annulus', 'io-output')
+        box.append(label('The common carrier is free. Both planet rims are rigidly joined. This topology has no input/output swap.'))
+        box.append(label('Positive rotation is counterclockwise viewed from +Z toward the XY plane. Physical backdrivability is not established.'))
+        result = label('', 'io-result')
+        box.append(result)
+        app.io_results.append((0, result))
+        return
     if app.family == 'differential':
         classic=values.get('configuration','wrist')=='classic'
         app.io_frame.set_visible(True)
@@ -238,6 +252,11 @@ def update(app, design):
     if design is None:
         for _, widget in app.io_results:
             widget.set_text('Result out of date · correct the parameters.')
+        return
+    if design.family == 'wolfrom':
+        rates = design.analysis['kinematics']['rates_rpm']
+        for _, widget in app.io_results:
+            widget.set_text('Sun input: {sun:+.9g} rpm\nCommon carrier: {carrier:+.9g} rpm\nCompound spin: {planet:+.9g} rpm\nOutput ring: {output:+.9g} rpm\nFirst ring: 0 rpm · signs about +Z'.format(**rates))
         return
     if design.family == 'differential':
         q = design.analysis['kinematics']['rates_rpm']

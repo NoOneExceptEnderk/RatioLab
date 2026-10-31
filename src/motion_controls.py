@@ -209,6 +209,6 @@ def configure(app,values,specs):
   for rpm in (-100000,0,100000):
    if low<=rpm<=high:speed.add_mark(scale_rpm(rpm),Gtk.PositionType.BOTTOM,'−100k' if rpm==-100000 else '100k' if rpm==100000 else str(rpm))
   classic=app.family=='differential' and values.get('configuration')=='classic'
-  app.motion_caption.set_text('Carrier input speed' if classic else 'Input A speed' if app.family=='differential' else 'Input speed · stage 1' if app.family=='planetary' and values.get('variant') in ('two_stage','two_stage_double') else 'Input speed')
-  speed.set_tooltip_text('Signed carrier RPM; prescribe the side-speed difference independently in Motion.' if classic else 'Signed input A RPM; set input B independently in Motion.' if app.family=='differential' else 'Actual input RPM · progressive scale 0–100,000. Also updates calculations and configuration. Use the arrows to adjust.')
+  app.motion_caption.set_text('Carrier input speed' if classic else 'Input A speed' if app.family=='differential' else 'Input speed · stage 1' if app.family=='planetary' and values.get('variant') in ('two_stage','two_stage_double') else 'Sun input speed' if app.family=='wolfrom' else 'Input speed')
+  speed.set_tooltip_text('Signed carrier RPM; prescribe the side-speed difference independently in Motion.' if classic else 'Signed input A RPM; set input B independently in Motion.' if app.family=='differential' else 'Signed sun input RPM · −100,000 to +100,000. Positive is counterclockwise viewed from +Z toward XY; reversing input reverses all moving members. Zero stops every member.' if app.family=='wolfrom' else 'Actual input RPM · progressive scale 0–100,000. Also updates calculations and configuration. Use the arrows to adjust.')
  app.motion_syncing=False

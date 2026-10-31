@@ -17,6 +17,7 @@ Invalid parameters stop animation; correct them to restart it. Start disables th
 ## Represented motions
 
 - Gears, trains, worm and reducers: member rotations with their own speeds and axes.
+- Wolfrom: common carrier orbit and rigid compound-planet spin; the first ring stays fixed and the second ring rotates at the signed output rate. See [equations and phase conventions](wolfrom.md).
 - Cycloidal: eccentric orbit and disc rotation. The disc is an internal orbiting member, even when the output is fixed.
 - Harmonic: prescribed flexspline deformation with uniform pitch along the elliptical arc and teeth oriented along the local normal, oriented by the wave generator, with material rotation and the cup bottom rigidly connected to the flange. This does not represent an elastic analysis.
 

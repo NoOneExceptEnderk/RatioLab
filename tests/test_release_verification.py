@@ -33,6 +33,16 @@ class CatalogVerificationTests(unittest.TestCase):
                         rows+[dict(id='extra')],rows[:-1]+[dict(id=None)]]:
             with self.subTest(invalid=invalid),self.assertRaises(RuntimeError):mcp.verify_families(invalid)
 
+    def test_previous_ten_family_runtime_and_duplicate_wolfrom_are_rejected(self):
+        from geometry import FAMILIES
+        current = [dict(id=key) for key in FAMILIES]
+        previous = [row for row in current if row['id'] != 'wolfrom']
+        self.assertEqual(len(previous), 10)
+        for rows in (previous, current+[dict(id='wolfrom')],
+                     [row for row in current if row['id'] != 'spur']+[dict(id='wolfrom')]):
+            with self.subTest(rows=rows), self.assertRaises(RuntimeError):
+                mcp.verify_families(rows)
+
 
 class ArtifactVerificationTests(unittest.TestCase):
     def setUp(self):

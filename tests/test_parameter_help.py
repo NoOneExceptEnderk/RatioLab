@@ -43,6 +43,16 @@ class ParameterHelpTests(unittest.TestCase):
         self.assertIn('remaining member is fixed', lookup('planetary', 'io_scheme').meaning)
         self.assertIn('physical eccentric shaft', lookup('cycloidal', 'input_shaft').meaning)
 
+    def test_wolfrom_has_compound_layers_ring_output_and_signed_sun_help(self):
+        for key in ('sun', 'planet', 'planet2', 'output_ring', 'planets', 'width', 'width2', 'layer_gap', 'input_rpm', 'io_scheme'):
+            self.assertEqual(lookup('wolfrom', key).diagram, 'wolfrom', key)
+        self.assertIn('derived', lookup('wolfrom', 'module').effect)
+        self.assertIn('second rim', lookup('wolfrom', 'width2').effect)
+        self.assertIn('free common carrier', lookup('wolfrom', 'width2').effect)
+        self.assertIn('+Z', lookup('wolfrom', 'input_rpm').meaning)
+        self.assertIn('zero', lookup('wolfrom', 'input_rpm').effect)
+        self.assertIn('not established', lookup('wolfrom', 'io_scheme').effect)
+
     def test_unknown_keys_are_explicit_gaps(self):
         with self.assertRaises(KeyError):
             lookup('spur', 'unknown_future_parameter')

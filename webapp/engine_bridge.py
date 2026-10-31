@@ -264,13 +264,18 @@ class Engine:
         return dict(format=PROJECT_FORMAT, family=self.design.family, parameters=self.design.values)
 
     def generate(self, family, parameters):
-        # Invalidate before validation: a failed edit must not export an old design.
-        self.design = self.plan = None
-        self.invalidate_queries()
-        self.design_id += 1
+        # Wolfrom edits are transactional; browser document tokens still block
+        # exports for an invalid draft. Other families keep their invalidation.
+        if family != 'wolfrom':
+            self.design = self.plan = None
+            self.invalidate_queries()
+            self.design_id += 1
         values = parameters_check(family, parameters)
         design = geometry.generate(family, values)
         plan = motion.build_plan(design)
+        if family == 'wolfrom':
+            self.invalidate_queries()
+            self.design_id += 1
         result = self.pack_design(design, plan)
         self.design, self.plan = design, plan
         return result
@@ -658,8 +663,26 @@ class Engine:
                     scope=getattr(design, 'export_scope', None))
 
     def call(self, method, args):
+        # Preserve the accepted Wolfrom source and its query leases on rejection.
+        # A failed RPC never returns that source as a result for the new draft.
+        target = args.get('family') if isinstance(args, dict) else None
+        project = args.get('project') if isinstance(args, dict) else None
+        if method == 'import_project' and isinstance(project, dict):
+            target = project.get('family')
+        transactional = method in ('generate', 'import_project') and (target == 'wolfrom' or
+            method == 'import_project' and self.design is not None and self.design.family == 'wolfrom')
+        if not transactional:
+            return self._call(method, args)
+        retained = dict(self.__dict__, buffers=list(self.buffers), surfaces=dict(self.surfaces))
+        try:
+            return self._call(method, args, transactional=True)
+        except Exception:
+            self.__dict__.update(retained)
+            raise
+
+    def _call(self, method, args, transactional=False):
         self.buffers.clear()
-        if method in ('generate', 'import_project'):
+        if method in ('generate', 'import_project') and not transactional:
             self.design = self.plan = None
             self.invalidate_queries()
         if not isinstance(args, dict):
@@ -678,6 +701,10 @@ class Engine:
                 raise BridgeError('invalid_parameters', 'Parameters must be an object with string keys.')
             # Desktop project loading ignores retired and unknown settings. Keep
             # this compatibility at the import boundary; live RPCs stay strict.
+            if family == 'wolfrom':
+                unsupported = set(parameters) & {'helix', 'double_style', 'profile_shift', 'module2', 'fixed_ring', 'one_rim'}
+                if unsupported:
+                    raise BridgeError('invalid_parameters', 'Unsupported Wolfrom parameter(s): '+', '.join(sorted(unsupported)))
             known = {spec[0] for variant in geometry.VARIANTS.get(family, {None: None})
                      for spec in geometry.get_specs(family, variant)} | option_definitions(family).keys()
             result = self.generate(family, {key: value for key, value in parameters.items() if key in known})

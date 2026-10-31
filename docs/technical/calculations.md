@@ -535,3 +535,11 @@ p. 215, Table 215-2 supplies product-specific values with application-dependent
 qualifications. Such catalog measurements cannot certify RatioLab's generated
 hardware and do not justify a family-wide irreversibility rule. [Harmonic Drive
 primary catalog](https://www.harmonicdrive.net/_hd/content/documents1/CSD_GearUnits.pdf).
+
+## Two-rim Wolfrom / 3K
+
+The [Wolfrom reference](wolfrom.md) defines the sun-input, fixed-first-ring and
+second-ring-output equations, exact identical-planet assembly predicate and
+derived second module. Both internal meshes reuse the paired involute ring
+construction; each report records its actual addendum and clearance check.
+The signed ratio alone does not establish efficiency or backdrivability.

@@ -15,7 +15,7 @@ import motion
 
 class MotionResetTests(unittest.TestCase):
     def test_reset_restores_fresh_plan_without_mesh_work_and_invalidates_queries(self):
-        for family, parameters in [('spur', {}), ('differential', {}), ('harmonic', {})]:
+        for family, parameters in [('spur', {}), ('differential', {}), ('harmonic', {}), ('wolfrom', {})]:
             with self.subTest(family=family):
                 engine = web.Engine()
                 source = engine.design = geometry.generate(family, parameters)

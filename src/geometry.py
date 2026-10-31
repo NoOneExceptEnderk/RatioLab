@@ -15,6 +15,7 @@ COMMON = [('module', 'Normal module [mm]', 2.0, 0.1, 10, 0.1), ('width', 'Face w
 SPECS = {'spur': COMMON + [('teeth', 'Tooth count', 24, 8, 160, 1)], 'helical': COMMON + [('teeth', 'Tooth count', 24, 8, 160, 1), ('helix', 'Helix angle [°] (sign = handedness)', 20, -45, 45, 1)], 'double': COMMON + [('teeth', 'Tooth count', 24, 8, 160, 1), ('helix', 'Helix angle [°]', 25, -45, 45, 1), ('gap', 'Central groove [mm]', 1, 0, 10, 0.1)], 'planetary': COMMON + [('sun', 'Sun teeth', 18, 8, 80, 1), ('planet', 'Planet teeth', 18, 8, 60, 1), ('planets', 'Planet count', 3, 2, 6, 1), ('rim', 'Ring thickness [mm]', 5, 1, 30, 0.5)], 'cycloidal': [('pins', 'Ring roller count', 16, 6, 60, 1), ('radius', 'Roller pitch radius [mm]', 40, 10, 150, 1), ('pin_radius', 'Roller radius [mm]', 3, 1, 10, 0.1), ('eccentric', 'Eccentricity [mm]', 1.2, 0.1, 5, 0.1), ('width', 'Disc thickness [mm]', 8, 1, 40, 1), ('bore', 'Eccentric seat diameter [mm]', 12, 2, 60, 1), ('output_count', 'Output pin count', 6, 3, 10, 1), ('output_radius', 'Output pin pitch radius [mm]', 22, 5, 100, 1), ('output_pin', 'Output pin radius [mm]', 2, 1, 10, 0.1), ('clearance', 'Radial clearance [mm]', 0.1, 0, 0.8, 0.01)], 'harmonic': COMMON + [('teeth', 'Flexspline teeth', 60, 30, 160, 2), ('wall', 'Flexible wall thickness [mm]', 1, 0.3, 4, 0.1), ('rim', 'Ring thickness [mm]', 5, 1, 30, 0.5)], 'worm': COMMON + [('teeth', 'Wheel teeth', 30, 12, 100, 1), ('starts', 'Worm starts', 1, 1, 4, 1), ('diameter', 'Worm pitch diameter [mm]', 20, 8, 80, 1), ('length', 'Worm length [mm]', 24, 5, 80, 1)]}
 VARIANTS = {'double': {'joined': 'Joined helices · no groove', 'separated': 'Separate helices · with groove'}, 'worm': {'za': 'Cylindrical ZA · straight axial flanks', 'zi': 'Cylindrical ZI · transverse involute'}, 'harmonic': {'cup': 'Cup', 'flat_cup': 'Flat cup', 'hat': 'External flange · silk hat'}, 'planetary': {'spur': 'Single stage · spur', 'helical': 'Single stage · helical', 'double': 'Single stage · double helical', 'two_stage': 'Two stages in cascade', 'two_stage_double': 'Two stages · double helical'}, 'cycloidal': {'single': 'Complete single disc', 'dual': 'Dual disc · opposing eccentrics'}, 'parallel': {'spur': 'Spur teeth', 'helical': 'Helical', 'double': 'Double helix'}, 'internal': {'spur': 'Internal gear · spur', 'helical': 'Internal gear · helical', 'double': 'Internal gear · double helical'}}
 DOUBLE_STYLES = {'joined': 'Joined helices · no groove', 'separated': 'Separate helices · with groove'}
+from wolfrom import SPECS as WOLFROM_SPECS
 HARMONIC_OUTPUTS = {'flex': 'Fixed ring → flexspline output', 'circular': 'Fixed flexspline → ring output'}
 FAMILIES['differential'] = 'Bevel differential'
 VARIANTS['differential'] = {'straight': 'Straight bevel', 'spiral': 'Spiral bevel'}
@@ -42,6 +43,10 @@ SPECS['differential'] = [
     ('spider_pin_diameter', 'Spider pin diameter [mm]', 6, 2, 20, .5),
     ('spider_clearance', 'Spider pin radial running clearance [mm]', .15, .05, 1, .05),
 ]
+
+FAMILIES['wolfrom'] = 'Wolfrom reducer · two-rim spur'
+VARIANTS['wolfrom'] = {'spur': 'Two-rim spur · sun input / ring output'}
+SPECS['wolfrom'] = WOLFROM_SPECS
 
 def is_double(family, variant=None):
     return family == 'double' or variant in ('double', 'two_stage_double')
@@ -110,11 +115,13 @@ def get_specs(family, variant=None, double_style=None):
     if family == 'differential':
         specs += [('input_rpm', 'Input A speed [rpm]', 12, -100000, 100000, 1),
                   ('input_b_rpm', 'Input B speed [rpm]', -12, -100000, 100000, 1)]
+    elif family == 'wolfrom':
+        specs += [('input_rpm', 'Sun input speed [rpm]', 600, -100000, 100000, 50)] + LOAD_FIELDS[1:]
     else:
         specs += LOAD_FIELDS[:2] if family in ('spur', 'helical', 'double') else LOAD_FIELDS
     return specs
 INTEGER = {'teeth', 'sun', 'planet', 'planets', 'pins', 'output_count', 'starts', 'sun2', 'planet2', 'pinion', 'wheel', 'pinion2', 'wheel2', 'worm_hand', 'rollers', 'crown_teeth', 'segments', 'planet_teeth', 'pairs', 'friction_faces', 'crank_teeth', 'cranks', 'spring_count', 'coils', 'bolt_count', 'bevel_pinion'}
-INTEGER.update(('side_teeth', 'output_teeth', 'spiral_hand'))
+INTEGER.update(('side_teeth', 'output_teeth', 'spiral_hand', 'output_ring'))
 
 def defaults(family, variant=None):
     v = {s[0]: s[2] for s in get_specs(family, variant)}
@@ -134,6 +141,9 @@ def validate(family, supplied):
     """
     if family not in FAMILIES:
         raise ValueError('Unknown family')
+    if family == 'wolfrom':
+        from wolfrom import prepare as prepare_wolfrom
+        supplied = prepare_wolfrom(supplied)
     from kinematics import prepare as prepare_io, options as io_options
     supplied = prepare_io(family, supplied)
     if family == 'differential':
@@ -243,6 +253,9 @@ def validate(family, supplied):
             raise ValueError('Flexspline wall too thick.')
     if family == 'worm' and values['worm_hand'] == 0:
         raise ValueError('Worm handedness must be −1 or +1.')
+    if family == 'wolfrom':
+        from wolfrom import validate as validate_wolfrom
+        validate_wolfrom(values)
     return values
 
 def polar(r, a):
@@ -655,6 +668,9 @@ def generate(family, supplied=None):
         (harmonic if family == 'harmonic' else worm)(d)
     elif family == 'differential':
         from differential_wrist import build
+        build(d)
+    elif family == 'wolfrom':
+        from wolfrom import build
         build(d)
     from standard_parts import apply_catalog
     apply_catalog(d)

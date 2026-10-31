@@ -2,7 +2,7 @@
 
 The browser app uses RatioLab's unchanged Python generation, motion, analysis
 and export modules through Pyodide in a Web Worker. It provides the desktop
-workspace and ten model families with browser downloads and local project
+workspace and eleven model families with browser downloads and local project
 recovery. CAD connection bridges and the desktop MCP companion are excluded.
 Calculations happen in the browser; there is no calculation backend.
 

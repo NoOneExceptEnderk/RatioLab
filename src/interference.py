@@ -110,13 +110,20 @@ def period(plan):
 def expected_interface(d,i,j):
     """Constructor identities/port membership annotate, NEVER suppress a pair."""
     a,b=d.parts[i],d.parts[j];names=(a.name.lower(),b.name.lower());f=d.family
-    if a.port.get('member') and a.port.get('member')==b.port.get('member') and a.port.get('stage')==b.port.get('stage'):
+    if f=='wolfrom' and a.port.get('rigid_group') and a.port.get('rigid_group')==b.port.get('rigid_group'):
+        return 'Same rigid Wolfrom body · interface candidate (overlap still requires review)'
+    if f!='wolfrom' and a.port.get('member') and a.port.get('member')==b.port.get('member') and a.port.get('stage')==b.port.get('stage'):
         return 'Same kinematic member · interface candidate (overlap still requires review)'
     for interface in d.analysis.get('mount_interfaces',[]):
         members=set(interface.get('parts',[]))|{interface.get('anchor')}
         if a.name in members and b.name in members:return 'Constructed mounting interface candidate (overlap still requires review)'
     if f in ('parallel','internal') and all(p.profile_metadata.get('tooth_profile') for p in (a,b)):
         return 'Constructed gear mesh · boundary contact expected, intersection is suspect'
+    if f=='wolfrom' and all(p.profile_metadata.get('tooth_profile') for p in (a,b)):
+        layers = (a.port.get('layer', 1), b.port.get('layer', 1))
+        members = {a.port.get('member'), b.port.get('member')}
+        if layers[0] == layers[1] and 'planet' in members and members & {'sun', 'ring', 'output'}:
+            return 'Constructed Wolfrom mesh · boundary contact expected, intersection is suspect'
     if f=='planetary':
         stage=lambda n:2 if n.startswith('s2_') else 1
         if stage(names[0])==stage(names[1]) and any('planet_' in n and 'pin_' not in n for n in names) and any('_sun' in n or n.endswith('_ring') for n in names):

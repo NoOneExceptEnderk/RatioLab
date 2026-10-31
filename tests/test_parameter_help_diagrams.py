@@ -73,6 +73,18 @@ class ParameterHelpDiagramTests(unittest.TestCase):
         self.assertEqual(double.kind,'double_helix')
         self.assertNotEqual(bytes(joined.get_data()),bytes(separated.get_data()))
 
+    def test_wolfrom_schematic_shows_rigid_compound_ring_output_and_layer_widths(self):
+        pictures = []
+        for key in ('planet2', 'width', 'width2', 'layer_gap', 'input_rpm'):
+            surface, info = render('wolfrom', key)
+            self.assertEqual(info.kind, 'wolfrom')
+            labels = {item.text for item in info.labels}
+            self.assertTrue({'Rf fixed', 'Ro output', 'P1', 'P2', 'rigid hub', 'S input', 'carrier free'} <= labels)
+            self.assertNotIn('carrier output', ' '.join(labels).lower())
+            if key in ('width', 'width2', 'layer_gap'):
+                pictures.append(bytes(surface.get_data()))
+        self.assertEqual(len(set(pictures)), 3)
+
     def test_text_only_options_do_not_paint_unrelated_geometry(self):
         surface=cairo.ImageSurface(cairo.FORMAT_ARGB32,360,220)
         context=cairo.Context(surface)

@@ -479,6 +479,14 @@ class ReducerApp(ProjectActions, Gtk.Application):
                     if key in self.linked_notes:self.linked_notes[key][0].set_visible(False)
             self.building = False
             for key, label in self.geometry_derived.items():
+                if self.family == 'wolfrom':
+                    q = design.analysis['wolfrom']
+                    if key == 'planets':
+                        label.set_text(str(q['fixed_ring_teeth']))
+                    else:
+                        label.set_text(gui_workflow.roundtrip_text(q['module2_mm'], digits=12))
+                        label.set_tooltip_text(f"m2 = m1 × (S + P1) / (Ro − P2) = {q['module2_mm']!r} mm. Derived from the accepted design; only the first layer module is editable.")
+                    continue
                 value = (design.values['sun'] + 2*design.values['planet']
                          if key=='planets' else design.values['pins']-1)
                 label.set_text(str(int(value)))
@@ -519,7 +527,11 @@ class ReducerApp(ProjectActions, Gtk.Application):
             return operating_valid
         except Exception as e:
             self.building = False
-            self.design = None
+            # Wolfrom rejection retains the accepted document geometry. The
+            # invalid values/raw text remain editable recovery drafts, while
+            # export actions and the canvas motion-valid flag stay blocked.
+            if self.family != 'wolfrom' or self.design is None or self.design.family != 'wolfrom':
+                self.design = None
             self.components.invalidate('Invalid configuration · selection cleared')
             self.gear_measurement.invalidate('Invalid configuration · measurement cleared')
             self.backlash.invalidate('Invalid configuration · proposal cleared')

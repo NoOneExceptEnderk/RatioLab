@@ -11,6 +11,8 @@ PAIRS = {'parallel': ('Pinion', 'Wheel'), 'internal': ('Pinion', 'Ring'), 'worm'
 DEFAULT = {'planetary': 'sun_carrier_ring', 'cycloidal': 'eccentric_output_ring', 'harmonic': 'wave_flex_circular'}
 
 def options(family):
+    if family == 'wolfrom':
+        return {'sun_output_ring': 'Sun → output ring · first ring fixed'}
     if family in TRIPLES:
         names = TRIPLES[family]
         result = {}
@@ -85,7 +87,11 @@ def apply(d):
     label = opts[scheme]
     record = {'scheme': scheme, 'label': label, 'stage_results': []}
     original = d.analysis.get('signed_ratio')
-    if f in TRIPLES:
+    if f == 'wolfrom':
+        from wolfrom import apply_kinematics
+        apply_kinematics(d)
+        record = d.analysis['kinematics']
+    elif f in TRIPLES:
         n = 2 if f == 'planetary' and v['variant'] in ('two_stage', 'two_stage_double') else 1
         speed = v['input_rpm']
         ratio = 1.0

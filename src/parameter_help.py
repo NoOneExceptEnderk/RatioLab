@@ -41,6 +41,8 @@ COMMON = {
     'planets': H('Planet count', 'Number of equally spaced planet gears in the stage.', 'Changes how many planets are placed around the sun. It does not alone change the ideal ratio or establish equal load sharing.', 'planetary', 'N = number of planets'),
     'sun2': H('Sun teeth · stage 2', 'Tooth count of the central gear in the second stage.', 'Stage 1 output drives stage 2 input. With the second-stage planet tooth count it determines the second ring teeth; the two selected stage arrangements determine the total ratio.', 'planetary', 'zs2 = stage 2 sun'),
     'planet2': H('Planet teeth · stage 2', 'Tooth count of each second-stage planet.', 'The second ring has zs2 + 2 zp2 teeth. Stage 2 must independently satisfy coaxiality, spacing and contact checks.', 'planetary', 'zp2 = stage 2 planet'),
+    'output_ring': H('Output ring teeth', 'Tooth count Ro of the moving second ring in a two-rim Wolfrom.', 'Together with P2 sets the derived second module. Ro must exceed P2; the exact determinant P1 Ro − Rf P2 must be nonzero, and identical compounds must satisfy all mesh phases.', 'wolfrom', 'Ro = output ring teeth'),
+    'layer_gap': H('Gap between toothed layers · mm', 'Positive axial gap from the first layer end face to the second layer start face.', 'Separates the two toothed layers of each rigid compound. A bored hub joins them; this is not spacing between independent planetary stages.', 'wolfrom', 'g = gap between tooth layers'),
     'width2': H('Face width · stage 2 · mm', 'Axial tooth width of the second planetary stage.', 'Independent of the first-stage width. For double helices it includes both active halves and the central groove.', 'section', 'b2 = stage 2 width'),
     'rim': H('Ring radial thickness · mm', 'Radial material outside the internal gear tooth roots.', 'Enlarges the outside of the ring without changing the reference tooth count or pitch diameter.', 'bore', 't = ring wall'),
     'plate': H('Flange / carrier thickness · mm', 'Axial thickness of the assembly flange or carrier plate.', 'Changes the support stack length. Catalog bearings and assembly hardware may impose linked minimum dimensions.', 'section', 't = plate thickness'),
@@ -146,7 +148,25 @@ def lookup(family, key, values=None):
     """Resolve a known control without silently inventing a generic fallback."""
     values = values or {}
     result = COMMON[key] if key in COMMON else OPTIONS[key]
-    if family == 'worm':
+    if family == 'wolfrom':
+        changes = {
+            'module': H('First layer module · mm', 'Transverse module m1 shared by the sun, first planet rims and fixed first ring.', 'Only m1 is editable. The second module is derived as m2 = m1 (S + P1) / (Ro − P2), so both layers share the same planet centre distance.', 'wolfrom', 'a = m1 (S + P1) / 2'),
+            'sun': H('Sun teeth · input', 'Tooth count S of the central input sun in the first layer.', 'The fixed first ring has Rf = S + 2 P1 teeth. Both layers and all identical compound phases must be compatible.', 'wolfrom', 'S = input sun teeth'),
+            'planet': H('First planet teeth', 'Tooth count P1 of the first rim of each rigid compound planet.', 'Meshes with the input sun and fixed first ring at m1. The second rim has its own tooth count and derived module; both rims have the same absolute spin.', 'wolfrom', 'P1 = first compound rim'),
+            'planet2': H('Second planet teeth', 'Tooth count P2 of the second rim of each rigid compound planet.', 'Meshes with output ring Ro at derived m2. Both rims share one rigid clocking on every compound; they are not two stages in cascade.', 'wolfrom', 'P2 = second compound rim'),
+            'planets': H('Compound planet count', 'Number of equally spaced, identically clocked rigid compounds on the common free carrier.', 'Exact integer assembly conditions enforce all three mesh phases. Adjacent addendum circles must clear in both layers.', 'wolfrom', 'n = identical compounds'),
+            'width': H('First layer face width · mm', 'Axial tooth width of the sun, first planet rims and fixed first ring.', 'The second toothed layer starts at this width plus the positive layer gap. Both layers belong to one compound train.', 'wolfrom', 'b1 = first layer width'),
+            'width2': H('Second layer face width · mm', 'Axial tooth width of the second compound rims and output ring.', 'Independent of first layer width. This is the second rim of the same compound, with ring output and a free common carrier.', 'wolfrom', 'b2 = second layer width'),
+            'bore': H('Sun and compound bore diameter · mm', 'Nominal bore through the sun and each rigid compound.', 'Sun shaft nominally touches its bore. Carrier pins use radial assembly clearance inside compound bores; fits, bearings and torque transfer require external design.', 'bore', 'Ø sun / compound bore'),
+            'assembly_clearance': H('Assembly clearance · mm', 'Radial clearance of carrier pins in compound bores and axial clearance to carrier plates.', 'Pin radius is half the bore diameter minus this clearance. Carrier plates remain outside both toothed layers.', 'wolfrom', 'c = pin / plate clearance'),
+            'plate': H('Carrier plate thickness · mm', 'Axial thickness of each of the two common carrier plates.', 'The carrier is free and carries compound pins; it is not the output. No enclosing housing is generated.', 'wolfrom', 't = each carrier plate'),
+            'rim': H('Ring thickness beyond root · mm', 'Radial material beyond each internal ring tooth root.', 'Enlarges each ring outside diameter. The first ring is fixed; the exposed second annulus is output.', 'wolfrom', 't = ring radial wall'),
+            'input_rpm': H('Sun input speed · rpm', 'Signed sun input speed about world +Z, positive counterclockwise viewed from +Z toward XY.', 'The first ring stays fixed. Carrier, compound absolute spin and output ring speeds follow the three mesh equations. Reverse input reverses all moving speeds; zero input stops all members. Physical backdrivability is not established.', 'wolfrom', 'nS = signed sun input'),
+            'io_scheme': H('Fixed Wolfrom drive connections', 'Sun input, first ring fixed and second ring output, with a free common carrier.', 'No role swaps are supported. Compound rims share one absolute spin and one rigid clocking. Physical backdrivability is not established.', 'wolfrom', 'S input · Rf fixed · Ro output'),
+            'variant': H('Two-rim spur Wolfrom', 'Zero-shift spur teeth in two axially separate layers of the same compound train.', 'Sun input, first ring fixed, second ring output. The second module and first ring teeth are derived. No one-rim or helical variant is supported.', 'text', 'two-rim spur'),
+        }
+        result = changes.get(key, result)
+    elif family == 'worm':
         changes = {
             'module': H('Worm axial module · mm', 'Size of the worm threads along the shaft: axial pitch divided by π.', 'Increase axial module to spread the threads farther apart and enlarge the wheel. Lead L = π × axial module × starts; wheel pitch diameter = axial module × wheel teeth. This is axial, not normal module.', 'worm', 'px = π mx'),
             'pressure': H('Worm axial pressure angle · °', 'Pressure angle in the axial section of the worm.', 'ZA has straight axial flanks; ZI has a transverse involute. The generator converts this axial angle to its normal and transverse equivalents.', 'pressure', 'αx = axial pressure angle'),
@@ -234,7 +254,7 @@ def coverage_rows():
             if family in SUPPORTED:
                 keys.update(('shoulder', 'seat_allowance', 'shaft_allowance'))
                 options.update(('bearing_mode', 'bearing', 'fit', 'hardware_mode', 'hardware_screw', 'hardware_shim', 'hardware_retaining', 'hardware_keys', 'hardware_bolts', 'hardware_shims'))
-            if family in ('planetary', 'cycloidal', 'harmonic', 'worm', 'parallel', 'internal'):
+            if family in ('planetary', 'cycloidal', 'harmonic', 'worm', 'parallel', 'internal', 'wolfrom'):
                 options.add('io_scheme')
             if family == 'planetary' and variant in ('two_stage', 'two_stage_double'):
                 options.add('io_scheme2')

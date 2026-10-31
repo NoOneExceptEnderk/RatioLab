@@ -1,0 +1,26 @@
+{
+  "format": "solidcraft-riduttori/1",
+  "family": "wolfrom",
+  "parameters": {
+    "module": 0.5,
+    "sun": 18,
+    "planet": 72,
+    "planet2": 59,
+    "output_ring": 135,
+    "planets": 3,
+    "pressure": 20,
+    "backlash": 0.05,
+    "width": 6,
+    "width2": 6,
+    "layer_gap": 2,
+    "rim": 3,
+    "bore": 3,
+    "plate": 2,
+    "assembly_clearance": 0.2,
+    "input_rpm": 600,
+    "input_torque": 1,
+    "efficiency": 90,
+    "variant": "spur",
+    "io_scheme": "sun_output_ring"
+  }
+}

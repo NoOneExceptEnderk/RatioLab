@@ -46,7 +46,7 @@ server maintains its own project handles rather than controlling an open window.
 
 ## Active catalog
 
-These ten families are available, in this order:
+These eleven families are available, in this order:
 
 | Family | Main variants or purpose |
 |---|---|
@@ -60,8 +60,30 @@ These ten families are available, in this order:
 | Parallel shaft reducer | Spur, helical, double helical |
 | Internal gear reducer | Fixed axes; spur, helical, double helical |
 | Bevel differential | Wrist or classic configuration; straight or spiral bevel gears |
+| Wolfrom / 3K reducer | Two-rim spur; sun input, fixed first ring, second ring output |
 
 Unsupported families are rejected by both the interface and generator. Previously exported files remain independent artifacts.
+
+### Wolfrom / 3K reducer
+
+Choose **Wolfrom / 3K reducer** for a sun-driven compound planetary train. Each
+planet has two rigidly connected toothed portions. The first meshes with the sun
+and fixed ring; the second meshes with the output ring. The common carrier is
+an internal moving member. This arrangement differs from the carrier-output
+planetary model above.
+
+Set the sun, first-planet, second-planet and output-ring tooth counts and first
+module. The fixed-ring count and second module are derived to preserve pitch
+centres. Face widths and the axial gap describe the two separate tooth layers.
+Invalid tooth phases, singular stationary-output sets and incompatible profiles
+are rejected. Input RPM accepts both signs and zero; a negative signed ratio
+means that the output reverses relative to the sun.
+
+The [default nominal example](../examples/wolfrom-spur.config.json) is 600:1. This is an equation result, not a measured
+ratio, efficiency or allowable load. Both paired ring profiles and their contact
+checks are recorded in the calculation report. Automatic bearing/hardware
+selection, helical and one-rim variants are outside this construction. See the
+[Wolfrom equations, clocking and limits](technical/wolfrom.md).
 
 ### Bevel differential
 

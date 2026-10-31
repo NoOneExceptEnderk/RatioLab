@@ -50,7 +50,7 @@ class EngineTests(unittest.TestCase):
         differential = next(p for p in result['families'] if p['key'] == 'differential')
         self.assertTrue({'configuration', 'ratio_mode', 'carrier_style', 'output_interface'} <= {p['key'] for p in differential['options']})
 
-    def test_all_ten_family_default_meshes_use_actual_shared_triangles(self):
+    def test_all_eleven_family_default_meshes_use_actual_shared_triangles(self):
         # Independently re-triangulate source geometry and compare every vertex's
         # float32 transport and every double-precision bound, not a canned model.
         for family in geometry.FAMILIES:

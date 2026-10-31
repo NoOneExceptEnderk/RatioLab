@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ratiolab"
-version = "0.1.12"
+version = "0.1.13"
 description = "Parametric gears and reducers with a GTK 4 and OpenGL preview"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -44,7 +44,7 @@ py-modules = [
   "hardware", "hardware_catalog", "install_desktop", "io_controls", "backdrivability", "gear_measurement", "gear_measurement_ui", "backlash_solver", "backlash_ui",
   "component_geometry", "components_ui", "selected_export", "pair_assembly", "combination_search", "combination_search_ui", "collision_geometry", "interference", "interference_ui", "kinematics", "motion", "motion_controls", "mounting", "preview3d",
   "project_document", "project_ui", "package_export", "printed_shaft", "profile_export", "ratiolab_agent", "ratiolab_mcp", "ratiolab_checks", "ratiolab_cli", "result_controls", "solid_geometry",
-  "special_drives", "worm_geometry", "wave_geometry", "wave_envelope", "tooth_profiles", "internal_mesh", "standard_parts", "stl_export", "workspace_ui", "workspace_tools",
+  "special_drives", "wolfrom", "worm_geometry", "wave_geometry", "wave_envelope", "tooth_profiles", "internal_mesh", "standard_parts", "stl_export", "workspace_ui", "workspace_tools",
 ]
 
 [tool.setuptools.cmdclass]

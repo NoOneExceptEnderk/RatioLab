@@ -34,7 +34,7 @@ Your system may show an unrecognized-publisher warning or block launch.
 
 ## What you can do
 
-- Build ten gear/transmission families: spur, helical, double helical, planetary, cycloidal, strain wave, worm, parallel shaft, internal gear and bevel differentials with wrist or classic configurations.
+- Build eleven gear/transmission families: spur, helical, double helical, planetary, cycloidal, strain wave, worm, parallel shaft, internal gear, bevel differentials with wrist or classic configurations, and two-rim spur Wolfrom reducers.
 - Edit parameters and inspect an animated 3D model with component selection and sampled measurements.
 - Save projects, undo changes, search finite parameter combinations and run discrete interference checks.
 - Export STEP, STL, SVG/DXF, component lists, calculation reports or complete packages.
@@ -59,7 +59,7 @@ Interference checks and measurements use sampled surfaces. Read the
 [accuracy and limitations](docs/user-guide.md#accuracy-and-limitations) and the
 reference equations for [worm pairs](docs/technical/worm.md) and
 [bevel differentials](docs/technical/differential.md), and
-[strain wave](docs/technical/strain-wave.md) before using exported designs.
+[strain wave](docs/technical/strain-wave.md), and [Wolfrom](docs/technical/wolfrom.md) before using exported designs.
 
 ## Community
 

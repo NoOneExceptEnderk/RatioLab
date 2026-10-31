@@ -9,6 +9,7 @@ from gi.repository import Gtk, Gio, Gdk
 CATALOG = {'spur': ('Spur gear', 'A single gear: choose the tooth count, module and bore.'), 'helical': ('Helical gear', 'A single gear with an adjustable helix angle.'), 'double': ('Double helical gear', 'Two opposing helices, joined or separated by a groove.'), 'planetary': ('Planetary gearbox', 'Sun, planets and ring gear. One or two reduction stages.'), 'cycloidal': ('Cycloidal reducer', 'Eccentric discs and rollers, with one or two discs.'), 'harmonic': ('Strain wave reducer', 'A flexible gear with prescribed wave deformation and a generated matching ring.'), 'worm': ('Worm and wheel', 'Perpendicular axes with a wheel generated from the selected ZA or ZI screw.'), 'parallel': ('Parallel shaft reducer', 'A gear pair with input and output shafts.'), 'internal': ('Internal gear reducer', 'A pinion inside an internal gear, with fixed axes.')}
 ADVANCED = {'pressure', 'backlash', 'profile_shift', 'addendum', 'dedendum', 'clearance', 'assembly_clearance', 'output_clearance', 'profile_tolerance', 'wave_clearance', 'wave_factor'}
 CATALOG['differential'] = ('Bevel differential', 'Spherical involute gears: wrist with two inputs or classic carrier input with two side outputs.')
+CATALOG['wolfrom'] = ('Wolfrom / 3K reducer', 'Sun input, first ring fixed, second ring output. Two rigidly joined planet rims.')
 
 def searchable_dropdown(labels):
     """Filter displayed names while keeping selection indices in the full model."""
@@ -363,8 +364,8 @@ def geometry_groups(app, specs):
             groups[key] = box
         return groups[key]
     # Render groups in a useful order, independent of the generator's spec order.
-    main_order = ('teeth','side_teeth','output_teeth','sun','planet','planets','sun2','planet2','pinion','wheel',
-                  'pins','radius','pin_radius','eccentric','module','width','spiral_angle','width2','disc_gap','helix','gap')
+    main_order = ('teeth','side_teeth','output_teeth','sun','planet','planets','sun2','planet2','output_ring','pinion','wheel',
+                  'pins','radius','pin_radius','eccentric','module','width','spiral_angle','width2','layer_gap','disc_gap','helix','gap')
     order = {key: i for i, key in enumerate(main_order)}
     specs = sorted(specs, key=lambda s: order.get(s[0], len(order)))
     app.field_feedback, app.linked_notes, app.field_containers = {}, {}, {}
@@ -445,13 +446,21 @@ def geometry_groups(app, specs):
         target.append(container)
         if key in ('planets', 'pins'):
             derived = Gtk.Box(spacing=8)
-            title = 'Ring teeth · derived' if key=='planets' else 'Disc lobes · derived'
+            title = ('First ring teeth · fixed · derived' if app.family=='wolfrom' else 'Ring teeth · derived') if key=='planets' else 'Disc lobes · derived'
             derived.append(Gtk.Label(label=title, xalign=0, hexpand=True, css_classes=['muted']))
             value_label = Gtk.Label(selectable=True, xalign=1, css_classes=['derived-output'])
             value_label.set_tooltip_text('Calculated from the current tooth counts; edit the source geometry above.')
             derived.append(value_label)
             target.append(derived)
             app.geometry_derived[key] = value_label
+        if app.family=='wolfrom' and key=='module':
+            derived = Gtk.Box(spacing=8)
+            derived.append(Gtk.Label(label='Second layer module · derived [mm]', xalign=0, hexpand=True, wrap=True, css_classes=['muted']))
+            value_label = Gtk.Label(selectable=True, xalign=1, css_classes=['derived-output'])
+            value_label.set_tooltip_text('m2 = m1 × (S + P1) / (Ro − P2); common planet centre distance. Only the first layer module is editable.')
+            derived.append(value_label)
+            target.append(derived)
+            app.geometry_derived['module2'] = value_label
         app.inputs[key], app.input_labels[key], app.input_pages[key] = spin, label, page
         app.field_containers[key] = container
         if app.family=='differential' and key=='output_teeth' and app.option_values.get('ratio_mode','custom')!='custom':spin.set_sensitive(False)

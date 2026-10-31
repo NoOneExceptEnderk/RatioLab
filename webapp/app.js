@@ -12,7 +12,7 @@ const motionKeys = new Set(['input_rpm','input_b_rpm','output_difference_rpm','i
 const assemblyKeys = new Set(['plate','housing_wall','rim','stage_gap','carrier_bolt_diameter','spider_pin_diameter','spider_clearance','output_interface','carrier_style','eccentric_design','seat_allowance','shaft_allowance','shoulder']);
 const shaftKeys = new Set(['bore','output_bore','wheel_bore','input_shaft','output_shaft','shaft_extension','journal_length','journal_diameter','output_extension','passage_diameter']);
 const outputKeys = new Set(['output_count','output_radius','output_pin','flange_radius','bolt_count','bolt_diameter']);
-const mainOrder = ['teeth','side_teeth','output_teeth','sun','planet','planets','sun2','planet2','pinion','wheel','pins','radius','pin_radius','eccentric','module','width','spiral_angle','width2','disc_gap','helix','gap'];
+const mainOrder = ['teeth','side_teeth','output_teeth','sun','planet','planets','sun2','planet2','output_ring','pinion','wheel','pins','radius','pin_radius','eccentric','module','width','spiral_angle','width2','layer_gap','disc_gap','helix','gap'];
 const doc = new BrowserDocument();
 const events = new EventTarget();
 let engine, viewer, catalog, schema, design = null, validToken = null, tab = 'dimensions', inspection = 'components';
@@ -262,9 +262,16 @@ function renderFields() {
     } else if (!(doc.draft.options.bearing_mode === 'manual' && ['bearing','fit','shoulder','seat_allowance','shaft_allowance'].includes(spec.key)) && !(doc.draft.options.hardware_mode === 'none' && spec.key.startsWith('hardware_') && spec.key !== 'hardware_mode')) groups.get(group).append(makeField(spec));
     if (spec.key === 'planets' || spec.key === 'pins') {
       const derived = node('div',null,'derived-row');
-      const value = design && validToken && isCurrent(validToken) && design.family === doc.family ? spec.key === 'planets' ? design.values.sun+2*design.values.planet : design.values.pins-1 : null;
-      derived.append(node('span',spec.key === 'planets' ? 'Ring teeth · derived' : 'Disc lobes · derived'),node('output',value == null ? '—' : String(value)));
+      const value = design && validToken && isCurrent(validToken) && design.family === doc.family ? spec.key === 'planets' ? doc.family === 'wolfrom' ? design.analysis.wolfrom.fixed_ring_teeth : design.values.sun+2*design.values.planet : design.values.pins-1 : null;
+      derived.append(node('span',spec.key === 'planets' ? doc.family === 'wolfrom' ? 'First ring teeth · fixed · derived' : 'Ring teeth · derived' : 'Disc lobes · derived'),node('output',value == null ? '—' : String(value)));
       derived.title = 'Calculated from the current tooth counts; edit the source geometry above.'; groups.get(group).append(derived);
+    }
+    if (doc.family === 'wolfrom' && spec.key === 'module') {
+      const derived = node('div',null,'derived-row');
+      const value = design && validToken && isCurrent(validToken) && design.family === doc.family ? design.analysis.wolfrom.module2_mm : null;
+      derived.append(node('span','Second layer module · derived [mm]'),node('output',value == null ? '—' : String(Number(value.toFixed(12)))));
+      derived.title = `m2 = m1 × (S + P1) / (Ro − P2)${value == null ? '' : ` = ${value} mm`}. Derived from the accepted design; only the first layer module is editable.`;
+      groups.get(group).append(derived);
     }
   }
   if (!container.children.length) container.append(node('p','No additional parameters for this model.','empty-state'));
@@ -330,7 +337,9 @@ async function generateCurrent() {
   generationRunning = true; updateActions(); status('Generating geometry…','warning');
   const serial = ++operationSerial;
   try {
-    sourceParameters = null; // Generation invalidates the worker's previous source, even if it fails.
+    // Wolfrom rejection retains the accepted worker source; document tokens
+    // keep the rejected draft stale while its source snapshot remains usable.
+    if (family !== 'wolfrom') sourceParameters = null;
     const result = await engine.request('generate',{family,parameters:parsed.values});
     if (serial !== operationSerial || !isCurrent(token)) return;
     generationRunning = false; fatal = false; rateEditing = false; rateSource = null; nominalFrame = null; doc.normalize(result.values,schema);
@@ -438,7 +447,9 @@ function syncMotionControl() {
   const input = $('motion-rpm'); input.disabled = !spec || busy || schemaPending;
   if (!spec || !doc.draft) return;
   input.value = doc.entries.input_rpm?.text ?? '';
-  const helpKey = `${doc.family}:${doc.draft.options.configuration ?? ''}`;
+  // A family edit can arrive before its async schema: include the actual
+  // help content so an old spec cannot be cached under the new family.
+  const helpKey = JSON.stringify([doc.family,doc.draft.options.configuration ?? '',spec.help ?? null]);
   if ($('motion-help').dataset.key !== helpKey) {
     $('motion-help').replaceChildren(); const help = helpDetails(spec); if (help) $('motion-help').append(help); $('motion-help').dataset.key = helpKey;
   }
@@ -447,7 +458,8 @@ function syncMotionControl() {
   const low = spec.minimum ?? 0, high = spec.maximum ?? 100000, value = parsed.value ?? design?.values.input_rpm ?? spec.default;
   $('rpm-slider').min = scaleRPM(low); $('rpm-slider').max = scaleRPM(high); $('rpm-slider').value = scaleRPM(value);
   for (const id of ['rpm-minus','rpm-plus','rpm-slider']) $(id).disabled = input.disabled || ratePending;
-  $('motion-caption').textContent = doc.family === 'differential' ? doc.draft.options.configuration === 'classic' ? 'Carrier input speed' : 'Input A speed' : doc.family === 'planetary' && ['two_stage','two_stage_double'].includes(doc.draft.options.variant) ? 'Input speed · stage 1' : 'Input speed';
+  $('motion-rpm').title = doc.family === 'wolfrom' ? 'Signed sun input speed. Positive rotation is counterclockwise viewed from +Z toward the XY plane.' : spec.label;
+  $('motion-caption').textContent = doc.family === 'wolfrom' ? 'Sun input speed' : doc.family === 'differential' ? doc.draft.options.configuration === 'classic' ? 'Carrier input speed' : 'Input A speed' : doc.family === 'planetary' && ['two_stage','two_stage_double'].includes(doc.draft.options.variant) ? 'Input speed · stage 1' : 'Input speed';
 }
 function editSpeed(value) {
   const spec = schema?.fields.find(f => f.key === 'input_rpm'); if (!spec || busy || ratePending) return;
@@ -532,6 +544,20 @@ function appendMotionDemos(container) {
 }
 function makeDriveConnections(spec) {
   const body = node('div',null,'drive-connections'), active = doc.draft.options[spec.key];
+  if (doc.family === 'wolfrom') {
+    body.append(node('h3','Fixed Wolfrom drive connections'));
+    for (const [role,member] of [['Input · apply motion here','Sun'],['Fixed to frame','First ring'],['Output · connect the load here','Second ring · exposed annulus']]) {
+      const row = node('div',null,'io-role'); row.append(node('span',role),node('strong',member)); body.append(row);
+    }
+    body.append(node('p','The common carrier is free. Both planet rims are rigidly joined.','subtle'),node('p','Positive rotation is counterclockwise viewed from +Z toward the XY plane. Physical backdrivability is not established.','subtle'));
+    const result = design?.analysis.kinematics?.stage_results?.[0];
+    if (result && currentValid()) {
+      const q = result.rates_rpm;
+      body.append(node('p',`Ratio ${signed(result.signed_ratio,4)} : 1 · sun ${automaticText(q.sun)} rpm · carrier ${automaticText(q.carrier)} rpm · compound spin ${automaticText(q.planet)} rpm · output ring ${automaticText(q.output)} rpm · fixed first ring ${automaticText(q.ring)} rpm`,'subtle'));
+    }
+    const help = helpDetails(spec); if (help) body.append(help);
+    return body;
+  }
   const triples = spec.choices.every(choice => choice.value.split('_').length === 3);
   if (!triples) {
     for (const choice of spec.choices) {
@@ -776,10 +802,12 @@ async function openProject(project, name) {
   if (!catalog || busy || actionConfirmation) return false;
   try { projectCheck(project); } catch (error) { await dialog('Project could not be opened',error.message); return false; }
   if (!await protectChanges()) return false;
+  const retained = {design,validToken,sourceParameters,rateEditing,rateSource,playing};
+  const transactional = project.family === 'wolfrom' || design?.family === 'wolfrom';
   const token = currentToken(); clearTimeout(generationTimer); invalidate('Opening project…'); busy = true; renderFields(); updateActions();
   const serial = ++operationSerial;
   try {
-    sourceParameters = null;
+    if (!transactional) sourceParameters = null;
     const result = await engine.request('import_project',{project});
     if (!isCurrent(token) || serial !== operationSerial) return false;
     const nextSchema = await engine.request('schema',{family:result.family,parameters:result.values});
@@ -793,11 +821,26 @@ async function openProject(project, name) {
     doc.markSaved(); storage.remember(name,{format:catalog.project_format,family:result.family,parameters:clone(result.values)}); status(`Opened ${name}${result.ignored_parameters?.length ? ` · ignored ${result.ignored_parameters.length} obsolete or unknown settings` : ''}`); events.dispatchEvent(new CustomEvent('design',{detail:{design,token:currentToken()}})); if (await requestPose(0)) nominalFrame = clone(viewer.frame); return true;
   } catch (error) {
     if (serial !== operationSerial || !isCurrent(token)) return false;
-    busy = false; schemaPending = false; handleFatal(error); renderFields(); updateActions();
+    busy = false; schemaPending = false; handleFatal(error);
+    let keptSource = false;
+    if (transactional && retained.design && !fatal && error.name !== 'AbortError') {
+      // Verify that the worker retained this exact source lease. A successful
+      // import followed by a schema/transport failure must use the rebuild path.
+      try {
+        await engine.request('project',{design_id:retained.design.design_id});
+        keptSource = isCurrent(token) && design === retained.design;
+      } catch {}
+      if (keptSource) {
+        validToken = retained.validToken; sourceParameters = retained.sourceParameters;
+        rateEditing = retained.rateEditing; rateSource = retained.rateSource;
+        $('stale-banner').hidden = currentValid(); setPlaying(retained.playing);
+        status('Project could not be opened. Your document has been kept.','error');
+      }
+    }
+    renderFields(); updateActions();
     if (error.name !== 'AbortError') await dialog('Project could not be opened',`${error.message} Your document has been kept.`);
-    // Import invalidates the worker's active model before validation; rebuild
-    // the preserved document to restore exports, without accepting the import.
-    if (isCurrent(token) && !fatal) scheduleGeneration(0); return false;
+    // Other families invalidate the old worker source before import validation.
+    if (!keptSource && isCurrent(token) && !fatal) scheduleGeneration(0); return false;
   }
 }
 async function newDocument() {

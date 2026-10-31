@@ -6,7 +6,7 @@ import unittest
 from geometry import FAMILIES,SPECS,VARIANTS,generate,get_specs
 from gui_workflow import CATALOG
 
-KEPT=('spur','helical','double','planetary','cycloidal','harmonic','worm','parallel','internal','differential')
+KEPT=('spur','helical','double','planetary','cycloidal','harmonic','worm','parallel','internal','differential','wolfrom')
 REMOVED=('compound','wave_roller','three_ring','angular_roller','diff_bevel','diff_planetary','diff_spur','diff_pulley','cable_hoist','diff_cable','diff_lock','rv','qdd','sea','joint_support')
 
 class ReducerCatalogTests(unittest.TestCase):

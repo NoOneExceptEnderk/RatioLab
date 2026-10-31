@@ -60,8 +60,8 @@ class BomReportTests(unittest.TestCase):
             self.assertIn('Source section: '+kinematics['reference_section'], text)
             self.assertIn(f'Prescribed side speed difference B−A: {kinematics["prescribed_difference_rpm"]:+.6g} rpm', text)
 
-    def test_all_ten_families_serialize_without_changing_analysis(self):
-        self.assertEqual(len(self.designs), 10)
+    def test_all_eleven_families_serialize_without_changing_analysis(self):
+        self.assertEqual(len(self.designs), 11)
         for family, design in self.designs.items():
             with self.subTest(family=family):
                 analysis = deepcopy(design.analysis)

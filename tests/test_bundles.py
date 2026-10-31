@@ -183,7 +183,10 @@ class NativeGuiChecksTests(unittest.TestCase):
         self.assertEqual(gui_check.EXPECTED_FAMILIES,set(FAMILIES))
         ids=list(FAMILIES)
         variants=[(ids,True),(list(reversed(ids)),True),(ids[:-1],False),
-                  (ids[:-1]+[ids[0]],False),(ids[:-1]+['unknown'],False)]
+                  (ids[:-1]+[ids[0]],False),(ids[:-1]+['unknown'],False),
+                  ([key for key in ids if key != 'wolfrom'],False),
+                  (ids+['wolfrom'],False),(ids+['unknown'],False),
+                  ([key for key in ids if key != 'spur']+['wolfrom'],False)]
         with tempfile.TemporaryDirectory() as temporary:
             folder=Path(temporary)
             def run(command,**kwargs):

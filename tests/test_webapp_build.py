@@ -111,12 +111,12 @@ class BuildTests(unittest.TestCase):
                         data = archive.read(name).decode()
                         self.assertNotIn('from gi.repository', data)
                         self.assertNotIn('import gi\n', data)
-                self.assertEqual(len(json.loads(archive.read('ratiolab_resources/web-catalog.json'))['catalog']), 10)
+                self.assertEqual(len(json.loads(archive.read('ratiolab_resources/web-catalog.json'))['catalog']), 11)
             # Import the extracted engine from a neutral directory, no checkout on
             # sys.path. This catches missing closure entries and resource files.
             extracted = Path(temporary)/'engine'
             with ZipFile(output/'engine.zip') as archive: archive.extractall(extracted)
-            probe = "import sys,json;sys.path.insert(0,sys.argv[1]);import engine_bridge as b;r=json.loads(b.dispatch('generate',json.dumps({'family':'spur','parameters':{}})));assert r['ok'],r;assert r['result']['triangle_count']>0;assert 'gi' not in sys.modules"
+            probe = "import sys,json;sys.path.insert(0,sys.argv[1]);import engine_bridge as b;r=json.loads(b.dispatch('generate',json.dumps({'family':'wolfrom','parameters':{}})));assert r['ok'],r;assert r['result']['triangle_count']>0;assert len(r['result']['parts'])==18;assert r['result']['analysis']['wolfrom']['signed_ratio']==600;assert 'gi' not in sys.modules"
             result = subprocess.run([sys.executable, '-I', '-c', probe, str(extracted)], cwd=temporary, capture_output=True, text=True)
             self.assertEqual(result.returncode, 0, result.stderr)
             # Published corresponding source can rebuild without GTK source.
@@ -133,6 +133,7 @@ class BuildTests(unittest.TestCase):
 
     def test_reviewed_dependency_closure_and_source_bytes_are_unchanged(self):
         files = builder.engine_files(ROOT)
+        self.assertIn('wolfrom', builder.MODULES)
         for module in builder.MODULES:
             self.assertEqual(files[module+'.py'], (ROOT/'src'/f'{module}.py').read_bytes())
         for forbidden in ['app', 'gui_workflow', 'preview3d', 'connection', 'fusion_connection', 'ratiolab_agent', 'ratiolab_mcp', 'updates', 'install_desktop']:

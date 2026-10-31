@@ -49,3 +49,13 @@ Fixed flanges require an external frame; moving housings require suitable suppor
 
 ## References
 
+
+## Wolfrom fixed topology
+
+The two-rim spur Wolfrom has one supported connection: sun input, first ring
+fixed, second ring output. The carrier and compound planets are internal moving
+members. Its exposed second annulus is the output interface; the model does not
+add the alternative-arrangement mounting flanges described above. Reversing input
+RPM changes speed signs without changing member ownership. See the [Wolfrom
+reference](wolfrom.md) for the derived module, clocking and nominal connection
+limits. No physical backdrivability result follows from this kinematic choice.

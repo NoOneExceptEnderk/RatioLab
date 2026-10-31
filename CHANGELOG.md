@@ -6,6 +6,19 @@ published packages and their verification results.
 
 ## Unreleased
 
+## 0.1.13 — 2026-10-31
+
+### Added
+
+- Add a nominal two-rim spur Wolfrom / 3K reducer to the desktop and clientside
+  browser, with sun input, fixed first ring and second-ring output. Derive the
+  second module, validate identical compound-planet clocking and usable paired
+  involute contact, and animate signed member speeds with continuous RPM changes.
+- Include compound hubs and carrier geometry, precise derived dimensions,
+  illustrated parameter help, projects, shared exports and a nominal 600:1
+  example. Incompatible Wolfrom drafts retain the last valid model and raw
+  input/history while exports and motion stay blocked until repair.
+
 ## 0.1.12 — 2026-10-31
 
 ### Added

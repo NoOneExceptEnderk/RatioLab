@@ -4,6 +4,7 @@
 import argparse
 import hashlib
 import json
+from math import isclose
 import os
 from pathlib import Path
 from queue import Queue, Empty
@@ -14,11 +15,11 @@ from threading import Thread
 MODERN = '2026-07-28'
 LEGACY = '2025-11-25'
 EXPECTED_FAMILIES = frozenset(('spur', 'helical', 'double', 'planetary', 'cycloidal',
-                             'harmonic', 'worm', 'parallel', 'internal', 'differential'))
+                             'harmonic', 'worm', 'parallel', 'internal', 'differential', 'wolfrom'))
 
 
 def verify_families(families):
-    """Require every supported family once, including the differential."""
+    """Require every supported family exactly once."""
     if not isinstance(families, list) or not all(isinstance(row, dict) and isinstance(row.get('id'), str) for row in families):
         raise RuntimeError('Installed MCP returned an invalid family inventory')
     ids = [row['id'] for row in families]
@@ -97,6 +98,105 @@ class Client:
             self.errors.close()
 
 
+def verify_wolfrom(client, workspace):
+    """Exercise the installed Wolfrom engine over MCP, without importing it here."""
+    model = client.tool('project_create', dict(family='wolfrom'))
+    handle, revision = model['handle'], model['revision']
+    assert model['family'] == 'wolfrom' and model['components'] == 18
+    parameters = model['parameters']
+    assert [parameters[k] for k in ('sun', 'planet', 'planet2', 'output_ring', 'planets')] == [18, 72, 59, 135, 3]
+    nominal = client.tool('project_describe', dict(handle=handle, revision=revision))
+
+    def check_description(description, rpm):
+        assert description['family'] == 'wolfrom' and len(description['components']) == 18
+        analysis = description['analysis']
+        assert analysis['signed_ratio'] == 600
+        geometry = analysis['wolfrom']
+        assert geometry['topology'] == 'two_rim_spur' and geometry['fixed_ring_teeth'] == 162
+        assert isclose(geometry['module2_mm'], parameters['module']*45/38, rel_tol=1e-12)
+        assert isclose(geometry['center_distance_mm'], parameters['module']*45, rel_tol=1e-12)
+        expected = dict(sun=rpm, ring=0, carrier=rpm/10, planet=-rpm/8, output=rpm/600)
+        rates = analysis['kinematics']['rates_rpm']
+        assert set(rates) == set(expected)
+        for member, rate in expected.items():
+            assert isclose(rates[member], rate, rel_tol=1e-12, abs_tol=1e-12)
+        parts = description['components']
+        fixed = [part for part in parts if part['port']['member'] == 'ring']
+        assert len(fixed) == 1 and fixed[0]['name'] == 'Ring_fixed' and fixed[0]['port']['role'] == 'fixed'
+        for part in parts:
+            port = part['port']
+            assert isclose(port['rpm'], expected[port['member']], rel_tol=1e-12, abs_tol=1e-12)
+            if port['member'] == 'planet':
+                assert isclose(port['orbital_rpm'], rpm/10, rel_tol=1e-12, abs_tol=1e-12)
+        # All components retain their nominal bounds, roles and profile/rigid metadata.
+        assert description['bounds_mm'] == nominal['bounds_mm']
+        assert analysis['wolfrom'] == nominal['analysis']['wolfrom']
+        for part, original in zip(parts, nominal['components']):
+            for key in ('index', 'name', 'role', 'profile_geometry'):
+                assert part[key] == original[key]
+
+    # Both rings and the first complete compound exercise both layers and its hub.
+    indices = [1, 2, 3, 4, 5, 6]
+    def export_geometry(revision, label):
+        exported = client.tool('export', dict(handle=handle, revision=revision, path='Wolfrom '+label,
+                                             kind='stl', components=indices))
+        target = workspace/exported['path']
+        manifest = json.loads((target/'manifest.json').read_text(encoding='utf-8'))
+        assert manifest['complete'] and manifest['complete_assembly'] is False
+        assert manifest['family'] == 'wolfrom' and manifest['revision'] == revision
+        scope = json.loads((target/'selection.json').read_text(encoding='utf-8'))
+        assert manifest['scope'] == scope
+        assert scope['source_component_count'] == 18 and scope['source_indices'] == indices
+        assert scope['document_revision'] == revision and scope['index_base'] == 1
+        config = json.loads((target/'model.config.json').read_text(encoding='utf-8'))
+        assert config['family'] == 'wolfrom' and config['selected_export'] == scope
+        hashes = {}
+        for record in manifest['files']:
+            data = (target/record['path']).read_bytes()
+            assert len(data) == record['bytes'] and hashlib.sha256(data).hexdigest() == record['sha256']
+            if record['path'].endswith('.stl'):
+                # Verify these are actual non-empty binary solids, not placeholders.
+                assert len(data) >= 84
+                triangles = int.from_bytes(data[80:84], 'little')
+                assert triangles > 0 and len(data) == 84+50*triangles
+                hashes[record['path']] = record['sha256']
+        assert len(hashes) == len(indices)+1  # six source solids and their assembled STL
+        return hashes
+
+    check_description(nominal, parameters['input_rpm'])
+    hashes = export_geometry(revision, 'default')
+    for label, rpm in (('reverse', -600), ('stationary', 0)):
+        changed = client.tool('project_update', dict(handle=handle, revision=revision, parameters=dict(input_rpm=rpm)))
+        assert changed['revision'] > revision
+        revision = changed['revision']
+        assert changed['parameters'] == dict(parameters, input_rpm=rpm)
+        description = client.tool('project_describe', dict(handle=handle, revision=revision))
+        check_description(description, rpm)
+        assert export_geometry(revision, label) == hashes
+
+    # P1*Ro == Rf*P2: zero output, so a finite ratio cannot be accepted.
+    rejected = client.tool('project_update', dict(handle=handle, revision=revision, parameters=dict(planet2=60)), error=True)
+    assert rejected['error']['code'] == 'invalid_parameters' and 'determinant' in rejected['error']['message'].lower()
+    preserved = client.tool('project_describe', dict(handle=handle, revision=revision))
+    assert preserved == description
+    current = [p for p in client.tool('project_list', {})['projects'] if p['handle'] == handle]
+    assert len(current) == 1 and current[0] == changed
+    saved = client.tool('project_save', dict(handle=handle, revision=revision, path='Wolfrom Ω.json'))
+    data = (workspace/'Wolfrom Ω.json').read_bytes()
+    config = json.loads(data.decode('utf-8'))
+    assert config['family'] == 'wolfrom' and config['parameters'] == changed['parameters']
+    opened = client.tool('project_open', dict(path='Wolfrom Ω.json'))
+    assert opened['parameters'] == saved['parameters'] and opened['components'] == 18
+    reopened = client.tool('project_describe', dict(handle=opened['handle'], revision=opened['revision']))
+    check_description(reopened, 0)
+    assert reopened['analysis'] == preserved['analysis'] and reopened['components'] == preserved['components']
+    return dict(components=18, signed_ratio=600, derived_module2_mm=nominal['analysis']['wolfrom']['module2_mm'],
+                fixed_ring='passed', reverse_zero_rpm='passed', singular_preservation='passed',
+                nominal_geometry='identical STL hashes across default/reverse/zero RPM',
+                subset_source_indices=indices, stl_sha256=hashes, manifest_hashes='passed',
+                save_open='passed', project_sha256=hashlib.sha256(data).hexdigest())
+
+
 def check(executable, report=None, *, module=False, environment=None):
     # Preserve a venv Python's symlink: resolving it launches the base Python
     # and silently loses the installed wheel's environment.
@@ -154,10 +254,11 @@ def check(executable, report=None, *, module=False, environment=None):
                 assert not analysis['complete'] and not analysis['analysis']['coverage_complete']
                 opened = client.tool('project_open',dict(path='project Ω.json'))
                 assert opened['parameters']['wheel']==60
+                wolfrom = verify_wolfrom(client, workspace)
                 proofs.append(dict(protocol=protocol,requests=client.serial,tools=len(tools),families=len(families),
                                    history='passed',stale_revision='rejected',path_escape='rejected',
                                    step_subset='passed',manifest_hashes='passed',search='passed',
-                                   interference_incomplete='reported',save_open='passed'))
+                                   interference_incomplete='reported',save_open='passed',wolfrom=wolfrom))
             finally:
                 client.close()
     result = dict(mcp='passed',display_required=False,protocols=proofs)

@@ -808,8 +808,37 @@ def _motion(d, family, key, values):
         d.text(218,197,'output',color=BLUE,size=14)
 
 
+def _wolfrom(d, family, key, values):
+    """Original axial schematic: two rims on one compound, output annulus."""
+    d.caption('Two-rim Wolfrom · axial schematic')
+    # Aligned compound portions and their joining hub. This shows member
+    # connectivity and axial separation, rather than claiming tooth geometry.
+    d.axis(24, 145, 333, 145)
+    d.rect(68, 54, 70, 21, color=BLUE, fill=BLUE_FILL)
+    d.rect(196, 54, 70, 21, color=ORANGE, fill=ORANGE_FILL)
+    d.rect(80, 88, 46, 35, color=BLUE, fill=BLUE_FILL)
+    d.rect(208, 88, 46, 35, color=ORANGE, fill=ORANGE_FILL)
+    d.rect(126, 99, 82, 12, color=INK, fill=BLUE_FILL)
+    d.rect(80, 135, 46, 21, color=ORANGE, fill=ORANGE_FILL)
+    d.line(54, 85, 54, 175, BLUE, 3)
+    d.line(280, 85, 280, 175, BLUE, 3)
+    d.line(54, 105, 280, 105, BLUE, 1, (4, 4))
+    d.text(103, 46, 'Rf fixed', size=13, anchor='center')
+    d.text(231, 46, 'Ro output', size=13, anchor='center', color=ORANGE)
+    d.text(103, 109, 'P1', size=14, anchor='center')
+    d.text(231, 109, 'P2', size=14, anchor='center')
+    d.text(166, 91, 'rigid hub', size=12, anchor='center')
+    d.text(103, 173, 'S input', size=13, anchor='center', color=ORANGE)
+    d.text(225, 173, 'carrier free', size=13, anchor='center', color=BLUE)
+    if key in ('width', 'width2', 'layer_gap'):
+        x, X, name = (80, 126, 'b1') if key=='width' else (208, 254, 'b2') if key=='width2' else (126, 208, 'gap')
+        d.dimension((x, 124), (X, 124), name, offset=0, label_offset=-16)
+    d.footer('+Z signs · ring output; carrier is free')
+
+
 def diagram_kind(family, key, help=None):
     """Context-sensitive dispatch, kept public for renderer coverage checks."""
+    if family=='wolfrom' and key in ('sun','planet','planet2','output_ring','planets','module','width','width2','layer_gap','plate','rim','assembly_clearance','input_rpm','io_scheme'):return 'wolfrom'
     if key=='pressure':return 'pressure'
     if key=='backlash':return 'backlash'
     if key in ('addendum','dedendum'):return 'tooth_height'
@@ -850,6 +879,7 @@ def diagram_kind(family, key, help=None):
 
 
 RENDERERS = {
+    'wolfrom':_wolfrom,
     'module':_module,'teeth':_teeth,'pressure':_pressure,'helix':_helix,
     'double_helix':_double_helix,
     'width':_width,'cone':_cone,'bore':_bore,'backlash':_backlash,
