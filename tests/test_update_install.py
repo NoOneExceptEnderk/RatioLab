@@ -225,6 +225,7 @@ class InstallTests(unittest.TestCase):
         self.assertIn('Get-FileHash -LiteralPath', script)
         self.assertNotIn('Add-Content -LiteralPath', script)
         self.assertIn('RegistryView]::Registry64', script)
+        self.assertIn("Require-InstallationDirectory ($key.GetValue('InstallLocation')) $destination", script)
         for flag in ('/SILENT','/SUPPRESSMSGBOXES','/SP-','/NORESTART','/RESTARTEXITCODE=3010',
                      '/NOCLOSEAPPLICATIONS','/NORESTARTAPPLICATIONS','/DIR="','/LOG="'):
             self.assertIn(flag,script)
@@ -350,6 +351,61 @@ throw 'controlled stop before registry or Setup'
                     self.assertIn('runtime-valid=True', result.stdout)
                     self.assertIn('controlled stop before registry or Setup', result.stderr)
                     self.assertEqual((job/'result').read_text(encoding='ascii'), 'failed')
+
+    def test_windows_registered_directory_comparison_is_canonical_and_refuses_other_paths(self):
+        powershell = (os.environ.get('RATIOLAB_TEST_POWERSHELL') or shutil.which('pwsh')
+                      or shutil.which('powershell.exe'))
+        if not powershell:
+            self.skipTest('PowerShell is needed to execute the registered-directory fixture')
+        self.executable.rename(self.bundle/'RatioLab.exe')
+        self.executable = self.bundle/'RatioLab.exe'
+        self.manifest(system='windows')
+        found = self.detection(system='win32', registry_reader=lambda: str(self.bundle))
+        package = self.package(suffix='setup.exe', system='windows')
+        script = install._powershell_script(self.root, found, package.path, package.sha256, 123, '456', 120,
+                                            target=package.release.version, restart=False)
+        # Execute the actual generated comparison functions, stopping before
+        # the main process/registry/Setup transaction. Windows semantics are
+        # tested on a native Windows PowerShell; Unix .NET does not treat '\\'
+        # as a directory separator and must not pretend to validate that case.
+        functions = script.split("$status = 'failed'\n", 1)[0]
+        fixture = r'''
+function Expect-Rejected([object]$registered, [string]$expected) {
+  try { Require-InstallationDirectory $registered $expected; throw 'A different path was accepted' }
+  catch { if ($_.Exception.Message -ne 'Installation record changed') { throw } }
+}
+$separator = [string][IO.Path]::DirectorySeparatorChar
+Require-InstallationDirectory ($destination + $separator) ($destination.ToUpperInvariant())
+Require-InstallationDirectory ([IO.Path]::Combine($destination, 'nested', '..')) $destination
+$root = [IO.Path]::GetPathRoot($destination)
+Require-InstallationDirectory $root ($root + $separator)
+Expect-Rejected ($destination + '-other') $destination
+Expect-Rejected $null $destination
+Expect-Rejected 42 $destination
+Expect-Rejected ($destination + ('x' * 600)) $destination
+[Console]::Out.WriteLine('native-path-cases=passed')
+if ([IO.Path]::DirectorySeparatorChar -eq '\') {
+  Require-InstallationDirectory 'D:/a/_temp/installed RatioLab Ω/' 'd:\a\_temp\installed RatioLab Ω\'
+  Require-InstallationDirectory 'D:\a\_temp\nested\..\installed RatioLab Ω\' 'd:/a/_temp/installed RatioLab Ω'
+  Require-InstallationDirectory 'D:/' 'd:\'
+  Require-InstallationDirectory '\\server\share' '\\SERVER\share\'
+  Expect-Rejected 'D:\a\_temp\different RatioLab' 'D:/a/_temp/installed RatioLab Ω'
+  [Console]::Out.WriteLine('windows-separator-cases=passed')
+} else { [Console]::Out.WriteLine('windows-separator-cases=unavailable-on-this-host') }
+'''
+        encoded = base64.b64encode((functions+fixture).encode('utf-16-le')).decode('ascii')
+        result = subprocess.run([powershell, '-NoProfile', '-NonInteractive', '-EncodedCommand', encoded],
+                                stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                timeout=30, check=False, encoding='utf-8')
+        self.assertEqual(result.returncode, 0, result.stdout+result.stderr)
+        self.assertIn('native-path-cases=passed', result.stdout)
+        expected = 'passed' if sys.platform == 'win32' else 'unavailable-on-this-host'
+        self.assertIn('windows-separator-cases='+expected, result.stdout)
+        for label in ('Registered directory', 'Expected directory',
+                      'Canonical registered directory', 'Canonical expected directory'):
+            lines = [line for line in result.stderr.splitlines() if line.startswith(label+'=')]
+            self.assertTrue(lines, result.stderr)
+            self.assertTrue(all(len(line) <= len(label)+1+515 for line in lines), result.stderr)
 
     def test_macos_unproven_application_location_is_manual_without_source_replacement(self):
         executable = self.root/'RatioLab.app/Contents/MacOS/RatioLab'

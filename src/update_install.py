@@ -464,6 +464,35 @@ function Log-Failure([object]$failure) {
   if ($failure.Exception) { Log-Message ($failure.Exception.ToString()) }
   if ($failure.ScriptStackTrace) { Log-Message ([string]$failure.ScriptStackTrace) }
 }
+function Canonical-Directory([string]$path) {
+  if ([string]::IsNullOrWhiteSpace($path)) { throw 'Missing installation directory' }
+  $full = [IO.Path]::GetFullPath($path)
+  $separators = [char[]]@([IO.Path]::DirectorySeparatorChar, [IO.Path]::AltDirectorySeparatorChar)
+  $trimmed = $full.TrimEnd($separators)
+  $root = ([IO.Path]::GetPathRoot($full)).TrimEnd($separators)
+  if ($trimmed.Length -le $root.Length) { return $root + [IO.Path]::DirectorySeparatorChar }
+  return $trimmed
+}
+function Log-Path([string]$label, [object]$value) {
+  $text = ([string]$value).Replace("`r", '\r').Replace("`n", '\n')
+  if ($text.Length -gt 512) { $text = $text.Substring(0, 512) + '...' }
+  Log-Message ($label + '=' + $text)
+}
+function Require-InstallationDirectory([object]$registered, [string]$destination) {
+  $registeredCanonical = '<unavailable>'
+  $destinationCanonical = '<unavailable>'
+  try {
+    $destinationCanonical = Canonical-Directory $destination
+    if ($registered -isnot [string]) { throw 'Invalid registered directory type' }
+    $registeredCanonical = Canonical-Directory $registered
+    if ([string]::Equals($registeredCanonical, $destinationCanonical, [StringComparison]::OrdinalIgnoreCase)) { return }
+  } catch { Log-Message 'Could not canonicalize the registered installation directory' }
+  Log-Path 'Registered directory' $registered
+  Log-Path 'Expected directory' $destination
+  Log-Path 'Canonical registered directory' $registeredCanonical
+  Log-Path 'Canonical expected directory' $destinationCanonical
+  throw 'Installation record changed'
+}
 function Ordinary-Item([string]$path, [bool]$directory = $false) {
   $item = Get-Item -LiteralPath $path -Force
   if ([bool]$item.PSIsContainer -ne $directory) { throw 'Wrong installation file type' }
@@ -576,7 +605,8 @@ function Finish {
         "  $phase = 'verifying the current installation'; Log-Message $phase",
         "  $status = 'installation-changed'",
         "  $key = [Microsoft.Win32.RegistryKey]::OpenBaseKey([Microsoft.Win32.RegistryHive]::CurrentUser, [Microsoft.Win32.RegistryView]::Registry64).OpenSubKey("+q(UNINSTALL_KEY)+')',
-        "  if (-not $key -or $key.GetValue('InstallLocation').TrimEnd('\\') -ne $destination.TrimEnd('\\')) { throw 'Installation record changed' }",
+        "  if (-not $key) { throw 'Installation record changed' }",
+        "  Require-InstallationDirectory ($key.GetValue('InstallLocation')) $destination",
         '  $key.Close()',
         '  $folder = Ordinary-Item $destination $true',
     ]
