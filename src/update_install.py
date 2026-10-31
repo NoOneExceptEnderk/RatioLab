@@ -450,6 +450,17 @@ def _powershell_script(job, installation, package, digest, parent_pid, parent_id
     lines = ["$ErrorActionPreference = 'Stop'"]
     lines += [f'${key} = {q(value)}' for key, value in values.items()]
     lines += [r'''
+function Log-Message([string]$message) {
+  # _spawn already owns helper.log as redirected stdout/stderr. Reopening it
+  # with Add-Content can fail under Windows sharing rules, including in catch.
+  # stderr also keeps diagnostics out of Runtime-Valid's boolean return stream.
+  [Console]::Error.WriteLine($message)
+}
+function Log-Failure([object]$failure) {
+  Log-Message ($failure | Out-String)
+  if ($failure.Exception) { Log-Message ($failure.Exception.ToString()) }
+  if ($failure.ScriptStackTrace) { Log-Message ([string]$failure.ScriptStackTrace) }
+}
 function Ordinary-Item([string]$path, [bool]$directory = $false) {
   $item = Get-Item -LiteralPath $path -Force
   if ([bool]$item.PSIsContainer -ne $directory) { throw 'Wrong installation file type' }
@@ -499,7 +510,7 @@ function Runtime-Valid([string]$version, [string]$baseVersion) {
     Probe '--diagnose' (Join-Path $job 'runtime-check.json')
     return $true
   } catch {
-    $_ | Out-String | Add-Content -LiteralPath (Join-Path $job 'helper.log')
+    Log-Failure $_
     return $false
   }
 }
@@ -511,8 +522,10 @@ function Finish {
   }
 }
 ''']
-    lines += ["$status = 'failed'", '$restartPath = $null', '$mayRestart = $false', 'try {',
+    lines += ["$status = 'failed'", "$phase = 'waiting for the original process'",
+              '$restartPath = $null', '$mayRestart = $false', 'try {',
               f'  $deadline = [DateTime]::UtcNow.AddSeconds({int(timeout)})',
+              "  Log-Message ('Update helper ready: ' + $phase)",
               "  Set-Content -LiteralPath (Join-Path $job 'ready') -Value 'ready'",
               '  while ($true) {',
               "    if (Test-Path -LiteralPath (Join-Path $job 'cancel')) { $status = 'cancelled'; throw 'Cancelled' }",
@@ -522,6 +535,7 @@ function Finish {
               "    if ([DateTime]::UtcNow -ge $deadline) { $status = 'timeout'; throw 'RatioLab did not exit in time' }",
               '    Start-Sleep -Milliseconds 100', '  }',
               "  if (Test-Path -LiteralPath (Join-Path $job 'cancel')) { $status = 'cancelled'; throw 'Cancelled' }",
+              "  $phase = 'verifying the update package'; Log-Message $phase",
               "  $item = Ordinary-Item $package",
               "  if ((Get-FileHash -LiteralPath $package -Algorithm SHA256).Hash.ToLowerInvariant() -ne $expected) { $status = 'checksum-mismatch'; throw 'Package changed' }",
               # Inno parses one quoted /DIR argument. Windows filenames cannot
@@ -529,15 +543,18 @@ function Finish {
               '  $arguments = \'/SILENT /SUPPRESSMSGBOXES /SP- /NORESTART /RESTARTEXITCODE=3010 /NOCLOSEAPPLICATIONS /NORESTARTAPPLICATIONS /DIR="\' + $destination + \'" /LOG="\' + (Join-Path $job \'setup.log\') + \'"\'',
               '  $mayRestart = $true',
               "  $status = 'installer-failed'",
-              "  Add-Content -LiteralPath (Join-Path $job 'helper.log') -Value ('Setup log: ' + (Join-Path $job 'setup.log'))",
+              "  $phase = 'running Setup'; Log-Message $phase",
+              "  Log-Message ('Setup log: ' + (Join-Path $job 'setup.log'))",
               '  $process = Start-Process -FilePath $package -ArgumentList $arguments -PassThru -Wait',
               "  if ($process.ExitCode -eq 3010) { $status = 'reboot-required'; throw 'A system restart is required; no reboot was requested' }",
               "  if ($process.ExitCode -eq 2) { $status = 'cancelled'; throw 'Setup was cancelled' }",
               "  if ($process.ExitCode -ne 0) { throw ('Setup exited with code ' + $process.ExitCode) }",
               "  $status = 'runtime-invalid'",
+              "  $phase = 'verifying the installed runtime'; Log-Message $phase",
               "  if (-not (Runtime-Valid $targetVersion $targetBase)) { throw 'The installed target runtime could not be verified' }",
               "  $status = 'installed'", '  $restartPath = $executable' if restart else '', '} catch {',
-              "  $_ | Out-String | Add-Content -LiteralPath (Join-Path $job 'helper.log')",
+              "  Log-Message ('Update helper failed during ' + $phase + '; status=' + $status)",
+              '  Log-Failure $_',
               '} finally {',
               # An unsuccessful Setup may have partly replaced its runtime.
               # Reopen the source only if its original manifest AND complete
@@ -546,12 +563,14 @@ function Finish {
               "    try {",
               "      $old = Ordinary-Item (Join-Path $destination 'bundle-manifest.json')",
               "      if ((Get-FileHash -LiteralPath $old.FullName -Algorithm SHA256).Hash -eq $oldManifestHash -and (Runtime-Valid $sourceVersion $sourceBase)) { $restartPath = $executable }",
-              "    } catch { $_ | Out-String | Add-Content -LiteralPath (Join-Path $job 'helper.log') }",
+              '    } catch { Log-Failure $_ }',
               '  }',
               "  if ($status -eq 'installed' -and $restartPath) { $status = 'installed-restart-requested' }",
+              "  Log-Message ('Update helper terminal result: ' + $status)",
               '  Finish',
               "  if ($restartPath) { Start-Process -FilePath $restartPath | Out-Null }", '}']
     checks = [
+        "  $phase = 'verifying the current installation'; Log-Message $phase",
         "  $status = 'installation-changed'",
         "  $key = [Microsoft.Win32.RegistryKey]::OpenBaseKey([Microsoft.Win32.RegistryHive]::CurrentUser, [Microsoft.Win32.RegistryView]::Registry64).OpenSubKey("+q(UNINSTALL_KEY)+')',
         "  if (-not $key -or $key.GetValue('InstallLocation').TrimEnd('\\') -ne $destination.TrimEnd('\\')) { throw 'Installation record changed' }",

@@ -223,6 +223,7 @@ class InstallTests(unittest.TestCase):
         self.assertIn("user''s app with spaces", script)
         self.assertIn('StartTime.ToFileTimeUtc()', script)
         self.assertIn('Get-FileHash -LiteralPath', script)
+        self.assertNotIn('Add-Content -LiteralPath', script)
         self.assertIn('RegistryView]::Registry64', script)
         for flag in ('/SILENT','/SUPPRESSMSGBOXES','/SP-','/NORESTART','/RESTARTEXITCODE=3010',
                      '/NOCLOSEAPPLICATIONS','/NORESTARTAPPLICATIONS','/DIR="','/LOG="'):
@@ -242,6 +243,48 @@ class InstallTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             install._powershell_script(self.root,found,package.path,package.sha256,123,'456',120,target='0.1.11')
         self.assertEqual(base64.b64decode(base64.b64encode(script.encode('utf-16-le'))).decode('utf-16-le'), script)
+
+    def test_windows_helper_failure_reaches_inherited_log_and_keeps_boolean_result(self):
+        powershell = (os.environ.get('RATIOLAB_TEST_POWERSHELL') or shutil.which('pwsh')
+                      or shutil.which('powershell.exe'))
+        if not powershell:
+            self.skipTest('PowerShell is needed to execute the generated helper diagnostic fixture')
+        self.executable.rename(self.bundle/'RatioLab.exe')
+        self.executable = self.bundle/'RatioLab.exe'
+        self.manifest(system='windows')
+        found = self.detection(system='win32', registry_reader=lambda: str(self.bundle))
+        package = self.package(suffix='setup.exe', system='windows')
+        job = self.root/'ratiolab-install-diagnostic'
+        job.mkdir(mode=0o700)
+        (job/'armed').touch()
+        script = install._powershell_script(job, found, package.path, package.sha256, 123, '456', 120,
+                                            target=package.release.version, restart=False)
+        # Exercise the generated catch/finally and Runtime-Valid catch with real
+        # PowerShell, but no Windows process, registry, Setup or installation.
+        # Reopening helper.log is forbidden even on hosts without Windows file
+        # sharing restrictions. All diagnostics must use the inherited handle.
+        fixture = """function Get-Process { param($Id, $ErrorAction) return $null }
+function Ordinary-Item { throw 'injected package probe failure' }
+function Add-Content { throw 'unexpected diagnostic file reopen' }
+$valid = Runtime-Valid '0.1.12' '0.1.12'
+[Console]::Out.WriteLine('runtime-valid=' + $valid)
+"""
+        script = script.replace("$status = 'failed'\n", fixture+"$status = 'failed'\n", 1)
+        encoded = base64.b64encode(script.encode('utf-16-le')).decode('ascii')
+        log = job/'helper.log'
+        with log.open('wb') as stream:
+            result = subprocess.run([powershell, '-NoProfile', '-NonInteractive', '-EncodedCommand', encoded],
+                                    stdin=subprocess.DEVNULL, stdout=stream, stderr=subprocess.STDOUT,
+                                    timeout=30, check=False)
+        diagnostics = log.read_text(encoding='utf-8')
+        self.assertEqual(result.returncode, 0, diagnostics)
+        self.assertIn('runtime-valid=False', diagnostics)
+        self.assertIn('injected package probe failure', diagnostics)
+        self.assertIn('Update helper failed during verifying the update package; status=failed', diagnostics)
+        self.assertIn('Update helper terminal result: failed', diagnostics)
+        self.assertNotIn('unexpected diagnostic file reopen', diagnostics)
+        self.assertNotIn('running Setup', diagnostics)
+        self.assertEqual((job/'result').read_text(encoding='ascii'), 'failed')
 
     def test_macos_unproven_application_location_is_manual_without_source_replacement(self):
         executable = self.root/'RatioLab.app/Contents/MacOS/RatioLab'

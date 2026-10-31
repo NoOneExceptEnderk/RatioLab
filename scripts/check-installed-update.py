@@ -13,14 +13,17 @@ restart disabled so it can validate the resulting runtime without a GUI session.
 import argparse
 import hashlib
 import json
+from itertools import islice
 import os
 from pathlib import Path
 import platform
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
 import time
+from urllib.request import build_opener
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT/'src'))
@@ -38,6 +41,76 @@ def sha256(path):
         for block in iter(lambda: stream.read(1024*1024), b''):
             digest.update(block)
     return digest.hexdigest()
+
+
+
+class MetadataOpener:
+    """Confine the disposable CI token to one non-redirecting metadata request."""
+    def __init__(self, token):
+        self._token = token
+        self._opener = build_opener(updates.NoRedirect())
+
+    def open(self, request, **kwargs):
+        if request.full_url != updates.API_URL or request.get_method() != 'GET':
+            raise ValueError('CI authentication is restricted to release metadata')
+        request.add_unredirected_header('Authorization', 'Bearer '+self._token)
+        return self._opener.open(request, **kwargs)
+
+
+def fetch_baseline_releases():
+    # Remove the step-scoped token before any native app or helper can inherit it.
+    # Downloads/checksums continue through the production anonymous verifier.
+    token = os.environ.pop('RATIOLAB_CI_GITHUB_TOKEN', '')
+    if not token:
+        return updates.fetch_releases()
+    return updates.fetch_releases(opener=MetadataOpener(token))
+
+
+
+def diagnostic_file(path, *, result_text=False):
+    """Read only a bounded ordinary result file; other evidence is referenced."""
+    record = dict(path=str(path), present=False)
+    try:
+        info = path.lstat()
+        record.update(present=True, bytes=info.st_size,
+                      regular=stat.S_ISREG(info.st_mode))
+        if result_text and record['regular']:
+            flags = (os.O_RDONLY | getattr(os, 'O_NOFOLLOW', 0)
+                     | getattr(os, 'O_NONBLOCK', 0) | getattr(os, 'O_BINARY', 0))
+            with os.fdopen(os.open(path, flags), 'rb') as stream:
+                if not stat.S_ISREG(os.fstat(stream.fileno()).st_mode):
+                    return record
+                raw = stream.read(4097)
+            record.update(text=raw[:4096].decode('utf-8', errors='replace'),
+                          truncated=len(raw) > 4096)
+    except FileNotFoundError:
+        pass
+    except OSError as error:
+        record['read_error'] = type(error).__name__
+    return record
+
+
+def write_failure_report(work, prepared, parent, phase, error):
+    """Data-only CI evidence: no exception arguments, command lines or environment."""
+    handoffs = work/'cache/ratiolab/updates/install-handoffs'
+    jobs = ([prepared.directory] if prepared is not None else
+            list(islice(handoffs.glob('ratiolab-install-*'), 4)))
+    report = dict(format='ratiolab-native-update-failure/1', phase=phase,
+                  error_type=type(error).__name__,
+                  parent_returncode=parent.poll() if parent is not None else None,
+                  helper_returncode=prepared._process.poll() if prepared is not None else None,
+                  helper_status=prepared.status() if prepared is not None else None,
+                  work=str(work), jobs=[], runtime_reports={
+                      label:diagnostic_file(work/(label+'-version.txt'))
+                      for label in ('old', 'waiting', 'new')})
+    for job in jobs:
+        if job.is_symlink() or not job.is_dir():
+            continue
+        report['jobs'].append(dict(directory=str(job), files={
+            name:diagnostic_file(job/name, result_text=name == 'result')
+            for name in ('ready', 'armed', 'cancel', 'result', 'status',
+                         'helper.log', 'setup.log', 'runtime-version.txt', 'runtime-check.json')}))
+    (work/'update-failure.json').write_text(json.dumps(report, indent=2)+'\n')
 
 
 def main():
@@ -105,13 +178,15 @@ def main():
     prepared = None
     parent = None
     completed = False
+    phase = 'baseline-discovery'
     try:
-        records = [record for record in updates.fetch_releases()
+        records = [record for record in fetch_baseline_releases()
                    if record.get('tag_name') == 'v'+args.baseline]
         release = updates.select_release(records, current='0.0.0', channel='stable',
                     system=system, machine=machine, executable=executable, package_format=suffix)
         if release is None or release.version != args.baseline:
             raise RuntimeError('The exact published native baseline is unavailable')
+        phase = 'baseline-download-and-install'
         old = update_download.download_release(release, work/'downloads')
         if system == 'win32':
             run([old.path, '/VERYSILENT', '/SUPPRESSMSGBOXES', '/SP-', '/NORESTART',
@@ -131,6 +206,7 @@ def main():
             # Preserve the immutable baseline package while creating the same
             # protected marker its installer gets with a standard private umask.
             (destination/'.ratiolab-installation').chmod(0o600)
+        phase = 'baseline-runtime-version'
         if version('old') != 'RatioLab '+args.baseline:
             raise RuntimeError('The baseline runtime identity does not match')
         personal = app_paths.default_output_dir()/'user-project.config.json'
@@ -161,28 +237,38 @@ def main():
         verified = update_download.VerifiedDownload(package, sha256(package), target_release,
                                                     directory, (info.st_dev, info.st_ino))
         parent = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(120)'])
+        phase = 'prepare-helper'
         prepared = update_install.prepare_install(verified, installation,
                     directory=work/'cache/ratiolab/updates', parent_pid=parent.pid,
                     restart=False, timeout=120)
+        phase = 'arm-helper'
         prepared.launch()
         time.sleep(0.3)
+        phase = 'original-process-wait-gate'
         if parent.poll() is not None or prepared.result_path.exists():
             raise RuntimeError('The installer did not wait for the original process')
+        phase = 'waiting-runtime-version'
         if version('waiting') != 'RatioLab '+args.baseline:
             raise RuntimeError('The running baseline was replaced before the original process exited')
         parent.terminate();parent.wait(timeout=15)
+        phase = 'helper-completion'
         prepared._process.wait(timeout=300)
+        phase = 'helper-terminal-status'
         if prepared.status() != 'installed':
             raise RuntimeError('Native update failed: '+prepared.status()+'; '+str(prepared.log_path))
+        phase = 'new-runtime-version'
         if version('new') != 'RatioLab '+RELEASE_VERSION:
             raise RuntimeError('The updated native runtime has the wrong version')
+        phase = 'next-update-eligibility'
         updated = update_install.detect_installation(system=system, machine=machine,
                     executable=executable, frozen=True, current=RELEASE_VERSION)
         if not updated.can_install or updated.destination != destination:
             raise RuntimeError('The updated application is not eligible for its next native update')
+        phase = 'user-data-preservation'
         for path, expected in preserved.items():
             if sha256(path) != expected:
                 raise RuntimeError('User data changed during the update: '+str(path))
+        phase = 'update-receipt'
         outcome = update_receipt.consume(prepared.directory.parent, current=RELEASE_VERSION,
                                          executable=executable, system=system)
         if outcome is None or not outcome.success:
@@ -190,6 +276,7 @@ def main():
         if update_receipt.consume(prepared.directory.parent, current=RELEASE_VERSION,
                                    executable=executable, system=system) is not None:
             raise RuntimeError('The update result was not consumed exactly once')
+        phase = 'updated-runtime-self-test'
         run([executable, '--self-test', '--report', work/'updated-runtime.json'], 'updated-runtime.log')
         completed = True
         result = dict(status='passed', baseline=args.baseline, target=RELEASE_VERSION,
@@ -200,6 +287,12 @@ def main():
             scope='Actual native installer upgrade; GUI restart and document guards tested separately')
         (work/'update-result.json').write_text(json.dumps(result, indent=2)+'\n')
         print(json.dumps(result))
+    except Exception as error:
+        try:
+            write_failure_report(work, prepared, parent, phase, error)
+        except OSError:
+            print('Could not write native update failure evidence.', file=sys.stderr)
+        raise
     finally:
         if parent and parent.poll() is None:
             parent.terminate();parent.wait(timeout=15)
