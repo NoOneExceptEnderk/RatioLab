@@ -17,22 +17,22 @@
 **请下载下方的安装包，其中已包含 Python、GTK 和所需的库。**
 无需下载源代码，也无需安装开发工具。
 
-当前版本：**0.1.11**。
+当前版本：**0.1.12**。
 
 各平台安装包通过原生 CI 检查后才会发布。平台验证结果请参阅发布说明，签名限制见下文。
 
 | 你的计算机 | 下载 | 操作步骤 |
 |---|---|---|
-| Windows 11，64 位 Intel/AMD | [Windows 安装程序](https://github.com/NoOneExceptEnderk/RatioLab/releases/download/v0.1.11/RatioLab-0.1.11-windows-x86_64-setup.exe) | 打开安装程序，然后从“开始”菜单启动 RatioLab。 |
-| macOS 15+，Apple Silicon（M1 或更新型号） | [Apple Silicon DMG](https://github.com/NoOneExceptEnderk/RatioLab/releases/download/v0.1.11/RatioLab-0.1.11-macos-arm64.dmg) | 打开 DMG，将 RatioLab 拖入“应用程序”文件夹。 |
-| macOS 15+，Intel | [Intel DMG](https://github.com/NoOneExceptEnderk/RatioLab/releases/download/v0.1.11/RatioLab-0.1.11-macos-x86_64.dmg) | 打开 DMG，将 RatioLab 拖入“应用程序”文件夹。 |
-| Ubuntu 24.04+ / 兼容的 Linux，x86-64 | [Debian/Ubuntu 软件包](https://github.com/NoOneExceptEnderk/RatioLab/releases/download/v0.1.11/ratiolab_0.1.11_amd64.deb) · [其他 Linux 安装程序](https://github.com/NoOneExceptEnderk/RatioLab/releases/download/v0.1.11/RatioLab-0.1.11-linux-x86_64.run) | 使用系统的软件安装工具打开 `.deb`。对于 `.run`，请按照安装指南操作。 |
+| Windows 11，64 位 Intel/AMD | [Windows 安装程序](https://github.com/NoOneExceptEnderk/RatioLab/releases/download/v0.1.12/RatioLab-0.1.12-windows-x86_64-setup.exe) | 打开安装程序，然后从“开始”菜单启动 RatioLab。 |
+| macOS 15+，Apple Silicon（M1 或更新型号） | [Apple Silicon DMG](https://github.com/NoOneExceptEnderk/RatioLab/releases/download/v0.1.12/RatioLab-0.1.12-macos-arm64.dmg) | 打开 DMG，将 RatioLab 拖入“应用程序”文件夹。 |
+| macOS 15+，Intel | [Intel DMG](https://github.com/NoOneExceptEnderk/RatioLab/releases/download/v0.1.12/RatioLab-0.1.12-macos-x86_64.dmg) | 打开 DMG，将 RatioLab 拖入“应用程序”文件夹。 |
+| Ubuntu 24.04+ / 兼容的 Linux，x86-64 | [Debian/Ubuntu 软件包](https://github.com/NoOneExceptEnderk/RatioLab/releases/download/v0.1.12/ratiolab_0.1.12_amd64.deb) · [其他 Linux 安装程序](https://github.com/NoOneExceptEnderk/RatioLab/releases/download/v0.1.12/RatioLab-0.1.12-linux-x86_64.run) | 使用系统的软件安装工具打开 `.deb`。对于 `.run`，请按照安装指南操作。 |
 
 Linux 需要 glibc 2.39 或更新版本。所有系统都需要兼容的显卡驱动程序。
 Windows 安装程序未签名；macOS 版本采用临时签名（ad-hoc signing），未经 Apple 公证。
 系统可能会显示“未知发布者”警告或阻止启动。
 
-[安装指南、系统要求与卸载（英文）](../installation.md) · [所有发布文件与校验和](https://github.com/NoOneExceptEnderk/RatioLab/releases/tag/v0.1.11)
+[安装指南、系统要求与卸载（英文）](../installation.md) · [所有发布文件与校验和](https://github.com/NoOneExceptEnderk/RatioLab/releases/tag/v0.1.12)
 
 ## 功能
 
