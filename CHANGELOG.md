@@ -6,6 +6,42 @@ published packages and their verification results.
 
 ## Unreleased
 
+## 0.1.14 — 2026-10-31
+
+### Changed
+
+- Make Update now download, verify, install in the existing location and request
+  reopening through the document Save / Discard / Cancel guard. Windows uses
+  Setup progress without a wizard; Debian/Ubuntu packages request system
+  authorization; writable standard macOS Applications installations use verified
+  replacement with a retained backup until runtime checks pass. Unsupported or
+  protected installations keep an explicit manual download option.
+- Show the current installation type, readable published notes and numbered
+  version history in Updates. Keep the development Unreleased section out of
+  that history and show the actual update outcome once after reopening.
+- Keep export completion visible with its output name and an Open folder action
+  bound to that export's destination. Show failures and cancellations inline;
+  earlier successful results remain explicitly labelled Last export.
+- Expand Components, Search or Check to use the workspace area and restore the
+  previous layout without losing component selections or tool inputs.
+- Use readable component names in the list and selection summary, retaining
+  original names, roles and BOM codes in selected details. Preserve source
+  indices, stage/layer distinctions and all exported identities.
+
+### Fixed
+
+- Allow manual release checks from source checkouts and retain an explicit
+  automatic-check preference, while respecting disabled checks at launch.
+- Protect Linux installation markers and the managed default application folder
+  against permissive umasks so the native updater recognizes new and upgraded
+  installations. Preserve projects and custom parent-directory permissions.
+- Keep component selections and isolated views when changing only RPM. Clear
+  revision-bound measurements and discard selections when geometry or the
+  document changes.
+- Prepare geometry and preview scenes away from the GTK thread for ordinary
+  dimension edits. Discard obsolete requests and apply only the latest valid
+  document state, keeping controls responsive while preparation finishes.
+
 ## 0.1.13 — 2026-10-31
 
 ### Added

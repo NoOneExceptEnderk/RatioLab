@@ -349,6 +349,7 @@ def build(app, labels):
     app.workspace_paned = content
     root.append(content)
     left = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, css_classes=['sidebar'])
+    app.parameter_panel = left
     left.set_size_request(310, -1)
     content.set_start_child(left)
     picker = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=7, css_classes=['model-picker'])
@@ -409,6 +410,7 @@ def build(app, labels):
     app.pick_mode.set_tooltip_text('Navigate: orbit and zoom. Select: click surfaces; Ctrl/Shift adds. Measure: pick two surface points.')
     toolbar.append(app.pick_mode)
     visibility = Gtk.MenuButton(label='View')
+    app.view_menu = visibility
     toolbar.append(visibility)
     popup = Gtk.Popover()
     visibility.set_popover(popup)
@@ -478,8 +480,10 @@ def build(app, labels):
     app.hidden_hint.set_visible(False)
     overlay.add_overlay(app.hidden_hint)
     install_axes(app, overlay)
+    app.workspace_extras = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+    right.append(app.workspace_extras)
     playback = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, css_classes=['playback-bar'])
-    right.append(playback)
+    app.workspace_extras.append(playback)
     motion_controls.install(app, playback)
     from interference_ui import Controller
     app.interference = Controller(app, app.tools)
@@ -504,7 +508,7 @@ def build(app, labels):
     app.metric_cards.set_min_children_per_line(3)
     app.metric_cards.set_max_children_per_line(3)
     app.metric_cards.set_homogeneous(True)
-    right.append(app.metric_cards)
+    app.workspace_extras.append(app.metric_cards)
     warning = Gtk.Box(spacing=10, css_classes=['warning-bar'])
     app.warning_bar = warning
     app.study = Gtk.Label(xalign=0, wrap=True, hexpand=True, css_classes=['study'])
@@ -519,13 +523,15 @@ def build(app, labels):
     app.error_reveal.connect('clicked', lambda _: gui_workflow.reveal_error(app))
     app.error_reveal.set_visible(False)
     warning.append(app.error_reveal)
-    right.append(warning)
+    app.workspace_extras.append(warning)
     # Full text stays available through reports and notes, rather than occupying
     # a second permanent results area below the viewport.
     app.metrics = Gtk.Label(selectable=True)
     app.notes = Gtk.Label(selectable=True)
     app.full_results_expander = Gtk.Expander()
     app.results_title = Gtk.Label(label='Results')
+    from export_feedback import Controller as ExportFeedback
+    app.export_feedback = ExportFeedback(app,root)
     footer = Gtk.Box(spacing=12, css_classes=['footer'])
     app.spinner = Gtk.Spinner()
     footer.append(app.spinner)

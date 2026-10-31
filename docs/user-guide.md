@@ -16,7 +16,17 @@ The parameter panel has three tabs:
 
 Parameters update the preview and calculations automatically. Main geometry, shafts/bores and output connections are grouped; profile parameters and clearances are under **Advanced**. Nominal operating loads are collapsed under Motion. Read-only results show effective ratio/direction, output speed and a relevant geometric dimension; single gears show pitch diameter, tooth count and width. Nominal torque remains in the operating assumptions and calculation report, rather than appearing as a capacity rating.
 
+Ordinary dimension edits prepare the next geometry and preview in the background.
+You can continue editing; only the latest matching request replaces the model.
+Export and geometry-dependent tools wait for the accepted result. Explicit
+project loads and refreshes can still take time to finish.
+
 **New**, **Open…**, **Save**, **Save As…**, **Recent…**, **Undo / Redo** and **Export…** stay in the header. The document line shows its full path and any unsaved changes. **CAD integrations** groups SolidCraft and Autodesk Fusion connection, status and creation. The bottom bar provides model status, component count, bill of materials, calculation report and notes. The panel remembers its active tab, advanced section and scroll position when choices rebuild its fields. Linked dimensions explain their source and provide **Change source…** to open the relevant Assembly section.
+
+With Components, Search or Check open, choose **Expand tool** beside **Tools**
+to give the panel the workspace area. **Restore workspace** returns to the
+previous split positions and view without losing selections or tool inputs.
+Closing the tool or pressing Escape also restores the workspace.
 
 In **View**, choose **Dark** or **Light** under **Theme**. The choice is saved for future sessions and applies immediately to the workspace and its dialogs. **Text size** keeps the selected theme. Appearance settings do not change the project or its history.
 
@@ -220,11 +230,16 @@ retain topology and use edge/point distances, with altitude below tolerance / 10
 
 Click a visible surface to select its component; Ctrl/Shift adds or removes
 parts. **Components / measure…** provides a multiple-selection list with source
-indices, names, BOM codes and visibility. Duplicate names remain distinct.
+indices, readable names and visibility. Duplicate names remain distinct. Row
+tooltips retain the original source name and role. Expand **Component details ·
+nominal bounds in mm** for the selected parts' source names, roles, BOM codes
+and sampled bounds. The display names do not rename parts in exports or projects.
 **Isolate selected** reveals only those source positions, including explicitly
 selected supports or housing; **Restore filters** restores the previous view.
-Selection and inspection do not change parameters or Undo history. Parameter
-edits and document replacement clear obsolete selections and measurements.
+Selection and inspection do not change parameters or Undo history. Changing only
+RPM keeps component selections and isolation while clearing measurements tied to
+the previous operating revision. Geometry edits and document replacement clear
+obsolete selections and measurements.
 
 **Measure two surface points** shows A/B in the preview, world XYZ coordinates
 and straight point-to-point distance in mm. The first click pauses the displayed
@@ -378,6 +393,12 @@ Keyboard shortcuts: Ctrl+N (New), Ctrl+O (Open), Ctrl+S (Save), Ctrl+Shift+S (Sa
 - **SVG / DXF profiles:** a `.profiles-export/` folder with closed outer contours and holes, in local section coordinates. `profiles.json` records axial positions, rotations and world placement. Helical and deformed parts are explicitly labelled **sections only**, rather than complete extrusion profiles or manufacturing developments.
 - **Complete package:** one `.package/` folder containing standalone assembly/component STEP, SVG/DXF profiles, STL files, parameter JSON, CAD script and required assets, preview PNG, BOM and calculation reports. `manifest.json` lists checksums for every exported file.
 - **BOM and calculations:** TXT, CSV and JSON component lists plus `.calculations.txt` and `.calculations.json` reports.
+
+After an export succeeds, a persistent confirmation shows its output name and
+destination. **Open folder** opens that export's destination, even if you later
+choose a different folder for future exports. **Dismiss** closes the confirmation.
+Failures and cancellations appear there too; a previous successful result is
+labelled **Last export**. The same feedback applies to selected-component exports.
 
 STL coordinates are in **millimetres**; select mm in the importer because STL has no unit field. The header export actions include all parts, including hidden supports, housing and nominal commercial components; use the component window for an explicit subset. Individual parts retain assembly coordinates and can be arranged on the slicer bed. STL export does not require SolidCraft.
 

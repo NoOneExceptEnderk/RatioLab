@@ -3,6 +3,7 @@
 """User-controlled GTK updates. Network, verification and preparation use workers."""
 import logging
 from pathlib import Path
+import sys
 import threading
 import time
 import gi
@@ -14,6 +15,8 @@ from release_version import RELEASE_VERSION, CHANNEL
 import updates
 import update_download
 import update_install
+import update_receipt
+import release_notes
 
 
 class Controller:
@@ -28,6 +31,7 @@ class Controller:
         self.release=None;self.installation=None;self.window=None;self.displayed_release=None
         self.job_serial=0;self.cancel_event=None;self.downloading=False;self.prepared=None
         self.helper_timer=0;self.worker_running=False;self.install_pending=False
+        self.outcome=None
         self.status=updates.disabled_reason() or 'Choose Check now to look for updates.'
         self.job_status='';self.status_label=None;self.check_button=None
         self.preferences=updates.Preferences(app_paths.config_dir()/'updates.json')
@@ -41,10 +45,22 @@ class Controller:
         app.connect('shutdown',lambda *_:self.close())
 
     def automatic(self):
-        return updates.automatic_enabled() and self.preferences.automatic
+        return self.preferences.automatic
 
     def start(self):
+        if (sys.platform.startswith('linux') or sys.platform in ('win32','darwin')) and getattr(sys,'frozen',False):
+            def receipt_work():
+                outcome=update_receipt.consume(self.cache/update_receipt.HANDOFF_DIRECTORY,
+                                               current=RELEASE_VERSION,executable=sys.executable)
+                GLib.idle_add(self._receipt_complete,outcome)
+            threading.Thread(target=receipt_work,name='RatioLab-update-result',daemon=True).start()
         if self.automatic():self.check()
+
+    def _receipt_complete(self,outcome):
+        if self.alive and outcome is not None:
+            self.outcome=outcome
+            self.show()
+        return False
 
     def close(self):
         if not self.alive:return
@@ -74,7 +90,9 @@ class Controller:
         if not self.alive:return
         reason=updates.disabled_reason()
         if reason:
-            self.status=reason;self._update_status();return
+            self.status=reason
+            if self.window:self._build_window()
+            return
         if not manual and not self.automatic():return
         if self.inflight:
             self.status='Checking for updates…';self._update_status();return
@@ -103,12 +121,13 @@ class Controller:
         self.inflight=False
         self.preferences.state['next_allowed']=time.time()+delay if error else 0
         self.preferences.state['backoff_reason']=kind;self.preferences.save()
+        if installation is not None:self.installation=installation
         if not error:
             if release!=self.release:self._cancel_job()
             self.release=release;self.installation=installation
             self.status='Update to '+release.version+' is available.' if release else 'You are up to date.'
-            if self.window:self._build_window()
         else:self.status=error
+        if self.window:self._build_window()
         self.refresh();self._update_status();self._schedule(delay)
         return False
 
@@ -125,9 +144,9 @@ class Controller:
 
     def _open(self,url,error_label):
         try:
-            if self.launch(url) is False:raise OSError('No browser accepted this link')
+            if self.launch(url) is False:raise OSError('No application accepted this address')
         except Exception as error:
-            error_label.set_text('Could not open your browser: '+str(error)+'\nCopy this URL:\n'+url)
+            error_label.set_text('Could not open this item: '+str(error)+'\nCopy this address:\n'+url)
             error_label.set_visible(True)
 
     def _hide(self,action,release=None,window=None):
@@ -174,11 +193,24 @@ class Controller:
         title='Update to '+release.version if release else 'RatioLab '+RELEASE_VERSION
         box.append(Gtk.Label(label=title,xalign=0,css_classes=['title-2']))
         box.append(Gtk.Label(label=f'Current version: {RELEASE_VERSION} · {CHANNEL} channel',xalign=0))
+        label=(getattr(self.installation,'label','Installed application') if self.installation
+               else 'Installed application' if getattr(sys,'frozen',False) else 'Source or Python installation')
+        self.installation_label=Gtk.Label(label=label,xalign=0,wrap=True)
+        box.append(self.installation_label)
+        if self.outcome:
+            result=Gtk.Label(label=self.outcome.message,xalign=0,wrap=True,selectable=True)
+            box.append(result)
+            if self.outcome.log_path:
+                log_error=Gtk.Label(xalign=0,wrap=True,selectable=True,visible=False)
+                log=Gtk.Button(label='View update log',halign=Gtk.Align.START)
+                log.connect('clicked',lambda *_:self._open(self.outcome.log_path.as_uri(),log_error))
+                box.append(log);box.append(log_error)
         checks=Gtk.FlowBox(selection_mode=Gtk.SelectionMode.NONE,column_spacing=10,row_spacing=8,
                            min_children_per_line=1,max_children_per_line=2);box.append(checks)
         self.check_button=Gtk.Button(label='Check now')
         self.check_button.connect('clicked',lambda *_:self.check(manual=True));checks.append(self.check_button)
         automatic=Gtk.CheckButton(label='Check for updates automatically',active=self.preferences.automatic)
+        automatic.set_sensitive(not bool(updates.disabled_reason()))
         automatic.connect('toggled',lambda widget:self.set_automatic(widget.get_active()));checks.append(automatic)
         self.automatic_button=automatic
         self.status_label=Gtk.Label(xalign=0,wrap=True,wrap_mode=Pango.WrapMode.WORD_CHAR,selectable=True);box.append(self.status_label)
@@ -188,19 +220,19 @@ class Controller:
         pages=Gtk.Box(orientation=Gtk.Orientation.VERTICAL,spacing=16);scroll.set_child(pages)
         if release:
             pages.append(Gtk.Label(label='Published release notes',xalign=0,css_classes=['heading']))
-            pages.append(Gtk.Label(label=release.notes or 'No published release notes.',xalign=0,
+            pages.append(Gtk.Label(label=release_notes.plain_text(release.notes) or 'No published release notes.',xalign=0,
                                    wrap=True,selectable=True,natural_wrap_mode=Gtk.NaturalWrapMode.WORD))
-        pages.append(Gtk.Label(label='Local changelog',xalign=0,wrap=True,css_classes=['heading']))
+        pages.append(Gtk.Label(label='Version history',xalign=0,wrap=True,css_classes=['heading']))
         try:local=app_paths.resource_path('CHANGELOG.md').read_text(encoding='utf-8')
         except OSError:local='Local changelog is unavailable. See the project releases.'
-        pages.append(Gtk.Label(label=local,xalign=0,wrap=True,selectable=True))
+        pages.append(Gtk.Label(label=release_notes.plain_text(local,history=True) or 'Version history is unavailable.',xalign=0,wrap=True,selectable=True))
         self.job_box=Gtk.Box(orientation=Gtk.Orientation.VERTICAL,spacing=8);box.append(self.job_box)
         self._job_widgets()
         row=Gtk.FlowBox(selection_mode=Gtk.SelectionMode.NONE,column_spacing=8,row_spacing=8,
                         min_children_per_line=1,max_children_per_line=4);box.append(row)
         launch_error=Gtk.Label(xalign=0,wrap=True,wrap_mode=Pango.WrapMode.WORD_CHAR,selectable=True,visible=False)
         if release:
-            download=Gtk.Button(label='Download' if release.download!=release.url else 'Open release page')
+            download=Gtk.Button(label='Download manually' if release.download!=release.url else 'Open release page')
             download.connect('clicked',lambda *_:self._open(release.download,launch_error));row.append(download)
             notes=Gtk.Button(label='Release page')
             notes.connect('clicked',lambda *_:self._open(release.url,launch_error));row.append(notes)
@@ -213,7 +245,7 @@ class Controller:
         box.append(launch_error)
         explanation=self.installation.explanation if self.installation else 'Check now to detect update options for this installation.'
         if release and self.installation and self.installation.can_install and not self._eligible():
-            explanation+=' This release has no supported package with SHA256SUMS metadata. Use Download for manual installation.'
+            explanation+=' This release has no supported package with SHA256SUMS metadata. Use Download manually for manual installation.'
         box.append(Gtk.Label(label=explanation,xalign=0,wrap=True,css_classes=['muted']))
 
     def _job_widgets(self):
@@ -233,10 +265,9 @@ class Controller:
             button.connect('clicked',lambda *_:self.install());self.job_box.append(button);self.install_button=button
             button.set_sensitive(not self.install_pending)
         elif not self.downloading and self._eligible():
-            detail=('The verified update will close RatioLab and run Setup. Follow Setup to finish and restart.'
-                    if self.installation.package_format=='setup.exe' else 'The verified update will close RatioLab, install and request a restart.') if self.installation.requires_exit else 'The verified package will open through your system installer.'
+            action,detail=update_install.update_action(self.installation)
             self.job_box.append(Gtk.Label(label=detail,xalign=0,wrap=True))
-            button=Gtk.Button(label='Update now',css_classes=['suggested-action'])
+            button=Gtk.Button(label=action,css_classes=['suggested-action'])
             button.set_sensitive(not self.worker_running)
             button.connect('clicked',lambda *_:self.begin_download());self.job_box.append(button)
         if self.downloading or self.prepared:

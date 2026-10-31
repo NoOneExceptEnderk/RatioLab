@@ -2,6 +2,8 @@
 # SPDX-License-Identifier: GPL-3.0-only
 """Installer lifecycle and frozen paths; runtime bundles have separate real GL tests."""
 import os
+import hashlib
+import json
 from pathlib import Path
 import runpy
 import shutil
@@ -101,11 +103,70 @@ esac
 ''')
         executable.chmod(0o755)
 
-    def install(self):
+    def install(self, *, umask=-1):
         paths = sorted(str(path.relative_to(self.payload)) for path in self.payload.rglob('*') if path.is_file())
         (self.package/'installed-files.txt').write_text('\n'.join(paths)+'\n')
         return subprocess.run(['sh', str(self.package/'install.sh'), '--yes', '--destination', str(self.destination)],
-                              env=self.environment, capture_output=True, text=True)
+                              env=self.environment, capture_output=True, text=True, umask=umask)
+
+    def test_group_writable_umask_does_not_disable_native_updates(self):
+        import update_install
+        self.destination = self.root/'new private parent'/'RatioLab'
+        self.payload.chmod(0o755)
+        executable = self.payload/'RatioLab'
+        (self.payload/'bundle-manifest.json').write_text(json.dumps({
+            'format': 'ratiolab-bundle/1',
+            'application_id': 'local.solidcraft.reducers',
+            'system': 'linux', 'arch': 'x86_64', 'version': '0.1.13',
+            'release': {'release': '0.1.13'}, 'executable': 'RatioLab',
+            'files': [{'path': 'RatioLab', 'kind': 'file',
+                       'size': executable.stat().st_size,
+                       'sha256': hashlib.sha256(executable.read_bytes()).hexdigest()}],
+        }))
+        (self.payload/'bundle-manifest.json').chmod(0o644)
+        installed = self.install(umask=0o002)
+        self.assertEqual(installed.returncode, 0, installed.stderr)
+        self.assertEqual((self.destination/'.ratiolab-installation').stat().st_mode & 0o777, 0o600)
+        self.assertEqual(self.destination.parent.stat().st_mode & 0o022, 0)
+        detected = update_install.detect_installation(
+            executable=self.destination/'RatioLab', system='linux',
+            machine='x86_64', frozen=True, current='0.1.13')
+        self.assertEqual(detected.kind, 'linux-bundle', detected.explanation)
+        self.assertTrue(detected.can_install)
+        # Upgrading an older marker must also repair its existing permissions;
+        # umask alone does not affect a file copied from the previous runtime.
+        (self.destination/'.ratiolab-installation').chmod(0o664)
+        project = self.destination/'my-project.config.json'
+        project.write_text('preserve user data')
+        upgraded = self.install(umask=0o002)
+        self.assertEqual(upgraded.returncode, 0, upgraded.stderr)
+        self.assertEqual((self.destination/'.ratiolab-installation').stat().st_mode & 0o777, 0o600)
+        self.assertEqual(project.read_text(), 'preserve user data')
+
+    def test_existing_default_data_folder_permissions_allow_future_updates(self):
+        parent = self.root/'data/ratiolab'
+        parent.mkdir(parents=True)
+        parent.chmod(0o775)
+        project = parent/'exports/keep.config.json'
+        project.parent.mkdir()
+        project.write_text('keep this project')
+        (self.package/'installed-files.txt').write_text('RatioLab\n')
+        installed = subprocess.run(
+            ['sh', str(self.package/'install.sh'), '--yes', '--no-desktop'],
+            env=self.environment, capture_output=True, text=True, umask=0o002)
+        self.assertEqual(installed.returncode, 0, installed.stderr)
+        self.assertEqual(parent.stat().st_mode & 0o777, 0o755)
+        self.assertEqual((parent/'app/.ratiolab-installation').stat().st_mode & 0o777, 0o600)
+        self.assertEqual(project.read_text(), 'keep this project')
+
+    def test_custom_parent_sharing_permissions_are_preserved(self):
+        parent = self.root/'shared custom parent'
+        parent.mkdir(mode=0o775)
+        parent.chmod(0o775)
+        self.destination = parent/'RatioLab'
+        installed = self.install(umask=0o002)
+        self.assertEqual(installed.returncode, 0, installed.stderr)
+        self.assertEqual(parent.stat().st_mode & 0o777, 0o775)
 
     def test_install_update_and_uninstall_keep_projects_and_preferences(self):
         projects = self.root/'data/ratiolab/exports/project.stl'

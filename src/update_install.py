@@ -10,8 +10,9 @@ Call ``cancel`` if closing fails or is cancelled. Logs/results stay in the
 private helper directory. Download jobs may be cleaned after preparation.
 
 Linux replacement uses the existing marked-bundle installer and its bounded
-transaction, not a new rollback service. Windows Setup remains interactive;
-macOS and Debian delegate to the system and require further user action.
+transaction. Windows uses Setup's silent progress mode; Debian uses PolicyKit
+to authorize its package manager. macOS replaces writable Applications bundles
+from a verified, read-only mounted image, retaining the old copy until checked.
 """
 from dataclasses import dataclass, field
 import base64
@@ -33,14 +34,19 @@ import time
 from external_programs import child_environment, system_library_search
 from release_version import RELEASE_VERSION, Version
 from update_download import VerifiedDownload
+import update_receipt
+import update_macos
 
 MARKER = 'ratiolab.bundle.v1'
 UNINSTALL_KEY = r'Software\Microsoft\Windows\CurrentVersion\Uninstall\local.solidcraft.reducers_is1'
 MAX_MANIFEST = 16 * 1024 * 1024
+DEBIAN_TOOLS = ('/usr/bin/pkexec', '/usr/bin/apt-get', '/usr/bin/dpkg-deb', '/usr/bin/dpkg-query')
 _RESULT_STATUSES = frozenset({
     'failed', 'cancelled', 'timeout', 'package-changed', 'checksum-mismatch',
     'installation-changed', 'installer-failed', 'installed',
     'installed-restart-requested', 'opened', 'setup-completed',
+    'authorization-failed', 'package-identity-mismatch', 'runtime-invalid', 'reboot-required',
+    'mount-failed', 'signature-invalid', 'rollback-failed',
 })
 
 
@@ -125,6 +131,16 @@ class Installation:
             'package_format': self.package_format}
 
 
+def update_action(installation):
+    """User-facing action and its actual completion steps for this package."""
+    return {
+        '.run': ('Update now', 'Save your work if prompted. RatioLab will install the update in the same folder and reopen automatically.'),
+        'setup.exe': ('Update now', 'Save your work if prompted. RatioLab will install the update with a progress window and reopen automatically.'),
+        '.dmg': ('Update now', 'Save your work if prompted. RatioLab will verify and replace this application, then reopen automatically.'),
+        '.deb': ('Update now', 'Save your work if prompted and approve the system authorization. RatioLab will install the package and reopen automatically.'),
+    }.get(installation.package_format, ('Download update', 'Use the original installation method to finish this update.'))
+
+
 def detect_installation(*, system=None, machine=None, executable=None, frozen=None,
                         current=RELEASE_VERSION, registry_reader=None, debian_owner=None):
     """Detect a proven target; injectable host/registry probes support headless tests.
@@ -164,11 +180,20 @@ def detect_installation(*, system=None, machine=None, executable=None, frozen=No
             info_path = bundle/'Contents/Info.plist'
             info = plistlib.loads(_bounded(info_path, 1024 * 1024))
             if (info.get('CFBundleIdentifier') != 'local.solidcraft.reducers'
-                    or Version(info.get('CFBundleShortVersionString')) != Version(current)):
+                    or info.get('CFBundleExecutable') != 'RatioLab'
+                    or info.get('CFBundleShortVersionString') != current):
                 raise ValueError('The application identity does not match the running release')
-            return result('macos-dmg', 'macOS application', '.dmg', bundle, True, False,
-                          'Open the verified disk image, then quit RatioLab and drag RatioLab.app to Applications to replace it.',
-                          (bundle, executable, info_path))
+            parent=bundle.parent
+            _ordinary(parent,True)
+            standard=parent in (Path('/Applications'),Path.home()/'Applications')
+            writable=os.access(parent,os.W_OK) and not bool(os.statvfs(parent).f_flag & os.ST_RDONLY)
+            eligible=standard and writable
+            explanation=('Update this application in the same folder and reopen automatically.' if eligible else
+                'Automatic replacement supports writable /Applications or ~/Applications installations. '
+                'This location is protected, read-only or not an established Applications installation. '
+                'Use Download manually and the normal macOS installation workflow.')
+            return result('macos-dmg','macOS application','.dmg',bundle,eligible,eligible,explanation,
+                          (bundle,executable,info_path,parent))
         destination = executable.parent
         expected = 'RatioLab.exe' if system == 'win32' else 'RatioLab'
         if executable.name != expected:
@@ -194,11 +219,13 @@ def detect_installation(*, system=None, machine=None, executable=None, frozen=No
             if not isinstance(location, str) or os.path.normcase(os.path.normpath(location)) != os.path.normcase(str(destination)):
                 raise ValueError('No matching per-user Inno Setup installation record')
             return result('windows-setup', 'Windows per-user installation', 'setup.exe', destination,
-                          True, True, 'Close RatioLab, then run the verified interactive Setup in this installation folder. Setup controls installation and restart.', paths)
+                          True, True, 'Update in this installation folder and reopen automatically. Setup shows installation progress without a wizard.', paths)
         if system.startswith('linux'):
             if executable == Path('/opt/ratiolab/RatioLab') and (debian_owner or _debian_owns)(executable):
-                return result('debian', 'Debian/Ubuntu package', '.deb', destination, True, False,
-                              'Open the verified package in the system installer. The system installer handles privileges and completion.', paths)
+                available = all(os.access(tool, os.X_OK) for tool in DEBIAN_TOOLS)
+                return result('debian', 'Debian/Ubuntu package', '.deb', destination, available, available,
+                              'Authorize the system package update, then RatioLab reopens automatically.' if available else
+                              'Automatic package updating needs PolicyKit (pkexec), apt-get and dpkg tools. Use Download manually and open the package with your system installer.', paths)
             marker = destination/'.ratiolab-installation'
             if _bounded(marker, 128) not in (MARKER.encode(), (MARKER+'\n').encode()):
                 raise ValueError('The folder is not marked as an installed RatioLab bundle')
@@ -263,7 +290,9 @@ def _parent_identity(pid, system):
         if parts[0] == 'Z':
             raise ValueError('The parent process already exited')
         return parts[19]
-    return ''  # macOS never gates a replacement on parent exit.
+    if system=='darwin':
+        return update_macos.process_identity(pid)
+    raise ValueError('No process identity adapter for this platform')
 
 
 def _spawn(argv, *, environment, log):
@@ -275,14 +304,69 @@ def _spawn(argv, *, environment, log):
                                 shell=False, **options)
 
 
+def _debian_package_identity(package, version, machine):
+    """Check the verified archive's identity before any close or authorization."""
+    expected = 'ratiolab\n'+version+'\n'+('amd64' if machine == 'x86_64' else 'arm64')+'\n'
+    with system_library_search():
+        result = subprocess.run(['/usr/bin/dpkg-deb', '--show',
+            '--showformat=${Package}\n${Version}\n${Architecture}\n', str(package)],
+            stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            env=child_environment(), timeout=30, check=True, encoding='utf-8')
+    if result.stdout != expected:
+        raise ValueError('The Debian package identity, version or architecture does not match this update')
+
+
+def _debian_install_lines(installation, target, restart):
+    q = shlex.quote
+    source = installation._target['current']
+    arch = 'amd64' if installation._target['machine'] == 'x86_64' else 'arm64'
+    package_format = '${Package}\n${Version}\n${Architecture}'
+    installed_format = '${Status}\n${Version}\n${Architecture}'
+    lines = [f'target={q(target)}', f'source={q(source)}',
+        f'old_executable_hash={q(_sha256(installation.executable))}',
+        f'old_manifest_hash={q(_sha256(installation.destination/"bundle-manifest.json"))}',
+        f'expected_package={q("ratiolab"+chr(10)+target+chr(10)+arch)}',
+        f'expected_source={q("install ok installed"+chr(10)+source+chr(10)+arch)}',
+        f'expected_target={q("install ok installed"+chr(10)+target+chr(10)+arch)}',
+        f'actual=$(/usr/bin/dpkg-deb --show --showformat={q(package_format)} "$package")',
+        '[ "$actual" = "$expected_package" ] || { status=package-identity-mismatch; exit 1; }',
+        f'actual=$(/usr/bin/dpkg-query --show --showformat={q(installed_format)} ratiolab)',
+        '[ "$actual" = "$expected_source" ] || { status=installation-changed; exit 1; }',
+        'status=installer-failed', 'code=0',
+        '/usr/bin/pkexec --disable-internal-agent /usr/bin/apt-get --yes --no-remove install "$package" || code=$?',
+        'if [ "$code" -ne 0 ]; then',
+        '  case "$code" in 126) status=cancelled ;; 127) status=authorization-failed ;; esac']
+    if restart:
+        # pkexec 126/127 did not execute apt. Other apt failures may leave a
+        # partially replaced runtime: do not claim the old application is safe.
+        lines += ['  if [ "$code" = 126 ] || [ "$code" = 127 ]; then',
+            '    actual=$(/usr/bin/sha256sum -- "$executable"); actual=${actual%% *}',
+            '    manifest=$(/usr/bin/sha256sum -- "$manifest_path"); manifest=${manifest%% *}',
+            '    if [ "$actual" = "$old_executable_hash" ] && [ "$manifest" = "$old_manifest_hash" ] &&',
+            '       [ "$("$executable" --version)" = "RatioLab $source" ] && "$executable" --diagnose; then',
+            '      finish; trap - EXIT',
+            '      "$executable" </dev/null >> helper.log 2>&1 &',
+            '    fi', '  fi']
+    lines += ['  exit 1', 'fi', 'status=runtime-invalid',
+        f'actual=$(/usr/bin/dpkg-query --show --showformat={q(installed_format)} ratiolab)',
+        '[ "$actual" = "$expected_target" ] || exit 1',
+        '[ ! -L "$executable" ] && [ ! -L "$manifest_path" ] || exit 1',
+        '[ "$("$executable" --version)" = "RatioLab $target" ] || exit 1',
+        '"$executable" --diagnose || exit 1', 'status=installed']
+    if restart:
+        lines += ['status=installed-restart-requested', 'finish; trap - EXIT',
+                  '"$executable" </dev/null >> helper.log 2>&1 &']
+    return lines
+
+
 def _shell_script(job, installation, package, digest, parent_pid, parent_identity,
-                  timeout, checker, opener, restart):
+                  timeout, checker, opener, restart, target=None):
     # All substitutions are shell-quoted literals. Runtime metadata is data.
     q = shlex.quote
     values = dict(job=job, package=package, digest=digest, destination=installation.destination,
                   executable=installation.executable, pid=parent_pid, birth=parent_identity,
                   count=int(timeout * 10), checker=checker)
-    lines = ['#!/bin/sh', 'set -eu']
+    lines = ['#!/bin/sh', 'set -eu', 'umask 077']
     lines += [f'{key}={q(str(value))}' for key, value in values.items()]
     lines += ['cd "$job"', 'status=failed',
               'finish() { printf "%s\\n" "$status" > result; }', 'trap finish EXIT',
@@ -294,6 +378,11 @@ def _shell_script(job, installation, package, digest, parent_pid, parent_identit
               '  shift 19; printf "%s" "$1"', '}',
               'printf ready > ready',
               'while :; do', '  if [ -e cancel ]; then status=cancelled; exit 1; fi']
+    if installation.kind in ('linux-bundle', 'debian'):
+        slot = q(str(Path(job).parent/update_receipt.receipt_name(installation.executable)))
+        lines[lines.index('finish() { printf "%s\\n" "$status" > result; }')] = (
+            'finish() { printf "%s\\n" "$status" > result; '
+            f'if [ -e armed ] && [ -f receipt.pending ]; then /bin/mv -f -- receipt.pending {slot}; fi; }}')
     if installation.requires_exit:
         lines += ['  token=$(parent_token)',
                   '  if [ -e armed ] && [ "$token" != "$birth" ]; then break; fi']
@@ -304,18 +393,17 @@ def _shell_script(job, installation, package, digest, parent_pid, parent_identit
               '  sleep 0.1', 'done',
               '[ ! -e cancel ] || { status=cancelled; exit 1; }',
               '[ -f "$package" ] && [ ! -L "$package" ] || { status=package-changed; exit 1; }']
-    if installation.kind == 'macos-dmg':
-        lines += ['actual=$("$checker" -a 256 "$package")']
-    else:
-        lines += ['actual=$("$checker" -- "$package")']
+    lines += ['actual=$("$checker" -- "$package")']
     lines += ['actual=${actual%% *}',
               '[ "$actual" = "$digest" ] || { status=checksum-mismatch; exit 1; }']
-    if installation.kind == 'linux-bundle':
+    if installation.kind in ('linux-bundle', 'debian'):
         # Recheck the exact destination directory and marker after parent exit.
         # stat format and binaries are fixed system programs, never downloaded.
-        for name, path in [('destination', installation.destination), ('executable', installation.executable),
-                           ('marker', installation.destination/'.ratiolab-installation'),
-                           ('manifest', installation.destination/'bundle-manifest.json')]:
+        paths = [('destination', installation.destination), ('executable', installation.executable),
+                 ('manifest', installation.destination/'bundle-manifest.json')]
+        if installation.kind == 'linux-bundle':
+            paths.append(('marker', installation.destination/'.ratiolab-installation'))
+        for name, path in paths:
             info = path.stat()
             if stat.S_ISDIR(info.st_mode):
                 pattern = '%d:%i:%f:%u:%g'
@@ -326,28 +414,104 @@ def _shell_script(job, installation, package, digest, parent_pid, parent_identit
             lines += [f'{name}_path={q(str(path))}',
                       f'{name}_id={q(expected)}',
                       f'[ ! -L "${name}_path" ] && [ "$(/usr/bin/stat -c {pattern} -- "${name}_path")" = "${name}_id" ] || {{ status=installation-changed; exit 1; }}']
+    if installation.kind == 'debian':
+        lines += _debian_install_lines(installation, target, restart)
+    elif installation.kind == 'linux-bundle':
         lines += [f'[ "$(cat "$marker_path")" = {q(MARKER)} ] || {{ status=installation-changed; exit 1; }}',
                   'status=installer-failed',
                   'if /bin/sh "$package" --destination "$destination" --no-desktop --yes; then',
                   '  status=installed', 'else']
         if restart:
-            lines += ['  if [ -x "$executable" ]; then "$executable" </dev/null >> helper.log 2>&1 & fi']
+            lines += ['  finish; trap - EXIT',
+                      '  if [ -x "$executable" ]; then "$executable" </dev/null >> helper.log 2>&1 & fi']
         lines += ['  exit 1', 'fi']
         if restart:
-            lines += ['"$executable" </dev/null >> helper.log 2>&1 &', 'status=installed-restart-requested']
+            lines += ['status=installed-restart-requested', 'finish; trap - EXIT',
+                      '"$executable" </dev/null >> helper.log 2>&1 &']
     else:
         lines += [f'{q(str(opener))} "$package"', 'status=opened']
     return '\n'.join(lines)+'\n'
 
 
-def _powershell_script(job, installation, package, digest, parent_pid, parent_identity, timeout):
+def _powershell_script(job, installation, package, digest, parent_pid, parent_identity, timeout,
+                       target=None, restart=True):
     def q(value):
         return "'"+str(value).replace("'", "''")+"'"
+    source = installation._target['current']
+    if target is None or not Version(target) > Version(source):
+        raise ValueError('A newer Windows update target is required')
     values = dict(job=job, package=package, expected=digest, destination=installation.destination,
-                  parentId=parent_pid, birth=parent_identity)
+                  executable=installation.executable, parentId=parent_pid, birth=parent_identity,
+                  sourceVersion=source, targetVersion=target,
+                  sourceBase='.'.join(map(str, Version(source).core)),
+                  targetBase='.'.join(map(str, Version(target).core)),
+                  oldManifestHash=_sha256(installation.destination/'bundle-manifest.json'),
+                  slot=Path(job).parent/update_receipt.receipt_name(installation.executable,system='win32'))
     lines = ["$ErrorActionPreference = 'Stop'"]
     lines += [f'${key} = {q(value)}' for key, value in values.items()]
-    lines += ["$status = 'failed'", 'try {',
+    lines += [r'''
+function Ordinary-Item([string]$path, [bool]$directory = $false) {
+  $item = Get-Item -LiteralPath $path -Force
+  if ([bool]$item.PSIsContainer -ne $directory) { throw 'Wrong installation file type' }
+  $cursor = $item
+  while ($cursor) {
+    if (($cursor.Attributes -band [IO.FileAttributes]::ReparsePoint) -or $cursor.LinkType -eq 'HardLink') { throw 'Linked installation path' }
+    $parent = [IO.Directory]::GetParent($cursor.FullName)
+    $cursor = if ($parent) { Get-Item -LiteralPath $parent.FullName -Force } else { $null }
+  }
+  return $item
+}
+function Probe([string]$option, [string]$report) {
+  $arguments = $option + ' --report "' + $report + '"'
+  $child = Start-Process -FilePath $executable -ArgumentList $arguments -PassThru -WindowStyle Hidden
+  if (-not $child.WaitForExit(60000)) { $child.Kill(); throw 'Runtime check timed out' }
+  if ($child.ExitCode -ne 0) { throw 'Runtime check failed' }
+}
+function Runtime-Valid([string]$version, [string]$baseVersion) {
+  try {
+    $separator = [string][IO.Path]::DirectorySeparatorChar
+    $root = (Ordinary-Item $destination $true).FullName.TrimEnd([IO.Path]::DirectorySeparatorChar) + $separator
+    $manifestPath = Join-Path $destination 'bundle-manifest.json'
+    $manifestFile = Ordinary-Item $manifestPath
+    if ($manifestFile.Length -gt 16777216) { throw 'Oversized runtime manifest' }
+    $manifest = Get-Content -LiteralPath $manifestPath -Raw -Encoding UTF8 | ConvertFrom-Json
+    if ($manifest.format -ne 'ratiolab-bundle/1' -or $manifest.application_id -ne 'local.solidcraft.reducers' -or
+        $manifest.system -ne 'windows' -or $manifest.arch -ne 'x86_64' -or $manifest.version -cne $baseVersion -or
+        $manifest.release.release -cne $version -or $manifest.executable -ne 'RatioLab.exe') { throw 'Unexpected runtime identity' }
+    $records = @($manifest.files)
+    if ($records.Count -lt 1 -or $records.Count -gt 50000) { throw 'Invalid runtime inventory size' }
+    $seen = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
+    $deadline = [DateTime]::UtcNow.AddMinutes(3)
+    foreach ($entry in $records) {
+      if ([DateTime]::UtcNow -ge $deadline) { throw 'Runtime verification timed out' }
+      if ($entry.kind -ne 'file' -or $entry.path -isnot [string] -or $entry.path.Length -gt 4096 -or
+          $entry.path -match '(^/|[\\:\x00-\x1F]|(^|/)\.\.?(/|$)|//|[. ](/|$))' -or
+          $entry.sha256 -notmatch '^[0-9a-fA-F]{64}$' -or [string]$entry.size -notmatch '^\d+$') { throw 'Unsafe runtime inventory entry' }
+      $path = [IO.Path]::GetFullPath((Join-Path $destination $entry.path.Replace('/', $separator)))
+      if (-not $path.StartsWith($root, [StringComparison]::OrdinalIgnoreCase) -or -not $seen.Add($path)) { throw 'Duplicate or external runtime path' }
+      $file = Ordinary-Item $path
+      if ($file.Length -ne [int64]$entry.size -or (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash -ne $entry.sha256) { throw 'Runtime inventory mismatch' }
+    }
+    if (-not $seen.Contains([IO.Path]::GetFullPath($executable))) { throw 'Missing runtime executable' }
+    $report = Join-Path $job 'runtime-version.txt'
+    Probe '--version' $report
+    if ((Ordinary-Item $report).Length -gt 1024 -or (Get-Content -LiteralPath $report -Raw).Trim() -cne ('RatioLab ' + $version)) { throw 'Unexpected running runtime version' }
+    Probe '--diagnose' (Join-Path $job 'runtime-check.json')
+    return $true
+  } catch {
+    $_ | Out-String | Add-Content -LiteralPath (Join-Path $job 'helper.log')
+    return $false
+  }
+}
+function Finish {
+  [IO.File]::WriteAllText((Join-Path $job 'result'), $status, [Text.Encoding]::ASCII)
+  $pending = Join-Path $job 'receipt.pending'
+  if ((Test-Path -LiteralPath (Join-Path $job 'armed')) -and (Test-Path -LiteralPath $pending)) {
+    Move-Item -LiteralPath $pending -Destination $slot -Force
+  }
+}
+''']
+    lines += ["$status = 'failed'", '$restartPath = $null', '$mayRestart = $false', 'try {',
               f'  $deadline = [DateTime]::UtcNow.AddSeconds({int(timeout)})',
               "  Set-Content -LiteralPath (Join-Path $job 'ready') -Value 'ready'",
               '  while ($true) {',
@@ -358,32 +522,47 @@ def _powershell_script(job, installation, package, digest, parent_pid, parent_id
               "    if ([DateTime]::UtcNow -ge $deadline) { $status = 'timeout'; throw 'RatioLab did not exit in time' }",
               '    Start-Sleep -Milliseconds 100', '  }',
               "  if (Test-Path -LiteralPath (Join-Path $job 'cancel')) { $status = 'cancelled'; throw 'Cancelled' }",
-              "  $item = Get-Item -LiteralPath $package",
-              "  if ($item.PSIsContainer -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) { throw 'Unsafe package' }",
+              "  $item = Ordinary-Item $package",
               "  if ((Get-FileHash -LiteralPath $package -Algorithm SHA256).Hash.ToLowerInvariant() -ne $expected) { $status = 'checksum-mismatch'; throw 'Package changed' }",
               # Inno parses one quoted /DIR argument. Windows filenames cannot
               # contain double quotes; the destination has already been validated.
-              '  $arguments = \'/DIR="\' + $destination + \'"\'',
+              '  $arguments = \'/SILENT /SUPPRESSMSGBOXES /SP- /NORESTART /RESTARTEXITCODE=3010 /NOCLOSEAPPLICATIONS /NORESTARTAPPLICATIONS /DIR="\' + $destination + \'" /LOG="\' + (Join-Path $job \'setup.log\') + \'"\'',
+              '  $mayRestart = $true',
               "  $status = 'installer-failed'",
+              "  Add-Content -LiteralPath (Join-Path $job 'helper.log') -Value ('Setup log: ' + (Join-Path $job 'setup.log'))",
               '  $process = Start-Process -FilePath $package -ArgumentList $arguments -PassThru -Wait',
+              "  if ($process.ExitCode -eq 3010) { $status = 'reboot-required'; throw 'A system restart is required; no reboot was requested' }",
+              "  if ($process.ExitCode -eq 2) { $status = 'cancelled'; throw 'Setup was cancelled' }",
               "  if ($process.ExitCode -ne 0) { throw ('Setup exited with code ' + $process.ExitCode) }",
-              "  $status = 'setup-completed'", '} catch {',
+              "  $status = 'runtime-invalid'",
+              "  if (-not (Runtime-Valid $targetVersion $targetBase)) { throw 'The installed target runtime could not be verified' }",
+              "  $status = 'installed'", '  $restartPath = $executable' if restart else '', '} catch {',
               "  $_ | Out-String | Add-Content -LiteralPath (Join-Path $job 'helper.log')",
               '} finally {',
-              "  Set-Content -LiteralPath (Join-Path $job 'result') -Value $status", '}']
+              # An unsuccessful Setup may have partly replaced its runtime.
+              # Reopen the source only if its original manifest AND complete
+              # inventory still match, and the source runtime passes checks.
+              "  if (-not $restartPath -and $mayRestart -and $status -ne 'reboot-required') {" if restart else '  if ($false) {',
+              "    try {",
+              "      $old = Ordinary-Item (Join-Path $destination 'bundle-manifest.json')",
+              "      if ((Get-FileHash -LiteralPath $old.FullName -Algorithm SHA256).Hash -eq $oldManifestHash -and (Runtime-Valid $sourceVersion $sourceBase)) { $restartPath = $executable }",
+              "    } catch { $_ | Out-String | Add-Content -LiteralPath (Join-Path $job 'helper.log') }",
+              '  }',
+              "  if ($status -eq 'installed' -and $restartPath) { $status = 'installed-restart-requested' }",
+              '  Finish',
+              "  if ($restartPath) { Start-Process -FilePath $restartPath | Out-Null }", '}']
     checks = [
+        "  $status = 'installation-changed'",
         "  $key = [Microsoft.Win32.RegistryKey]::OpenBaseKey([Microsoft.Win32.RegistryHive]::CurrentUser, [Microsoft.Win32.RegistryView]::Registry64).OpenSubKey("+q(UNINSTALL_KEY)+')',
         "  if (-not $key -or $key.GetValue('InstallLocation').TrimEnd('\\') -ne $destination.TrimEnd('\\')) { throw 'Installation record changed' }",
         '  $key.Close()',
-        '  $folder = Get-Item -LiteralPath $destination',
-        "  if (-not $folder.PSIsContainer -or ($folder.Attributes -band [IO.FileAttributes]::ReparsePoint)) { throw 'Installation directory changed' }",
+        '  $folder = Ordinary-Item $destination $true',
     ]
     for path in (installation.executable, installation.destination/'bundle-manifest.json'):
         expected = _sha256(path)
-        checks += [f'  $target = Get-Item -LiteralPath {q(path)}',
-                   "  if ($target.PSIsContainer -or ($target.Attributes -band [IO.FileAttributes]::ReparsePoint)) { throw 'Installation file changed' }",
+        checks += [f'  $target = Ordinary-Item {q(path)}',
                    f"  if ((Get-FileHash -LiteralPath {q(path)} -Algorithm SHA256).Hash.ToLowerInvariant() -ne {q(expected)}) {{ throw 'Installation identity changed' }}"]
-    index = lines.index('  $arguments = \'/DIR="\' + $destination + \'"\'')
+    index = next(index for index, line in enumerate(lines) if line.startswith('  $arguments = \'/SILENT'))
     lines[index:index] = checks
     return '\n'.join(lines)
 
@@ -401,6 +580,7 @@ class PreparedInstall:
     _package_identity: tuple = field(repr=False)
     _deadline: float = field(repr=False)
     _state: str = field(default='prepared', repr=False)
+    _receipt: dict | None = field(default=None, repr=False)
 
     def status(self):
         """Return a read-only, nonblocking handoff status; never advance it.
@@ -450,6 +630,10 @@ class PreparedInstall:
             _revalidate(self.installation)
             if _identity(self.package) != self._package_identity:
                 raise ValueError('The staged update package changed')
+            if self._receipt is not None:
+                descriptor = os.open(self.directory/'receipt.pending', os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+                with os.fdopen(descriptor, 'w', encoding='utf-8') as stream:
+                    json.dump(self._receipt, stream)
             descriptor = os.open(self.directory/'armed', os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
             os.close(descriptor)
             self._state = 'armed'
@@ -479,6 +663,12 @@ def prepare_install(download, installation, *, directory=None, parent_pid=None,
     _revalidate(installation)
     _release_matches(download, installation)
     download.reverify()
+    if installation.kind == 'debian':
+        if not all(os.access(tool, os.X_OK) for tool in DEBIAN_TOOLS):
+            raise RuntimeError('Automatic package updating needs PolicyKit (pkexec), apt-get and dpkg tools. Use Download manually instead.')
+        _debian_package_identity(download.path, download.release.version, installation._target['machine'])
+    if installation.kind == 'macos-dmg':
+        update_macos.validate_source(installation)
     environment = child_environment()
     system = installation._target['system']
     parent_pid = os.getpid() if parent_pid is None else parent_pid
@@ -494,8 +684,23 @@ def prepare_install(download, installation, *, directory=None, parent_pid=None,
     while not ancestor.exists() and not ancestor.is_symlink():
         ancestor = ancestor.parent
     _ordinary(ancestor, True)
-    parent.mkdir(parents=True, exist_ok=True)
+    parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     _ordinary(parent, True)
+    if installation.kind in ('linux-bundle','debian','windows-setup','macos-dmg'):
+        # Restrict only this application's dedicated handoff directory, never a
+        # caller's existing cache root. Older downloads may have created that
+        # root with a permissive umask.
+        parent = parent/update_receipt.HANDOFF_DIRECTORY
+        parent.mkdir(exist_ok=True, mode=0o700)
+        _ordinary(parent, True)
+        if system != 'win32':
+            descriptor = os.open(parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+            try:
+                if os.fstat(descriptor).st_uid != os.getuid():
+                    raise ValueError('The update cache must be owned by this user')
+                os.fchmod(descriptor, 0o700)
+            finally:
+                os.close(descriptor)
     job = Path(tempfile.mkdtemp(prefix='ratiolab-install-', dir=parent))
     os.chmod(job, 0o700)
     process = None
@@ -513,23 +718,33 @@ def prepare_install(download, installation, *, directory=None, parent_pid=None,
             powershell = shutil.which('powershell.exe', path=environment.get('PATH', os.defpath))
             if not powershell:
                 raise RuntimeError('Windows PowerShell is needed to start the installer after RatioLab exits')
-            script = _powershell_script(job, installation, package, download.sha256, parent_pid, birth, timeout)
+            script = _powershell_script(job, installation, package, download.sha256, parent_pid, birth,
+                                        timeout, target=download.release.version, restart=restart)
             encoded = base64.b64encode(script.encode('utf-16-le')).decode('ascii')
             argv = [powershell, '-NoProfile', '-NonInteractive', '-EncodedCommand', encoded]
-            label = 'Close and run Setup'
+            label = 'Close, update and restart' if restart else 'Close and update'
+        elif installation.kind=='macos-dmg':
+            script=update_macos.script(job,installation,package,download.sha256,parent_pid,birth,
+                                       timeout,download.release.version,restart)
+            helper=job/'helper.sh';helper.write_text(script,encoding='utf-8');os.chmod(helper,0o600)
+            argv=['/bin/sh',str(helper)]
+            label='Close, update and restart' if restart else 'Close and update'
         else:
-            checker = '/usr/bin/shasum' if installation.kind == 'macos-dmg' else '/usr/bin/sha256sum'
-            opener = '/usr/bin/open' if installation.kind == 'macos-dmg' else shutil.which('xdg-open', path=environment.get('PATH', os.defpath))
-            for required in ('/bin/sh', checker, '/usr/bin/stat') if installation.kind == 'linux-bundle' else ('/bin/sh', checker, opener):
+            checker = '/usr/bin/sha256sum'
+            opener = shutil.which('xdg-open', path=environment.get('PATH', os.defpath))
+            required_tools = (('/bin/sh', checker, '/usr/bin/stat', *DEBIAN_TOOLS) if installation.kind == 'debian' else
+                              ('/bin/sh', checker, '/usr/bin/stat') if installation.kind == 'linux-bundle' else ('/bin/sh', checker, opener))
+            for required in required_tools:
                 if not required or not os.access(required, os.X_OK):
                     raise RuntimeError('The system package opener or checksum utility is unavailable')
-            script = _shell_script(job, installation, package, download.sha256, parent_pid, birth, timeout, checker, opener, restart)
+            script = _shell_script(job, installation, package, download.sha256, parent_pid, birth,
+                                  timeout, checker, opener, restart, target=download.release.version)
             helper = job/'helper.sh'
             helper.write_text(script, encoding='utf-8')
             os.chmod(helper, 0o600)
             argv = ['/bin/sh', str(helper)]
-            label = 'Close, install and restart' if installation.requires_exit and restart else 'Close and install' if installation.requires_exit else 'Open disk image' if installation.kind == 'macos-dmg' else 'Open package installer'
-        command = 'sudo apt install '+shlex.quote(str(package)) if installation.kind == 'debian' else ''
+            label = 'Close, install and restart' if installation.requires_exit and restart else 'Close and install' if installation.requires_exit else 'Open package installer'
+        command = ''
         wait_deadline = time.monotonic()+timeout
         with open(log_path, 'xb') as log:
             os.chmod(log_path, 0o600)
@@ -539,8 +754,12 @@ def prepare_install(download, installation, *, directory=None, parent_pid=None,
             if process.poll() is not None or time.monotonic() >= deadline:
                 raise RuntimeError(f'The update helper could not become ready; see {log_path}')
             time.sleep(0.02)
+        receipt = (update_receipt.metadata(job, installation.executable,
+                   installation._target['current'], download.release.version, system=system)
+                   if installation.kind in ('linux-bundle','debian','windows-setup','macos-dmg') else None)
         return PreparedInstall(installation, job, package, label, command, log_path,
-                               result_path, process, _identity(package), wait_deadline)
+                               result_path, process, _identity(package), wait_deadline,
+                               _receipt=receipt)
     except BaseException:
         (job/'cancel').touch(mode=0o600, exist_ok=True)
         # Do not delete a running helper or its package. A failed pre-spawn

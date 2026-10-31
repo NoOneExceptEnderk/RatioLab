@@ -3,8 +3,12 @@
 # SPDX-License-Identifier: GPL-3.0-only
 # Installs only the bundled application. No root access or package manager needed.
 set -eu
+# New managed metadata and application parents must remain eligible for the
+# updater even when the launching desktop uses a group-writable umask.
+umask 077
 source_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-destination=${XDG_DATA_HOME:-$HOME/.local/share}/ratiolab/app
+default_destination=${XDG_DATA_HOME:-$HOME/.local/share}/ratiolab/app
+destination=$default_destination
 menu=1
 quiet=0
 while [ "$#" -gt 0 ]; do
@@ -25,6 +29,16 @@ if [ -e "$destination" ] && [ "$(cat "$destination/.ratiolab-installation" 2>/de
 fi
 parent=$(dirname -- "$destination")
 mkdir -p -- "$parent"
+if [ "$destination" = "$default_destination" ]; then
+    # Earlier source/native runs may have created RatioLab's own data folder
+    # with a group-writable umask. Normalize only this managed default parent;
+    # custom destination parents keep their existing sharing permissions.
+    if [ -L "$parent" ] || [ "$(stat -c %u -- "$parent")" != "$(id -u)" ]; then
+        printf '%s\n' 'The default RatioLab data folder must be an ordinary directory owned by this user.' >&2
+        exit 1
+    fi
+    chmod go-w -- "$parent"
+fi
 stage=$(mktemp -d "$parent/.ratiolab-install.XXXXXX")
 backup=
 cleanup() {
@@ -49,6 +63,7 @@ cp -- "$source_dir/uninstall.sh" "$stage/uninstall.sh"
 cp -- "$source_dir/installed-files.txt" "$stage/installed-files.txt"
 chmod 755 "$stage/uninstall.sh"
 printf '%s\n' 'ratiolab.bundle.v1' > "$stage/.ratiolab-installation"
+chmod 600 "$stage/.ratiolab-installation"
 printf '%s\n' 'Checking the bundled runtime…'
 if ! "$stage/RatioLab" --self-test > "$stage/installation-check.log" 2>&1; then
     cat "$stage/installation-check.log" >&2

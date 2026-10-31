@@ -369,7 +369,7 @@ class Preview3D(Gtk.GLArea):
         except GLib.Error as error:
             self.set_error(error)
             return None
-    def set_design(self,design,*,reuse_scene=False):
+    def set_design(self,design,*,reuse_scene=False,prepared_scene=None):
         changed=design is not self.design
         keep_phase=bool(design and same_geometry(self.design,design.family,design.values))
         if reuse_scene and not keep_phase:raise ValueError('Scene reuse requires identical geometry.')
@@ -377,7 +377,7 @@ class Preview3D(Gtk.GLArea):
         if self.design is not None and (not design or design.family!=self.design.family or design.values!=self.design.values):self.clear_inspection()
         self.design=design
         if not reuse_scene:
-            self.scene=build_scene(design,self.show_support,self.show_housing,frame_explosion=True) if design else None;self.dirty=True
+            self.scene=(prepared_scene if prepared_scene is not None else build_scene(design,self.show_support,self.show_housing,frame_explosion=True)) if design else None;self.dirty=True
         if changed:
             previous=self.motion_plan if keep_phase else None
             self.motion_plan=build_plan(design,previous,self.motion_phase) if design else None

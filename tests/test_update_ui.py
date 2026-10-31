@@ -131,5 +131,25 @@ class UpdateUITests(unittest.TestCase):
         self.assertTrue(error.get_visible());self.assertTrue(error.get_selectable())
         self.assertIn(controller.release.download,error.get_text());self.assertIn('No handler',error.get_text())
 
+    def test_release_history_is_plain_text_and_hides_all_unreleased_entries(self):
+        controller=self.controller(lambda:[])
+        controller.release=update_ui.updates.select_release([release(body='## Fixed\n- **Readable** [notes](javascript:evil)')])
+        changelog=Path(self.directory.name)/'CHANGELOG.md'
+        changelog.write_text('## Unreleased\n- Future item\n## 0.1.2\n- Published item')
+        with patch.object(update_ui.app_paths,'resource_path',return_value=changelog):controller.show()
+        def labels(widget):
+            if isinstance(widget,Gtk.Label):yield widget
+            child=widget.get_first_child()
+            while child:
+                yield from labels(child)
+                child=child.get_next_sibling()
+        values=list(labels(controller.window));text='\n'.join(label.get_text() for label in values)
+        self.assertIn('Readable notes',text)
+        self.assertIn('0.1.2',text)
+        self.assertIn('Published item',text)
+        for hidden in ('Unreleased','Future item','javascript:','## Fixed','**Readable**'):
+            self.assertNotIn(hidden,text)
+        self.assertTrue(all(not label.get_use_markup() for label in values))
+
 
 if __name__=='__main__':unittest.main()

@@ -3,11 +3,13 @@
 # SPDX-License-Identifier: GPL-3.0-only
 """GTK 4 desktop companion with a local 3D preview and automatic geometry refresh."""
 import json
+from copy import deepcopy
 from pathlib import Path
 from datetime import datetime
 import threading
 import traceback
 import sys
+from concurrent.futures import CancelledError
 import app_paths
 app_paths.prepare_native_runtime()
 app_paths.prepare_application_identity()
@@ -19,6 +21,8 @@ from geometry import FAMILIES,SPECS,VARIANTS,INTEGER,get_specs,defaults,generate
 from connection import Client,connect_or_launch
 import fusion_connection
 from preview3d import Preview3D
+import preview3d
+from geometry_refresh import LatestOnly,Request
 from catalog import BEARINGS,MODES,FITS,SUPPORTED
 import bom
 import stl_export
@@ -30,6 +34,7 @@ import motion_controls
 from motion import SPEED_KEYS, same_geometry, update_operating_rates
 import gui_workflow
 import result_controls
+from export_feedback import ExportResult
 import workspace_ui
 from project_ui import ProjectActions
 from kinematics import options as io_options,default as io_default,TRIPLES as IO_TRIPLES
@@ -41,6 +46,15 @@ GLib.set_application_name('RatioLab')
 GENERATED=app_paths.default_output_dir()
 LABELS=[gui_workflow.CATALOG.get(key,(label,''))[0] for key,label in FAMILIES.items()]
 
+
+def prepare_geometry(request,current):
+    """Pure CPU work: request-owned values, shared existing geometry/scene code."""
+    if not current():return None
+    design=generate(request.family,deepcopy(request.values))
+    if not current():return None
+    scene=preview3d.build_scene(design,*request.view_flags,frame_explosion=True)
+    return design,scene
+
 class ReducerApp(ProjectActions, Gtk.Application):
     def __init__(self):
         super().__init__(application_id=app_paths.APP_ID)
@@ -51,6 +65,11 @@ class ReducerApp(ProjectActions, Gtk.Application):
         self.output_dir=app_paths.saved_output_dir(legacy_root=BASE)
         self.families = FAMILIES
         workspace_ui.build(self, LABELS)
+        self._geometry_waiting=False
+        self.geometry_worker=LatestOnly(prepare_geometry,
+            lambda callback,*args:GLib.idle_add(callback,*args,priority=GLib.PRIORITY_DEFAULT),
+            self.geometry_completed)
+        self.win.connect('unrealize',lambda *_:self.geometry_worker.close())
         self.make_fields()
         self.update_playback_bar()
         self.init_projects()
@@ -355,6 +374,7 @@ class ReducerApp(ProjectActions, Gtk.Application):
                     return
             except ValueError:
                 pass
+        self.invalidate_geometry_request()
         self.project_changed((self.family,key))
         self.send_btn.set_sensitive(False)
         self.fusion_send_btn.set_sensitive(False)
@@ -369,10 +389,52 @@ class ReducerApp(ProjectActions, Gtk.Application):
             GLib.source_remove(self.pending)
         self.pending = GLib.timeout_add(80, self.auto_refresh)
 
+    def invalidate_geometry_request(self):
+        if hasattr(self,'geometry_worker'):self.geometry_worker.invalidate()
+        self._geometry_waiting=False
+
+    def stop_geometry_timer(self):
+        if self.pending:
+            GLib.source_remove(self.pending);self.pending=0
+        self._geometry_waiting=False
+
     def auto_refresh(self):
-        self.pending = 0
-        self.refresh()
-        return False
+        # Keep this real GLib source alive until preparation finishes. Existing
+        # callers may use `not pending` to mean the accepted model is ready.
+        if self._geometry_waiting or not self.win.get_mapped():return True
+        if io_controls.reject_forbidden_edit(self):
+            self.pending=0;return False
+        reconcile_token=self.project_reconcile_token()
+        try:
+            values=self.read_values()
+            if same_geometry(self.design,self.family,values):
+                self.pending=0;self.refresh();return False
+            request=Request(self.family,deepcopy(values),
+                (self.canvas.show_support,self.canvas.show_housing),
+                self.document.token[0],reconcile_token)
+            self._geometry_waiting=True
+            self.geometry_worker.submit(request)
+            return True
+        except Exception as error:
+            self.pending=0;self.refresh_failed(error);return False
+
+    def geometry_completed(self,request,result,error):
+        # Only the main thread reads widgets, reconciles history or touches GL.
+        if not getattr(self,'project_alive',False):return
+        self._geometry_waiting=False
+        if not self.win.get_mapped():return
+        if request.document_identity!=self.document.token[0] or request.family!=self.family:return
+        try:
+            values=self.read_values()
+            if values!=request.values:return
+            if request.view_flags!=(self.canvas.show_support,self.canvas.show_housing):return
+            self.stop_geometry_timer()
+            if error is not None:self.refresh_failed(error)
+            else:
+                design,scene=result
+                self.apply_design(design,values,request.reconcile_token,prepared_scene=scene)
+        except Exception as caught:
+            self.stop_geometry_timer();self.refresh_failed(caught)
 
     def settle_project(self):
         # Saving or starting an operation explicitly confirms the focused RPM
@@ -426,144 +488,148 @@ class ReducerApp(ProjectActions, Gtk.Application):
         return False
 
     def refresh(self):
-        if self.pending:
-            GLib.source_remove(self.pending)
-            self.pending = 0
+        """Authoritative synchronous refresh for explicit operations and loads."""
+        self.invalidate_geometry_request();self.stop_geometry_timer()
         if io_controls.reject_forbidden_edit(self):return False
         reconcile_token=self.project_reconcile_token()
         try:
-            values = self.read_values()
-            rate_only = same_geometry(self.design,self.family,values)
-            design = update_operating_rates(self.design,values) if rate_only else generate(self.family, values)
-            self.canvas.set_design(design,reuse_scene=rate_only)
-            self.design = design
-            if getattr(self,'hardware_warning_labels',None):
-                from pair_assembly import hardware_warnings
-                warnings=hardware_warnings(self.family,design.values)
-                for key,note in self.hardware_warning_labels.items():note.set_text(warnings.get(key,''));note.set_visible(key in warnings)
-            self.values[self.family] = values
-            linked = set()
-            mode = values.get('bearing_mode', 'manual')
-            if mode != 'manual':
-                if self.family in ('spur', 'helical', 'double'):
-                    linked = {'bore'}
-                elif self.family in ('parallel','internal'):
-                    linked = {'bore','output_bore'} if self.family=='parallel' else {'bore'}
-                elif self.family == 'planetary' and mode == 'shaft':
-                    linked = {'bore'}
-                elif self.family == 'cycloidal':
-                    linked = {'bore'} if mode == 'gear' else {'input_shaft', 'output_shaft'}
-            printed = (self.family == 'cycloidal'
-                       and design.values.get('eccentric_design') == 'fdm_bolted')
-            if printed:
-                linked.add('bore')
-            if self.family=='differential' and design.values['ratio_mode']!='custom':linked.add('output_teeth')
-            self.building = True
-            for key, spin in self.inputs.items():
-                if key in design.values and (mode != 'manual' or key in linked):
-                    gui_workflow.set_numeric_value(spin,design.values[key])
-                spin.set_sensitive(key not in linked)
-                if key in linked:
-                    spin.add_css_class('derived')
-                    if self.family=='differential' and key=='output_teeth':
-                        from differential_wrist import ratio_labels
-                        source=ratio_labels(design.values)[design.values['ratio_mode']]+'; choose Custom tooth counts to edit'
-                        spin.set_tooltip_text('Linked to '+source+'. Use Change source below.')
-                    else:source = 'printed shaft bearing seat' if printed and key=='bore' else 'NSK '+str(design.values.get('bearing', ''))+' and selected fit'
-                    if not (self.family=='differential' and key=='output_teeth'):spin.set_tooltip_text('Linked to '+source+'. Change its source in Assembly.')
-                    if key in self.linked_notes:
-                        box, note = self.linked_notes[key];note.set_text('Linked to '+source);box.set_visible(True)
+            values=self.read_values()
+            rate_only=same_geometry(self.design,self.family,values)
+            design=update_operating_rates(self.design,values) if rate_only else generate(self.family,values)
+            return self.apply_design(design,values,reconcile_token,reuse_scene=rate_only)
+        except Exception as error:return self.refresh_failed(error)
+
+    def apply_design(self,design,values,reconcile_token,*,reuse_scene=False,prepared_scene=None):
+        self.canvas.set_design(design,reuse_scene=reuse_scene,prepared_scene=prepared_scene)
+        self.design = design
+        if getattr(self,'hardware_warning_labels',None):
+            from pair_assembly import hardware_warnings
+            warnings=hardware_warnings(self.family,design.values)
+            for key,note in self.hardware_warning_labels.items():note.set_text(warnings.get(key,''));note.set_visible(key in warnings)
+        self.values[self.family] = values
+        linked = set()
+        mode = values.get('bearing_mode', 'manual')
+        if mode != 'manual':
+            if self.family in ('spur', 'helical', 'double'):
+                linked = {'bore'}
+            elif self.family in ('parallel','internal'):
+                linked = {'bore','output_bore'} if self.family=='parallel' else {'bore'}
+            elif self.family == 'planetary' and mode == 'shaft':
+                linked = {'bore'}
+            elif self.family == 'cycloidal':
+                linked = {'bore'} if mode == 'gear' else {'input_shaft', 'output_shaft'}
+        printed = (self.family == 'cycloidal'
+                   and design.values.get('eccentric_design') == 'fdm_bolted')
+        if printed:
+            linked.add('bore')
+        if self.family=='differential' and design.values['ratio_mode']!='custom':linked.add('output_teeth')
+        self.building = True
+        for key, spin in self.inputs.items():
+            if key in design.values and (mode != 'manual' or key in linked):
+                gui_workflow.set_numeric_value(spin,design.values[key])
+            spin.set_sensitive(key not in linked)
+            if key in linked:
+                spin.add_css_class('derived')
+                if self.family=='differential' and key=='output_teeth':
+                    from differential_wrist import ratio_labels
+                    source=ratio_labels(design.values)[design.values['ratio_mode']]+'; choose Custom tooth counts to edit'
+                    spin.set_tooltip_text('Linked to '+source+'. Use Change source below.')
+                else:source = 'printed shaft bearing seat' if printed and key=='bore' else 'NSK '+str(design.values.get('bearing', ''))+' and selected fit'
+                if not (self.family=='differential' and key=='output_teeth'):spin.set_tooltip_text('Linked to '+source+'. Change its source in Assembly.')
+                if key in self.linked_notes:
+                    box, note = self.linked_notes[key];note.set_text('Linked to '+source);box.set_visible(True)
+            else:
+                spin.remove_css_class('derived')
+                spin.set_tooltip_text(self.input_labels[key])
+                if key in self.linked_notes:self.linked_notes[key][0].set_visible(False)
+        self.building = False
+        for key, label in self.geometry_derived.items():
+            if self.family == 'wolfrom':
+                q = design.analysis['wolfrom']
+                if key == 'planets':
+                    label.set_text(str(q['fixed_ring_teeth']))
                 else:
-                    spin.remove_css_class('derived')
-                    spin.set_tooltip_text(self.input_labels[key])
-                    if key in self.linked_notes:self.linked_notes[key][0].set_visible(False)
-            self.building = False
-            for key, label in self.geometry_derived.items():
-                if self.family == 'wolfrom':
-                    q = design.analysis['wolfrom']
-                    if key == 'planets':
-                        label.set_text(str(q['fixed_ring_teeth']))
-                    else:
-                        label.set_text(gui_workflow.roundtrip_text(q['module2_mm'], digits=12))
-                        label.set_tooltip_text(f"m2 = m1 × (S + P1) / (Ro − P2) = {q['module2_mm']!r} mm. Derived from the accepted design; only the first layer module is editable.")
-                    continue
-                value = (design.values['sun'] + 2*design.values['planet']
-                         if key=='planets' else design.values['pins']-1)
-                label.set_text(str(int(value)))
-            io_controls.update(self, design)
-            purchases = sum(row['quantity'] for row in bom.build(design)['rows']
-                            if row['category'] == 'PURCHASE')
-            self.metric_cards.set_sensitive(True)
-            self.update_metrics(design)
-            self.metrics.set_text('\n'.join(design.metrics))
-            self.bom_summary.set_text(
-                f'{len(design.parts)} components'
-                + (f' · {purchases} to purchase' if purchases else '')
-            )
-            self.bom_summary.set_tooltip_text(f'BOM: {purchases} components to purchase')
-            self.notes.set_text('\n\n'.join(design.notes))
-            gui_workflow.update_geometry_warning(self, design)
-            self.hidden_hint.set_visible(bool(self.canvas.scene and not self.canvas.scene.parts))
-            self.last_valid_family = self.family
-            self.parameter_error.set_visible(False)
-            for feedback in self.field_feedback.values():feedback.set_visible(False)
-            self.error_reveal.set_visible(False)
-            operating_valid=not getattr(self,'motion_input_invalid',False)
-            self.export_menu.set_sensitive(not self.busy and operating_valid)
-            self.empty.set_visible(False)
-            self.empty.remove_css_class('invalid')
-            self.send_btn.set_sensitive(not self.busy and operating_valid)
-            self.fusion_send_btn.set_sensitive(not self.busy and operating_valid)
-            self.live_label.set_text('✓ Geometry generated')
-            self.status.remove_css_class('error')
-            if not self.busy:
-                self.status_text('✓ Geometry generated' if operating_valid else 'Complete a valid input speed.')
-            self.reconcile_project(reconcile_token)
-            self.interference.refreshed(design)
-            self.combination_search.refreshed(design)
-            self.components.refreshed(design)
-            self.gear_measurement.refreshed(design)
-            self.backlash.refreshed(design)
-            return operating_valid
-        except Exception as e:
-            self.building = False
-            # Wolfrom rejection retains the accepted document geometry. The
-            # invalid values/raw text remain editable recovery drafts, while
-            # export actions and the canvas motion-valid flag stay blocked.
-            if self.family != 'wolfrom' or self.design is None or self.design.family != 'wolfrom':
-                self.design = None
-            self.components.invalidate('Invalid configuration · selection cleared')
-            self.gear_measurement.invalidate('Invalid configuration · measurement cleared')
-            self.backlash.invalidate('Invalid configuration · proposal cleared')
-            self.interference.invalidate('Invalid configuration · check blocked')
-            self.combination_search.invalidate('Invalid configuration · search blocked')
-            self.export_menu.set_sensitive(False)
-            self.fusion_send_btn.set_sensitive(False)
-            io_controls.update(self, None)
-            if self.last_valid_family != self.family:
-                self.canvas.set_design(None)
-            self.canvas.invalidate_motion()
-            retained = self.canvas.design is not None
-            self.empty.set_text('! Last valid model · parameters do not match'
-                                if retained else 'Invalid configuration')
-            self.empty.set_visible(True)
-            gui_workflow.show_parameter_error(self, str(e))
-            self.warning_bar.set_visible(True)
-            self.warning_bar.add_css_class('invalid')
-            self.warning_details.set_visible(False)
-            self.study.set_text('! Export blocked · preview and results show the last valid configuration.' if retained else '! Export blocked · correct the configuration.')
-            self.study.set_visible(True)
-            self.study.set_tooltip_text(str(e))
-            self.empty.add_css_class('invalid')
-            self.hidden_hint.set_visible(False)
-            self.metric_cards.set_sensitive(False)
-            for label in self.geometry_derived.values():label.set_text('—')
-            self.metrics.set_text('Results out of date · ' + str(e))
-            self.send_btn.set_sensitive(False)
-            self.live_label.set_text('● Update required')
-            self.status.add_css_class('error')
-            self.status_text('! Invalid configuration · export blocked')
-            return False
+                    label.set_text(gui_workflow.roundtrip_text(q['module2_mm'], digits=12))
+                    label.set_tooltip_text(f"m2 = m1 × (S + P1) / (Ro − P2) = {q['module2_mm']!r} mm. Derived from the accepted design; only the first layer module is editable.")
+                continue
+            value = (design.values['sun'] + 2*design.values['planet']
+                     if key=='planets' else design.values['pins']-1)
+            label.set_text(str(int(value)))
+        io_controls.update(self, design)
+        purchases = sum(row['quantity'] for row in bom.build(design)['rows']
+                        if row['category'] == 'PURCHASE')
+        self.metric_cards.set_sensitive(True)
+        self.update_metrics(design)
+        self.metrics.set_text('\n'.join(design.metrics))
+        self.bom_summary.set_text(
+            f'{len(design.parts)} components'
+            + (f' · {purchases} to purchase' if purchases else '')
+        )
+        self.bom_summary.set_tooltip_text(f'BOM: {purchases} components to purchase')
+        self.notes.set_text('\n\n'.join(design.notes))
+        gui_workflow.update_geometry_warning(self, design)
+        self.hidden_hint.set_visible(bool(self.canvas.scene and not self.canvas.scene.parts))
+        self.last_valid_family = self.family
+        self.parameter_error.set_visible(False)
+        for feedback in self.field_feedback.values():feedback.set_visible(False)
+        self.error_reveal.set_visible(False)
+        operating_valid=not getattr(self,'motion_input_invalid',False)
+        self.export_menu.set_sensitive(not self.busy and operating_valid)
+        self.empty.set_visible(False)
+        self.empty.remove_css_class('invalid')
+        self.send_btn.set_sensitive(not self.busy and operating_valid)
+        self.fusion_send_btn.set_sensitive(not self.busy and operating_valid)
+        self.live_label.set_text('✓ Geometry generated')
+        self.status.remove_css_class('error')
+        if not self.busy:
+            self.status_text('✓ Geometry generated' if operating_valid else 'Complete a valid input speed.')
+        self.reconcile_project(reconcile_token)
+        self.interference.refreshed(design)
+        self.combination_search.refreshed(design)
+        self.components.refreshed(design)
+        self.gear_measurement.refreshed(design)
+        self.backlash.refreshed(design)
+        return operating_valid
+
+    def refresh_failed(self,error):
+        self.building = False
+        # Wolfrom rejection retains the accepted document geometry. The
+        # invalid values/raw text remain editable recovery drafts, while
+        # export actions and the canvas motion-valid flag stay blocked.
+        if self.family != 'wolfrom' or self.design is None or self.design.family != 'wolfrom':
+            self.design = None
+        self.components.invalidate('Invalid configuration · selection cleared')
+        self.gear_measurement.invalidate('Invalid configuration · measurement cleared')
+        self.backlash.invalidate('Invalid configuration · proposal cleared')
+        self.interference.invalidate('Invalid configuration · check blocked')
+        self.combination_search.invalidate('Invalid configuration · search blocked')
+        self.export_menu.set_sensitive(False)
+        self.fusion_send_btn.set_sensitive(False)
+        io_controls.update(self, None)
+        if self.last_valid_family != self.family:
+            self.canvas.set_design(None)
+        self.canvas.invalidate_motion()
+        retained = self.canvas.design is not None
+        self.empty.set_text('! Last valid model · parameters do not match'
+                            if retained else 'Invalid configuration')
+        self.empty.set_visible(True)
+        gui_workflow.show_parameter_error(self, str(error))
+        self.warning_bar.set_visible(True)
+        self.warning_bar.add_css_class('invalid')
+        self.warning_details.set_visible(False)
+        self.study.set_text('! Export blocked · preview and results show the last valid configuration.' if retained else '! Export blocked · correct the configuration.')
+        self.study.set_visible(True)
+        self.study.set_tooltip_text(str(error))
+        self.empty.add_css_class('invalid')
+        self.hidden_hint.set_visible(False)
+        self.metric_cards.set_sensitive(False)
+        for label in self.geometry_derived.values():label.set_text('—')
+        self.metrics.set_text('Results out of date · ' + str(error))
+        self.send_btn.set_sensitive(False)
+        self.live_label.set_text('● Update required')
+        self.status.add_css_class('error')
+        self.status_text('! Invalid configuration · export blocked')
+        return False
 
     def reset_defaults(self,*args):
         if self.busy:return
@@ -573,10 +639,15 @@ class ReducerApp(ProjectActions, Gtk.Application):
         self.status_text('Default parameters restored. Use Undo to restore your edits.')
     def undo_defaults(self,*args):
         self.undo_project();self.undo_reset.set_visible(False)
+    def export_ready(self):
+        if self.busy:return False
+        if self.refresh():return True
+        self.export_feedback.failed('Complete a valid configuration before exporting.')
+        return False
     def export(self,*args):
-        if self.busy or not self.refresh(): return
+        if not self.export_ready():return
         try:
-            target=self.output_dir/f'{self.family}-{datetime.now():%Y%m%d-%H%M%S-%f}.package'
+            target=Path(self.output_dir).absolute()/f'{self.family}-{datetime.now():%Y%m%d-%H%M%S-%f}.package'
             design=self.design;config=self.config()
             captured=threading.Event();preview={}
             def capture_done(data,error):
@@ -590,35 +661,36 @@ class ReducerApp(ProjectActions, Gtk.Application):
                     GLib.idle_add(setattr,self.canvas,'capture_callback',None)
                     raise RuntimeError('Preview capture timed out; no complete package was published.')
                 if preview['error']:raise RuntimeError(f'Preview capture failed: {preview["error"]}')
-                package_export.export(design,config,target,preview['data'])
-                return f'Complete STEP, STL, SVG/DXF, configuration, CAD script, preview and reports package saved: {target}'
-            self.background(work)
-        except Exception as e:self.status_text(str(e))
+                folder=package_export.export(design,config,target,preview['data'])
+                return ExportResult('Package',(folder,),f'Complete STEP, STL, SVG/DXF, configuration, CAD script, preview and reports package saved: {folder}')
+            self.background(work,export_job=True)
+        except Exception as e:
+            self.status_text(str(e));self.export_feedback.failed(str(e))
     def export_step(self,*args):
-        if self.busy or not self.refresh():return
+        if not self.export_ready():return
         design=self.design
-        target=self.output_dir/f'{self.family}-{datetime.now():%Y%m%d-%H%M%S-%f}.step-export'
+        target=Path(self.output_dir).absolute()/f'{self.family}-{datetime.now():%Y%m%d-%H%M%S-%f}.step-export'
         def work():
             folder,metadata=cad_export.export(design,target)
-            return f'STEP in millimetres: assembly and {len(metadata)} components saved in {folder}'
-        self.background(work)
+            return ExportResult('STEP',(folder,),f'STEP in millimetres: assembly and {len(metadata)} components saved in {folder}')
+        self.background(work,export_job=True)
     def export_profiles(self,*args):
-        if self.busy or not self.refresh():return
+        if not self.export_ready():return
         design=self.design
-        target=self.output_dir/f'{self.family}-{datetime.now():%Y%m%d-%H%M%S-%f}.profiles-export'
+        target=Path(self.output_dir).absolute()/f'{self.family}-{datetime.now():%Y%m%d-%H%M%S-%f}.profiles-export'
         def work():
             folder,metadata=profile_export.export(design,target)
-            return f'SVG/DXF in millimetres saved in {folder} · see profiles.json: helical/deformed sections are not extrusion profiles'
-        self.background(work)
+            return ExportResult('SVG / DXF profiles',(folder,),f'SVG/DXF in millimetres saved in {folder} · see profiles.json: helical/deformed sections are not extrusion profiles')
+        self.background(work,export_job=True)
     def export_stl(self,*args):
-        if self.busy or not self.refresh():return
+        if not self.export_ready():return
         design=self.design
-        stem=self.output_dir/f'{self.family}-{datetime.now():%Y%m%d-%H%M%S-%f}'
+        stem=Path(self.output_dir).absolute()/f'{self.family}-{datetime.now():%Y%m%d-%H%M%S-%f}'
         def work():
-            self.output_dir.mkdir(parents=True,exist_ok=True)
             assembly,parts=stl_export.export(design,stem)
-            return f'STL in millimetres: {assembly.name} and {len(parts)} components in {stem.name}.stl-parts · folder {self.output_dir}'
-        self.background(work)
+            parts_folder=stem.parent/(stem.name+'.stl-parts')
+            return ExportResult('STL',(assembly,parts_folder),f'STL in millimetres: {assembly.name} and {len(parts)} components in {parts_folder.name} · folder {stem.parent}')
+        self.background(work,export_job=True)
     def show_bom(self,*args):
         if not self.refresh():return
         return gui_workflow.show_report(self,'Bill of materials',bom.as_text(bom.build(self.design)))
@@ -627,13 +699,19 @@ class ReducerApp(ProjectActions, Gtk.Application):
         from engineering import report_text
         return gui_workflow.show_report(self,'Nominal calculation report',report_text(self.design))
     def export_bom(self,*args):
-        if not self.refresh():return
-        try:
-            self.output_dir.mkdir(parents=True,exist_ok=True);stem=self.output_dir/f'{self.family}-{datetime.now():%Y%m%d-%H%M%S-%f}'
-            bom.export(self.design,stem);self.status_text(f'BOM TXT, CSV and JSON saved in {self.output_dir}')
-        except Exception as e:self.status_text(str(e))
-    def background(self,work):
+        if not self.export_ready():return
+        design=self.design
+        stem=Path(self.output_dir).absolute()/f'{self.family}-{datetime.now():%Y%m%d-%H%M%S-%f}'
+        def work():
+            result=bom.export(design,stem)
+            suffixes=['.bom.txt','.bom.csv','.bom.json','.calculations.txt','.calculations.json']
+            if result['machining']:suffixes.append('.machining.json')
+            return ExportResult('BOM and calculations',tuple(Path(str(stem)+suffix) for suffix in suffixes),
+                                f'BOM TXT, CSV and JSON saved in {stem.parent}')
+        self.background(work,export_job=True)
+    def background(self,work,*,export_job=False):
         if self.busy:return
+        if export_job:self.export_feedback.begin()
         self.busy=True;self.spinner.start();self.update_playback_bar()
         self.components.update()
         self.send_btn.set_sensitive(False); self.connect_btn.set_sensitive(False); self.selector.set_sensitive(False); self.fields.set_sensitive(False);self.variant_selector.set_sensitive(False);self.motion_button.set_sensitive(False);self.io_frame.set_sensitive(False)
@@ -641,14 +719,23 @@ class ReducerApp(ProjectActions, Gtk.Application):
         for button in self.file_buttons: button.set_sensitive(False)
         self.status_text('Operation in progress… please wait.');self.live_label.set_text('● Working')
         def run():
-            try: result=work(); failed=False;message=result if isinstance(result,str) else 'Model created in SolidCraft. Save it from CAD as .solidcraft or export it as STEP.'
+            result=None;cancelled=False
+            try:
+                result=work()
+                if export_job and not isinstance(result,ExportResult):raise RuntimeError('The export did not return a completed result.')
+                failed=False;message=result.message if isinstance(result,ExportResult) else result if isinstance(result,str) else 'Model created in SolidCraft. Save it from CAD as .solidcraft or export it as STEP.'
+            except CancelledError:
+                failed=True;cancelled=True;message='The operation was cancelled.'
             except Exception as e:
                 failed=True;message=str(e); traceback.print_exc()
             # Keep short completion callbacks responsive when animations keep the loop busy.
-            GLib.idle_add(done,message,failed,priority=GLib.PRIORITY_DEFAULT)
-        def done(message,failed):
+            GLib.idle_add(done,result,message,failed,cancelled,priority=GLib.PRIORITY_DEFAULT)
+        def done(result,message,failed,cancelled):
             if failed:self.status.add_css_class('error')
             else:self.status.remove_css_class('error')
+            if export_job:
+                if failed:self.export_feedback.failed(message,cancelled)
+                else:self.export_feedback.completed(result)
             self.busy=False;self.spinner.stop();self.update_playback_bar()
             self.components.update()
             for button in self.file_buttons: button.set_sensitive(True)

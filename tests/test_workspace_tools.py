@@ -6,9 +6,10 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 import unittest
+import time
 import gi
 gi.require_version('Gtk','4.0')
-from gi.repository import Gtk,Gdk,Gio
+from gi.repository import Gtk,Gdk,Gio,GLib
 import app as module
 from geometry import generate
 from test_interference_gui import pump,wait_until
@@ -56,6 +57,28 @@ class ToolWorkspaceTests(unittest.TestCase):
     def layout_budget(self):
         a=self.app
         return f'actual window {a.win.get_width()}x{a.win.get_height()}, desktop-constrained request {self.window_limit[0]}x{self.window_limit[1]}'
+
+    def wait_for(self,predicate,seconds=3):
+        deadline=time.monotonic()+seconds;context=GLib.MainContext.default()
+        while time.monotonic()<deadline:
+            if predicate():return
+            if context.pending():context.iteration(False)
+            else:time.sleep(.002)
+        self.fail('Tool layout did not settle: '+self.layout_budget())
+
+    def assert_reachable(self,widget):
+        self.assertTrue(widget.get_mapped())
+        ok,bounds=widget.compute_bounds(self.app.win)
+        self.assertTrue(ok);self.assertGreaterEqual(bounds.get_x(),0);self.assertGreaterEqual(bounds.get_y(),0)
+        self.assertLessEqual(bounds.get_x()+bounds.get_width(),self.app.win.get_width())
+        self.assertLessEqual(bounds.get_y()+bounds.get_height(),self.app.win.get_height())
+
+    def next_frame(self):
+        painted=[];clock=self.app.win.get_frame_clock()
+        handler=clock.connect('after-paint',lambda *_:painted.append(True))
+        try:
+            self.app.win.queue_draw();self.wait_for(lambda:bool(painted))
+        finally:clock.disconnect(handler)
 
     def test_closed_dock_gives_space_back_to_model(self):
         a=self.app
@@ -174,6 +197,96 @@ class ToolWorkspaceTests(unittest.TestCase):
                     self.assertLessEqual(bounds.get_y()+bounds.get_height(),a.win.get_height())
                     self.assertGreaterEqual(bounds.get_x(),0)
                     self.assertLessEqual(bounds.get_x()+bounds.get_width(),a.win.get_width())
+        a.text_size.set_selected(0)
+
+    def test_expand_restore_preserves_document_selection_scene_and_parent_visibility(self):
+        a=self.app;c=a.components;c.open();c.select((0,1));pump(.05)
+        a.workspace_paned.set_position(330);a.viewport_paned.set_position(420);pump(.05)
+        positions=(a.workspace_paned.get_position(),a.viewport_paned.get_position())
+        token=a.document.token;snapshot=a.project_snapshot();scene=a.canvas.scene;design=a.design;panel=c.window
+        visibility=(a.parameter_panel.get_visible(),a.preview_overlay.get_visible(),a.workspace_extras.get_visible())
+        child_visible=a.warning_bar.get_visible()
+        a.tools.expand_button.emit('clicked');self.assertTrue(a.tools.expanded)
+        self.wait_for(lambda:a.tools.box.get_width()>=a.win.get_width()-8)
+        for parent in (a.parameter_panel,a.preview_overlay,a.workspace_extras):self.assertFalse(parent.get_visible())
+        self.assertEqual(a.warning_bar.get_visible(),child_visible)
+        # New child state while the parent is hidden must remain current.
+        a.warning_bar.set_visible(not child_visible)
+        self.assertEqual(a.tools.expand_button.get_label(),'Restore workspace');self.assert_reachable(a.tools.expand_button)
+        self.assertIs(c.window,panel);self.assertEqual(c.selected,(0,1))
+        a.tools.expand_button.emit('clicked');self.wait_for(lambda:not a.tools.restoring)
+        self.assertEqual((a.parameter_panel.get_visible(),a.preview_overlay.get_visible(),a.workspace_extras.get_visible()),visibility)
+        self.assertEqual(a.warning_bar.get_visible(),not child_visible)
+        self.assertEqual((a.workspace_paned.get_position(),a.viewport_paned.get_position()),positions)
+        self.assertEqual(a.document.token,token);self.assertEqual(a.project_snapshot(),snapshot)
+        self.assertIs(a.design,design);self.assertIs(a.canvas.scene,scene);self.assertEqual(c.selected,(0,1))
+        self.assertIs(c.window,panel);self.assertFalse(a.tools.expanded)
+
+    def test_switch_and_nonactive_close_keep_expansion_and_existing_forms(self):
+        a=self.app;a.components.open();a.components.select((0,));components=a.components.window
+        a.combination_search.open();a.combination_search.fields['target'].set_text('7.125')
+        search=a.combination_search.window;a.components.open();a.tools.expand_button.emit('clicked')
+        a.combination_search.open();self.assertTrue(a.tools.expanded);self.assertIs(a.combination_search.window,search)
+        self.assertEqual(a.combination_search.fields['target'].get_text(),'7.125')
+        a.components.open();self.assertIs(a.components.window,components);self.assertEqual(a.components.selected,(0,))
+        search.close();self.assertTrue(a.tools.expanded);self.assertEqual(a.tools.active,'components')
+        self.assertFalse(a.parameter_panel.get_visible());self.assertFalse(a.preview_overlay.get_visible())
+        a.tools.expand_button.emit('clicked');self.wait_for(lambda:not a.tools.restoring)
+        self.assertEqual(a.components.selected,(0,))
+
+    def test_restore_then_close_same_frame_keeps_normal_reopen_width(self):
+        a=self.app;a.components.open();a.viewport_paned.set_position(450);pump(.05)
+        normal=a.tools.box.get_width();a.tools.expand_button.emit('clicked')
+        self.wait_for(lambda:a.tools.box.get_width()>=a.win.get_width()-8)
+        self.assertGreater(a.tools.box.get_width(),normal)
+        a.tools.expand_button.emit('clicked');a.tools.close_button.emit('clicked')
+        self.assertFalse(a.tools.expanded);self.assertIsNone(a.components.window)
+        self.assertEqual(a.tools.last_width,normal)
+        self.wait_for(lambda:not a.tools.restoring)
+        a.components.open();pump(.08)
+        self.assertAlmostEqual(a.tools.box.get_width(),normal,delta=2)
+        self.assertTrue(a.parameter_panel.get_visible());self.assertTrue(a.preview_overlay.get_visible())
+
+    def test_escape_registered_action_restores_before_normal_tool_close(self):
+        a=self.app;a.components.open();a.components.select((0,));token=a.document.token
+        a.tools.expand_button.emit('clicked')
+        self.assertTrue(a.tools.shortcuts.get_item(0).get_action().activate(Gtk.ShortcutActionFlags.EXCLUSIVE,a.win,None))
+        self.assertFalse(a.tools.expanded);self.assertIsNone(a.components.window)
+        self.assertTrue(a.parameter_panel.get_visible());self.assertTrue(a.preview_overlay.get_visible())
+        self.assertTrue(a.workspace_extras.get_visible());self.assertEqual(a.document.token,token)
+        self.assertEqual(a.components.selected,(0,))
+
+    def test_expanded_tools_use_compact_workspace_at_normal_and_large_font(self):
+        a=self.app
+        monitor=Gdk.Display.get_default().get_monitor_at_surface(a.win.get_surface())
+        area=monitor.get_workarea() if hasattr(monitor,'get_workarea') else monitor.get_geometry()
+        for width in (1280,1366):
+            self.window_limit=(min(width,area.width),min(768,area.height))
+            a.win.set_visible(False);a.win.set_default_size(*self.window_limit);a.win.present();pump(.12)
+            a.win.unmaximize();self.wait_for(lambda:not a.win.is_maximized())
+            for scale in (0,2):
+                a.text_size.set_selected(scale)
+                for controller in (a.components,a.combination_search,a.interference):
+                    with self.subTest(width=width,scale=scale,tool=type(controller).__module__):
+                        controller.open();self.next_frame()
+                        normal_height=controller.window.scroll.get_height()
+                        a.tools.expand_button.emit('clicked')
+                        try:
+                            self.wait_for(lambda:a.tools.box.get_width()>=a.win.get_width()-8 and controller.window.scroll.get_height()>0)
+                            self.next_frame()
+                            self.assertLessEqual(a.win.get_width(),self.window_limit[0],self.layout_budget())
+                            self.assertLessEqual(a.win.get_height(),self.window_limit[1],self.layout_budget())
+                            self.assertGreaterEqual(controller.window.scroll.get_height(),max(220,normal_height+80))
+                            self.assert_reachable(a.tools.expand_button);self.assert_reachable(a.tools.close_button)
+                            self.assert_reachable(a.tools.menu)
+                            self.assert_reachable(a.view_menu)
+                            if controller is a.components:
+                                controller.select((0,));target=controller.export_buttons[0]
+                            else:
+                                self.assert_reachable(controller.cancel_button);target=controller.run_button
+                            self.assertTrue(target.grab_focus());pump(.04);self.assert_reachable(target)
+                        finally:
+                            a.tools.restore_workspace();self.wait_for(lambda:not a.tools.restoring)
         a.text_size.set_selected(0)
 
 

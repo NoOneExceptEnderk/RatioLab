@@ -36,21 +36,20 @@ class Release:
     checksums_url: str = ''
 
 
-def automatic_enabled(environ=None):
+def automatic_enabled(environ=None, preference=None):
     env=os.environ if environ is None else environ
     flag=env.get('RATIOLAB_UPDATE_CHECK','').lower()
     if flag in ('0','false','no','off'):return False
+    if type(preference) is bool:return preference
     if flag in ('1','true','yes','on'):return True
     return not (SOURCE_ROOT/'pyproject.toml').is_file()
 
 
 def disabled_reason(environ=None):
-    """Explain the check policy separately from the saved automatic preference."""
+    """Only an explicit launch setting disables manual release discovery."""
     env = os.environ if environ is None else environ
     if env.get('RATIOLAB_UPDATE_CHECK', '').lower() in ('0', 'false', 'no', 'off'):
         return 'Update checks are disabled by RATIOLAB_UPDATE_CHECK=0.'
-    if not automatic_enabled(env):
-        return 'Update checks are disabled for source development. Set RATIOLAB_UPDATE_CHECK=1 to enable them.'
     return ''
 
 
@@ -179,7 +178,7 @@ class Preferences:
                 self.state['backoff_reason']='rate_limit' if self.state.get('next_allowed',0) else ''
         except (OSError,ValueError):self.state={}
     @property
-    def automatic(self):return self.state.get('automatic',True)
+    def automatic(self):return automatic_enabled(preference=self.state.get('automatic'))
     def set_automatic(self,enabled):
         if type(enabled) is not bool:raise ValueError('Automatic update checking must be a boolean')
         previous=self.state.copy()

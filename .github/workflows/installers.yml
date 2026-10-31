@@ -73,6 +73,9 @@ jobs:
           mkdir -p "$RUNNER_TEMP/deb-extracted"
           dpkg-deb -x dist/installers/ratiolab_*_amd64.deb "$RUNNER_TEMP/deb-extracted"
           "$RUNNER_TEMP/deb-extracted/opt/ratiolab/RatioLab" --self-test --report "$RUNNER_TEMP/deb-runtime.json"
+      - name: Upgrade an older installed release through the production helper
+        run: |
+          "$RUNNER_TEMP/bundle-env/bin/python" scripts/check-installed-update.py --new-installer dist/installers/RatioLab-*-linux-x86_64.run --work-dir "$RUNNER_TEMP/native-update-check"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -81,6 +84,9 @@ jobs:
             ${{ runner.temp }}/linux-installed.json
             ${{ runner.temp }}/linux-installed.stderr.log
             ${{ runner.temp }}/linux-mcp.json
+            ${{ runner.temp }}/native-update-check/update-result.json
+            ${{ runner.temp }}/native-update-check/*.log
+            ${{ runner.temp }}/native-update-check/cache/ratiolab/updates/install-handoffs/*/helper.log
           if-no-files-found: ignore
       - uses: actions/upload-artifact@v4
         with:
@@ -144,11 +150,22 @@ jobs:
           $process = Start-Process -FilePath "$destination\unins000.exe" -ArgumentList @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART') -Wait -PassThru
           if ($process.ExitCode -ne 0) { throw 'Uninstall failed' }
           if (Test-Path "$destination\RatioLab.exe") { throw 'Uninstall left the application executable' }
+      - name: Upgrade an older installed release through the production helper
+        shell: pwsh
+        run: |
+          $installer = (Get-ChildItem dist/installers/*-setup.exe | Select-Object -First 1).FullName
+          & $env:RATIOLAB_NATIVE_PYTHON scripts/check-installed-update.py --new-installer $installer --work-dir "$env:RUNNER_TEMP\native-update-check"
+          if ($LASTEXITCODE -ne 0) { throw 'Native installed update verification failed' }
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: ratiolab-windows-gui-verification
-          path: ${{ runner.temp }}/installed-gui-check/*
+          path: |
+            ${{ runner.temp }}/installed-gui-check/*
+            ${{ runner.temp }}/native-update-check/update-result.json
+            ${{ runner.temp }}/native-update-check/*.log
+            ${{ runner.temp }}/native-update-check/cache/ratiolab/updates/install-handoffs/*/helper.log
+            ${{ runner.temp }}/native-update-check/cache/ratiolab/updates/install-handoffs/*/setup.log
           if-no-files-found: ignore
       - uses: actions/upload-artifact@v4
         with:
@@ -207,11 +224,18 @@ jobs:
           env -u PYTHONPATH -u PYTHONHOME -u GI_TYPELIB_PATH -u DYLD_LIBRARY_PATH -u DYLD_FALLBACK_LIBRARY_PATH PATH=/usr/bin:/bin:/usr/sbin:/sbin "$RUNNER_TEMP/bundle-env/bin/python" scripts/check-installed-mcp.py "$RUNNER_TEMP/installed app Ω/RatioLab.app/Contents/MacOS/RatioLab-MCP" --report "$RUNNER_TEMP/installed-gui-check/mcp-result.json"
           codesign --verify --deep --strict "$RUNNER_TEMP/installed app Ω/RatioLab.app"
           rm -rf "$RUNNER_TEMP/installed app Ω/RatioLab.app"
+      - name: Upgrade an older installed release through the production helper
+        run: |
+          "$RUNNER_TEMP/bundle-env/bin/python" scripts/check-installed-update.py --new-installer dist/installers/*-${{ matrix.arch }}.dmg --work-dir "$RUNNER_TEMP/native-update-check"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: ratiolab-macos-${{ matrix.arch }}-gui-verification
-          path: ${{ runner.temp }}/installed-gui-check/*
+          path: |
+            ${{ runner.temp }}/installed-gui-check/*
+            ${{ runner.temp }}/native-update-check/update-result.json
+            ${{ runner.temp }}/native-update-check/*.log
+            ${{ runner.temp }}/native-update-check/cache/ratiolab/updates/install-handoffs/*/helper.log
           if-no-files-found: ignore
       - uses: actions/upload-artifact@v4
         with:

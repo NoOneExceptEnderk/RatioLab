@@ -1,16 +1,60 @@
 # SPDX-FileCopyrightText: 2026 NoOneExceptEnderk
 # SPDX-License-Identifier: GPL-3.0-only
-"""Revision-bound component inspection; view operations never enter history."""
+"""Geometry-bound selection and revision-bound measurement; view-only operations."""
 from copy import deepcopy
 from datetime import datetime
+from pathlib import Path
 from math import pi
+import re
 import gi
 gi.require_version('Gtk','4.0')
 from gi.repository import Gtk
 from project_document import equivalent
+from motion import SPEED_KEYS, same_geometry
 from workspace_tools import actions, details
 import component_geometry as geometry
 import selected_export
+from export_feedback import ExportResult
+
+
+def component_title(part):
+    """Readable presentation only; source names and indices remain authoritative."""
+    name=part.name;stage=re.match(r'^S(\d+)_(.*)$',name)
+    if stage:name=stage.group(2)
+    qualifier=re.search(r'_(envelope|generated|prescribed)$',name)
+    if qualifier:name=name[:qualifier.start()]
+    compound=re.fullmatch(r'Compound_(\d+)_(rim(\d+)|hub)',name)
+    if compound:
+        title=f'Compound planet {compound.group(1)} · '+(f'rim {compound.group(3)}' if compound.group(3) else 'hub')
+    else:
+        def words(value):
+            tokens=re.sub(r'(?<=[a-z])(?=[A-Z])',' ',value.replace('_',' ')).split()
+            return ' '.join(token if token.isupper() else token.lower() for token in tokens)
+        prefixes={'Generator_wave':'wave generator','Disc_cycloidal':'cycloidal disc',
+            'Bearing_eccentric':'eccentric bearing','Bearing_planetcarrier':'planet carrier bearing',
+            'Shaft_input':'input shaft','Shaft_output':'output shaft','Flange_output':'output flange',
+            'Pin_output':'output pin','Ring_output':'output ring','Ring_fixed':'fixed ring',
+            'Sun_input':'input sun','Pinion_input':'input pinion'}
+        title=words(name)
+        for prefix,replacement in prefixes.items():
+            if name==prefix or name.startswith(prefix+'_'):
+                title=replacement+(' '+words(name[len(prefix)+1:]) if name!=prefix else '');break
+        if title.endswith((' lower',' upper')):
+            body,position=title.rsplit(' ',1);title=position+' '+body
+        title=title[:1].upper()+title[1:]
+    if qualifier:title+=' · '+qualifier.group(1)
+    layer=part.port.get('layer')
+    if type(layer) is int:title+=f' · layer {layer}'
+    return (f'Stage {stage.group(1)} · ' if stage else '')+title
+
+
+def selection_snapshot(snapshot):
+    """Bind selection to geometry; operating edits still invalidate measurements."""
+    snapshot=deepcopy(snapshot)
+    for section in ('values','raw'):
+        fields=snapshot.get(section,{}).get(snapshot.get('family'),{})
+        for key in SPEED_KEYS:fields.pop(key,None)
+    return snapshot
 
 
 def label(text=''):
@@ -20,6 +64,7 @@ def label(text=''):
 class Controller:
     def __init__(self,app,container):
         self.app=app;self.window=None;self.snapshot=None;self.revision=None;self.selected=();self.saved_filters=None;self.points=[];self.cache={};self.syncing=False;self.pose=None;self.alive=True
+        self.design=None;self.scene=None
         self.button=Gtk.Button(label='Components / measure…');self.button.connect('clicked',lambda _:self.open())
         self.summary=label('Click a visible surface to select · Ctrl/Shift adds');self.summary.set_hexpand(True)
         self.markers=Gtk.DrawingArea(hexpand=True,vexpand=True);self.markers.set_can_target(False);self.markers.set_draw_func(self.draw);app.preview_overlay.add_overlay(self.markers)
@@ -34,23 +79,50 @@ class Controller:
 
     def current(self):
         app=self.app
-        return self.alive and getattr(app,'project_alive',False) and self.revision is not None and hasattr(app,'document') and self.revision==app.document.token and self.snapshot is not None and equivalent(app.project_snapshot(),self.snapshot) and app.design is not None
+        return self.alive and getattr(app,'project_alive',False) and self.revision is not None and hasattr(app,'document') and self.revision==app.document.token and self.snapshot is not None and equivalent(app.project_snapshot(),self.snapshot) and self.valid_indices(self.selected,app.design)
 
     def changed(self,snapshot):
-        if self.snapshot is not None and not equivalent(snapshot,self.snapshot):self.invalidate('Model changed · selection cleared')
+        if self.snapshot is not None and not equivalent(snapshot,self.snapshot):
+            if self.same_selection_snapshot(snapshot):
+                self.clear_points();self.cache={}
+            else:self.invalidate('Model changed · selection cleared')
+
+    def same_selection_snapshot(self,snapshot):
+        return (self.revision is not None and self.revision[0]==self.app.document.token[0]
+                and self.snapshot is not None
+                and equivalent(selection_snapshot(self.snapshot),selection_snapshot(snapshot)))
+
+    def valid_indices(self,indices,design):
+        return design is not None and all(type(i) is int and 0<=i<len(design.parts) for i in indices)
+
+    def same_components(self,design):
+        # Rate updates copy Parts to update their operating ports. The sampled
+        # geometry and scene remain shared, retaining the same source indices.
+        previous=self.design
+        return bool(previous and design and same_geometry(previous,design.family,design.values)
+                    and self.scene is not None and self.scene is self.app.canvas.scene
+                    and len(previous.parts)==len(design.parts)
+                    and all(a.name==b.name and a.role==b.role
+                            and all(getattr(a,key) is getattr(b,key) for key in ('outer','holes','mesh','stations','frame'))
+                            for a,b in zip(previous.parts,design.parts)))
 
     def refreshed(self,design):
         app=self.app
         if not hasattr(app,'document'):return
         snapshot=app.project_snapshot()
-        if self.revision!=app.document.token or (self.snapshot is not None and not equivalent(self.snapshot,snapshot)):
+        changed=self.revision!=app.document.token or (self.snapshot is not None and not equivalent(self.snapshot,snapshot))
+        if not (self.same_selection_snapshot(snapshot) and self.same_components(design)
+                and self.valid_indices(self.selected,design)):
             self.invalidate('Select components from this revision')
+        elif changed:self.clear_points()
         self.revision=app.document.token;self.snapshot=deepcopy(snapshot)
+        self.design=design;self.scene=app.canvas.scene
         self.cache={}
         self.populate();self.update()
 
     def invalidate(self,message='Document replaced · selection cleared'):
         self.restore();self.selected=();self.points=[];self.cache={};self.revision=None;self.snapshot=None
+        self.design=None;self.scene=None
         self.app.canvas.selected_indices=();self.app.canvas.queue_render();self.markers.queue_draw()
         self.summary.set_text(message)
         if self.window:self.populate();self.update()
@@ -78,7 +150,7 @@ class Controller:
         self.isolate_button=Gtk.Button(label='Isolate');self.isolate_button.connect('clicked',lambda _:self.isolate());buttons.append(self.isolate_button)
         self.restore_button=Gtk.Button(label='Restore view');self.restore_button.connect('clicked',lambda _:self.restore());buttons.append(self.restore_button)
         clear=Gtk.Button(label='Clear');clear.connect('clicked',lambda _:self.select(()));buttons.append(clear)
-        self.detail=label();self.detail.set_selectable(True);detail_scroll=Gtk.ScrolledWindow(min_content_height=45,max_content_height=115,propagate_natural_height=True);detail_scroll.set_child(self.detail);details(body,'Nominal component bounds · mm',detail_scroll)
+        self.detail=label();self.detail.set_selectable(True);detail_scroll=Gtk.ScrolledWindow(min_content_height=45,max_content_height=115,propagate_natural_height=True);detail_scroll.set_child(self.detail);details(body,'Component details · nominal bounds in mm',detail_scroll)
         measure_row=actions(measure_body)
         self.measure=Gtk.CheckButton(label='Measure surfaces')
         self.measure.connect('toggled',self.measure_mode_changed)
@@ -113,10 +185,10 @@ class Controller:
         while (child:=self.list.get_first_child()):self.list.remove(child)
         if self.app.design and self.revision is not None:
             visible=self.visible_indices()
-            import bom
             for i,p in enumerate(self.app.design.parts):
                 row=Gtk.ListBoxRow();row.source_index=i
-                row.set_child(label(f'{i+1:03d} · {p.name} · {p.role} · {bom.part_info(p)["code"]}'+(' · hidden' if i not in visible else '')))
+                row.set_child(label(f'{i+1:03d} · {component_title(p)}'+(' · hidden' if i not in visible else '')))
+                row.set_tooltip_text(f'Source name: {p.name}\nRole: {p.role}')
                 self.list.append(row)
                 if i in self.selected:self.list.select_row(row)
         self.syncing=False
@@ -126,6 +198,9 @@ class Controller:
 
     def select(self,indices,sync=True):
         if not self.current():return
+        indices=tuple(indices)
+        if not self.valid_indices(indices,self.app.design):
+            self.invalidate('Component unavailable · selection cleared');return
         self.selected=tuple(sorted(set(indices)));self.app.canvas.selected_indices=self.selected
         if self.saved_filters is not None:self.app.canvas.isolated_indices=self.selected
         self.app.canvas.queue_render()
@@ -136,7 +211,7 @@ class Controller:
         if hasattr(self.app,'update_export_scope'):self.app.update_export_scope()
         current=self.current();n=len(self.selected)
         if self.revision is not None:
-            names=', '.join(f'{i+1:03d} {self.app.design.parts[i].name}' for i in self.selected[:2]) if current else ''
+            names=', '.join(f'{i+1:03d} {component_title(self.app.design.parts[i])}' for i in self.selected[:2]) if current else ''
             if n>2:names+=f', +{n-2} more'
             self.summary.set_text(f'{n} selected'+(' · '+names if names else '')+(' · isolated' if self.saved_filters is not None else '')+' · Ctrl/Shift adds')
         if not self.window:return
@@ -144,9 +219,10 @@ class Controller:
         for button in self.export_buttons:button.set_sensitive(current and n>0 and not self.app.busy)
         descriptions=[]
         if current:
+            import bom
             for i in self.selected:
                 p=self.app.design.parts[i];dims=geometry.dimensions(p)
-                descriptions.append(f'{i+1:03d} {p.name} · nominal sampled XYZ bounds: '+ ' × '.join(f'{q:.6g}' for q in dims['size_mm'])+' mm'+f' · min {self.xyz(dims["min_mm"])} · max {self.xyz(dims["max_mm"])}')
+                descriptions.append(f'{i+1:03d} {component_title(p)}\nSource name: {p.name} · role: {p.role} · BOM code: {bom.part_info(p)["code"]}\nNominal sampled XYZ bounds: '+ ' × '.join(f'{q:.6g}' for q in dims['size_mm'])+' mm'+f' · min {self.xyz(dims["min_mm"])} · max {self.xyz(dims["max_mm"])}')
         self.export_text.set_text(f'Export {n} selected components · nominal pose · includes hidden selections')
         self.detail.set_text('\n'.join(descriptions) or 'No current selection')
         if not self.points:self.measure_text.set_text('No measurement · click two visible surface points in Measure mode')
@@ -186,6 +262,9 @@ class Controller:
         return (c.motion_enabled,c.inspection_phase if c.inspection_phase is not None else c.motion_phase,c.exploded,c.section,c.motion_playing)
 
     def display_changed(self,*_):
+        # View filters may legitimately rebuild the scene without replacing the
+        # bound design. A set_design handoff must be checked by refreshed().
+        if self.design is not None and self.app.canvas.design is self.design:self.scene=self.app.canvas.scene
         # Only retain triangles for the current continuous placement, rather
         # than accumulating a full mesh for each slider stop.
         if self.cache and next(iter(self.cache))[1]!=self.app.canvas.exploded:self.cache={}
@@ -266,7 +345,8 @@ class Controller:
         token=self.revision;snapshot=deepcopy(self.snapshot);indices=self.selected
         # Refresh is allowed to reconcile normalization, but cannot substitute a
         # new document or silently reuse old indices after an edit.
-        if not app.refresh() or not self.current() or self.revision!=token or not equivalent(snapshot,app.project_snapshot()):return
+        if not app.refresh() or not self.current() or self.revision!=token or not equivalent(snapshot,app.project_snapshot()):
+            app.export_feedback.failed('The selected components changed. Select current components before exporting.');return
         design=deepcopy(app.design);config=deepcopy(app.config());png=None
         if kind=='package':
             canvas=app.canvas
@@ -280,7 +360,8 @@ class Controller:
                 captured=[];canvas.capture_png(lambda data,error:captured.append((data,error)))
                 if not captured or captured[0][1]:raise RuntimeError('Selected preview capture failed')
                 png=captured[0][0]
-            except Exception as error:app.status_text(str(error));return
+            except Exception as error:
+                app.status_text(str(error));app.export_feedback.failed(str(error));return
             finally:
                 app.restore_view_state(saved['options'])
                 canvas.isolated_indices=saved['isolated'];canvas.motion_phase=saved['phase'];canvas.motion_enabled=saved['enabled'];canvas.motion_plan=saved['plan']
@@ -290,8 +371,9 @@ class Controller:
                 if self.window:self.measure_text.set_text(saved['measurement'])
                 self.markers.queue_draw();canvas.queue_render()
         if not self.current() or self.revision!=token:return
-        target=app.output_dir/f'{design.family}-{datetime.now():%Y%m%d-%H%M%S-%f}.selected-{kind}'
+        target=Path(app.output_dir).absolute()/f'{design.family}-{datetime.now():%Y%m%d-%H%M%S-%f}.selected-{kind}'
         def work():
-            selected_export.export(design,indices,kind,target,config,png,token)
-            return f'Selected components only · {len(indices)} source positions · nominal mm · {target}'
-        app.background(work)
+            folder=selected_export.export(design,indices,kind,target,config,png,token)
+            return ExportResult('Selected '+{'step':'STEP','stl':'STL','profiles':'SVG / DXF profiles','package':'package'}[kind],
+                                (folder,),f'Selected components only · {len(indices)} source positions · nominal mm · {folder}')
+        app.background(work,export_job=True)

@@ -4,6 +4,7 @@
 import io
 import time
 import json
+import os
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import Mock, patch
@@ -148,6 +149,7 @@ class UpdateTests(unittest.TestCase):
         for suffix in ['.zip','setup.exe','.dmg','',False]:
             self.assertIsNone(u._download(assets,tag,package_format=suffix,**target))
 
+    @patch.dict(os.environ, {'RATIOLAB_UPDATE_CHECK': ''})
     def test_source_policy_skip_reminder_and_isolated_persistence(self):
         self.assertFalse(u.automatic_enabled({}))
         self.assertFalse(u.automatic_enabled({'RATIOLAB_UPDATE_CHECK':'0'}))
@@ -155,6 +157,12 @@ class UpdateTests(unittest.TestCase):
         with patch.object(u,'SOURCE_ROOT',Path('/not-a-checkout')):self.assertTrue(u.automatic_enabled({}))
         with TemporaryDirectory() as temporary:
             path=Path(temporary)/'profile'/'updates.json';prefs=u.Preferences(path)
+            self.assertFalse(prefs.automatic)
+            prefs.set_automatic(True)
+            self.assertTrue(u.Preferences(path).automatic)
+            with patch.dict(os.environ, {'RATIOLAB_UPDATE_CHECK': '0'}):
+                self.assertFalse(u.Preferences(path).automatic)
+            self.assertTrue(u.Preferences(path).automatic)
             current=select_fixture([release()]);newer=select_fixture([release('v0.1.0-preview.4')])
             self.assertTrue(prefs.visible(current,now=0));prefs.skip(current)
             self.assertFalse(u.Preferences(path).visible(current,now=0));self.assertTrue(prefs.visible(newer,now=0))
@@ -168,6 +176,8 @@ class UpdateTests(unittest.TestCase):
             path.write_text(json.dumps({'next_allowed':10**30,'remind_until':10**30}))
             self.assertEqual(u.Preferences(path).state['next_allowed'],0)
 
+    @patch.object(u, 'SOURCE_ROOT', Path('/not-a-checkout'))
+    @patch.dict(os.environ, {'RATIOLAB_UPDATE_CHECK': ''})
     def test_automatic_preference_validates_boolean_and_preserves_project_preferences(self):
         with TemporaryDirectory() as temporary:
             path=Path(temporary)/'updates.json'
@@ -184,7 +194,7 @@ class UpdateTests(unittest.TestCase):
             path.write_text(json.dumps({'next_allowed':True,'backoff_reason':'network'}))
             self.assertEqual(u.Preferences(path).state['next_allowed'],0)
         self.assertIn('RATIOLAB_UPDATE_CHECK=0',u.disabled_reason({'RATIOLAB_UPDATE_CHECK':'0'}))
-        self.assertIn('source development',u.disabled_reason({}))
+        self.assertEqual(u.disabled_reason({}),'')
         self.assertEqual(u.disabled_reason({'RATIOLAB_UPDATE_CHECK':'1'}),'')
 
     def test_failed_automatic_preference_save_restores_previous_state(self):

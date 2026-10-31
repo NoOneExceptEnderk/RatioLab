@@ -18,11 +18,23 @@ import unittest
 from unittest.mock import patch
 
 import update_install as install
+import update_receipt
 from update_download import VerifiedDownload
 from updates import Release, RELEASES_URL, select_release
 
 
 class InstallTests(unittest.TestCase):
+    def test_update_actions_describe_the_actual_platform_steps(self):
+        from types import SimpleNamespace
+        for suffix, label, phrase in (
+            ('.run', 'Update now', 'reopen automatically'),
+            ('setup.exe', 'Update now', 'reopen automatically'),
+            ('.dmg', 'Update now', 'reopen automatically'),
+            ('.deb', 'Update now', 'approve the system authorization')):
+            action, detail = install.update_action(SimpleNamespace(package_format=suffix))
+            self.assertEqual(action, label)
+            self.assertIn(phrase, detail)
+
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory(prefix='ratiolab-adapter-test-')
         self.root = Path(self.temporary.name)
@@ -200,40 +212,50 @@ class InstallTests(unittest.TestCase):
             self.assertEqual(install._registry_location(), str(self.bundle))
         self.assertEqual(registry.call, ('HKCU', install.UNINSTALL_KEY, 0, 257))
 
-    def test_windows_script_is_literal_interactive_and_gates_parent(self):
+    def test_windows_silent_setup_is_pinned_gated_and_never_reboots_or_closes_other_apps(self):
         self.executable.rename(self.bundle/'RatioLab.exe')
         self.executable = self.bundle/'RatioLab.exe'
         self.manifest(system='windows')
         found = self.detection(system='win32', registry_reader=lambda: str(self.bundle))
         package = self.package(suffix='setup.exe', system='windows')
-        script = install._powershell_script(self.root, found, package.path, package.sha256, 123, '456', 120)
+        script = install._powershell_script(self.root, found, package.path, package.sha256, 123, '456', 120,
+                                            target=package.release.version)
         self.assertIn("user''s app with spaces", script)
         self.assertIn('StartTime.ToFileTimeUtc()', script)
         self.assertIn('Get-FileHash -LiteralPath', script)
         self.assertIn('RegistryView]::Registry64', script)
-        self.assertIn("$arguments = '/DIR=\"'", script)
-        self.assertNotIn('/SILENT', script)
+        for flag in ('/SILENT','/SUPPRESSMSGBOXES','/SP-','/NORESTART','/RESTARTEXITCODE=3010',
+                     '/NOCLOSEAPPLICATIONS','/NORESTARTAPPLICATIONS','/DIR="','/LOG="'):
+            self.assertIn(flag,script)
+        self.assertNotIn('/VERYSILENT',script)
         self.assertNotIn('Stop-Process', script)
-        self.assertLess(script.index('while ($true)'), script.index('Start-Process -FilePath'))
+        self.assertLess(script.index('while ($true)'), script.index('Start-Process -FilePath $package'))
+        self.assertLess(script.index("RegistryView]::Registry64"),script.index('Start-Process -FilePath $package'))
+        self.assertIn("$sourceVersion = '0.1.11'",script)
+        self.assertIn("$targetVersion = '0.1.12'",script)
+        self.assertIn("$status = 'reboot-required'",script)
+        self.assertLess(script.index('Runtime-Valid $targetVersion'),script.index('$restartPath = $executable'))
+        self.assertLess(script.index('  Finish\n'),script.index('Start-Process -FilePath $restartPath'))
+        for required in ('16777216','50000','Duplicate or external runtime path',"LinkType -eq 'HardLink'",
+                         'Runtime-Valid $sourceVersion $sourceBase','Get-FileHash -LiteralPath $old.FullName'):
+            self.assertIn(required,script)
+        with self.assertRaises(ValueError):
+            install._powershell_script(self.root,found,package.path,package.sha256,123,'456',120,target='0.1.11')
         self.assertEqual(base64.b64decode(base64.b64encode(script.encode('utf-16-le'))).decode('utf-16-le'), script)
 
-    def test_macos_opens_dmg_without_exit_or_replacement(self):
+    def test_macos_unproven_application_location_is_manual_without_source_replacement(self):
         executable = self.root/'RatioLab.app/Contents/MacOS/RatioLab'
         executable.parent.mkdir(parents=True)
         executable.write_text('fake native executable')
         info = executable.parents[1]/'Info.plist'
         info.write_bytes(plistlib.dumps(dict(CFBundleIdentifier='local.solidcraft.reducers',
-                                            CFBundleShortVersionString='0.1.11')))
+                                            CFBundleExecutable='RatioLab',CFBundleShortVersionString='0.1.11')))
         found = self.detection(system='darwin', machine='arm64', executable=executable)
         self.assertEqual(found.kind, 'macos-dmg')
+        self.assertFalse(found.can_install)
         self.assertFalse(found.requires_exit)
         self.assertEqual(found.package_format, '.dmg')
-        package = self.package(system='macos', arch='arm64', suffix='.dmg')
-        script = install._shell_script(self.root, found, package.path, package.sha256, 123, '', 120,
-                                       '/usr/bin/shasum', '/usr/bin/open', False)
-        self.assertIn('/usr/bin/open', script)
-        self.assertNotIn('--destination', script)
-        self.assertNotIn('token=$(parent_token)', script)
+        self.assertIn('Download manually',found.explanation)
 
     def test_debian_database_probe_requires_exact_installed_package(self):
         executable = Path('/opt/ratiolab/RatioLab')
@@ -253,7 +275,7 @@ class InstallTests(unittest.TestCase):
         found = self.detection(debian_owner=lambda path: True)
         self.assertEqual(found.kind, 'linux-bundle')
 
-    def test_debian_exact_managed_opt_target_is_delegated(self):
+    def test_debian_exact_managed_opt_target_can_update_only_with_system_tools(self):
         # Inject filesystem reads for /opt; do not inspect/run/change the user's
         # real application. Native package handlers are not launched.
         executable = Path('/opt/ratiolab/RatioLab')
@@ -262,32 +284,161 @@ class InstallTests(unittest.TestCase):
         identity = install._identity
         with (patch.object(install, '_ordinary', return_value=info),
               patch.object(install, '_bounded', return_value=manifest),
-              patch.object(install, '_identity', side_effect=lambda path: identity(self.executable))):
+              patch.object(install, '_identity', side_effect=lambda path: identity(self.executable)),
+              patch.object(install.os,'access',return_value=True)):
             found = self.detection(executable=executable, debian_owner=lambda path: path == executable)
         self.assertEqual(found.kind, 'debian')
         self.assertEqual(found.package_format, '.deb')
-        self.assertFalse(found.requires_exit)
+        self.assertTrue(found.requires_exit)
         self.assertTrue(found.can_install)
+        with (patch.object(install, '_ordinary', return_value=info),
+              patch.object(install, '_bounded', return_value=manifest),
+              patch.object(install, '_identity', side_effect=lambda path: identity(self.executable)),
+              patch.object(install.os,'access',return_value=False)):
+            manual=self.detection(executable=executable,debian_owner=lambda path:True)
+        self.assertFalse(manual.can_install)
+        self.assertFalse(manual.requires_exit)
+        self.assertEqual(manual.package_format,'.deb')
+        self.assertIn('Download manually',manual.explanation)
 
-    def test_debian_open_helper_preserves_quoted_manual_command(self):
+    def test_debian_rejects_nonpackage_archive_before_preparing_a_helper(self):
         parent = self.parent()
         package = self.package(suffix='.deb')
-        found = replace(self.detection(), kind='debian', package_format='.deb', requires_exit=False)
-        # The only opener is this harmless fixture; no real handler or installer.
-        opened = self.root/'fake-opener-package-path'
-        opener = self.root/"user's fake system opener"
-        opener.write_text('#!/bin/sh\nprintf "%s" "$1" > '+shlex.quote(str(opened))+'\n')
-        opener.chmod(0o700)
-        with (patch.object(install, '_revalidate'),
-              patch.object(install.shutil, 'which', return_value=str(opener))):
-            prepared = self.prepare(package=package, installation=found, parent_pid=parent.pid)
-            self.assertFalse(opened.exists())
-            prepared.launch()
-        self.wait_result(prepared, 'opened')
-        self.assertEqual(Path(opened.read_text()), prepared.package)
-        self.assertEqual(shlex.split(prepared.command), ['sudo', 'apt', 'install', str(prepared.package)])
-        self.assertEqual(prepared.action_label, 'Open package installer')
+        found = replace(self.detection(),kind='debian',package_format='.deb',requires_exit=True)
+        with (patch.object(install,'_revalidate'),patch.object(install.os,'access',return_value=True)):
+            with self.assertRaises(subprocess.CalledProcessError):
+                self.prepare(package=package,installation=found,parent_pid=parent.pid)
+        self.assertFalse((self.root/'helpers').exists())
         self.assertIsNone(parent.poll())
+
+    def debian_fixture(self, *, package_name='ratiolab', package_version='0.1.12', arch='amd64',
+                       runtime_version='0.1.12', authorization=0, apt_code=0):
+        """A tiny real .deb plus nonprivileged replacements for fixed commands."""
+        marker=self.root/'reopened-runtime'
+        def runtime(version):
+            return ('#!/bin/sh\ncase "${1:-}" in\n'
+                +f'--version) printf "%s\\n" {shlex.quote("RatioLab "+version)} ;;\n'
+                +'--diagnose) exit 0 ;;\n'
+                +f'*) printf "%s" {shlex.quote(version)} > {shlex.quote(str(marker))} ;;\nesac\n')
+        self.executable.write_text(runtime('0.1.11'))
+        self.manifest()
+        installation=replace(self.detection(),kind='debian',package_format='.deb',requires_exit=True)
+        tree=self.root/'debian-package';(tree/'DEBIAN').mkdir(parents=True)
+        (tree/'DEBIAN/control').write_text(f'Package: {package_name}\nVersion: {package_version}\n'
+            +f'Architecture: {arch}\nMaintainer: Test <test@example.invalid>\nDescription: harmless updater fixture\n')
+        app=tree/'opt/ratiolab';app.mkdir(parents=True)
+        (app/'RatioLab').write_text(runtime(runtime_version));(app/'RatioLab').chmod(0o700)
+        manifest=json.loads((self.bundle/'bundle-manifest.json').read_text())
+        manifest.update(version='0.1.12',release={'release':'0.1.12'},files=[dict(path='RatioLab',kind='file',
+            size=(app/'RatioLab').stat().st_size,sha256=hashlib.sha256((app/'RatioLab').read_bytes()).hexdigest())])
+        (app/'bundle-manifest.json').write_text(json.dumps(manifest))
+        archive=self.root/'fixture.deb'
+        subprocess.run(['/usr/bin/dpkg-deb','--build',str(tree),str(archive)],check=True,
+                       stdout=subprocess.DEVNULL,stderr=subprocess.PIPE)
+        package=self.package(archive.read_bytes(),suffix='.deb')
+        state=self.root/'installed-version';state.write_text('0.1.11')
+        calls=self.root/'authorization-arguments'
+        tools={name:self.root/('fixture-'+Path(name).name) for name in install.DEBIAN_TOOLS}
+        tools['/usr/bin/dpkg-deb'].write_text('#!/bin/sh\nexec /usr/bin/dpkg-deb "$@"\n')
+        tools['/usr/bin/dpkg-query'].write_text('#!/bin/sh\nprintf "install ok installed\\n%s\\namd64" '
+                                              +f'"$(cat {shlex.quote(str(state))})"\n')
+        tools['/usr/bin/pkexec'].write_text('#!/bin/sh\nprintf "%s\\n" "$@" > '+shlex.quote(str(calls))+'\n'
+            +f'if [ {authorization} -ne 0 ]; then exit {authorization}; fi\nshift\nexec "$@"\n')
+        tools['/usr/bin/apt-get'].write_text('#!/bin/sh\n'
+            +(f'printf partial > {shlex.quote(str(self.executable))}\nexit {apt_code}\n' if apt_code else
+              f'cp {shlex.quote(str(app/"RatioLab"))} {shlex.quote(str(self.executable))}\n'
+              +f'cp {shlex.quote(str(app/"bundle-manifest.json"))} {shlex.quote(str(self.bundle/"bundle-manifest.json"))}\n'
+              +f'printf 0.1.12 > {shlex.quote(str(state))}\n'))
+        for tool in tools.values():tool.chmod(0o700)
+        return dict(package=package,installation=installation,tools=tools,marker=marker,calls=calls,state=state)
+
+    def prepare_debian_fixture(self, fixture, parent):
+        spawn=install._spawn
+        access=install.os.access
+        def harmless_spawn(argv,**kwargs):
+            helper=Path(argv[1]);text=helper.read_text()
+            for original,replacement in fixture['tools'].items():
+                text=text.replace(original,shlex.quote(str(replacement)))
+            helper.write_text(text)
+            return spawn(argv,**kwargs)
+        def availability(path,mode):
+            return True if path in install.DEBIAN_TOOLS else access(path,mode)
+        with (patch.object(install,'_revalidate'),patch.object(install,'_spawn',side_effect=harmless_spawn),
+              patch.object(install.os,'access',side_effect=availability)):
+            return self.prepare(package=fixture['package'],installation=fixture['installation'],parent_pid=parent.pid)
+
+    def arm_fixture(self, prepared, parent):
+        with patch.object(install,'_revalidate'):prepared.launch()
+        parent.terminate();parent.wait(timeout=3)
+
+    def test_debian_package_identity_version_and_architecture_checked_before_close(self):
+        for change in ({'package_name':'another-app'},{'package_version':'0.1.99'},{'arch':'arm64'}):
+            with tempfile.TemporaryDirectory() as temporary:
+                tree=Path(temporary);(tree/'DEBIAN').mkdir()
+                fields=dict(package_name='ratiolab',package_version='0.1.12',arch='amd64')|change
+                (tree/'DEBIAN/control').write_text('Package: '+fields['package_name']+'\nVersion: '
+                    +fields['package_version']+'\nArchitecture: '+fields['arch']
+                    +'\nMaintainer: Test <test@example.invalid>\nDescription: harmless\n')
+                archive=self.root/'identity.deb'
+                subprocess.run(['/usr/bin/dpkg-deb','--build',str(tree),str(archive)],check=True,
+                               stdout=subprocess.DEVNULL,stderr=subprocess.PIPE)
+                with self.assertRaises(ValueError):install._debian_package_identity(archive,'0.1.12','x86_64')
+
+    def test_debian_update_waits_for_parent_authorizes_only_fixed_apt_and_restarts_exact_target(self):
+        fixture=self.debian_fixture();parent=self.parent()
+        prepared=self.prepare_debian_fixture(fixture,parent)
+        self.assertFalse(fixture['calls'].exists())
+        with patch.object(install,'_revalidate'):prepared.launch()
+        time.sleep(.15)
+        self.assertFalse(fixture['calls'].exists())
+        parent.terminate();parent.wait(timeout=3)
+        self.wait_result(prepared,'installed-restart-requested')
+        deadline=time.monotonic()+3
+        while not fixture['marker'].exists() and time.monotonic()<deadline:time.sleep(.02)
+        self.assertEqual(fixture['marker'].read_text(),'0.1.12')
+        self.assertEqual(fixture['calls'].read_text().splitlines(),['--disable-internal-agent',
+            str(fixture['tools']['/usr/bin/apt-get']),'--yes','--no-remove','install',str(prepared.package)])
+        outcome=update_receipt.consume(prepared.directory.parent,current='0.1.12',executable=self.executable)
+        self.assertTrue(outcome.success)
+
+    def test_debian_authentication_cancel_reopens_unchanged_source_and_retains_cancel_result(self):
+        fixture=self.debian_fixture(authorization=126);parent=self.parent()
+        prepared=self.prepare_debian_fixture(fixture,parent);self.arm_fixture(prepared,parent)
+        self.wait_result(prepared,'cancelled')
+        deadline=time.monotonic()+3
+        while not fixture['marker'].exists() and time.monotonic()<deadline:time.sleep(.02)
+        self.assertEqual(fixture['marker'].read_text(),'0.1.11')
+        self.assertEqual(fixture['state'].read_text(),'0.1.11')
+        outcome=update_receipt.consume(prepared.directory.parent,current='0.1.11',executable=self.executable)
+        self.assertFalse(outcome.success);self.assertIn('cancelled',outcome.message)
+
+    def test_debian_failed_authorization_is_distinct_from_installer_failure(self):
+        fixture=self.debian_fixture(authorization=127);parent=self.parent()
+        prepared=self.prepare_debian_fixture(fixture,parent);self.arm_fixture(prepared,parent)
+        self.wait_result(prepared,'authorization-failed')
+        outcome=update_receipt.consume(prepared.directory.parent,current='0.1.11',executable=self.executable)
+        self.assertIn('authorization was not granted',outcome.message)
+
+    def test_debian_partial_install_or_wrong_runtime_never_restarts_unverified_program(self):
+        fixture=self.debian_fixture(apt_code=100);parent=self.parent()
+        prepared=self.prepare_debian_fixture(fixture,parent);self.arm_fixture(prepared,parent)
+        self.wait_result(prepared,'installer-failed')
+        self.assertFalse(fixture['marker'].exists())
+
+    def test_debian_success_exit_with_wrong_target_runtime_is_not_success(self):
+        fixture=self.debian_fixture(runtime_version='0.1.99');parent=self.parent()
+        prepared=self.prepare_debian_fixture(fixture,parent);self.arm_fixture(prepared,parent)
+        self.wait_result(prepared,'runtime-invalid')
+        self.assertFalse(fixture['marker'].exists())
+        outcome=update_receipt.consume(prepared.directory.parent,current='0.1.99',executable=self.executable)
+        self.assertFalse(outcome.success)
+
+    def test_debian_identity_change_after_preparation_never_requests_authorization(self):
+        fixture=self.debian_fixture();parent=self.parent()
+        prepared=self.prepare_debian_fixture(fixture,parent)
+        fixture['state'].write_text('0.1.99')
+        self.arm_fixture(prepared,parent);self.wait_result(prepared,'installation-changed')
+        self.assertFalse(fixture['calls'].exists());self.assertFalse(fixture['marker'].exists())
 
     def test_windows_spawn_is_hidden_detached_and_never_shell(self):
         with (patch.object(install.sys, 'platform', 'win32'),
@@ -514,6 +665,16 @@ class InstallTests(unittest.TestCase):
         self.assertEqual(prepared.directory.stat().st_mode & 0o777, 0o700)
         self.assertEqual(prepared.package.stat().st_mode & 0o777, 0o600)
 
+    def test_private_handoff_directory_preserves_caller_cache_permissions(self):
+        cache=self.root/'shared-cache'
+        cache.mkdir();cache.chmod(0o775)
+        parent=self.parent()
+        prepared=self.prepare(directory=cache,parent_pid=parent.pid)
+        self.assertEqual(cache.stat().st_mode & 0o777,0o775)
+        self.assertEqual(prepared.directory.parent,cache/update_receipt.HANDOFF_DIRECTORY)
+        self.assertEqual(prepared.directory.parent.stat().st_mode & 0o777,0o700)
+        self.assertIn('umask 077',(prepared.directory/'helper.sh').read_text())
+
     def test_lexical_parent_components_reject_before_any_directory_creation(self):
         parent = self.parent()
         cache = self.root/'outside'/'..'/self.bundle.name/'helper'
@@ -587,6 +748,12 @@ class InstallTests(unittest.TestCase):
         self.assertEqual((self.bundle/'project saved after preparation.json').read_text(), 'preserve new project')
         self.assertEqual(self.marker.read_text().strip(), install.MARKER)
         self.assertFalse(list(self.root.glob('.ratiolab-backup.*')))
+        outcome = update_receipt.consume(prepared.directory.parent, current=package.release.version,
+                                         executable=self.executable)
+        self.assertTrue(outcome.success)
+        self.assertEqual(outcome.log_path, prepared.log_path)
+        self.assertIsNone(update_receipt.consume(prepared.directory.parent, current=package.release.version,
+                                                executable=self.executable))
 
     def test_actual_linux_installer_failed_selftest_preserves_old_runtime(self):
         old = self.executable.read_bytes()
@@ -601,6 +768,35 @@ class InstallTests(unittest.TestCase):
         self.assertFalse(marker.exists())
         self.assertEqual((self.bundle/'user export with spaces.stl').read_text(), 'preserve me')
         self.assertIn('previous installation was preserved', prepared.log_path.read_text())
+        outcome = update_receipt.consume(prepared.directory.parent, current='0.1.11', executable=self.executable)
+        self.assertFalse(outcome.success)
+        self.assertIn('installer could not complete', outcome.message)
+
+    def test_linux_helper_publishes_terminal_result_before_restarted_app_reads_it(self):
+        package, marker = self.fixture_installer()
+        parent = self.parent()
+        prepared = self.prepare(package=package, parent_pid=parent.pid)
+        # The restarted fixture checks the receipt synchronously, before the
+        # helper's EXIT trap could run. This catches the old spawn-before-result race.
+        payload = self.root/'harmless installer payload/RatioLab/RatioLab'
+        slot = prepared.directory.parent/update_receipt.receipt_name(self.executable)
+        payload.write_text('#!/bin/sh\nif [ "${1:-}" = --self-test ]; then exit 0; fi\n'
+            +f'test -f {shlex.quote(str(slot))} && grep -q installed-restart-requested '
+            +f'{shlex.quote(str(prepared.result_path))} && printf ready > {shlex.quote(str(marker))}\n')
+        prepared.launch()
+        parent.terminate();parent.wait(timeout=3)
+        self.wait_result(prepared, 'installed-restart-requested')
+        deadline=time.monotonic()+3
+        while not marker.exists() and time.monotonic()<deadline:time.sleep(.02)
+        self.assertEqual(marker.read_text(), 'ready')
+
+    def test_unarmed_cancelled_preparation_never_publishes_an_update_result(self):
+        parent = self.parent()
+        prepared = self.prepare(parent_pid=parent.pid)
+        prepared.cancel()
+        self.wait_result(prepared, 'cancelled')
+        self.assertIsNone(update_receipt.consume(prepared.directory.parent,
+                         current='0.1.11', executable=self.executable))
 
 
 if __name__ == '__main__':

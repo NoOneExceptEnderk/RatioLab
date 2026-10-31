@@ -138,6 +138,97 @@ class UpdateFlowTests(unittest.TestCase):
             controller.show(manual=True)
             self.assertIn('disabled by',controller.status_label.get_text());self.assertEqual(called,[])
             self.assertFalse(controller.check_button.get_sensitive())
+            self.assertFalse(controller.automatic_button.get_active())
+            self.assertFalse(controller.automatic_button.get_sensitive())
+
+    def test_source_manual_checks_and_persistent_automatic_opt_in_need_no_launch_setting(self):
+        calls=[]
+        def fetch():calls.append(True);return [self.record]
+        with patch.dict(os.environ,{'RATIOLAB_UPDATE_CHECK':''}):
+            controller=self.controller(fetch=fetch,detect=update_ui.update_install.detect_installation)
+            controller.start()
+            self.assertEqual(calls,[])
+            controller.show(manual=True);pump(lambda:not controller.inflight)
+            self.assertEqual(len(calls),1)
+            self.assertFalse(controller.automatic_button.get_active())
+            self.assertTrue(controller.check_button.get_sensitive())
+            self.assertIn('Source or Python',controller.installation_label.get_text())
+            self.assertFalse(controller._eligible())
+            controller.automatic_button.set_active(True);pump(lambda:not controller.inflight)
+            self.assertEqual(len(calls),2)
+            self.assertTrue(controller.automatic())
+            self.assertTrue(updates.Preferences(self.folder/'updates.json').automatic)
+            controller.close()
+            other=self.controller(fetch=fetch)
+            other.start();pump(lambda:not other.inflight)
+            self.assertEqual(len(calls),3)
+
+    def click_primary_update(self):
+        calls=[]
+        def download(*args,**kwargs):calls.append('download');return self.verified
+        def prepare(*args,**kwargs):calls.append('prepare');return self.prepared
+        controller=self.controller(download=download,prepare=prepare)
+        self.ready(controller)
+        child=controller.job_box.get_first_child();buttons=[]
+        while child:
+            if isinstance(child,Gtk.Button) and child.get_label()=='Update now':buttons.append(child)
+            child=child.get_next_sibling()
+        self.assertEqual(len(buttons),1)
+        buttons[0].emit('clicked')
+        pump(lambda:not controller.worker_running)
+        self.assertEqual(calls,['download','prepare'])
+        self.assertIsNotNone(self.app.project_dialog)
+        self.assertEqual(self.prepared.launched,0)
+        self.assertEqual(self.app.quit_calls,0)
+        return controller,calls
+
+    def test_one_primary_update_click_saves_then_launches_and_quits_once(self):
+        controller,calls=self.click_primary_update()
+        self.app.project_dialog.response(Gtk.ResponseType.ACCEPT)
+        self.assertEqual(calls,['download','prepare'])
+        self.assertEqual(self.prepared.launched,1)
+        self.assertEqual(self.app.close_calls,1);self.assertEqual(self.app.quit_calls,1)
+        self.assertFalse(self.app.win.get_visible())
+        self.assertTrue(self.app.document.path.is_file())
+
+    def test_one_primary_update_click_discards_then_launches_and_quits_once(self):
+        controller,calls=self.click_primary_update()
+        self.app.project_dialog.response(Gtk.ResponseType.REJECT)
+        self.assertEqual(calls,['download','prepare'])
+        self.assertEqual(self.prepared.launched,1)
+        self.assertEqual(self.app.close_calls,1);self.assertEqual(self.app.quit_calls,1)
+        self.assertFalse(self.app.document.path.exists())
+
+    def test_one_primary_update_click_cancel_preserves_open_project_without_handoff(self):
+        controller,calls=self.click_primary_update()
+        self.app.project_dialog.response(Gtk.ResponseType.CANCEL)
+        self.assertEqual(calls,['download','prepare'])
+        self.assertEqual(self.prepared.launched,0);self.assertGreater(self.prepared.cancelled,0)
+        self.assertEqual(self.app.quit_calls,0);self.assertTrue(self.app.win.get_visible())
+        self.assertIsNone(controller.prepared)
+
+    def test_restart_outcome_opens_once_with_safe_log_action_and_no_project_changes(self):
+        from update_receipt import Outcome
+        controller=self.controller()
+        before=self.app.document.current.copy()
+        outcome=Outcome(False,'Could not update RatioLab: installer failed.',self.folder/'helper.log')
+        controller._receipt_complete(outcome)
+        self.assertIs(controller.outcome,outcome)
+        self.assertIsNotNone(controller.window)
+        self.assertEqual(self.app.document.current,before)
+        self.assertEqual(self.prepared.launched,0)
+        def children(widget):
+            yield widget
+            child=widget.get_first_child()
+            while child:
+                yield from children(child)
+                child=child.get_next_sibling()
+        log=next(w for w in children(controller.window) if isinstance(w,Gtk.Button) and w.get_label()=='View update log')
+        log.emit('clicked')
+        self.assertEqual(self.opened,[outcome.log_path.as_uri()])
+        controller.close()
+        controller._receipt_complete(outcome)
+        self.assertIsNone(controller.window)
 
     def test_network_manual_retry_rate_limit_no_duplicate_checks(self):
         gate=threading.Event();entered=threading.Event();calls=[]

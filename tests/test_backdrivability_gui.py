@@ -245,7 +245,10 @@ class BackdrivabilityGuiTests(unittest.TestCase):
     def test_empty_replacement_valid_value_never_records_intermediate_empty(self):
         a = self.app
         a.inputs['diameter'].set_text('25')
-        pump(.15)
+        deadline = time.monotonic()+3
+        while a.pending and time.monotonic() < deadline:
+            pump(.01)
+        self.assertFalse(a.pending, 'Valid physical edit did not finish preparing')
         self.assertEqual(a.design.values['diameter'], 25)
         for state in a.document.states:
             self.assertNotEqual(state.get('raw', {}).get('worm', {}).get('diameter'), '')
