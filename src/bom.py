@@ -89,8 +89,24 @@ def as_text(bom):
             lines.append('  '+row['position']+' · '+names.get(op['type'],op['type'])+' · '+', '.join(details)+' mm')
         lines.append('')
     if bom.get('analysis',{}).get('kinematics'):
-        lines+=['INPUTS / OUTPUTS',bom['analysis']['kinematics']['label'],'']
-        for q in bom['analysis']['kinematics'].get('stage_results',[]):
+        kinematics=bom['analysis']['kinematics']
+        lines.append('INPUTS / OUTPUTS')
+        if 'label' in kinematics:
+            lines += [kinematics['label'],'']
+        else:
+            # Differential reports describe coupled member speeds, not one ratio.
+            if kinematics.get('kind'):lines.append('Kinematic model: '+kinematics['kind'].replace('_',' '))
+            for member,rpm in kinematics.get('rates_rpm',{}).items():
+                lines.append(f'  {member.replace("_"," ")}: {rpm:+.6g} rpm')
+            if 'prescribed_difference_rpm' in kinematics:
+                lines.append(f'Prescribed side speed difference B−A: {kinematics["prescribed_difference_rpm"]:+.6g} rpm')
+            if kinematics.get('boundary_condition'):lines.append('Boundary condition: '+kinematics['boundary_condition'])
+            for equation in kinematics.get('equations',[]):lines.append('  '+equation)
+            if kinematics.get('reference'):lines.append('Speed reference: '+kinematics['reference'])
+            if kinematics.get('reference_source'):lines.append('Source: '+kinematics['reference_source'])
+            if kinematics.get('reference_section'):lines.append('Source section: '+kinematics['reference_section'])
+            lines.append('')
+        for q in kinematics.get('stage_results',[]):
             lines.append(f'  Motor: {q["input"]}; output: {q["output"]}; fixed: {q["fixed"]}; ratio {q["signed_ratio"]:+.6g}')
         lines.append('')
     lines+=['TO BE COMPLETED']+['• '+r for r in bom['requirements']]

@@ -20,6 +20,7 @@ from releases import REPOSITORY, cache_document, fetch_latest, load_cache, valid
 from render_docs import DOCUMENTS, build_docs, render_template
 from seo import HOME_DESCRIPTION, HOME_TITLE, directory_links, discovery_files, home_schema, metadata
 from social_links import load_social_channels, render_discord_ctas, render_social_links
+from webapp_build import HEADERS, MAX_FILE_SIZE, allowed_directories, compose_app, public_app_files, validate_bundle
 
 WEBSITE = Path(__file__).resolve().parent
 REPOSITORY_ROOT = WEBSITE.parent
@@ -30,7 +31,7 @@ STATIC_ASSETS = ('ratiolab-icon.png', 'ratiolab-logo-dark.png', 'workspace.png',
 
 def public_files():
     return ['index.html', 'docs/index.html', *(doc.route for doc in DOCUMENTS), '404.html', 'sitemap.xml', 'robots.txt',
-            *('assets/' + name for name in STATIC_ASSETS), 'assets/search-index.js']
+            *('assets/' + name for name in STATIC_ASSETS), 'assets/search-index.js', '_headers', *public_app_files()]
 
 
 def source_provenance(repository_root, environ=None):
@@ -107,7 +108,10 @@ def version_assets(directory):
                     url += '#' + parsed.fragment
                 self.edits.append((start + match.start(3), start + match.end(3), html.escape(url, quote=True)))
 
-    for path in sorted(directory.rglob('*.html')):
+    for relative in public_files():
+        if not relative.endswith('.html') or relative.startswith('app/'):
+            continue
+        path = directory / relative
         source = path.read_text(encoding='utf-8')
         parser = AssetReferences(source, path)
         for start, end, value in reversed(parser.edits):
@@ -118,8 +122,16 @@ def version_assets(directory):
 def validate_output(directory):
     expected = set(public_files())
     actual = {p.relative_to(directory).as_posix() for p in directory.rglob('*') if p.is_file()}
-    if actual != expected or any(p.is_symlink() for p in directory.rglob('*')):
+    directories = allowed_directories(expected)
+    if actual != expected or any(
+            p.is_symlink() or p.is_dir() and p.relative_to(directory).as_posix() not in directories
+            or not p.is_file() and not p.is_dir() for p in directory.rglob('*')):
         raise ValueError('Output must contain exactly the public website allowlist')
+    validate_bundle(directory / 'app')
+    if (directory / '_headers').read_text(encoding='utf-8') != HEADERS:
+        raise ValueError('Website app cache and MIME headers differ from the reviewed configuration')
+    if any(path.stat().st_size >= MAX_FILE_SIZE for path in directory.rglob('*') if path.is_file()):
+        raise ValueError('A public file exceeds the hosting size limit')
     pages = {}
     for path in sorted(directory.rglob('*.html')):
         source = path.read_text(encoding='utf-8')
@@ -146,8 +158,8 @@ def validate_output(directory):
 
 def safe_output(output, repository_root, website_root):
     raw = Path(output).absolute()
-    if raw.is_symlink():
-        raise ValueError('Output cannot be a symlink')
+    if raw != raw.resolve(strict=False):
+        raise ValueError('Output and its parents cannot be symlinks')
     result = raw.resolve()
     repo, website = repository_root.resolve(), website_root.resolve()
     if result == repo or repo.is_relative_to(result) or result == website or result.is_relative_to(website):
@@ -158,9 +170,14 @@ def safe_output(output, repository_root, website_root):
         if not result.is_dir():
             raise ValueError('Output must be a directory')
         allowed = set(public_files())
+        directories = allowed_directories(allowed)
         for item in result.rglob('*'):
-            if item.is_symlink() or item.is_file() and item.relative_to(result).as_posix() not in allowed:
+            relative = item.relative_to(result).as_posix()
+            if (item.is_symlink() or item.is_file() and relative not in allowed
+                    or item.is_dir() and relative not in directories or not item.is_file() and not item.is_dir()):
                 raise ValueError('Refusing to replace output containing non-website files')
+        if (result / 'app').exists():
+            validate_bundle(result / 'app')
     return result
 
 
@@ -184,7 +201,7 @@ def atomic_text(path, text):
         temporary.unlink(missing_ok=True)
 
 
-def build(*, offline=False, output=None, repository_root=REPOSITORY_ROOT, release_fetcher=fetch_latest):
+def build(*, offline=False, output=None, repository_root=REPOSITORY_ROOT, release_fetcher=fetch_latest, web_runtime_dir=None):
     repository_root = Path(repository_root).resolve()
     output = safe_output(output or repository_root / '_site', repository_root, WEBSITE)
     # Never touch the prior output when discovery is unavailable or incomplete.
@@ -206,6 +223,7 @@ def build(*, offline=False, output=None, repository_root=REPOSITORY_ROOT, releas
         discovery_files(stage, routes)
         directory_links(stage, routes)
         version_assets(stage)
+        compose_app(stage, offline=offline, runtime_dir=web_runtime_dir)
         validate_output(stage)
         if not offline:
             atomic_text(WEBSITE / 'release.json', json.dumps(cache_document(release), indent=2) + '\n')
@@ -223,7 +241,7 @@ def build(*, offline=False, output=None, repository_root=REPOSITORY_ROOT, releas
         if old:
             shutil.rmtree(old)
             old = None
-        return {'output': str(output), 'version': release.version, 'pages': len(DOCUMENTS) + 3,
+        return {'output': str(output), 'version': release.version, 'pages': len(DOCUMENTS) + 4,
                 'files': len(public_files()), 'search_sections': sections, 'source_ref': source_ref}
     finally:
         if stage.exists():
@@ -254,9 +272,10 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--offline', action='store_true', help='Use only the strictly validated public release cache')
     parser.add_argument('--output', type=Path, help='Output directory (default: repository _site)')
+    parser.add_argument('--web-runtime-dir', type=Path, help='Use an existing verified pinned browser runtime cache; never fetch into it')
     args = parser.parse_args()
     try:
-        result = build(offline=args.offline, output=args.output)
+        result = build(offline=args.offline, output=args.output, web_runtime_dir=args.web_runtime_dir)
     except (OSError, ValueError) as error:
         parser.exit(1, 'Website build failed: ' + str(error) + '\n')
     print(json.dumps(result, indent=2))

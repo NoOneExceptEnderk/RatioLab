@@ -5,11 +5,25 @@ on:
     paths:
       - 'website/**'
       - 'docs/**'
+      - 'webapp/**'
+      - 'src/**'
+      - 'scripts/build-webapp.py'
+      - 'scripts/fetch-web-runtime.py'
+      - 'scripts/serve-webapp.py'
+      - 'LICENSE'
+      - 'COPYRIGHT'
       - '.github/workflows/website.yml'
   pull_request:
     paths:
       - 'website/**'
       - 'docs/**'
+      - 'webapp/**'
+      - 'src/**'
+      - 'scripts/build-webapp.py'
+      - 'scripts/fetch-web-runtime.py'
+      - 'scripts/serve-webapp.py'
+      - 'LICENSE'
+      - 'COPYRIGHT'
       - '.github/workflows/website.yml'
   release:
     types: [published]
@@ -41,9 +55,9 @@ jobs:
         run: |
           python -m venv "$RUNNER_TEMP/ratiolab-site-venv"
           "$RUNNER_TEMP/ratiolab-site-venv/bin/python" -m pip install --disable-pip-version-check -r website/requirements.txt
-      - name: Test canonical documentation, release validation and safe output
+      - name: Test canonical documentation, browser composition and safe output
         run: '"$RUNNER_TEMP/ratiolab-site-venv/bin/python" -B -m unittest discover -s website/tests -v'
-      - name: Build against the latest public stable release
+      - name: Build website and self-hosted app against the latest public stable release
         run: |
           GITHUB_SHA="$(git rev-parse HEAD)" "$RUNNER_TEMP/ratiolab-site-venv/bin/python" website/build.py
       - uses: actions/upload-artifact@v4

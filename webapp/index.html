@@ -1,0 +1,62 @@
+<!doctype html>
+<!-- SPDX-FileCopyrightText: 2026 NoOneExceptEnderk; SPDX-License-Identifier: GPL-3.0-only -->
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#1d2229"><meta name="description" content="Design gears and reducers in RatioLab. Set dimensions, preview motion and export models.">
+  <title>RatioLab · Untitled</title>
+  <link rel="icon" href="branding/ratiolab-icon.png"><link rel="stylesheet" href="app.css"><link rel="stylesheet" href="tools.css">
+</head>
+<body>
+  <a class="skip-link" href="#parameters">Skip to parameters</a>
+  <header class="app-header">
+    <nav class="document-actions" aria-label="Document">
+      <button id="new-document" class="flat icon-button" title="New project · Ctrl+N" aria-label="New project"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 3H5v18h10M14 3l5 5h-5V3M18 13v8m-4-4h8"/></svg></button>
+      <button id="open-document" class="flat icon-button" title="Open project · Ctrl+O" aria-label="Open project"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7V4h6l2 2h8v14H4V7Zm3 3h10v7H7Zm-5 0v12h14"/></svg></button>
+      <button id="save-document" class="flat" disabled>Save</button>
+      <details class="popover project-menu"><summary title="Project · Save As and recent files" aria-label="Project menu">⋮</summary><div class="popover-body"><button id="save-as-document" disabled>Save As…</button><button id="recent-documents">Recent projects…</button><hr><button id="help">Help and sources…</button></div></details>
+      <button id="undo" class="flat icon-button" disabled title="Undo · Ctrl+Z" aria-label="Undo">↶</button><button id="redo" class="flat icon-button" disabled title="Redo · Ctrl+Shift+Z / Ctrl+Y" aria-label="Redo">↷</button>
+    </nav>
+    <div class="brand"><img src="branding/ratiolab-icon.png" alt=""><div><div id="document-name" class="document-name">RatioLab · Untitled</div><div id="document-state" class="muted">Untitled · not saved</div></div></div>
+    <div class="header-right"><button id="export-document" class="primary" disabled>Export… <span aria-hidden="true">⌄</span></button><a class="desktop-download" href="https://ratiolab.dev/#download" target="_blank" rel="noopener noreferrer">Download the program for CAD integrations!</a></div>
+  </header>
+  <div id="recovery-banner" class="recovery-banner" hidden><span>A previous unsaved design is available.</span><button id="recover-document">Review recovery</button><button id="dismiss-recovery" class="flat">Dismiss</button></div>
+  <main class="workspace">
+    <aside class="parameter-panel" aria-label="Design parameters">
+      <div class="model-picker"><label for="family">Generator family</label><select id="family" disabled><option>Loading catalog…</option></select><p id="family-description" hidden></p><div id="variant-fields"></div></div>
+      <div class="parameter-tabs" role="tablist" aria-label="Parameter groups"><button id="tab-dimensions" role="tab" aria-controls="parameters" aria-selected="true" data-tab="dimensions">Dimensions</button><button id="tab-motion" role="tab" aria-controls="parameters" aria-selected="false" data-tab="motion" tabindex="-1">Motion</button><button id="tab-assembly" role="tab" aria-controls="parameters" aria-selected="false" data-tab="assembly" tabindex="-1">Assembly</button></div>
+      <div id="parameters" class="parameter-fields" role="tabpanel" aria-labelledby="tab-dimensions" tabindex="0"></div>
+      <div class="parameter-foot"><button id="reset-family" class="flat" disabled>Reset defaults</button></div>
+    </aside>
+    <section class="model-workspace" aria-label="Model preview and results">
+      <h1 id="model-title" hidden>RatioLab workspace</h1><span id="model-meta" hidden></span>
+      <div class="view-toolbar" role="group" aria-label="View options">
+        <div class="camera-buttons"><button id="isometric-view" aria-pressed="true">3D</button><button id="top-view" aria-pressed="false">Top</button><button id="front-view" aria-pressed="false">Front</button><button id="fit-view" title="Fit model and restore the isometric view · F">Fit</button></div>
+        <div class="toolbar-spacer"></div>
+        <label class="sr-only" for="pick-mode">Interaction mode</label><select id="pick-mode" title="Navigate: orbit and zoom. Select and Measure are available through Components tools."><option value="navigate">Navigate</option><option value="select" selected>Select</option><option value="measure">Measure</option></select>
+        <details class="popover view-menu"><summary>View <span aria-hidden="true">⌄</span></summary><div class="popover-body"><label for="text-size" class="muted">Text size</label><select id="text-size"><option value="1">100%</option><option value="1.25">125%</option><option value="1.5">150%</option></select><hr><label class="check-control"><input id="show-supports" type="checkbox"> Supports</label><label class="check-control"><input id="show-housing" type="checkbox"> Housing</label><label class="check-control"><input id="section-view" type="checkbox"> Section</label><hr><label class="explosion-control" for="explosion">Explode <input id="explosion" type="range" min="0" max="1" step="0.01" value="0"></label><span class="muted">Preview only · nominal export coordinates</span></div></details>
+        <details class="popover tools-menu"><summary>Tools <span aria-hidden="true">⌄</span></summary><div id="tools-menu-extension" class="popover-body"><button data-tool="components">Components</button><button data-tool="search" disabled>Search combinations…</button><button data-tool="interference" disabled>Check interference…</button><button data-tool="metrology" disabled>Gear metrology…</button><button data-tool="backlash" disabled>Solve working backlash…</button></div></details>
+      </div>
+      <div class="viewport-row">
+        <div class="stage" id="stage">
+          <svg id="viewport-grid" class="viewport-guide" aria-hidden="true"></svg>
+          <canvas id="model-canvas" tabindex="0" aria-label="3D model. Drag to orbit, scroll to zoom, press F to fit."></canvas>
+          <svg id="viewport-axes" class="viewport-axes" viewBox="0 0 86 86" aria-hidden="true"></svg>
+          <span id="view-label" hidden>ISOMETRIC</span>
+          <div id="stage-message" class="stage-message"><span class="loading-ring" aria-hidden="true"></span><strong>Generating geometry…</strong><p id="loading-detail">Loading the local calculation engine…</p><button id="retry-engine" hidden>Retry engine</button></div>
+          <div id="stale-banner" class="stale-banner" hidden>Last valid preview · current parameters are not applied</div>
+        </div>
+        <aside id="tool-dock" class="tool-dock" aria-label="Tools" hidden><nav id="tool-dock-tabs" class="tool-nav" aria-label="Tool panels"><button data-inspection="components" aria-pressed="true">Components</button><button data-tool="search" disabled>Search</button><button data-tool="interference" disabled>Check</button><button id="close-tool-dock" class="flat" aria-label="Close this tool · Escape">×</button></nav><section id="inspection-panel" class="inspection-panel" tabindex="0" aria-label="Components"></section></aside>
+      </div>
+      <div class="playback-container"><div class="motion-bar"><button id="play-motion" disabled aria-pressed="false">Start motion</button><label id="motion-caption" for="motion-rpm" class="muted">Input speed</label><span id="motion-help"></span><input id="motion-rpm" type="text" inputmode="decimal" autocomplete="off" spellcheck="false" title="Precise input speed. Press Enter or leave the field to apply; decimal points and commas are accepted." disabled><span class="muted">rpm</span><details class="popover motion-palette"><summary>Adjust <span aria-hidden="true">⌄</span></summary><div class="popover-body"><strong>Input speed · progressive scale</strong><div class="speed-slider"><button id="rpm-minus" title="Change input speed by −1 rpm">−1</button><input id="rpm-slider" type="range" min="0" max="11.51293546492023" step="0.01" value="0" aria-label="Input speed, progressive scale"><button id="rpm-plus" title="Change input speed by +1 rpm">+1</button></div><span id="motion-summary" class="muted">Choose a model to see its motion.</span><label class="muted" for="playback-speed">Playback <select id="playback-speed"><option value="0.1">0.1×</option><option value="0.25">0.25×</option><option value="0.5">0.5×</option><option value="1" selected>1×</option><option value="2">2×</option></select></label><span id="motion-phase" class="muted">0.00 rad</span></div></details><button id="reset-motion" disabled>Initial pose</button><span id="playback-hint" class="muted"></span></div><div id="motion-error" class="field-error" hidden></div></div>
+      <div id="metric-cards" class="metric-cards" aria-label="Design results"></div>
+      <div id="warning-bar" class="warning-bar" hidden><span id="warning-text"></span><button id="warning-details" class="flat">Details</button></div>
+    </section>
+  </main>
+  <footer class="app-footer"><div id="status-line" class="status-line" role="status" aria-live="polite"><span id="status-text">Starting engine…</span><button id="cancel-generation" class="flat" hidden>Cancel</button></div><span id="component-count">0 components</span><button id="show-bom" class="flat" disabled>Bill of materials</button><button id="show-report" class="flat" disabled>Calculation report</button><button id="show-notes" class="flat" disabled>Model notes <span id="note-count" hidden>0</span></button></footer>
+  <input id="project-file" type="file" accept=".json,application/json" hidden>
+  <dialog id="app-dialog" aria-labelledby="dialog-title"><div class="dialog-header"><h2 id="dialog-title"></h2><button id="dialog-close" aria-label="Close dialog">×</button></div><div id="dialog-body"></div><div id="dialog-actions" class="dialog-actions"></div></dialog>
+  <noscript><p class="noscript">RatioLab needs JavaScript and WebAssembly to calculate designs in your browser.</p></noscript>
+  <script type="module" src="app.js"></script>
+</body>
+</html>

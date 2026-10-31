@@ -3,6 +3,7 @@ import copy
 import hashlib
 import io
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -23,6 +24,7 @@ WEBSITE = Path(__file__).resolve().parents[1]
 REPO = WEBSITE.parent
 sys.path.insert(0, str(WEBSITE))
 import build
+import webapp_build
 from seo import HOME_DESCRIPTION, HOME_TITLE, IMAGE, IMAGE_ALT, ORIGIN, canonical, json_script, metadata
 from releases import REPOSITORY, asset_names, cache_document, fetch_latest, load_cache, validate_release
 from render_docs import DOCUMENTS, render_markdown, rewrite_url
@@ -60,6 +62,8 @@ def asset_versions(directory):
     """Assert every native local CSS/JS URL matches its actual output bytes."""
     references = {}
     for path in directory.rglob('*.html'):
+        if path.is_relative_to(directory / 'app'):
+            continue
         for tag, attrs in Content(path.read_text()).tags:
             url = attrs.get('src') if tag == 'script' else attrs.get('href') if tag == 'link' else None
             if not url:
@@ -185,20 +189,54 @@ class ReleaseTests(unittest.TestCase):
             fetch_latest(lambda *_args, **_kwargs: Response(b' ' * 2_000_001))
 
 
-class BuildTests(unittest.TestCase):
+class ComposedSiteFixture(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        # Small runtime bytes keep site tests offline and fast. The real canonical
+        # builder, engine source closure and publication validator still run.
+        cls.temporary = tempfile.TemporaryDirectory()
+        cls.web_root = Path(cls.temporary.name) / 'browser-source'
+        cls.web_root.mkdir()
+        shutil.copytree(REPO / 'webapp', cls.web_root / 'webapp')
+        (cls.web_root / 'src').symlink_to(REPO / 'src', target_is_directory=True)
+        (cls.web_root / 'scripts').mkdir()
+        for name in ('build-webapp.py', 'fetch-web-runtime.py', 'serve-webapp.py'):
+            shutil.copyfile(REPO / 'scripts' / name, cls.web_root / 'scripts' / name)
+        (cls.web_root / 'docs').mkdir()
+        shutil.copyfile(REPO / 'docs/web-app.md', cls.web_root / 'docs/web-app.md')
+        for name in ('LICENSE', 'COPYRIGHT'):
+            shutil.copyfile(REPO / name, cls.web_root / name)
+        cls.runtime = cls.web_root / 'work/webapp-runtime'
+        cls.runtime.mkdir(parents=True)
+        config = json.loads((cls.web_root / 'webapp/runtime.json').read_text())
+        for name in config['files']:
+            data = ('test-only pinned runtime: ' + name).encode()
+            (cls.runtime / name).write_bytes(data)
+            config['files'][name] = dict(size=len(data), sha256=hashlib.sha256(data).hexdigest())
+        (cls.web_root / 'webapp/runtime.json').write_text(json.dumps(config))
+        cls.root_patch = patch('webapp_build.ROOT', cls.web_root)
+        cls.root_patch.start()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.root_patch.stop()
+        cls.temporary.cleanup()
+
+
+class BuildTests(ComposedSiteFixture):
     def test_offline_site_allowlist_links_search_and_static_asset_integrity(self):
         before = hashes(WEBSITE / 'assets')
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory) / 'site'
             result = build.build(offline=True, output=output)
-            self.assertEqual(result['files'], 36)
-            self.assertEqual(result['pages'], 18)
+            self.assertEqual(result['files'], 69)
+            self.assertEqual(result['pages'], 19)
             self.assertEqual(set(hashes(output)), set(build.public_files()))
             build.validate_output(output)
             for name in build.STATIC_ASSETS:
                 self.assertEqual((output / 'assets' / name).read_bytes(), (WEBSITE / 'assets' / name).read_bytes())
             forbidden = ('.py', '.md', '.zip')
-            self.assertFalse(any(p.endswith(forbidden) or '/work/' in p or 'docs-source' in p for p in hashes(output)))
+            self.assertFalse(any(p.endswith(forbidden) or '/work/' in p or 'docs-source' in p for p in hashes(output) if not p.startswith('app/')))
             index = json.loads((output / 'assets/search-index.js').read_text().removeprefix('window.RATIOLAB_SEARCH_INDEX=').removesuffix(';\n'))
             self.assertEqual({e['page'] for e in index}, {'Documentation', *(d.title for d in DOCUMENTS)})
             self.assertTrue(any('budget_exceeded' in e['text'] for e in index))
@@ -284,7 +322,7 @@ class BuildTests(unittest.TestCase):
             build.build(offline=True, output=output)
             for relative in ('404.html', 'sitemap.xml', 'robots.txt'):
                 (output / relative).unlink()
-            self.assertEqual(len(hashes(output)), 33)
+            self.assertEqual(len(hashes(output)), 66)
             build.build(offline=True, output=output)
             page = Content((output / '404.html').read_text())
             metas = {a.get('name'): a.get('content') for tag, a in page.tags if tag == 'meta'}
@@ -294,7 +332,7 @@ class BuildTests(unittest.TestCase):
                 for key in ('src', 'href'):
                     if key in attrs:
                         self.assertTrue(attrs[key].startswith('/'), (tag, attrs[key]))
-            self.assertEqual(len(hashes(output)), 36)
+            self.assertEqual(len(hashes(output)), 69)
             asset_versions(output)
             previous = hashes(output)
             build.build(offline=True, output=output)
@@ -455,6 +493,164 @@ class BuildTests(unittest.TestCase):
             self.assertEqual(build.source_provenance(REPO, {})[0], 'main')
         with patch('build.subprocess.run', side_effect=OSError('no git')):
             self.assertEqual(build.source_provenance(REPO, {})[0], 'main')
+
+
+class WebAppBuildTests(ComposedSiteFixture):
+    def test_real_builder_composes_exact_nested_bundle_without_rewriting_hashes(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / 'site'
+            build.build(offline=True, output=output, web_runtime_dir=self.runtime)
+            manifest = webapp_build.validate_bundle(output / 'app')
+            self.assertEqual(manifest['runtime_mode'], 'selfhost')
+            self.assertEqual(set(manifest['files']), set(webapp_build.APP_FILES) - {'bundle-manifest.json'})
+            self.assertEqual((output / 'app/index.html').read_bytes(), (self.web_root / 'webapp/index.html').read_bytes())
+            self.assertEqual((output / '_headers').read_text(), webapp_build.HEADERS)
+            self.assertIn('/app/*\n  Cache-Control: no-store', webapp_build.HEADERS)
+            self.assertIn('Content-Type: application/wasm', webapp_build.HEADERS)
+            build.validate_output(output)  # Includes nested app styles, imports' entry point and fragments.
+            for name in ('app.js', 'engine-client.js', 'worker.js'):
+                source = (output / 'app' / name).read_text()
+                for relative in re.findall(r"(?:from |import\(|new URL\()['\"](\./[^'\"]+)['\"]", source):
+                    self.assertTrue((output / 'app' / relative).exists(), relative)
+            archive = Path(directory) / 'site.zip'
+            build.package_site(output, archive)
+            from zipfile import ZipFile
+            with ZipFile(archive) as package:
+                self.assertEqual(set(package.namelist()), set(build.public_files()))
+                self.assertEqual(package.read('app/bundle-manifest.json'), (output / 'app/bundle-manifest.json').read_bytes())
+
+    def test_offline_missing_corrupt_and_symlink_runtime_preserve_output_and_cache(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / 'site'
+            build.build(offline=True, output=output)
+            previous = hashes(output)
+            cache = Path(directory) / 'runtime'
+            shutil.copytree(self.runtime, cache)
+            target = cache / 'pyodide.mjs'
+            original = target.read_bytes()
+            with patch('urllib.request.build_opener', side_effect=AssertionError('offline must not fetch')):
+                for state in ('missing', 'corrupt', 'symlink'):
+                    target.unlink()
+                    if state == 'corrupt':
+                        target.write_bytes(b'edited')
+                    elif state == 'symlink':
+                        target.symlink_to(self.runtime / target.name)
+                    with self.assertRaises(ValueError):
+                        build.build(offline=True, output=output, web_runtime_dir=cache)
+                    self.assertEqual(hashes(output), previous)
+                    if target.is_symlink():
+                        self.assertTrue(target.is_symlink())
+                    elif state == 'corrupt':
+                        self.assertEqual(target.read_bytes(), b'edited')
+                    if target.exists() or target.is_symlink():
+                        target.unlink()
+                    target.write_bytes(original)
+                with self.assertRaises(ValueError):
+                    build.build(offline=True, output=output, web_runtime_dir=Path(directory) / 'absent')
+            self.assertFalse((Path(directory) / 'absent').exists())
+
+    def test_normal_default_cache_fetches_pins_and_explicit_cache_never_downloads(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / 'site'
+            expected = hashes(self.runtime)
+            target = self.runtime / 'pyodide.mjs'
+            data = target.read_bytes()
+            target.unlink()
+            class Response(io.BytesIO):
+                pass
+            class Opener:
+                def open(inner, url, timeout):
+                    self.assertEqual(url, 'https://cdn.jsdelivr.net/pyodide/v314.0.7/full/pyodide.mjs')
+                    return Response(data)
+            try:
+                with patch('urllib.request.build_opener', return_value=Opener()) as opener, patch('build.atomic_text'):
+                    build.build(output=output, release_fetcher=lambda: FIXTURE)
+                    self.assertEqual(opener.call_count, 1)
+                self.assertEqual(hashes(self.runtime), expected)
+                target.unlink()
+                with patch('urllib.request.build_opener', side_effect=AssertionError('explicit cache must not fetch')):
+                    with self.assertRaises(ValueError):
+                        build.build(offline=True, output=output)
+                    with patch('build.atomic_text'), self.assertRaises(ValueError):
+                        build.build(output=output, release_fetcher=lambda: FIXTURE, web_runtime_dir=self.runtime)
+            finally:
+                target.write_bytes(data)
+
+    def test_corrupt_manifest_unknown_app_files_symlinks_and_directories_are_preserved(self):
+        with tempfile.TemporaryDirectory() as directory:
+            baseline = Path(directory) / 'baseline'
+            build.build(offline=True, output=baseline)
+            for mutation in ('file', 'directory', 'symlink', 'edited', 'hash', 'missing', 'extra-manifest', 'runtime-forged-hash'):
+                output = Path(directory) / mutation
+                shutil.copytree(baseline, output)
+                if mutation == 'file':
+                    (output / 'app/private.txt').write_text('keep')
+                elif mutation == 'directory':
+                    (output / 'app/private').mkdir()
+                elif mutation == 'symlink':
+                    (output / 'app/app.css').unlink()
+                    (output / 'app/app.css').symlink_to(baseline / 'app/app.css')
+                elif mutation == 'edited':
+                    (output / 'app/app.css').write_text('edited')
+                elif mutation == 'missing':
+                    (output / 'app/runtime/pyodide.mjs').unlink()
+                elif mutation == 'runtime-forged-hash':
+                    path = output / 'app/runtime/pyodide.mjs'
+                    path.write_bytes(b'wrong runtime')
+                    manifest_path = output / 'app/bundle-manifest.json'
+                    manifest = json.loads(manifest_path.read_text())
+                    manifest['files']['runtime/pyodide.mjs'] = dict(size=path.stat().st_size, sha256=hashlib.sha256(path.read_bytes()).hexdigest())
+                    manifest_path.write_text(json.dumps(manifest))
+                else:
+                    path = output / 'app/bundle-manifest.json'
+                    manifest = json.loads(path.read_text())
+                    manifest['files']['app.js' if mutation == 'hash' else '../private'] = dict(size=0, sha256='0' * 64)
+                    path.write_text(json.dumps(manifest))
+                before = hashes(output)
+                with self.assertRaises(ValueError):
+                    build.build(offline=True, output=output)
+                self.assertEqual(hashes(output), before)
+
+    @unittest.skipUnless(hasattr(os, 'mkfifo'), 'FIFO files require POSIX')
+    def test_nonregular_website_entry_is_rejected_without_removing_it(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / 'site'
+            build.build(offline=True, output=output)
+            fifo = output / 'private-pipe'
+            os.mkfifo(fifo)
+            previous = hashes(output)
+            with self.assertRaises(ValueError):
+                build.validate_output(output)
+            with self.assertRaises(ValueError):
+                build.build(offline=True, output=output)
+            self.assertTrue(fifo.exists())
+            self.assertFalse(fifo.is_file())
+            self.assertEqual(hashes(output), previous)
+
+    def test_failed_composition_preserves_previous_site_and_release_cache(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / 'site'
+            build.build(offline=True, output=output)
+            before, cache = hashes(output), (WEBSITE / 'release.json').read_bytes()
+            with patch('build.compose_app', side_effect=ValueError('composition failed')):
+                with self.assertRaises(ValueError):
+                    build.build(output=output, release_fetcher=lambda: FIXTURE)
+            self.assertEqual(hashes(output), before)
+            self.assertEqual((WEBSITE / 'release.json').read_bytes(), cache)
+            self.assertEqual({p.name for p in Path(directory).iterdir()}, {'site'})
+
+    def test_legacy_site_without_app_upgrades_and_parent_symlink_is_rejected(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / 'site'
+            build.build(offline=True, output=output)
+            shutil.rmtree(output / 'app')
+            (output / '_headers').unlink()
+            build.build(offline=True, output=output)
+            webapp_build.validate_bundle(output / 'app')
+            link = Path(directory) / 'parent-link'
+            link.symlink_to(Path(directory), target_is_directory=True)
+            with self.assertRaises(ValueError):
+                build.build(offline=True, output=link / 'site')
 
 
 if __name__ == '__main__':

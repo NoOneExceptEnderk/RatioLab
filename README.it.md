@@ -4,7 +4,7 @@
 
 **Progetta ingranaggi e riduttori, osservane il movimento ed esporta i modelli per CAD o stampa 3D.**
 
-[Download](#scarica-e-installa) · [Manuale in inglese](docs/user-guide.md) · [English](README.md) · [Segnala un problema](https://github.com/NoOneExceptEnderk/RatioLab/issues) · [Discord](https://discord.gg/G8NVHNg6J)
+[Download](#scarica-e-installa) · [Manuale in inglese](docs/user-guide.md) · [English](README.md) · [Segnala un problema](https://github.com/NoOneExceptEnderk/RatioLab/issues) · [App web](https://ratiolab.dev/app/) · [Guida web (in inglese)](docs/web-app.md) · [Discord](https://discord.gg/G8NVHNg6J)
 
 **Lingue:** [English](README.md) · **Italiano** · [Español](docs/readme/es.md) · [Français](docs/readme/fr.md) · [Deutsch](docs/readme/de.md) · [Português (Portugal)](docs/readme/pt.md) · [Русский](docs/readme/ru.md) · [简体中文](docs/readme/zh-CN.md) · [தமிழ்](docs/readme/ta.md)
 

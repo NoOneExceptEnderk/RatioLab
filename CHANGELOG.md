@@ -6,6 +6,43 @@ published packages and their verification results.
 
 ## Unreleased
 
+## 0.1.10 — 2026-10-31
+
+### Added
+
+- Open the browser workspace from the homepage and compose its pinned,
+  self-hosted runtime in the website build, with verified bundle contents and
+  deployment cache and MIME settings.
+- Add a static browser engine using the existing Python generators in a Pyodide
+  worker, with packed preview geometry, canonical motion queries, compatible
+  projects and standalone export downloads. Pin a self-hostable runtime and
+  build only reviewed headless modules with corresponding source.
+- Add a browser design workspace with parameter editing, generated WebGL preview,
+  canonical animation, project history and local recovery, component selection
+  and nominal preview capture for export packages.
+- Add browser metrology, finite search, discrete interference and working
+  backlash tools, with explicit proposal checks, sampled surface measurements,
+  revision-bound query downloads and speed-only updates that reuse surfaces.
+- Include pinned-runtime fetching, a verified local static preview helper,
+  portable source recipes and runtime notices with the browser bundle.
+- Link the browser Export controls to desktop downloads for CAD integrations,
+  with a callout that wraps at narrow widths and larger text sizes.
+
+### Fixed
+
+- Keep browser help and menus within the window, prevent clipped parameter
+  help, and retain readable motion controls at narrow widths or larger text.
+- Apply joined double-helical search proposals through freshly validated changed
+  fields, preserve locked input precision and retain query results if Apply fails.
+- Reset browser zoom with Fit and keep named-view indicators consistent with
+  keyboard orbit and the F shortcut.
+- Import legacy browser projects while discarding obsolete settings, confirm
+  pending RPM before document downloads, and reject stale asynchronous saves
+  and analysis proposals without replacing newer input.
+- Render coupled differential member speeds, equations and axis references in
+  component-list reports, fixing BOM and complete-package exports for wrist
+  and classic configurations without changing their calculations.
+
 ## Installer publication recovery — 2026-10-31
 
 - Repair native 0.1.9 diagnostic and self-test reports by separating JSON output

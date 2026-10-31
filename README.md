@@ -4,7 +4,7 @@
 
 **Design gears and reducers, explore their motion, and export models for CAD or 3D printing.**
 
-[Download](#download-and-install) · [User guide](docs/user-guide.md) · [Italiano](README.it.md) · [Report a problem](https://github.com/NoOneExceptEnderk/RatioLab/issues) · [Discord](https://discord.gg/G8NVHNg6J)
+[Download](#download-and-install) · [User guide](docs/user-guide.md) · [Italiano](README.it.md) · [Report a problem](https://github.com/NoOneExceptEnderk/RatioLab/issues) · [Web app](https://ratiolab.dev/app/) · [Browser guide](docs/web-app.md) · [Discord](https://discord.gg/G8NVHNg6J)
 
 **Languages:** **English** · [Italiano](README.it.md) · [Español](docs/readme/es.md) · [Français](docs/readme/fr.md) · [Deutsch](docs/readme/de.md) · [Português (Portugal)](docs/readme/pt.md) · [Русский](docs/readme/ru.md) · [简体中文](docs/readme/zh-CN.md) · [தமிழ்](docs/readme/ta.md)
 

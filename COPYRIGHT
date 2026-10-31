@@ -13,3 +13,7 @@ FITNESS FOR A PARTICULAR PURPOSE. See LICENSE for the complete terms.
 Third-party libraries, fonts and notice documents retain their respective
 copyright holders and licenses. See packaging/README.md and the native
 bundle's notices/components.json and THIRD-PARTY-NOTICES.txt.
+
+The browser distribution includes the unmodified pinned Pyodide runtime.
+See webapp/notices/README.txt in source and notices/README.txt in the static
+bundle for runtime source links, license copies and their provenance.

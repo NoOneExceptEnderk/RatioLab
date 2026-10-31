@@ -4,7 +4,9 @@ include launch.sh
 recursive-include docs *.md
 recursive-include src *.py *.json *.png *.manifest
 recursive-include src/ratiolab_resources/icons *.theme
-recursive-include tests test_*.py
+recursive-include tests test_*.py *.mjs
+recursive-include webapp *.py *.js *.css *.html *.json *.txt
+include webapp/notices/*
 include build-support/ratiolab_build.py
 include assets/screenshots/*.png
 include scripts/*.py scripts/*.sh scripts/*.ps1 scripts/*.iss
