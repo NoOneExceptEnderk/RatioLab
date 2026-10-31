@@ -447,7 +447,10 @@ def _powershell_script(job, installation, package, digest, parent_pid, parent_id
                   targetBase='.'.join(map(str, Version(target).core)),
                   oldManifestHash=_sha256(installation.destination/'bundle-manifest.json'),
                   slot=Path(job).parent/update_receipt.receipt_name(installation.executable,system='win32'))
-    lines = ["$ErrorActionPreference = 'Stop'"]
+    lines = ["$ErrorActionPreference = 'Stop'",
+             # A pwsh -> Python -> powershell.exe chain can inherit incompatible
+             # PowerShell 7 modules. This helper needs only its own built-ins.
+             "$env:PSModulePath = [IO.Path]::Combine($PSHOME, 'Modules')"]
     lines += [f'${key} = {q(value)}' for key, value in values.items()]
     lines += [r'''
 function Log-Message([string]$message) {

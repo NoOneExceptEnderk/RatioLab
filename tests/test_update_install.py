@@ -286,6 +286,71 @@ $valid = Runtime-Valid '0.1.12' '0.1.12'
         self.assertNotIn('running Setup', diagnostics)
         self.assertEqual((job/'result').read_text(encoding='ascii'), 'failed')
 
+    def test_windows_helper_uses_own_modules_and_checks_real_package_and_runtime_hashes(self):
+        powershell = (os.environ.get('RATIOLAB_TEST_POWERSHELL') or shutil.which('pwsh')
+                      or shutil.which('powershell.exe'))
+        if not powershell:
+            self.skipTest('PowerShell is needed to execute the generated helper module fixture')
+        self.executable.rename(self.bundle/'RatioLab.exe')
+        self.executable = self.bundle/'RatioLab.exe'
+        self.manifest(system='windows')
+        found = self.detection(system='win32', registry_reader=lambda: str(self.bundle))
+        foreign = self.root/'foreign PowerShell modules'
+        utility = foreign/'Microsoft.PowerShell.Utility'
+        utility.mkdir(parents=True)
+        (utility/'Microsoft.PowerShell.Utility.psd1').write_text(
+            "@{RootModule='Microsoft.PowerShell.Utility.psm1';ModuleVersion='99.0.0';"
+            "FunctionsToExport='*';CmdletsToExport='*'}\n")
+        (utility/'Microsoft.PowerShell.Utility.psm1').write_text("throw 'Foreign Utility module loaded'\n")
+        inherited = dict(os.environ, PSModulePath=str(foreign))
+        fixture = """function Get-Process { param($Id, $ErrorAction) return $null }
+function Probe([string]$option, [string]$report) {
+  $text = if ($option -eq '--version') { 'RatioLab ' + $sourceVersion } else { '{}' }
+  [IO.File]::WriteAllText($report, $text)
+}
+if ($env:PSModulePath -cne [IO.Path]::Combine($PSHOME, 'Modules')) { throw 'Foreign module search path retained' }
+"""
+        # All real package/inventory SHA checks and manifest validation remain.
+        # Stop after them, before any Windows registry or Setup operation.
+        controlled_stop = """[Console]::Out.WriteLine('package-sha-verified')
+$valid = Runtime-Valid $sourceVersion $sourceBase
+if ($valid -isnot [bool] -or -not $valid) { throw 'Runtime-Valid did not return boolean true' }
+[Console]::Out.WriteLine('runtime-valid=True')
+throw 'controlled stop before registry or Setup'
+"""
+        for tampered in (False, True):
+            with self.subTest(tampered=tampered):
+                package = self.package(suffix='setup.exe', system='windows')
+                job = self.root/('ratiolab-install-modules-'+str(tampered))
+                job.mkdir(mode=0o700)
+                (job/'armed').touch()
+                script = install._powershell_script(job, found, package.path, package.sha256, 123, '456', 120,
+                                                    target=package.release.version, restart=False)
+                script = script.replace("$status = 'failed'\n", fixture+"$status = 'failed'\n", 1)
+                anchor = "  $phase = 'verifying the current installation'; Log-Message $phase"
+                self.assertIn(anchor, script)
+                script = script.replace(anchor, controlled_stop+anchor, 1)
+                if tampered:
+                    package.path.write_bytes(b'package changed after preparation')
+                encoded = base64.b64encode(script.encode('utf-16-le')).decode('ascii')
+                result = subprocess.run([powershell, '-NoProfile', '-NonInteractive', '-EncodedCommand', encoded],
+                                        stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                        env=inherited, timeout=30, check=False, encoding='utf-8')
+                diagnostics = result.stdout+result.stderr
+                self.assertEqual(result.returncode, 0, diagnostics)
+                self.assertNotIn('Foreign Utility module loaded', diagnostics)
+                self.assertNotIn('Foreign module search path retained', diagnostics)
+                self.assertNotIn('running Setup', diagnostics)
+                if tampered:
+                    self.assertEqual((job/'result').read_text(encoding='ascii'), 'checksum-mismatch')
+                    self.assertNotIn('package-sha-verified', diagnostics)
+                    self.assertNotIn('runtime-valid=True', diagnostics)
+                else:
+                    self.assertIn('package-sha-verified', result.stdout)
+                    self.assertIn('runtime-valid=True', result.stdout)
+                    self.assertIn('controlled stop before registry or Setup', result.stderr)
+                    self.assertEqual((job/'result').read_text(encoding='ascii'), 'failed')
+
     def test_macos_unproven_application_location_is_manual_without_source_replacement(self):
         executable = self.root/'RatioLab.app/Contents/MacOS/RatioLab'
         executable.parent.mkdir(parents=True)
