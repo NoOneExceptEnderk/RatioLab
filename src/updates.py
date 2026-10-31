@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: 2026 NoOneExceptEnderk
 # SPDX-License-Identifier: GPL-3.0-only
-"""Anonymous, bounded GitHub release discovery. No downloads or installation."""
+"""Anonymous, bounded GitHub release discovery and package metadata."""
 from dataclasses import dataclass
 import json
 from math import isfinite
@@ -31,6 +31,9 @@ class Release:
     url: str
     notes: str
     download: str
+    asset_name: str = ''
+    asset_size: int | None = None
+    checksums_url: str = ''
 
 
 def automatic_enabled(environ=None):
@@ -39,6 +42,16 @@ def automatic_enabled(environ=None):
     if flag in ('0','false','no','off'):return False
     if flag in ('1','true','yes','on'):return True
     return not (SOURCE_ROOT/'pyproject.toml').is_file()
+
+
+def disabled_reason(environ=None):
+    """Explain the check policy separately from the saved automatic preference."""
+    env = os.environ if environ is None else environ
+    if env.get('RATIOLAB_UPDATE_CHECK', '').lower() in ('0', 'false', 'no', 'off'):
+        return 'Update checks are disabled by RATIOLAB_UPDATE_CHECK=0.'
+    if not automatic_enabled(env):
+        return 'Update checks are disabled for source development. Set RATIOLAB_UPDATE_CHECK=1 to enable them.'
+    return ''
 
 
 def installation_format(system=None, executable=None):
@@ -51,12 +64,15 @@ def installation_format(system=None, executable=None):
     return None
 
 
-def _download(assets, tag, system=None, machine=None, executable=None):
+def _download_asset(assets, tag, system=None, machine=None, executable=None, package_format=None):
     system=sys.platform if system is None else system
     arch=(machine or platform.machine()).lower()
     arch={'amd64':'x86_64','aarch64':'arm64'}.get(arch,arch)
     if arch not in ('x86_64','arm64'):return None
-    suffix=installation_format(system,executable)
+    suffix=installation_format(system,executable) if package_format is None else package_format
+    if suffix not in ('.run','.deb','.tar.gz','.dmg','setup.exe'):return None
+    allowed=('setup.exe',) if system=='win32' else ('.dmg',) if system=='darwin' else ('.run','.deb','.tar.gz') if system.startswith('linux') else ()
+    if suffix not in allowed:return None
     if suffix is None:return None
     osname='windows' if system=='win32' else 'macos' if system=='darwin' else 'linux'
     prefix=RELEASES_URL+'/download/'+quote(tag,safe='')+'/'
@@ -72,8 +88,21 @@ def _download(assets, tag, system=None, machine=None, executable=None):
         if not isinstance(name,str) or not isinstance(url,str) or asset.get('state')!='uploaded':continue
         if not re.fullmatch(r'[A-Za-z0-9_.+-]+',name) or not name.lower().startswith('ratiolab'):continue
         if url!=prefix+quote(name,safe=''):continue
-        if name in names:return url
+        if name in names:return asset
     return None
+
+
+def _download(assets, tag, system=None, machine=None, executable=None, package_format=None):
+    asset=_download_asset(assets,tag,system,machine,executable,package_format)
+    return asset['browser_download_url'] if asset else None
+
+
+def _checksums(assets,tag):
+    expected=RELEASES_URL+'/download/'+quote(tag,safe='')+'/SHA256SUMS'
+    matches=[asset for asset in assets if isinstance(asset,dict)
+             and asset.get('name')=='SHA256SUMS' and asset.get('state')=='uploaded'
+             and asset.get('browser_download_url')==expected] if isinstance(assets,list) else []
+    return expected if len(matches)==1 else ''
 
 
 def select_release(records,current=RELEASE_VERSION,channel=CHANNEL,**target):
@@ -94,8 +123,13 @@ def select_release(records,current=RELEASE_VERSION,channel=CHANNEL,**target):
         if record.get('html_url')!=url:continue
         notes=record.get('body')
         notes=notes[:100000] if isinstance(notes,str) else 'No published release notes.'
+        assets=record.get('assets',[])
+        asset=_download_asset(assets,tag,**target)
+        size=asset.get('size') if asset else None
+        size=size if type(size) is int and size>0 else None
         candidates.append((version,Release(tag.removeprefix('v'),url,notes,
-                                          _download(record.get('assets',[]),tag,**target) or url)))
+                          asset['browser_download_url'] if asset else url,
+                          asset['name'] if asset else '',size,_checksums(assets,tag))))
     return max(candidates,key=lambda item:item[0])[1] if candidates else None
 
 
@@ -134,17 +168,31 @@ class Preferences:
         try:
             self.state=json.loads(self.path.read_text(encoding='utf-8'))
             if not isinstance(self.state,dict):self.state={}
-            self.state={k:v for k,v in self.state.items() if k in ('skip','remind_until','remind_version','next_allowed')}
+            self.state={k:v for k,v in self.state.items() if k in ('skip','remind_until','remind_version','next_allowed','backoff_reason','automatic')}
             for key in ('remind_until','next_allowed'):
                 value=self.state.get(key,0)
-                if not isinstance(value,(int,float)) or not isfinite(value):self.state[key]=0
+                if type(value) not in (int,float) or not isfinite(value) or value<0:self.state[key]=0
                 elif value>time.time()+(3*DAY if key=='remind_until' else 7*DAY):self.state[key]=0
+            if type(self.state.get('automatic', True)) is not bool:self.state.pop('automatic',None)
+            if self.state.get('backoff_reason') not in ('network','rate_limit'):
+                # Legacy backoffs did not distinguish failures from server limits.
+                self.state['backoff_reason']='rate_limit' if self.state.get('next_allowed',0) else ''
         except (OSError,ValueError):self.state={}
+    @property
+    def automatic(self):return self.state.get('automatic',True)
+    def set_automatic(self,enabled):
+        if type(enabled) is not bool:raise ValueError('Automatic update checking must be a boolean')
+        previous=self.state.copy()
+        self.state['automatic']=enabled
+        if not self.save():
+            self.state=previous
+            raise OSError('The automatic update preference could not be saved')
     def save(self):
         try:
             from project_document import atomic_json
             atomic_json(self.path,self.state)
-        except (OSError,ValueError):pass
+            return True
+        except (OSError,ValueError):return False
     def visible(self,release,now=None):
         now=time.time() if now is None else now
         until=self.state.get('remind_until',0)

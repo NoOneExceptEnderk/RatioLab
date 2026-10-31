@@ -337,7 +337,7 @@ def build(app, labels):
     from update_ui import Controller
     app.updates = Controller(app, header)
     release_notes = Gtk.Button(label='Release notes and updates…')
-    release_notes.connect('clicked', lambda *_: (project_popup.popdown(), app.updates.show()))
+    release_notes.connect('clicked', lambda *_: (project_popup.popdown(), app.updates.show(manual=True)))
     commands.append(release_notes)
     app.win.set_titlebar(header)
     content = Gtk.Paned(orientation=Gtk.Orientation.HORIZONTAL)

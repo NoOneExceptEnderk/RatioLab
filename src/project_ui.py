@@ -278,9 +278,10 @@ class ProjectActions:
         dialog.present()
         return dialog
 
-    def protect_document(self, continuation):
+    def protect_document(self, continuation, cancelled=None):
         if self.busy or self.project_dialog:
             self.status_text('Finish the current operation before replacing or closing the project.')
+            if cancelled:cancelled()
             return
         self.settle_project()
         self.document.barrier()
@@ -290,11 +291,13 @@ class ProjectActions:
             return
         def answer(code):
             if not self.current_answer(token):
+                if cancelled:cancelled()
                 return
             if code == Gtk.ResponseType.REJECT:
                 continuation()
             elif code == Gtk.ResponseType.ACCEPT:
-                self.save_project(after=continuation)
+                self.save_project(after=continuation, cancelled=cancelled)
+            elif cancelled:cancelled()
         self.message_dialog('Save changes to this project?',
             'Save the current configuration, discard its edits, or cancel to keep working.',
             [('Cancel', Gtk.ResponseType.CANCEL), ('Discard', Gtk.ResponseType.REJECT),
@@ -307,15 +310,32 @@ class ProjectActions:
     def close_project(self, *args):
         if getattr(self, 'closing_project', False):
             return False
-        def finish():
-            try:
-                self.project_store.session.unlink(missing_ok=True)
-            except OSError as error:
-                self.status_text(f'Could not clear session recovery: {error}')
-                return
+        self.protect_document(self.finish_close_project)
+        return True
+
+    def finish_close_project(self, before_close=None):
+        """Finish an accepted close without asking Save/Discard a second time.
+
+        The updater's fast handoff runs only after recovery can be cleared.
+        Its caller must use protect_document before reaching this continuation.
+        """
+        if not self.project_alive or self.busy or self.project_dialog:
+            return False
+        try:
+            self.project_store.session.unlink(missing_ok=True)
+        except OSError as error:
+            self.status_text(f'Could not clear session recovery: {error}')
+            return False
+        try:
+            if before_close is not None:before_close()
             self.closing_project = True
             self.win.close()
-        self.protect_document(finish)
+            if self.win.get_visible():
+                raise RuntimeError('The project window could not be closed')
+        except Exception:
+            self.closing_project = False
+            self.update_document()
+            raise
         return True
 
     def save_dialog(self, *args):
@@ -327,8 +347,9 @@ class ProjectActions:
     def save_as_dialog(self, *args):
         self.save_project(save_as=True)
 
-    def save_project(self, save_as=False, after=None, path=None):
+    def save_project(self, save_as=False, after=None, path=None, cancelled=None):
         if self.busy or self.project_dialog:
+            if cancelled:cancelled()
             return
         self.settle_project()
         self.document.barrier()
@@ -337,14 +358,17 @@ class ProjectActions:
             config = self.config()
         except Exception as error:
             self.status_text(f'Configuration could not be saved: {error}')
+            if cancelled:cancelled()
             return
         def write(path):
             if not path or not self.current_answer(token):
+                if cancelled:cancelled()
                 return
             try:
                 atomic_json(path, config)
             except (OSError, ValueError) as error:
                 self.status_text(f'Configuration could not be saved: {error}')
+                if cancelled:cancelled()
                 return
             self.document.mark_saved(path)
             self.update_document()
@@ -375,6 +399,8 @@ class ProjectActions:
                     write(Path(local))
                 else:
                     self.status_text('No local project file selected. The document is unchanged.')
+                    if cancelled:cancelled()
+            elif cancelled:cancelled()
         dialog.connect('response', response)
         dialog.show()
 

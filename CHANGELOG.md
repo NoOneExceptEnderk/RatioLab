@@ -6,6 +6,20 @@ published packages and their verification results.
 
 ## Unreleased
 
+## 0.1.12 — 2026-10-31
+
+### Added
+
+- Add manual desktop update checks with visible progress, up-to-date and error
+  results, plus a persistent automatic-check preference. Manual checks can show
+  skipped releases and work when automatic checking is off, while respecting
+  update policy and GitHub rate limits.
+- Add cancellable in-app package downloads verified against the same release's
+  SHA256SUMS. Update now prepares a native handoff and uses Save / Discard /
+  Cancel before closing for Linux per-user bundle or Windows Setup updates.
+  macOS opens the verified DMG; Debian packages use the system installer.
+  Source, Python and unmarked portable installations retain manual updates.
+
 ## 0.1.11 — 2026-10-31
 
 ### Added

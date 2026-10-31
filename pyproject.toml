@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ratiolab"
-version = "0.1.11"
+version = "0.1.12"
 description = "Parametric gears and reducers with a GTK 4 and OpenGL preview"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -39,7 +39,7 @@ include-package-data = false
 package-dir = {"" = "src", "build_support" = "build-support"}
 packages = ["ratiolab_resources"]
 py-modules = [
-  "app", "app_paths", "release_version", "updates", "update_ui", "assemblies", "bom", "cad_export", "catalog", "connection", "export_transaction",
+  "app", "app_paths", "release_version", "updates", "update_download", "update_install", "update_ui", "assemblies", "bom", "cad_export", "catalog", "connection", "export_transaction",
   "bevel_geometry", "differential_wrist", "engineering", "external_programs", "fusion_connection", "geartrains", "geometry", "gl_loader", "gui_workflow", "parameter_help", "parameter_help_ui", "parameter_help_diagrams",
   "hardware", "hardware_catalog", "install_desktop", "io_controls", "backdrivability", "gear_measurement", "gear_measurement_ui", "backlash_solver", "backlash_ui",
   "component_geometry", "components_ui", "selected_export", "pair_assembly", "combination_search", "combination_search_ui", "collision_geometry", "interference", "interference_ui", "kinematics", "motion", "motion_controls", "mounting", "preview3d",

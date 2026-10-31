@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-only
 """Version precedence, release trust boundary and bounded anonymous discovery."""
 import io
+import time
 import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -113,6 +114,40 @@ class UpdateTests(unittest.TestCase):
         opener.open.side_effect=OSError('offline')
         with self.assertRaises(OSError):u.fetch_releases(opener)
 
+    def test_same_release_package_and_exact_checksum_metadata(self):
+        tag='v0.1.12'
+        package=asset('RatioLab-0.1.12-linux-x86_64.run',tag)
+        package['size']=1234
+        sums=asset('SHA256SUMS',tag)
+        other=asset('SHA256SUMS','v0.1.13')
+        records=[release(tag,assets=[package,sums]),release('v0.1.13',assets=[other])]
+        result=u.select_release(records,current='0.1.11',system='linux',machine='x86_64')
+        self.assertEqual(result.version,'0.1.13')
+        self.assertEqual(result.asset_name,'')
+        self.assertEqual(result.download,result.url)
+        result=u.select_release(records[:1],current='0.1.11',system='linux',machine='x86_64')
+        self.assertEqual(result.asset_name,package['name'])
+        self.assertEqual(result.asset_size,1234)
+        self.assertEqual(result.checksums_url,sums['browser_download_url'])
+        for invalid in [asset('SHA256SUMS.txt',tag),other,dict(sums,state='new')]:
+            records=[release(tag,assets=[package,invalid])]
+            result=u.select_release(records,current='0.1.11',system='linux',machine='x86_64')
+            self.assertEqual(result.download,package['browser_download_url'])
+            self.assertEqual(result.checksums_url,'')
+        records=[release(tag,assets=[package,sums,sums])]
+        self.assertEqual(u.select_release(records,current='0.1.11',system='linux',machine='x86_64').checksums_url,'')
+
+    def test_explicit_package_format_keeps_default_and_rejects_unsupported_formats(self):
+        tag='v0.1.12'
+        assets=[asset(name,tag) for name in ['RatioLab-0.1.12-linux-x86_64.run',
+                'RatioLab-0.1.12-linux-x86_64.tar.gz','ratiolab_0.1.12_amd64.deb']]
+        target=dict(system='linux',machine='x86_64',executable='/home/user/RatioLab')
+        self.assertTrue(u._download(assets,tag,**target).endswith('.run'))
+        self.assertTrue(u._download(assets,tag,package_format='.tar.gz',**target).endswith('.tar.gz'))
+        self.assertTrue(u._download(assets,tag,package_format='.deb',**target).endswith('.deb'))
+        for suffix in ['.zip','setup.exe','.dmg','',False]:
+            self.assertIsNone(u._download(assets,tag,package_format=suffix,**target))
+
     def test_source_policy_skip_reminder_and_isolated_persistence(self):
         self.assertFalse(u.automatic_enabled({}))
         self.assertFalse(u.automatic_enabled({'RATIOLAB_UPDATE_CHECK':'0'}))
@@ -132,6 +167,33 @@ class UpdateTests(unittest.TestCase):
             self.assertTrue(cleaned.visible(current,now=0))
             path.write_text(json.dumps({'next_allowed':10**30,'remind_until':10**30}))
             self.assertEqual(u.Preferences(path).state['next_allowed'],0)
+
+    def test_automatic_preference_validates_boolean_and_preserves_project_preferences(self):
+        with TemporaryDirectory() as temporary:
+            path=Path(temporary)/'updates.json'
+            project=Path(temporary)/'ui-preferences.json';project.write_text('{"theme":"dark"}')
+            prefs=u.Preferences(path);self.assertTrue(prefs.automatic)
+            prefs.set_automatic(False);self.assertFalse(u.Preferences(path).automatic)
+            self.assertEqual(project.read_text(),'{"theme":"dark"}')
+            for bad in [0,1,None,'false',[],{}]:
+                with self.assertRaises(ValueError):prefs.set_automatic(bad)
+                path.write_text(json.dumps({'automatic':bad}))
+                self.assertTrue(u.Preferences(path).automatic)
+            path.write_text(json.dumps({'next_allowed':time.time()+60}))
+            self.assertEqual(u.Preferences(path).state['backoff_reason'],'rate_limit')
+            path.write_text(json.dumps({'next_allowed':True,'backoff_reason':'network'}))
+            self.assertEqual(u.Preferences(path).state['next_allowed'],0)
+        self.assertIn('RATIOLAB_UPDATE_CHECK=0',u.disabled_reason({'RATIOLAB_UPDATE_CHECK':'0'}))
+        self.assertIn('source development',u.disabled_reason({}))
+        self.assertEqual(u.disabled_reason({'RATIOLAB_UPDATE_CHECK':'1'}),'')
+
+    def test_failed_automatic_preference_save_restores_previous_state(self):
+        with TemporaryDirectory() as temporary:
+            prefs=u.Preferences(Path(temporary)/'updates.json');prefs.set_automatic(False)
+            original=prefs.path.read_text()
+            with patch('project_document.atomic_json',side_effect=OSError('read only fixture')):
+                with self.assertRaises(OSError):prefs.set_automatic(True)
+            self.assertFalse(prefs.automatic);self.assertEqual(prefs.path.read_text(),original)
 
 
 if __name__=='__main__':unittest.main()

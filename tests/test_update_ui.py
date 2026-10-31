@@ -72,7 +72,7 @@ class UpdateUITests(unittest.TestCase):
         controller.button.emit('clicked');self.assertIsNotNone(controller.window)
         self.assertEqual(self.opened,[])
         box=controller.window.get_child();row=box.get_last_child().get_prev_sibling().get_prev_sibling()
-        row.get_first_child().emit('clicked')
+        (row.get_first_child().get_child() if isinstance(row,Gtk.FlowBox) else row.get_first_child()).emit('clicked')
         self.assertEqual(self.opened,[controller.release.download])
         controller._hide('skip');self.assertFalse(controller.button.get_visible())
         controller.release=update_ui.updates.select_release([release('v0.1.3')]);controller.refresh()
@@ -127,7 +127,7 @@ class UpdateUITests(unittest.TestCase):
         def failed(_):raise OSError('No handler')
         controller.launch=failed
         box=controller.window.get_child();error=box.get_last_child().get_prev_sibling();row=error.get_prev_sibling()
-        row.get_first_child().emit('clicked')
+        (row.get_first_child().get_child() if isinstance(row,Gtk.FlowBox) else row.get_first_child()).emit('clicked')
         self.assertTrue(error.get_visible());self.assertTrue(error.get_selectable())
         self.assertIn(controller.release.download,error.get_text());self.assertIn('No handler',error.get_text())
 

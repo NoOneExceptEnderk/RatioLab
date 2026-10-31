@@ -1,58 +1,95 @@
 # Updates and release notes
 
-Installed wheels and native bundles check GitHub for newer RatioLab releases
-when the workspace opens and once every 24 hours while it stays open. The
-header shows **Update to [version]** only when a newer eligible release exists.
-Nothing opens automatically. Click it to read the published notes, then choose
-**Download** to open the matching package in your browser. If a matching asset
-is unavailable, the release page opens instead. Install the package as usual;
-RatioLab does not replace itself, run an installer or overwrite a source checkout.
+Installed desktop copies check GitHub when the workspace opens and once a day
+while it stays open. A newer eligible release adds **Update to [version]** to
+the header. Checking does not open a window or start an installation by itself.
+Click the badge to read the published notes and choose how to update.
 
-**Skip this version** hides that release until a newer one appears.
-**Remind me later** hides the badge for three days. The project menu's
-**Release notes and updates…** entry also opens the notes and local changelog.
-The local changelog is labelled separately from notes published for a downloadable
-GitHub release. An **Unreleased** section, when present, describes development changes.
+The project menu's **Release notes and updates…** opens the update window and
+checks for a release. **Check now** runs another check, including when
+**Check for updates automatically** is off. The window shows progress, the
+available version, an up-to-date result or an error. GitHub rate limits still
+apply to manual checks. The automatic preference is saved separately from
+project files and other UI preferences.
 
-Stable builds accept only newer stable versions. Preview builds accept newer
-preview/RC/alpha/beta versions and stable releases, using SemVer precedence: for example,
-`0.1.0-preview.3` follows `0.1.0-preview.2`, and `0.1.0` follows both. Drafts,
-older/equal versions and unrelated release/download URLs are ignored. Nightly
-builds are not offered automatically. The canonical
-`src/ratiolab_resources/version.json` records the base packaging
-version, exact release version and channel. Native installers retain their
-numeric base version; `ratiolab --version` reports the exact release identity.
-Release maintainers must update that JSON for every release and keep its base
-consistent with `pyproject.toml`. Stable versions use the same numeric base and
-release identity (for example, `0.1.1`) with the `stable` channel. The bundle
-manifest records both identities.
+**Skip this version** hides that release's badge until a newer one appears.
+**Remind me later** hides it for three days. A manual check can still show a
+skipped or deferred release. Local changelog entries are labelled separately
+from the notes of the downloadable release; **Unreleased** describes development
+work, rather than an available installer.
 
-Windows selects the x86-64 setup executable; macOS selects the architecture's
-DMG; Linux selects the `.run` installer, or the Debian package for the fixed
-`/opt/ratiolab` installation. Unsupported platforms/architectures use the release
-page. Package-manager installations should follow their normal upgrade process.
-Downloads are opened externally: RatioLab neither downloads nor verifies or
-installs an executable in this workflow.
+## Download and install
 
-One anonymous HTTPS request reads up to 100 published GitHub releases:
+Where the installation can be identified, **Update now** downloads the matching
+package in the background, with progress and cancellation. RatioLab obtains
+`SHA256SUMS` from the same GitHub release and checks the complete package before
+starting the installation or opening the verified package. A changed, truncated
+or mismatched package cannot be installed. Checksums provide integrity against
+the published release; RatioLab
+does not currently claim publisher signatures or notarization for these files.
 
-```
+| Installation | Action after verification |
+| --- | --- |
+| Linux per-user `.run` installation | Close, install in the same marked application folder and restart. Custom installation paths are retained. |
+| Windows per-user Setup installation | Close RatioLab and start the verified interactive Setup for the recorded installation folder. Setup handles the remaining choices. |
+| macOS application | Open the verified DMG. Quit RatioLab and drag the new application to Applications to replace the previous copy. |
+| Debian/Ubuntu `.deb` | Open the verified package with the system installer. A quoted `sudo apt install …` command is also available for manual use. |
+| Source, Python environment or unmarked portable tree | Use the original installation method or the browser download; RatioLab does not replace these directories. |
+
+Closing for an installer uses the normal **Save / Discard / Cancel** prompt.
+Cancel, a failed save or an outdated answer keeps the application open and does
+not arm the installer. Projects and preferences remain outside the managed
+runtime by default. The Linux installer also preserves unlisted files saved
+inside its installation folder, and checks the staged runtime before replacing
+the previous one. Its rollback ends once installation succeeds; there is no
+promise of rollback after a later application failure. Windows Setup is not a
+transactional rollback service. Restart does not restore a project's undo history.
+
+Replacement is offered only for a matching native installation whose ownership
+and format can be established. Linux replacement also requires a writable
+installation and parent directory owned by the user. External helpers wait for
+the old process to exit and recheck the package before starting an installer.
+Preparation failures leave the current application available. Helper logs are
+retained in the private update cache for diagnosing failures after exit.
+
+**Download** remains a browser fallback. It opens the matching package, or the
+release page if no supported package exists. Browser downloads are installed
+manually and are not verified by RatioLab's in-app download process. Package
+manager installations continue to use their system's installation workflow.
+
+## Release selection and privacy
+
+Stable builds accept newer stable versions; preview builds also accept newer
+preview, RC, alpha and beta releases, using SemVer precedence. Drafts, equal or
+older versions, nightly releases and unrelated release URLs are ignored.
+`src/ratiolab_resources/version.json` records the installed identity and channel;
+its base version must match `pyproject.toml`. A source push alone does not create
+a downloadable update.
+
+Release discovery makes one anonymous, bounded HTTPS request:
+
+```text
 GET https://api.github.com/repos/NoOneExceptEnderk/RatioLab/releases?per_page=100
 User-Agent: RatioLab-update-check
 Accept: application/vnd.github+json
 X-GitHub-Api-Version: 2022-11-28
 ```
 
-It sends no installed version, project data, token, cookie, machine identifier
-or usage information. GitHub sees the IP address and request time. The worker
-uses a 15-second socket timeout, 2 MiB response limit and no redirects. Offline
-or invalid responses remain silent and retry after an hour; rate-limit headers
-can extend that delay, persisted across restarts. No network request blocks GTK.
+Choosing the in-app download additionally requests the release's checksum list
+and selected package from GitHub, following only supported HTTPS asset redirects.
+It sends no project, installed version, token, cookie, machine identifier or
+usage data. GitHub sees the IP address and request time. Metadata is limited to
+2 MiB, checksum lists to 1 MiB and packages to 512 MiB, with socket timeouts and
+a bounded download deadline. Failed or cancelled downloads remove their own
+partial files. Automatic failures retry later without opening a window; manual
+checks display their result.
 
-Set `RATIOLAB_UPDATE_CHECK=0` to disable all checks. Source checkouts do not check
-by default; `RATIOLAB_UPDATE_CHECK=1` explicitly enables them for development.
-Updater skip/reminder/backoff state lives in `updates.json` in RatioLab's user
-configuration folder, separately from projects and UI preferences.
+`RATIOLAB_UPDATE_CHECK=0` disables all checks, including manual checks. Source
+checkouts do not check by default; `RATIOLAB_UPDATE_CHECK=1` explicitly enables
+development checks. The window explains disabled checks. Update preferences,
+skip/reminder choices and rate-limit state live in `updates.json` in the user
+configuration folder.
 
-This interaction follows the [SolidCraft update pattern](https://docs.solidcraft.io/guide/updates.html)
-and uses GitHub's [public releases API](https://docs.github.com/en/rest/releases/releases#list-releases).
+The interaction follows the [SolidCraft update flow](https://docs.solidcraft.io/guide/updates.html),
+adapted to RatioLab's existing installers, and uses GitHub's
+[public releases API](https://docs.github.com/en/rest/releases/releases#list-releases).

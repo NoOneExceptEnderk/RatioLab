@@ -330,6 +330,15 @@ Bearing-in-bore and common flange screws are disabled with reasons for parallel/
 
 Grooves, keyways and through holes are represented in the shared geometry. Commercial hardware is simplified: threads, drive recesses and bearing raceways are not fully modelled. Codes are assigned only when selected from the catalog; unresolved envelopes remain **TO BE DEFINED**. Custom spacers are **MANUFACTURE** items.
 
+## Desktop updates
+
+The header shows **Update to [version]** when a newer downloadable release is
+available. Open **Release notes and updates…** from the project menu for a
+manual check, its result and the automatic-check preference. **Update now**
+downloads and verifies the package before handing it to the supported native
+installer. Closing uses **Save / Discard / Cancel**. The exact action depends on
+the installation format; see [updates and release notes](updates.md).
+
 ## Save, load and export
 
 **New**, **Open…**, **Save** and **Save As…** manage parameter JSON files in the existing `solidcraft-riduttori/1` format. Save updates the current file; an untitled project asks for a path. New, Open and window close offer **Save / Discard / Cancel** when edits are unsaved. Cancelled or failed operations preserve the active project. Recent files include missing paths, which report a load error without replacing the project.
