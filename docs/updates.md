@@ -56,6 +56,11 @@ manifest, complete listed file inventory, exact runtime version and native
 dependency check. A failed Setup can reopen the previous version only if its
 original manifest, complete inventory and runtime still validate.
 
+Older Windows copies, including 0.1.13, may need Setup 0.1.14 run manually once
+in their existing installation folder. Fixes in the 0.1.14 helper do not
+retroactively change an already installed older updater. Once 0.1.14 is installed,
+subsequent eligible updates use the corrected helper.
+
 Debian updates first check the archive's exact package name (`ratiolab`), version
 and architecture using dpkg-deb. After the protected application closes, a helper
 rechecks the archive and installed identity, then requests PolicyKit authorization
@@ -109,14 +114,26 @@ release page if no supported package exists. Browser downloads are installed
 manually and are not verified by RatioLab's in-app download process. Package
 manager updates use their system's normal authorization and package manager.
 
-The Windows helper has generated-script checks, inventory-logic checks and Linux-hosted parser checks;
-full native Windows upgrade acceptance still requires a Windows machine. Debian
-adapter tests use harmless command fixtures and temporary packages, without
+[Native CI](https://github.com/NoOneExceptEnderk/RatioLab/actions/runs/41249327987)
+used the new 0.1.14 production helper on Windows to upgrade a public 0.1.12
+installation to 0.1.14 at the same location. Package hashes matched, user-data
+sentinels were preserved, and the terminal receipt was consumed exactly once.
+GUI restart was disabled in this harness. Separate GUI restart guard tests do
+not establish the old public 0.1.13 Windows client flow. Windows GUI rendering
+remains unverified because the hosted runner could not create an OpenGL context.
+A separate disposable Linux check used the public 0.1.13 helper to install and
+reopen 0.1.14 and passed real GTK/OpenGL checks; that older helper does not produce
+the new terminal receipt.
+
+Debian adapter tests use harmless command fixtures and temporary packages, without
 installing a system package or requesting elevated privileges.
 macOS transaction tests execute the generated shell helper with harmless
 command fixtures on Linux, including signature/identity rejection, rollback,
-cleanup and parent-process state changes. Native macOS mounting, signing and
-LaunchServices acceptance still require a macOS machine.
+cleanup and parent-process state changes. The native CI run linked above also
+mounted real DMGs, copied the application and verified strict deep code signatures
+on both macOS architectures. It used the new helper for 0.1.12 to 0.1.14 upgrades
+with GUI restart disabled. LaunchServices restart and the old public 0.1.13 macOS
+client flow remain unverified.
 
 ## Release selection and privacy
 
