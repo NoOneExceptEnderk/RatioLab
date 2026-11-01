@@ -56,7 +56,7 @@ manifest, complete listed file inventory, exact runtime version and native
 dependency check. A failed Setup can reopen the previous version only if its
 original manifest, complete inventory and runtime still validate.
 
-Older Windows copies, including 0.1.13, may need Setup 0.1.14 run manually once
+Older Windows copies, including 0.1.13, may need Setup 0.1.15 run manually once
 in their existing installation folder. Fixes in the 0.1.14 helper do not
 retroactively change an already installed older updater. Once 0.1.14 is installed,
 subsequent eligible updates use the corrected helper.
@@ -134,6 +134,12 @@ mounted real DMGs, copied the application and verified strict deep code signatur
 on both macOS architectures. It used the new helper for 0.1.12 to 0.1.14 upgrades
 with GUI restart disabled. LaunchServices restart and the old public 0.1.13 macOS
 client flow remain unverified.
+
+Version 0.1.15 isolates self-test preferences and exports through a temporary
+Python environment mapping without changing the native process environment that
+GTK/font workers may read concurrently. The mapping is restored on success or
+failure. This addresses a demonstrated concurrent environment-read failure
+mechanism; it does not establish the cause of every previous native crash.
 
 ## Release selection and privacy
 
