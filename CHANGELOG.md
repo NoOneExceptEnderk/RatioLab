@@ -6,6 +6,18 @@ published packages and their verification results.
 
 ## Unreleased
 
+## 0.1.15 — 2026-11-01
+
+### Fixed
+
+- Keep runtime self-tests from mutating the native process environment after GTK
+  may have started font workers. Isolate application preferences and exports
+  through a temporary Python environment mapping, restoring it on success or
+  failure. This removes a demonstrated concurrent environment-read failure
+  mechanism in Linux installer preflight checks.
+- Run regression checks for environment stability, temporary profile isolation
+  and failure recovery in each native platform CI job.
+
 ## 0.1.14 — 2026-10-31
 
 ### Changed

@@ -21,7 +21,10 @@ def self_test(gui=False):
         environment = dict(XDG_CONFIG_HOME=str(profile/'config'),
                            XDG_DATA_HOME=str(profile/'data'),
                            APPDATA=str(profile/'roaming'), LOCALAPPDATA=str(profile/'local'))
-        with patch.dict(os.environ, environment), patch.object(Path, 'home', return_value=profile):
+        # diagnose() can start native GTK/font threads that read C's environ.
+        # App-owned paths use Python's mapping; swapping it keeps those native
+        # readers' environment stable while isolating preferences and exports.
+        with patch.object(os, 'environ', dict(os.environ, **environment)), patch.object(Path, 'home', return_value=profile):
             output = profile/'Export qualità Ω'
             app_paths.save_preferences(output_dir=str(output))
             if app_paths.saved_output_dir() != output:

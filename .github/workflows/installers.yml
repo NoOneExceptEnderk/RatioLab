@@ -56,6 +56,7 @@ jobs:
           xvfb-run -a "$RUNNER_TEMP/bundle-env/bin/python" scripts/build-bundle.py --gui
           PYTHONPATH=src "$RUNNER_TEMP/bundle-env/bin/python" -m unittest discover -s tests -p 'test_bundles.py' -v
           PYTHONPATH=src "$RUNNER_TEMP/bundle-env/bin/python" -m unittest discover -s tests -p 'test_release_verification.py' -v
+          PYTHONPATH=src "$RUNNER_TEMP/bundle-env/bin/python" -m unittest discover -s tests -p 'test_self_test_profile.py' -v
           PYTHONPATH=src "$RUNNER_TEMP/bundle-env/bin/python" -m unittest discover -s tests -p 'test_gui_runner.py' -v
           PYTHONPATH=src "$RUNNER_TEMP/bundle-env/bin/python" -m unittest discover -s tests -p 'test_external_programs.py' -v
           PYTHONPATH=src "$RUNNER_TEMP/bundle-env/bin/python" -m unittest discover -s tests -p 'test_installers_linux.py' -v
@@ -130,6 +131,7 @@ jobs:
           /ucrt64/bin/python.exe scripts/build-bundle.py
           PYTHONPATH=src /ucrt64/bin/python.exe -m unittest discover -s tests -p 'test_bundles.py' -v
           PYTHONPATH=src /ucrt64/bin/python.exe -m unittest discover -s tests -p 'test_release_verification.py' -v
+          PYTHONPATH=src /ucrt64/bin/python.exe -m unittest discover -s tests -p 'test_self_test_profile.py' -v
           PYTHONPATH=src /ucrt64/bin/python.exe -m unittest discover -s tests -p 'test_gui_runner.py' -v
           PYTHONPATH=src /ucrt64/bin/python.exe -m unittest discover -s tests -p 'test_external_programs.py' -v
           echo "RATIOLAB_NATIVE_PYTHON=$(cygpath -w /ucrt64/bin/python.exe)" >> "$GITHUB_ENV"
@@ -228,6 +230,7 @@ jobs:
           "$RUNNER_TEMP/bundle-env/bin/python" scripts/build-bundle.py
           PYTHONPATH=src "$RUNNER_TEMP/bundle-env/bin/python" -m unittest discover -s tests -p 'test_bundles.py' -v
           PYTHONPATH=src "$RUNNER_TEMP/bundle-env/bin/python" -m unittest discover -s tests -p 'test_release_verification.py' -v
+          PYTHONPATH=src "$RUNNER_TEMP/bundle-env/bin/python" -m unittest discover -s tests -p 'test_self_test_profile.py' -v
           PYTHONPATH=src "$RUNNER_TEMP/bundle-env/bin/python" -m unittest discover -s tests -p 'test_gui_runner.py' -v
           PYTHONPATH=src "$RUNNER_TEMP/bundle-env/bin/python" -m unittest discover -s tests -p 'test_external_programs.py' -v
           codesign --verify --deep --strict dist/bundles/macos-${{ matrix.arch }}/RatioLab.app
