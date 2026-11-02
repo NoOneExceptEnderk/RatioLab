@@ -45,6 +45,12 @@ files. Choose another `--output PATH` to retain a modified bundle. Native wheels
 remain native application packages; source distributions include the web source,
 recipe and tests, but no downloaded runtime binaries.
 
+Parameter illustrations are checked-in static assets generated from the original
+RatioLab schematics. The optional development command
+`PYTHONPATH=src:webapp python3 scripts/generate-web-help.py` regenerates them
+with pycairo; `--check` compares output and recorded source provenance. Ordinary
+web builds and browser use do not require Cairo or GTK.
+
 For a portable copy, retain the entire built folder. It includes `README.txt`,
 `serve.py`, licenses, notices and readable corresponding source in `source.zip`.
 After unpacking a complete portable ZIP, run `python3 serve.py` inside its folder
@@ -64,12 +70,19 @@ the live model. Precise numeric fields accept decimal points or commas;
 incomplete entries remain visible and block exports until valid. Orbit, zoom,
 Fit, animation, exploded/section views and component selection are available.
 
+**View** and **Tools** share a translucent panel over the right of the model, with no reduction in preview width. The results band sits above the motion controls, with the progressive RPM slider, playback speed and preview phase available directly. Scrubbing phase pauses the preview without editing the project. Hover over parameters or **Model & dimensions** for adjacent help; the information button and F1 also open it. The pointer can enter the guide, and leaving both the guide and parameter dismisses it. Original schematics can be expanded for readability. CAD connections and native updates remain desktop features.
+
 Save/Open use desktop-compatible JSON; Save As and exports prepare browser
 downloads instead of native destination dialogs. Full and selected components
 can be exported as STEP/STL/SVG/DXF; complete packages include the preview PNG,
 reports and a checksum inventory. Keep downloaded JSON files: recent projects
 and unsaved draft recovery are local to this browser/origin, and private browsing
 or cleared site data can remove them. Undo/Redo preserve document edits.
+
+**Theme** is an on/off switch: on selects light, off selects dark. **Language** changes the
+interface labels using the same nine languages as the documentation. Both are
+saved for this browser and site, independently of projects, history and numeric
+precision. Untranslated technical explanations and reports remain in English.
 
 Tools include component surface measurements, theoretical gear metrology,
 finite combination search, discrete interference and working-backlash proposals.
@@ -127,3 +140,20 @@ The runtime is supplied unmodified. Its corresponding upstream sources are
 See [Pyodide's license](https://github.com/pyodide/pyodide/blob/314.0.7/LICENSE),
 [CPython's license](https://github.com/python/cpython/blob/v3.14.2/LICENSE) and
 the bundled `notices/README.txt` for the preserved texts and provenance.
+
+### Screen size and internal scrolling
+
+On computers and tablets (viewports wider than 600 CSS pixels), the workspace
+fits the browser height. Long parameter lists and tool panels scroll internally;
+short windows and enlarged text can also require scrolling inside the model pane
+to reach every motion control. On phones, the page keeps its natural vertical
+flow and can scroll normally. All preview and motion controls remain available.
+
+**Model** contains the family and variant selectors at the top of the parameter
+pane. A horizontal **Dimensions**, **Motion**, **Assembly** bar below those selectors
+chooses the parameter section. Changing section retains the current design and
+parameter drafts.
+
+**Theme** is a direct on/off switch; **Language** is a separate compact menu in the toolbar. Their
+choices apply immediately; storage failures keep the session choice and show a
+notice. Neither menu changes the generated geometry or project recovery.

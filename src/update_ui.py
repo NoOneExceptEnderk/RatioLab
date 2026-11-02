@@ -135,7 +135,7 @@ class Controller:
         if (self.prepared or self.cancel_event) and self.release!=self.displayed_release:self._cancel_job()
         visible=bool(self.release and self.preferences.visible(self.release))
         if visible:
-            self.badge_label.set_text('Update to '+self.release.version)
+            self.badge_label.set_text('Update to v'+self.release.version.lstrip('v'))
             self.button.set_tooltip_text('Update to '+self.release.version+' · Read release notes and choose an update')
         self.button.set_visible(visible)
 
@@ -178,6 +178,9 @@ class Controller:
         if self.status_label:
             self.status_label.set_text(self.status)
             self.check_button.set_sensitive(not self.inflight and not bool(updates.disabled_reason()))
+            self.syncing_automatic=True
+            self.automatic_button.set_active(self.automatic())
+            self.syncing_automatic=False
 
     def _eligible(self):
         return bool(self.release and self.installation and self.installation.can_install
@@ -211,7 +214,7 @@ class Controller:
         self.check_button.connect('clicked',lambda *_:self.check(manual=True));checks.append(self.check_button)
         automatic=Gtk.CheckButton(label='Check for updates automatically',active=self.preferences.automatic)
         automatic.set_sensitive(not bool(updates.disabled_reason()))
-        automatic.connect('toggled',lambda widget:self.set_automatic(widget.get_active()));checks.append(automatic)
+        automatic.connect('toggled',lambda widget:None if getattr(self,'syncing_automatic',False) else self.set_automatic(widget.get_active()));checks.append(automatic)
         self.automatic_button=automatic
         self.status_label=Gtk.Label(xalign=0,wrap=True,wrap_mode=Pango.WrapMode.WORD_CHAR,selectable=True);box.append(self.status_label)
         self._update_status()

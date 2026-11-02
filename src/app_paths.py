@@ -14,6 +14,29 @@ APP_ID = 'local.solidcraft.reducers'
 MIN_GTK = (4, 12, 0)
 PREFERENCES_FILENAME = 'ui-preferences.json'
 LEGACY_PREFERENCES_FILENAME = 'preferenze-ui.json'
+UI_DEFAULTS = dict(theme='dark', language='en', text_scale=1, hover_help=True,
+                   zoom_speed=1, rotation_speed=1, invert_zoom=False)
+
+
+def ui_preferences(data):
+    """Validate global UI choices without changing model or unknown preferences."""
+    result = UI_DEFAULTS.copy()
+    if not isinstance(data, dict):
+        return result
+    for key, default in result.items():
+        value = data.get(key, default)
+        if key == 'theme':
+            valid = isinstance(value, str) and value in ('dark', 'light')
+        elif key == 'language':
+            valid = isinstance(value, str) and value in ('en','it','es','fr','de','pt','ru','zh-CN','ta')
+        elif type(default) is bool:
+            valid = type(value) is bool
+        else:
+            valid = type(value) in (int, float) and value in (
+                (1, 1.25, 1.5) if key == 'text_scale' else (.5, 1, 2))
+        if valid:
+            result[key] = value
+    return result
 MODULE_ROOT = Path(__file__).resolve().parent
 SOURCE_ROOT = (MODULE_ROOT.parent
                if MODULE_ROOT.name == 'src' and (MODULE_ROOT.parent/'pyproject.toml').is_file()

@@ -17,21 +17,61 @@ def pump(seconds=.08):
     context=GLib.MainContext.default()
     until=time.monotonic()+seconds
     while time.monotonic()<until:
-        while context.pending():context.iteration(False)
+        for _ in range(24):
+            if not context.pending() or time.monotonic() >= until:break
+            context.iteration(False)
         time.sleep(.004)
+
+
+def wait_for(predicate, seconds=1.5):
+    until=time.monotonic()+seconds
+    while not predicate() and time.monotonic()<until:
+        pump(.02)
+    return predicate()
+
+
+def emit_motion(controller, signal, *args):
+    controller._help_manual_signal=True
+    try:
+        return controller.emit(signal,*args)
+    finally:
+        controller._help_manual_signal=False
 
 
 class ParameterHelpGuiTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         if not Gtk.init_check() or Gdk.Display.get_default() is None:
+            if os.environ.get('RATIOLAB_REQUIRE_DISPLAY') == '1':
+                raise RuntimeError('The required real GTK display is unavailable')
             raise unittest.SkipTest('A working local GTK display is required')
         cls.temp=TemporaryDirectory(prefix='ratiolab-help-gui-')
         cls.env=patch.dict(os.environ, {'XDG_CONFIG_HOME': cls.temp.name, 'XDG_DATA_HOME': cls.temp.name, 'APPDATA': cls.temp.name, 'LOCALAPPDATA': cls.temp.name})
         cls.env.start()
+        # Keep mapped allocation/rendering real, but make synthetic motion
+        # transitions independent of the user's stationary physical pointer.
+        # Otherwise a popup resize can generate an unrelated native re-entry.
+        motion_type=Gtk.EventControllerMotion
+        cls.motions=[]
+        def controlled_motion(*args, **kwargs):
+            motion=motion_type(*args, **kwargs)
+            native_connect=motion.connect
+            def connect(signal, callback, *data):
+                if signal in ('enter','leave'):
+                    def manual_callback(*events):
+                        if getattr(motion,'_help_manual_signal',False):
+                            return callback(*events)
+                    return native_connect(signal,manual_callback,*data)
+                return native_connect(signal,callback,*data)
+            motion.connect=connect
+            cls.motions.append((motion,motion.get_propagation_phase()))
+            motion.set_propagation_phase(Gtk.PropagationPhase.NONE)
+            return motion
+        cls.motion_patch=patch.object(Gtk,'EventControllerMotion',controlled_motion)
+        cls.motion_patch.start();cls.addClassCleanup(cls.motion_patch.stop)
         from app import ReducerApp
         cls.app=ReducerApp()
-        cls.app.set_application_id('local.ratiolab.parameterhelp.p'+str(os.getpid()))
+        cls.app.set_application_id('local.ratiolab.parameterhelp.'+cls.__name__.lower()+'.p'+str(os.getpid()))
         cls.app.set_flags(Gio.ApplicationFlags.NON_UNIQUE)
         cls.app.register(None);cls.app.activate();pump(.4)
         if not cls.app.canvas.gl or cls.app.canvas.failure:
@@ -40,34 +80,62 @@ class ParameterHelpGuiTests(unittest.TestCase):
     @classmethod
     def tearDownClass(cls):
         cls.app.parameter_help.close()
+        for motion,phase in cls.motions:motion.set_propagation_phase(phase)
         for window in cls.app.get_windows():window.destroy()
         cls.env.stop();cls.temp.cleanup()
 
     def tearDown(self):
         self.app.parameter_help.close()
+        self.app.parameter_help.suppressed = None
         self.app.text_size.set_selected(0)
+        pump()
 
     def test_delayed_hover_preserves_pending_input_and_focus(self):
         a=self.app;owner=a.parameter_help;b=owner.bindings['module']
         b.control.grab_focus();b.control.set_text('1e-')
         focus=b.control.get_root().get_focus()
-        owner.enter(b);pump(.1)
+        owner.close();before=GLib.get_monotonic_time();owner.enter(b)
+        after=GLib.get_monotonic_time()
+        source=GLib.MainContext.default().find_source_by_id(owner.timer)
+        self.assertIsNotNone(source)
+        self.assertGreaterEqual(source.get_ready_time(),before+HOVER_DELAY_MS*1000-1000)
+        self.assertLessEqual(source.get_ready_time(),after+HOVER_DELAY_MS*1000)
         self.assertIsNone(owner.popover)
-        pump(HOVER_DELAY_MS/1000+.08)
-        self.assertTrue(owner.popover.get_mapped())
+        self.assertTrue(wait_for(lambda: owner.popover is not None and owner.popover.get_mapped()))
         self.assertEqual(b.control.get_root().get_focus(),focus)
         self.assertEqual(b.control.get_text(),'1e-')
-        owner.leave();pump(LEAVE_DELAY_MS/1000+.05)
-        self.assertIsNone(owner.popover)
+        emit_motion(b.row_motion,'leave');emit_motion(b.motion,'leave');emit_motion(owner.popup_motion,'leave')
+        self.assertTrue(wait_for(lambda: owner.popover is None))
         b.control.set_text('2');b.control.update()
 
     def test_keyboard_clickable_info_escape_and_rebuild(self):
         a=self.app;owner=a.parameter_help;b=owner.bindings['module']
+        b.button.grab_focus();focus=a.win.get_focus()
         b.button.emit('clicked');pump()
         self.assertTrue(owner.popover.get_mapped())
+        self.assertEqual(owner.activation,'explicit')
+        owner.close_button.grab_focus()
         self.assertTrue(b.key_pressed(None,Gdk.KEY_Escape,0,0))
         self.assertIsNone(owner.popover)
+        self.assertIs(a.win.get_focus(),focus)
+        class TouchBegin:
+            def get_event_type(self):return Gdk.EventType.TOUCH_BEGIN
+        b.button_event(None,TouchBegin());b.button.emit('clicked');pump()
+        self.assertEqual(owner.activation,'explicit')
+        owner.close()
         self.assertTrue(b.key_pressed(None,Gdk.KEY_F1,0,0));pump()
+        old_motion,old_expander=owner.popup_motion,owner.diagram_expander
+        owner.open(b,activation='explicit');pump()
+        current_popup=owner.popover
+        emit_motion(owner.popup_motion,'enter',1.,1.)
+        emit_motion(old_motion,'leave')
+        self.assertTrue(owner.over_popup)
+        emit_motion(owner.popup_motion,'leave')
+        emit_motion(old_motion,'enter',1.,1.)
+        self.assertFalse(owner.over_popup)
+        old_expander.set_expanded(True)
+        self.assertIs(owner.popover,current_popup)
+        self.assertFalse(owner.drawing.get_visible())
         a.rebuild_options({'variant':'helical'});pump()
         self.assertIsNone(owner.popover)
         self.assertIn('variant', owner.bindings)
@@ -99,26 +167,72 @@ class ParameterHelpGuiTests(unittest.TestCase):
         self.assertEqual(b.control.get_text(),'1e-')
         self.assertEqual(a.win.get_focus(),focus)
         self.assertEqual(a.project_snapshot(),snapshot)
-        b.control.set_text('2.125');pump()
-        self.assertEqual(owner.value_label.get_text(),'2.125 mm')
+        b.control.set_text('2.125')
+        self.assertTrue(wait_for(lambda: owner.value_label.get_text()=='2.125 mm'),
+                        owner.value_label.get_text())
         owner.close();b.control.set_text('2');b.control.update()
 
-    def test_guide_pinning_keeps_hover_help_open(self):
+    def test_pointer_card_keeps_alive_across_row_and_popup_then_closes_after_expand(self):
         owner=self.app.parameter_help;b=owner.bindings['module']
-        owner.open(b);pump()
+        b.control.grab_focus();focus=self.app.win.get_focus()
+        emit_motion(b.row_motion,'enter',1.,1.)
+        self.assertTrue(wait_for(lambda: owner.popover is not None and owner.popover.get_mapped()))
+        popup=owner.popover
+        self.assertTrue(popup.get_mapped())
+        self.assertFalse(popup.get_autohide())
+        self.assertEqual(owner.activation,'pointer')
+        self.assertFalse(hasattr(owner,'pin'))
         self.assertIs(owner.body.get_first_child(),owner.diagram_expander)
-        self.assertIs(owner.diagram_expander.get_child(),owner.drawing)
-        self.assertFalse(owner.diagram_expander.get_expanded())
         self.assertFalse(owner.drawing.get_visible())
-        self.assertFalse(owner.pinned)
-        self.assertTrue(owner.details.get_visible())
-        owner.pin.set_active(True);owner.leave()
+        emit_motion(b.row_motion,'leave');pump(LEAVE_DELAY_MS/2000)
+        emit_motion(owner.popup_motion,'enter',1.,1.)
         pump(LEAVE_DELAY_MS/1000+.05)
-        self.assertTrue(owner.popover.get_mapped())
-        self.assertIn('Esc',owner.footer_hint.get_text())
-        owner.pin.set_active(False)
-        self.assertFalse(owner.pinned)
-        self.assertIn('F1',owner.footer_hint.get_text())
+        self.assertIs(owner.popover,popup)
+        owner.diagram_expander.grab_focus()
+        owner.diagram_expander.emit('activate');pump(.15)
+        self.assertTrue(owner.drawing.get_visible())
+        emit_motion(b.row_motion,'leave');emit_motion(b.motion,'leave');emit_motion(owner.popup_motion,'leave')
+        self.assertTrue(wait_for(lambda: owner.popover is None),
+                        (owner.activation,b.over_row,b.over_control,owner.over_popup))
+        self.assertIs(self.app.win.get_focus(),focus)
+        class MousePress:
+            def get_event_type(self):return Gdk.EventType.BUTTON_PRESS
+        b.button_event(None,MousePress());b.button.emit('clicked');pump()
+        self.assertEqual(owner.activation,'pointer')
+        emit_motion(b.row_motion,'leave');emit_motion(b.motion,'leave');emit_motion(owner.popup_motion,'leave')
+        self.assertTrue(wait_for(lambda: owner.popover is None))
+
+    def test_escape_close_suppresses_hover_until_source_leave_reentry(self):
+        owner=self.app.parameter_help;b=owner.bindings['module']
+        emit_motion(b.row_motion,'enter',1.,1.)
+        self.assertTrue(wait_for(lambda: owner.popover is not None and owner.popover.get_mapped()))
+        self.assertTrue(b.key_pressed(None,Gdk.KEY_Escape,0,0))
+        self.assertIsNone(owner.popover)
+        owner.enter(b);pump(HOVER_DELAY_MS/1000+.08)
+        self.assertIsNone(owner.popover)
+        emit_motion(b.row_motion,'leave');emit_motion(b.row_motion,'enter',1.,1.)
+        self.assertTrue(wait_for(lambda: owner.popover is not None and owner.popover.get_mapped()))
+        emit_motion(b.row_motion,'leave')
+
+    def test_section_uses_same_card_and_preserves_parameter_guides_on_rebuild(self):
+        owner=self.app.parameter_help
+        b=owner.section_binding
+        self.assertIsNotNone(b)
+        snapshot=copy.deepcopy((self.app.project_snapshot(),self.app.document.states,self.app.document.index))
+        emit_motion(b.row_motion,'enter',1.,1.)
+        self.assertTrue(wait_for(lambda: owner.popover is not None and owner.popover.get_mapped()))
+        self.assertEqual(owner.title.get_text(),'Model & dimensions')
+        self.assertFalse(owner.diagram_expander.get_visible())
+        self.assertFalse(owner.value_label.get_visible())
+        self.assertIn('Choose',owner.help_for(b).meaning)
+        owner.close();emit_motion(b.row_motion,'leave')
+        parameter=owner.bindings['module'];parameter.open();pump()
+        self.assertIs(owner.active,parameter)
+        self.assertTrue(owner.diagram_expander.get_visible())
+        self.assertEqual((self.app.project_snapshot(),self.app.document.states,self.app.document.index),snapshot)
+        self.app.rebuild_options({'variant':'helical'});pump()
+        self.assertIs(owner.section_binding,b)
+        self.assertIn(b,owner.all_bindings)
 
     def test_compact_diagram_expands_and_really_shrinks_without_project_changes(self):
         a=self.app;owner=a.parameter_help
@@ -128,25 +242,45 @@ class ParameterHelpGuiTests(unittest.TestCase):
             for index,scale in enumerate((1,1.25,1.5)):
                 with self.subTest(parameter=key,text_scale=scale):
                     owner.close();a.text_size.set_selected(index);pump()
-                    b.open();pump(.12)
+                    from gui_workflow import show_page
+                    show_page(a,a.input_pages[key]);b.control.grab_focus();pump()
+                    body=a.pages[a.input_pages[key]];viewport=a.page_scrolls[a.input_pages[key]]
+                    ok,anchor=b.row.compute_bounds(body);self.assertTrue(ok)
+                    viewport.get_vadjustment().clamp_page(max(0,anchor.get_y()-8),
+                                                        anchor.get_y()+anchor.get_height()+8)
+                    def anchor_visible():
+                        ok,rect=b.row.compute_bounds(viewport)
+                        return ok and rect.get_y()>=-1 and rect.get_y()+rect.get_height()<=viewport.get_height()+1
+                    self.assertTrue(wait_for(anchor_visible),'Parameter anchor clipped')
+                    self.assertTrue(b.key_pressed(None,Gdk.KEY_F1,0,0))
+                    self.assertTrue(wait_for(lambda: owner.popover is not None and
+                        owner.popover.get_mapped() and owner.scroll.get_width()>=round(286*scale)))
                     popup=owner.popover;root=b.label.get_root()
-                    self.assertEqual(owner.scroll.get_min_content_width(),round(320*scale))
-                    self.assertGreaterEqual(owner.scroll.get_width(),round(320*scale))
+                    self.assertEqual(owner.scroll.get_min_content_width(),round(286*scale))
+                    self.assertGreaterEqual(owner.scroll.get_width(),round(286*scale))
                     compact=popup.get_width()
                     self.assertEqual(owner.diagram_expander.get_label(),'Show diagram')
                     owner.diagram_expander.grab_focus()
-                    owner.diagram_expander.emit('activate');pump(.18)
+                    owner.diagram_expander.emit('activate')
+                    self.assertTrue(wait_for(lambda: owner.drawing.get_visible() and
+                        popup.get_width()>compact+40*scale))
                     self.assertTrue(owner.diagram_expander.get_expanded())
                     self.assertTrue(owner.drawing.get_visible())
                     self.assertEqual(owner.diagram_expander.get_label(),'Diagram')
                     self.assertGreater(popup.get_width(),compact+40*scale)
-                    self.assertGreaterEqual(owner.drawing.get_width(),round(358*scale))
+                    self.assertGreaterEqual(owner.drawing.get_width(),round(360*scale))
                     self.assertAlmostEqual(owner.drawing.get_height()/owner.drawing.get_width(),220/360,delta=.01)
-                    owner.diagram_expander.emit('activate');pump(.18)
+                    emit_motion(owner.popup_motion,'enter',1.,1.)
+                    emit_motion(owner.popup_motion,'leave');pump(LEAVE_DELAY_MS/1000+.05)
+                    self.assertIs(owner.popover,popup)
+                    self.assertTrue(popup.get_mapped())
+                    owner.diagram_expander.emit('activate')
+                    self.assertTrue(wait_for(lambda: not owner.drawing.get_visible() and
+                        popup.get_width()==compact))
                     self.assertFalse(owner.drawing.get_visible())
                     self.assertEqual(popup.get_width(),compact)
-                    self.assertGreaterEqual(owner.scroll.get_width(),round(320*scale))
-                    self.assertEqual(owner.scroll.get_min_content_width(),round(320*scale))
+                    self.assertGreaterEqual(owner.scroll.get_width(),round(286*scale))
+                    self.assertEqual(owner.scroll.get_min_content_width(),round(286*scale))
                     surface=popup.get_surface()
                     if isinstance(surface,Gdk.Popup):
                         self.assertGreaterEqual(surface.get_position_x(),0)
@@ -170,8 +304,8 @@ class ParameterHelpGuiTests(unittest.TestCase):
             self.assertIs(b.control,a.io_friction_entry)
             before=state()
             with patch.object(a,'rebuild_options',wraps=a.rebuild_options) as rebuild:
-                b.motion.emit('enter',0.,0.);pump(HOVER_DELAY_MS/1000+.08)
-                self.assertTrue(owner.popover.get_mapped())
+                emit_motion(b.motion,'enter',0.,0.)
+                self.assertTrue(wait_for(lambda: owner.popover is not None and owner.popover.get_mapped()))
                 self.assertEqual(owner.value_label.get_text(),'Not specified')
                 self.assertFalse(owner.drawing.get_visible())
                 self.assertFalse(owner.diagram_expander.get_visible())
@@ -204,6 +338,88 @@ class ParameterHelpGuiTests(unittest.TestCase):
                                    parameters=generate('parallel',{}).values))
             show_page(a,'geometry')
             pump()
+
+
+class ParameterHelpIconGuiTests(unittest.TestCase):
+    """Fresh native controls for pixel/allocation checks, separate from draft tests."""
+    @classmethod
+    def setUpClass(cls):
+        ParameterHelpGuiTests.setUpClass.__func__(cls)
+
+    @classmethod
+    def tearDownClass(cls):
+        ParameterHelpGuiTests.tearDownClass.__func__(cls)
+
+    def tearDown(self):
+        ParameterHelpGuiTests.tearDown(self)
+
+    def test_information_vectors_are_centered_in_headings_choices_and_numeric_fields(self):
+        import cairo
+        from pathlib import Path
+        from geometry import generate
+        from gui_workflow import show_page
+        from ratiolab_checks import _wait_for_frame
+        a=self.app
+        a.load_config_data(dict(format='solidcraft-riduttori/1',family='parallel',
+                                parameters=generate('parallel').values))
+        show_page(a,'geometry')
+        # Earlier tests exercise transient invalid numeric drafts; select the
+        # default splitter width explicitly, then keep it strict through focus
+        # and all text scales below.
+        a.workspace_paned.set_position(230)
+        self.assertTrue(wait_for(lambda:a.parameter_panel.get_width()==230))
+        before=copy.deepcopy(a.project_snapshot())
+        for scale in (0,1,2):
+            with self.subTest(scale=scale):
+                a.appearance_button.grab_focus()
+                _wait_for_frame(a.canvas,GLib.MainContext.default())
+                a.text_size.set_selected(scale)
+                _wait_for_frame(a.canvas,GLib.MainContext.default())
+                self.assertEqual(a.parameter_panel.get_width(),230)
+                owner=a.parameter_help
+                for binding in (owner.section_binding,owner.bindings['variant'],
+                                owner.bindings['module'],owner.bindings['width']):
+                    button,glyph=binding.button,binding.glyph
+                    self.assertIs(button.get_child(),glyph)
+                    self.assertIsInstance(glyph,Gtk.DrawingArea)
+                    self.assertEqual(glyph.glyph_name,'help')
+                    self.assertTrue(Gtk.test_accessible_has_property(button,Gtk.AccessibleProperty.LABEL))
+                    self.assertTrue(glyph.get_mapped())
+                    self.assertEqual((glyph.get_width(),glyph.get_height()),(14,14))
+                    ok,area=glyph.compute_bounds(button);self.assertTrue(ok)
+                    self.assertAlmostEqual(area.get_x()+area.get_width()/2,button.get_width()/2,delta=.5)
+                    self.assertAlmostEqual(area.get_y()+area.get_height()/2,button.get_height()/2,delta=.5)
+                    border=button.get_style_context().get_border()
+                    self.assertEqual((border.left,border.right,border.top,border.bottom),(0,0,0,0))
+                    # Inspect actual raster ink, including the circle: its bounds
+                    # must have the same optical center as the14px surface.
+                    paint=Gtk.WidgetPaintable.new(glyph);snapshot=Gtk.Snapshot()
+                    paint.snapshot(snapshot,14,14);node=snapshot.to_node()
+                    self.assertIsNotNone(node)
+                    path=Path(self.temp.name)/'information-vector.png'
+                    a.win.get_renderer().render_texture(node,None).save_to_png(str(path))
+                    surface=cairo.ImageSurface.create_from_png(str(path))
+                    pixels=bytes(surface.get_data());stride=surface.get_stride()
+                    ink=[(x,y) for y in range(14) for x in range(14) if pixels[y*stride+x*4+3]>32]
+                    self.assertTrue(ink)
+                    self.assertAlmostEqual((min(x for x,y in ink)+max(x for x,y in ink))/2,6.5,delta=.5)
+                    self.assertAlmostEqual((min(y for x,y in ink)+max(y for x,y in ink))/2,6.5,delta=.5)
+        control=owner.bindings['pinion'].control
+        control.grab_focus();_wait_for_frame(a.canvas,GLib.MainContext.default())
+        for scale in (0,1,2):
+            with self.subTest(focused_scale=scale):
+                a.text_size.set_selected(scale)
+                _wait_for_frame(a.canvas,GLib.MainContext.default())
+                self.assertEqual(a.parameter_panel.get_width(),230)
+                ok,help_bounds=owner.bindings['pinion'].button.compute_bounds(control);self.assertTrue(ok)
+                child=control.get_first_child()
+                while child:
+                    if isinstance(child,Gtk.Button):
+                        self.assertTrue(child.get_visible())
+                        ok,step=child.compute_bounds(control);self.assertTrue(ok)
+                        self.assertLessEqual(help_bounds.get_x()+help_bounds.get_width(),step.get_x())
+                    child=child.get_next_sibling()
+        self.assertEqual(a.project_snapshot(),before)
 
 
 if __name__ == '__main__':

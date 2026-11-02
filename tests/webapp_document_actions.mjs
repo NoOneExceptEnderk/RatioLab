@@ -28,11 +28,17 @@ globalThis.cancelAnimationFrame=()=>{};
 globalThis.localStorage={getItem:()=>null};
 const documentModule=new vm.SourceTextModule(fs.readFileSync(root+'webapp/document.js','utf8'));
 await documentModule.link(()=>{throw Error('Unexpected document dependency');});await documentModule.evaluate();
+const preferencesModule=new vm.SourceTextModule(fs.readFileSync(root+'webapp/preferences.js','utf8'));
+await preferencesModule.link(()=>{throw Error('Unexpected preference dependency');});await preferencesModule.evaluate();
 const downloads=[],remembered=[];
 const exports={...documentModule.namespace,storage:{readRecovery:()=>null,writeRecovery:()=>true,clearRecovery(){},recent:()=>[],remember:(...v)=>remembered.push(v)},downloadBlob:(blob,name)=>downloads.push({blob,name})};
 const documentImport=new vm.SyntheticModule(Object.keys(exports),function(){for(const [k,v]of Object.entries(exports))this.setExport(k,v);});
 const dependency=(name,value)=>new vm.SyntheticModule([name],function(){this.setExport(name,value);});
-const dependencies={'./document.js':documentImport,'./engine-client.js':dependency('EngineClient',class{}),'./viewer.js':dependency('ModelViewer',class{}),'./tools.js':dependency('initTools',()=>{})};
+const dependencies={'./preferences.js':preferencesModule,'./document.js':documentImport,'./engine-client.js':dependency('EngineClient',class{}),'./viewer.js':dependency('ModelViewer',class{}),'./tools.js':dependency('initTools',()=>{})};
+const languageModule = new vm.SourceTextModule('export const LANGUAGES={}; export async function initLanguage(){return {setLanguage(){}};}');
+await languageModule.link(()=>{}); await languageModule.evaluate();
+dependencies['./ui-language.js']=languageModule;
+
 let source=fs.readFileSync(root+'webapp/app.js','utf8').replace(/setup\(\);\s*$/,'');
 // Avoid renderer/startup work while retaining the actual document action,
 // precision/normalization, lease checks, dialogs, and keyboard handlers.

@@ -235,7 +235,11 @@ def _workspace_check(config, output, runtime=None):
         for controller in (application.interference, application.combination_search, application.components):
             controller.open()
             wait_for(lambda: controller.window is not None and controller.window.get_visible())
+            # Visibility changes synchronously; let the native surface finish
+            # its map/unmap frame before advancing to the next tool lifecycle.
+            _wait_for_frame(application.canvas, context)
             controller.window.close()
+            _wait_for_frame(application.canvas, context)
         _wait_for_frame(application.canvas, context)
         application.export()
         if not application.busy:

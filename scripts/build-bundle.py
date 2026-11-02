@@ -139,6 +139,7 @@ def verify_bundle(bundle, *, gui=False, run=True, check_manifest=True):
                 'ratiolab_resources/icons/hicolor/256x256/apps/local.solidcraft.reducers.png',
                 'ratiolab_resources/bearing-catalog.json',
                 'ratiolab_resources/hardware-catalog.json',
+                'ratiolab_resources/ui-translations.json',
                 'ratiolab_resources/INSTALL.md', 'ratiolab_resources/MCP.md',
                 'ratiolab_resources/CHANGELOG.md', 'ratiolab_resources/version.json',
                 'ratiolab_resources/LICENSE', 'ratiolab_resources/COPYRIGHT',

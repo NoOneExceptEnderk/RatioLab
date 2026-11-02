@@ -91,9 +91,7 @@ class Controller:
             self.window.present()
             return
         from preview3d import Preview3D
-        self.window = Gtk.Window(title='Working backlash · centre distance proposal', transient_for=self.app.win,
-                                 default_width=850, default_height=760)
-        self.window.add_css_class('reducers')
+        self.window = self.app.tools.panel('backlash')
         self.window.connect('close-request', self.window_closed)
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8,
                       margin_start=14, margin_end=14, margin_top=14, margin_bottom=14)
@@ -101,7 +99,7 @@ class Controller:
         box.append(Gtk.Label(label='Preview an exact centre-distance solution. The project changes only when you click Apply.', wrap=True, xalign=0))
         self.context = Gtk.Label(label=self.context_text(), wrap=True, xalign=0)
         box.append(self.context)
-        row = Gtk.Box(spacing=8)
+        row = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         row.append(Gtk.Label(label='Desired working transverse tangential backlash [mm]', wrap=True, xalign=0))
         initial = self.app.design.analysis['meshes'][0]['working_pair_backlash_mm'] if self.supported() else .3
         self.target = Gtk.Entry(hexpand=True, input_purpose=Gtk.InputPurpose.NUMBER)
@@ -110,10 +108,10 @@ class Controller:
         self.target.connect('changed', lambda *_: self.invalidate('Target changed · calculate a new proposal'))
         row.append(self.target)
         box.append(row)
-        advanced = Gtk.Expander(label='Discrete interference settings · complete sampled coverage required for Apply')
+        advanced = Gtk.Expander(label='Discrete interference settings')
         settings = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
         advanced.set_child(settings)
-        controls = Gtk.Box(spacing=8)
+        controls = Gtk.Grid(column_spacing=8, row_spacing=6)
         self.step = Gtk.SpinButton.new_with_range(.1, 180, 5)
         self.step.set_value(30)
         self.seconds = Gtk.SpinButton.new_with_range(1, 3600, 5)
@@ -123,9 +121,9 @@ class Controller:
         for field in (self.step, self.seconds, self.poses):
             bind_numeric_spin(field, integer=field is self.poses)
             set_numeric_value(field, field.get_value())
-        for title, field in [('Step ≤ [deg]', self.step), ('Time limit [s]', self.seconds), ('Pose limit', self.poses)]:
-            controls.append(Gtk.Label(label=title))
-            controls.append(field)
+        for index, (title, field) in enumerate([('Step ≤ [deg]', self.step), ('Time limit [s]', self.seconds), ('Pose limit', self.poses)]):
+            controls.attach(Gtk.Label(label=title, xalign=0), 0, index, 1, 1)
+            controls.attach(field, 1, index, 1, 1)
             field.connect('value-changed', lambda *_: self.invalidate('Check settings changed · calculate a new proposal'))
         settings.append(controls)
         settings.append(Gtk.Label(label='Boundary tolerance 0.01 mm; limits 128 parts / 300,000 triangles. Stop is cooperative. Same-member boundary contacts remain unresolved; intersections always block Apply. Sparse samples do not prove continuous clearance.', wrap=True, xalign=0))
@@ -141,7 +139,7 @@ class Controller:
         box.append(scroll)
         self.progress = Gtk.ProgressBar()
         box.append(self.progress)
-        buttons = Gtk.Box(spacing=8)
+        buttons = Gtk.FlowBox(selection_mode=Gtk.SelectionMode.NONE, max_children_per_line=2, column_spacing=6, row_spacing=6)
         self.run_button = Gtk.Button(label='Calculate & preview')
         self.run_button.connect('clicked', lambda _: self.start())
         self.cancel_button = Gtk.Button(label='Cancel / clear preview')
@@ -152,7 +150,7 @@ class Controller:
         self.save_button.connect('clicked', lambda _: self.export())
         for button in (self.run_button, self.cancel_button, self.apply_button, self.save_button):
             buttons.append(button)
-        box.append(buttons)
+        self.window.pin(buttons)
         self.invalidate('Review the target and sampling settings, then Calculate & preview.')
         self.window.present()
         self.target.grab_focus()

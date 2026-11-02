@@ -19,6 +19,7 @@ class CameraControlsTests(unittest.TestCase):
                                 cwd=ROOT, capture_output=True, text=True, timeout=30)
         self.assertEqual(result.returncode, 0, result.stdout+'\n'+result.stderr)
         self.assertIn('Camera Fit, keyboard orbit and named-view state checks passed.', result.stdout)
+        self.assertIn('Studio overlay and parameter hover lifecycle checks passed.', result.stdout)
 
 
 if __name__ == '__main__':

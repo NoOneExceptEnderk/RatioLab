@@ -139,7 +139,14 @@ class ComponentLabelGuiTests(unittest.TestCase):
             with self.subTest(expanded=expanded):
                 if expanded:
                     a.tools.expand_button.emit('clicked')
-                    self.assertTrue(wait_until(lambda:a.tools.box.get_width()>=a.win.get_width()-8))
+                    # The expanded tool fills the preview inside its floating
+                    # panel margins, rather than extending to the window edge.
+                    self.assertTrue(wait_until(lambda:a.tools.box.get_width()>=a.win.get_width()-32))
+                    ok,panel=a.tools.box.compute_bounds(a.preview_overlay)
+                    self.assertTrue(ok)
+                    self.assertGreaterEqual(panel.get_x(),a.tools.box.get_margin_start()-1)
+                    self.assertLessEqual(panel.get_x()+panel.get_width(),
+                                         a.preview_overlay.get_width()-a.tools.box.get_margin_end()+1)
                 self.assertLessEqual(a.win.get_width(),limit[0]);self.assertLessEqual(a.win.get_height(),limit[1])
                 scroll=c.window.scroll;clip=scroll.get_child();adjustment=scroll.get_vadjustment()
                 scrolled=False
@@ -153,7 +160,15 @@ class ComponentLabelGuiTests(unittest.TestCase):
                         return (ok and target.has_focus() and bounds.get_x()>=-1 and bounds.get_y()>=-1
                             and bounds.get_x()+bounds.get_width()<=clip.get_width()+1
                             and bounds.get_y()+bounds.get_height()<=clip.get_height()+1)
-                    self.assertTrue(wait_until(visible_and_focused),f'{target.get_label()} clipped in tool viewport')
+                    reachable=wait_until(visible_and_focused)
+                    ok,bounds=target.compute_bounds(clip)
+                    bounds_tuple=(bounds.get_x(),bounds.get_y(),bounds.get_width(),bounds.get_height()) if ok else None
+                    self.assertTrue(reachable,
+                        f'{target.get_label()} clipped in tool viewport: expanded={expanded}, '
+                        f'focused={target.has_focus()}, focus={a.win.get_focus()}, '
+                        f'button={bounds_tuple}, clip={clip.get_width()}x{clip.get_height()}, '
+                        f'scroll={scroll.get_width()}x{scroll.get_height()}, '
+                        f'adjustment={adjustment.get_value()}/{adjustment.get_upper()}/{adjustment.get_page_size()}')
                     self.assertTrue(target.get_mapped())
                     if below:self.assertGreater(adjustment.get_value(),0);scrolled=True
                 # At enlarged text in the narrow dock, the real parent scroll

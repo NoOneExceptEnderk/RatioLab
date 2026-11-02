@@ -391,11 +391,16 @@ class CombinationSearchGuiTests(unittest.TestCase):
         self.assertGreater(c.result_scroll.get_height(),80)
         self.assertGreater(c.apply_button.get_height(),20)
         self.assertIs(c.apply_button.get_root(),a.win)
-        self.assertIs(c.envelope_summary.get_parent(),c.status.get_parent())
+        self.assertIs(c.envelope_summary.get_parent(),c.setup.get_child())
+        self.assertTrue(c.status.is_ancestor(c.window.scroll))
+        self.assertFalse(c.status_badge.is_ancestor(c.window.scroll))
         c.setup.set_expanded(True);pump(.1)
         self.assertFalse(c.compare.get_visible())
         self.assertTrue(c.results_button.get_visible())
-        self.assertGreater(c.window.scroll.get_height(),190)
+        # The approved second toolbar and visible RPM transport share the
+        # native window height; keep a usable settings viewport while retaining
+        # the strict result-scroll, focus and horizontal-overflow checks.
+        self.assertGreater(c.window.scroll.get_height(),160)
         c.results_button.emit('clicked');pump(.1)
         self.assertTrue(c.compare.get_visible())
         self.assertGreater(c.result_scroll.get_height(),80)

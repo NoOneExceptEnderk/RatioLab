@@ -103,7 +103,9 @@ class Controller:
             return False
         win.connect('close-request',close)
         if self.result:self.present_result()
-        win.pin(self.coverage,self.status,self.progress,run_actions)
+        from workspace_tools import status_actions
+        status_row,self.status_badge=status_actions(self.status,run_actions)
+        win.pin(status_row,self.progress)
         self.tolerance.set_width_chars(11)
         win.present()
         self.run_button.grab_focus()

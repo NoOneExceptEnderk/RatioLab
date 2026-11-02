@@ -4,7 +4,7 @@
 
 ## Workspace
 
-The application uses the **Technical workspace**: a persistent parameter panel on the left, a dominant 3D preview, a single motion bar and three geometric results below the model. The window displays the RatioLab name and RL icon.
+The application uses the **Technical workspace**: a compact parameter panel on the left with paired primary dimensions and expandable advanced parameters, a dominant 3D preview, a prominent results band below the model and a single motion bar beneath it. **View** and **Tools** open one translucent panel over the right side of the preview, keeping its size and camera unchanged. The window displays the RatioLab name and RL icon.
 
 ![RatioLab technical workspace](../assets/screenshots/workspace.png)
 
@@ -21,16 +21,27 @@ You can continue editing; only the latest matching request replaces the model.
 Export and geometry-dependent tools wait for the accepted result. Explicit
 project loads and refreshes can still take time to finish.
 
-**New**, **Open…**, **Save**, **Save As…**, **Recent…**, **Undo / Redo** and **Export…** stay in the header. The document line shows its full path and any unsaved changes. **CAD integrations** groups SolidCraft and Autodesk Fusion connection, status and creation. The bottom bar provides model status, component count, bill of materials, calculation report and notes. The panel remembers its active tab, advanced section and scroll position when choices rebuild its fields. Linked dimensions explain their source and provide **Change source…** to open the relevant Assembly section.
+The **Project** menu contains **New**, **Open…**, **Save**, **Save As…** and **Recent…**. **Export…** stays in the header; the second toolbar contains **Undo / Redo**, the current model, **Theme** and **Language**. The document line shows its full path and any unsaved changes. **CAD Connections** opens the SolidCraft and Autodesk Fusion connection chooser. After a successful connection, the main action becomes **Import in SolidCraft** or **Import in Fusion**; the arrow remains available to choose another CAD. Connecting does not import a model. The existing document, parameter and connection checks still apply. An eligible **Update to v…** button appears immediately to its left and opens update notes/options. **Tools** includes the bill of materials, calculation report and notes; the bottom bar shows model status and component count. In the browser, **Model** contains family and variant controls; the horizontal **Dimensions**, **Motion** and **Assembly** navigation beneath them selects the parameter section. The desktop app uses the same horizontal **Dimensions**, **Motion** and **Assembly** bar beneath its compact family and variant selectors. The panel remembers its active section, advanced group and scroll position when choices rebuild its fields. Linked dimensions explain their source and provide **Change source…** to open the relevant Assembly section.
 
-With Components, Search or Check open, choose **Expand tool** beside **Tools**
+With an analysis tool open, choose **Expand tool** beside **Tools**
 to give the panel the workspace area. **Restore workspace** returns to the
 previous split positions and view without losing selections or tool inputs.
 Closing the tool or pressing Escape also restores the workspace.
 
-In **View**, choose **Dark** or **Light** under **Theme**. The choice is saved for future sessions and applies immediately to the workspace and its dialogs. **Text size** keeps the selected theme. Appearance settings do not change the project or its history.
+Hover over a parameter or the **Model & dimensions** heading for a compact adjacent guide. Move into the guide to read or expand its original schematic; leaving both the parameter and guide dismisses it. Use the information button or **F1** for keyboard/touch access, and **Escape** or the close button to dismiss. Passive hover does not move input focus.
 
-The **Explode** slider in **View** moves continuously from the assembled pose at **0.00** to the exploded pose at **1.00**. Moving it pauses motion; **Start motion** or **Initial pose** returns to the assembled pose. Explosion affects only the preview: geometry exports and package previews use nominal assembly coordinates. Component selection and surface measurements follow the displayed pose; changing the amount clears existing measurement points.
+Use the **Theme** on/off switch to toggle directly between **Dark** (off, default)
+and **Light** (on), and **Language** to
+change interface labels. The choices match the documentation languages: English,
+Italiano, Español, Français, Deutsch, Português (Portugal), Русский, 简体中文 and
+தமிழ். Both choices apply immediately and are remembered for future sessions.
+They do not change numeric text, units, model identifiers, project files or history.
+Technical explanations, calculation reports and messages without a translation
+remain in English. Desktop preferences are saved in the user profile; web
+preferences are saved for the current browser and site. A failed preference save
+keeps the selection for the current session and displays a notice.
+
+The **Explode** slider in **View** moves continuously from the assembled pose at **0.00** to the exploded pose at **1.00**. Moving it pauses motion; **Play** or **Initial pose** returns to the assembled pose. Explosion affects only the preview: geometry exports and package previews use nominal assembly coordinates. Component selection and surface measurements follow the displayed pose; changing the amount clears existing measurement points.
 
 Invalid input remains visible, with a field message when the generator identifies the cause. Geometry actions are blocked immediately while a geometry update is pending. Invalid geometry stops motion; the last valid model of the same family remains visible with an explicit warning that it does not match the current parameters. An incomplete or unconfirmed RPM entry keeps motion at the last valid speed. Pressing Enter, leaving the speed field or requesting a save/export confirms the entry; failed confirmation shows a field error and blocks geometry exports and CAD transfers until the speed is corrected, while prior motion continues. No automatic correction replaces an invalid numeric entry on focus loss.
 
@@ -187,9 +198,9 @@ opened directly. No crown/pinion input stage, belts, pulleys or motors are gener
 
 Drag to rotate, scroll to zoom, and double click or use Fit to reset the camera. **Supports**, **Housing**, **Exploded** and **Section** control the view. Cycloidal output pins remain visible when Supports is disabled, in both single and dual disc variants.
 
-Use the single motion bar below the preview: **Start motion / Pause**, a precise RPM entry, **Adjust** and **Initial pose**. Adjust opens a progressive RPM slider and ±1 controls; playback is not duplicated in that popover. Press Enter or leave the entry to apply; both decimal points and commas are accepted. All inputs at zero freeze the phase. Changing only valid RPM preserves the current phase.
+Use the motion controls below the results: **Play / Pause**, **Initial pose**, a precise RPM entry, the progressive RPM slider and ±1 controls. **Rate info** opens the current motion convention; **I/O connections** opens the Motion parameters. The reference phase is a readout of the current preview. Press Enter or leave the entry to apply; both decimal points and commas are accepted. All inputs at zero freeze the phase. Changing only valid RPM preserves the current phase.
 
-Closing Adjust does not stop playback. Starting motion returns from exploded view to the assembly pose. At high speeds, video sampling may cause visual aliasing.
+Closing Rate info does not stop playback. Starting motion returns from exploded view to the assembly pose. At high speeds, video sampling may cause visual aliasing.
 
 Animation illustrates kinematics. It does not verify continuous contact, collisions, force, fatigue or usable travel. CAD and STL exports use the nominal assembly pose; a complete export resets the preview before saving the PNG.
 

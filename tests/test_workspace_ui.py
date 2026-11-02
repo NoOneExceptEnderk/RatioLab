@@ -78,18 +78,325 @@ class WorkspaceTests(unittest.TestCase):
 
     def setUp(self):
         a = self.app
+        a.parameter_help.close()
         a.motion_input_invalid = False
         a.load_config_data({'format':'solidcraft-riduttori/1','family':'planetary',
                             'parameters':generate('planetary').values})
         gui_workflow.show_page(a,'geometry')
-        pump(.02)
+        a.workspace_paned.set_position(230)
+        from ratiolab_checks import _wait_for_frame
+        _wait_for_frame(a.canvas,GLib.MainContext.default())
+
+    def test_family_roundtrip_keeps_default_and_explicit_sidebar_width(self):
+        from test_interference_gui import wait_until
+        a=self.app
+        def allocated(width):
+            ready=wait_until(lambda:a.parameter_panel.get_width()==width,3)
+            detail=(f'position={a.workspace_paned.get_position()}, '
+                    f'max={a.workspace_paned.get_property("max-position")}, '
+                    f'width={a.workspace_paned.get_width()}, '
+                    f'right_min={a.workspace_paned.get_end_child().measure(Gtk.Orientation.HORIZONTAL,-1)[0]}')
+            self.assertTrue(ready,detail)
+            self.assertEqual(a.parameter_panel.get_width(),width)
+            self.assertTrue(a.canvas.gl)
+            self.assertFalse(a.canvas.failure)
+        for width in (230,330):
+            a.workspace_paned.set_position(width);allocated(width)
+            for family in FAMILIES:
+                with self.subTest(width=width,family=family):
+                    a.load_config_data(dict(format='solidcraft-riduttori/1',family=family,
+                                            parameters=generate(family).values))
+                    pump(.1);allocated(width)
+            a.load_config_data(dict(format='solidcraft-riduttori/1',family='parallel',
+                                    parameters=generate('parallel').values))
+            pump(.1);allocated(width)
+        a.workspace_paned.set_position(230);allocated(230)
+
+    def test_worm_motion_actions_fit_default_and_manual_sidebar_at_all_text_sizes(self):
+        from test_interference_gui import wait_until
+        a=self.app
+        a.load_config_data(dict(format='solidcraft-riduttori/1',family='worm',
+                                parameters=generate('worm',dict(worm_static_friction=.2)).values))
+        a.motion_connections.emit('clicked')
+        self.assertEqual(a.fields.get_visible_child_name(),'motion')
+        # Finish focus-loss commits and any accepted geometry request before
+        # checking that presentation-only changes preserve object identity.
+        a.io_friction_apply.grab_focus()
+        self.assertTrue(wait_until(lambda:not a.pending and not a._geometry_waiting
+                                  and a.design is not None and a.design.family=='worm',3))
+        before=a.project_snapshot(),a.document.token,a.design
+        try:
+            for scale in (0,1,2):
+                a.text_size.set_selected(scale)
+                for width in (230,330):
+                    with self.subTest(scale=scale,width=width):
+                        a.workspace_paned.set_position(width)
+                        self.assertTrue(wait_until(lambda:a.parameter_panel.get_width()==width,3),
+                                        f'actual={a.parameter_panel.get_width()} position={a.workspace_paned.get_position()}')
+                        for button,caption in ((a.io_friction_apply,'Apply coefficient'),
+                                               (a.io_friction_clear,'Clear coefficient · unknown')):
+                            self.assertEqual(button.get_label(),caption)
+                            self.assertTrue(button.get_child().get_wrap())
+                            button.grab_focus()
+                            self.assertTrue(wait_until(lambda:button.has_focus(),1))
+                            pump(.03)
+                            self.assertEqual(a.parameter_panel.get_width(),width)
+                            ok,bounds=button.compute_bounds(a.parameter_panel)
+                            self.assertTrue(ok)
+                            self.assertGreaterEqual(bounds.get_x(),0)
+                            self.assertLessEqual(bounds.get_x()+bounds.get_width(),width)
+                            self.assertFalse(button.get_child().get_layout().is_ellipsized())
+                        for button in a.page_buttons.values():
+                            self.assertTrue(button.get_visible())
+                            self.assertTrue(button.get_parent().get_visible())
+                            ok,bounds=button.compute_bounds(a.parameter_panel)
+                            self.assertTrue(ok)
+                            self.assertGreaterEqual(bounds.get_x(),0)
+                            self.assertLessEqual(bounds.get_x()+bounds.get_width(),width)
+                            self.assertFalse(button.get_child().get_layout().is_ellipsized())
+            self.assertEqual(a.project_snapshot(),before[0])
+            self.assertEqual(a.document.token,before[1])
+            self.assertIs(a.design,before[2])
+            self.assertTrue(a.canvas.gl)
+            self.assertFalse(a.canvas.failure)
+        finally:
+            a.text_size.set_selected(0)
+            a.workspace_paned.set_position(230)
+            pump(.1)
+
+    def test_preview_fidelity_sidebar_pairs_header_and_visible_rate_slider(self):
+        a=self.app
+        a.load_config_data(dict(format='solidcraft-riduttori/1',family='parallel',parameters=generate('parallel').values))
+        pump(.15)
+        self.assertEqual(a.parameter_panel.get_width(),230)
+        for first,second in [('pinion','wheel'),('module','width')]:
+            self.assertIs(a.field_containers[first].get_parent(),a.field_containers[second].get_parent())
+            self.assertTrue(a.field_containers[first].get_parent().has_css_class('parameter-pair'))
+        self.assertEqual(a.advanced_expander.get_label(),'Advanced tooth geometry')
+        self.assertEqual(a.extra_geometry_expander.get_label(),'All model parameters')
+        self.assertTrue(a.undo_button.is_ancestor(a.secondary_toolbar))
+        self.assertTrue(a.motion_speed.get_mapped())
+        self.assertTrue(a.page_buttons['geometry'].get_visible())
+        self.assertEqual(a.project_menu.get_label(),'Project')
+        a.extra_geometry_expander.set_expanded(True)
+        a.geometry_group_boxes['shafts']._section.set_expanded(False)
+        a.rebuild_options({});pump(.1)
+        self.assertTrue(a.extra_geometry_expander.get_expanded())
+        self.assertFalse(a.geometry_group_boxes['shafts']._section.get_expanded())
+        a.error_field='bore';gui_workflow.reveal_error(a);pump(.1)
+        self.assertTrue(a.extra_geometry_expander.get_expanded())
+        self.assertTrue(a.geometry_group_boxes['shafts']._section.get_expanded())
+        self.assertTrue(a.inputs['bore'].get_mapped())
+
+    def test_compact_inputs_keep_inside_help_units_and_native_stepping(self):
+        from gi.repository import Gtk
+        a=self.app
+        a.load_config_data(dict(format='solidcraft-riduttori/1',family='parallel',parameters=generate('parallel').values))
+        # Verify the unfocused appearance before exercising focused stepping.
+        a.appearance_button.grab_focus();pump(.2)
+        for key in ('pinion','wheel','module','width'):
+            with self.subTest(key=key):
+                spin=a.inputs[key];binding=a.parameter_help.bindings[key]
+                self.assertEqual(binding.label.get_layout().get_line_count(),1)
+                self.assertEqual(spin.get_alignment(),0)
+                self.assertIsInstance(binding.button.get_child(),Gtk.DrawingArea)
+                self.assertEqual(binding.button.get_child().glyph_name,'help')
+                ok,icon=binding.button.compute_bounds(spin);self.assertTrue(ok)
+                self.assertGreaterEqual(icon.get_x(),0)
+                self.assertLessEqual(icon.get_x()+icon.get_width(),spin.get_width())
+                child=spin.get_first_child()
+                while child:
+                    if isinstance(child,Gtk.Button):self.assertFalse(child.get_visible())
+                    child=child.get_next_sibling()
+        spin=a.inputs['pinion'];spin.grab_focus()
+        from ratiolab_checks import _wait_for_frame
+        _wait_for_frame(a.canvas,GLib.MainContext.default())
+        buttons=[];child=spin.get_first_child()
+        while child:
+            if isinstance(child,Gtk.Button):buttons.append(child)
+            child=child.get_next_sibling()
+        self.assertTrue(buttons and all(button.get_visible() for button in buttons))
+        binding=a.parameter_help.bindings['pinion']
+        ok,help_bounds=binding.button.compute_bounds(spin);self.assertTrue(ok)
+        for button in buttons:
+            ok,step_bounds=button.compute_bounds(spin);self.assertTrue(ok)
+            self.assertLessEqual(help_bounds.get_x()+help_bounds.get_width(),step_bounds.get_x())
+        self.assertEqual(a.parameter_panel.get_width(),230)
+        before=spin.get_value()
+        spin.spin(Gtk.SpinType.STEP_FORWARD,1)
+        self.assertEqual(spin.get_value(),before+1)
+        a.appearance_button.grab_focus();pump(.3)
+        binding=a.parameter_help.bindings['module'];binding.open();pump(.15)
+        popup=a.parameter_help.popover
+        ok,sidebar=a.parameter_panel.compute_bounds(a.win);self.assertTrue(ok)
+        ok,card=popup.get_child().compute_bounds(popup);self.assertTrue(ok)
+        # The popup surface includes its large native shadow; the actual card
+        # starts beyond the entire sidebar, including both paired controls.
+        self.assertGreaterEqual(popup.get_surface().get_position_x()+card.get_x(),sidebar.get_x()+sidebar.get_width()+10)
+        a.parameter_help.close()
+        self.assertLessEqual(a.motion_speed.get_height(),32)
+
+    def test_sidebar_captions_align_at_all_text_sizes_and_history_icons_are_local(self):
+        from gi.repository import Gtk, Pango
+        a=self.app
+        a.load_config_data(dict(format='solidcraft-riduttori/1',family='parallel',parameters=generate('parallel').values))
+        a.workspace_paned.set_position(230)
+        # Expanded settings must retain the same usable sidebar minimum too.
+        a.advanced_expander.set_expanded(True)
+        a.extra_geometry_expander.set_expanded(True)
+        a.geometry_group_boxes['shafts']._section.set_expanded(True)
+        a.inputs['pinion'].grab_focus()
+        restore=a.advanced_fields.get_last_child()
+        self.assertEqual(restore.get_label(),'Restore model defaults')
+        self.assertTrue(restore.get_child().get_wrap())
+        try:
+            for scale in (0,1,2):
+                with self.subTest(scale=scale):
+                    a.text_size.set_selected(scale)
+                    from ratiolab_checks import _wait_for_frame
+                    _wait_for_frame(a.canvas,GLib.MainContext.default())
+                    self.assertEqual(a.parameter_panel.get_width(),230)
+                    self.assertTrue(a.advanced_expander.get_expanded())
+                    self.assertTrue(a.extra_geometry_expander.get_expanded())
+                    self.assertTrue(a.geometry_group_boxes['shafts']._section.get_expanded())
+                    focused=a.inputs['pinion'];binding=a.parameter_help.bindings['pinion']
+                    ok,help_bounds=binding.button.compute_bounds(focused);self.assertTrue(ok)
+                    child=focused.get_first_child()
+                    while child:
+                        if isinstance(child,Gtk.Button):
+                            self.assertTrue(child.get_visible())
+                            ok,step_bounds=child.compute_bounds(focused);self.assertTrue(ok)
+                            self.assertLessEqual(help_bounds.get_x()+help_bounds.get_width(),step_bounds.get_x())
+                        child=child.get_next_sibling()
+                    for first,second in (('pinion','wheel'),('module','width')):
+                        one,two=a.inputs[first],a.inputs[second]
+                        ok,before=one.compute_bounds(a.parameter_panel);self.assertTrue(ok)
+                        ok,after=two.compute_bounds(a.parameter_panel);self.assertTrue(ok)
+                        self.assertEqual(round(before.get_y()),round(after.get_y()))
+                        self.assertAlmostEqual(one.get_pango_context().get_font_description().get_size()/Pango.SCALE,
+                                               12*(1,1.25,1.5)[scale],delta=.01)
+                        if scale==0:
+                            self.assertEqual(round(before.get_height()),34)
+                            for key in (first,second):
+                                label=a.parameter_help.bindings[key].label
+                                self.assertEqual(label.get_layout().get_line_count(),1)
+                                self.assertEqual(label.get_ellipsize(),0)
+            for button,name in ((a.undo_button,'undo'),(a.redo_button,'redo'),
+                                (a.project_menu,'folder'),(a.cad_action,'plug'),(a.export_menu,'download')):
+                self.assertIsInstance(button.workspace_icon,Gtk.DrawingArea)
+                self.assertEqual(button.workspace_icon.glyph_name,name)
+                self.assertEqual(button.workspace_icon.get_sensitive(),button.get_sensitive())
+            a.text_size.set_selected(0)
+            _wait_for_frame(a.canvas,GLib.MainContext.default())
+            ok,chip=a.family_chip.compute_bounds(a.secondary_toolbar);self.assertTrue(ok)
+            self.assertEqual(round(chip.get_height()),24)
+            ok,choice=a.selector.compute_bounds(a.parameter_panel);self.assertTrue(ok)
+            self.assertEqual(round(choice.get_height()),22)
+            self.assertTrue(a.advanced_expander.has_css_class('geometry-disclosure'))
+            self.assertTrue(a.extra_geometry_expander.has_css_class('geometry-disclosure'))
+        finally:
+            a.text_size.set_selected(0)
+            from ratiolab_checks import _wait_for_frame
+            _wait_for_frame(a.canvas,GLib.MainContext.default())
+
+    def test_reference_phase_counter_tracks_actual_motion_without_document_edits(self):
+        from math import degrees
+        a=self.app;token=a.document.token;configuration=a.config()
+        a.canvas.set_motion_playing(True);pump(.08)
+        a.canvas.set_motion_playing(False);pump(.02)
+        self.assertEqual(a.motion_phase_label.get_text(),f'Reference phase · {degrees(a.canvas.motion_phase)%360:.1f}°')
+        self.assertEqual(a.document.token,token)
+        self.assertEqual(a.config(),configuration)
+
+    def test_results_precede_motion_and_section_heading_exists(self):
+        a=self.app
+        self.assertIs(a.metric_cards.get_next_sibling(),a.motion_bar)
+        self.assertEqual(a.model_dimensions_heading.get_text(),'Family')
+        self.assertEqual([a.page_buttons[k].get_label() for k in ('geometry','motion','assembly')],['Dimensions','Motion','Assembly'])
+        self.assertIs(a.model_picker.get_next_sibling(),a.section_nav)
+
+    def test_reference_details_header_metrics_and_transport_layout(self):
+        from ratiolab_checks import _wait_for_frame
+        from gi.repository import Pango
+        a=self.app
+        a.text_size.set_selected(0)
+        _wait_for_frame(a.canvas,GLib.MainContext.default())
+        self.assertEqual(a.metric_cards.get_column_spacing(),0)
+        ok,metrics=a.metric_cards.compute_bounds(a.win);self.assertTrue(ok)
+        ok,transport=a.motion_bar.compute_bounds(a.win);self.assertTrue(ok)
+        self.assertGreaterEqual(metrics.get_height()+transport.get_height(),175)
+        self.assertLessEqual(metrics.get_height()+transport.get_height(),190)
+        number=a.metric_cards.get_child_at_index(0).get_child().get_first_child().get_next_sibling().get_first_child()
+        self.assertEqual(number.get_pango_context().get_font_description().get_size()/Pango.SCALE,28)
+        self.assertEqual(a.export_menu.get_label(),'Export')
+        for action in (a.project_menu,a.cad_split,a.export_menu):
+            ok,rect=action.compute_bounds(a.win);self.assertTrue(ok)
+            self.assertLessEqual(rect.get_height(),36)
+        ok,main=a.cad_action.compute_bounds(a.cad_split);self.assertTrue(ok)
+        ok,arrow=a.cad_menu.compute_bounds(a.cad_split);self.assertTrue(ok)
+        self.assertEqual(round(main.get_height()),round(arrow.get_height()))
+        self.assertFalse(a.workspace_paned.get_wide_handle())
+        self.assertEqual(a.motion_speed_text.get_width_chars(),7)
+        self.assertEqual(a.motion_speed_text.get_max_width_chars(),7)
+        self.assertEqual(a.motion_speed_text.get_max_length(),0)
+        row=a.motion_bar.get_first_child();rate=row.get_next_sibling()
+        self.assertTrue(a.motion_play.is_ancestor(row))
+        self.assertIs(a.motion_speed_text.get_parent(),rate)
+        self.assertIs(a.motion_phase_label.get_parent(),row)
+        self.assertTrue(a.motion_connections.is_ancestor(row))
+        self.assertTrue(a.motion_reset.has_css_class('flat'))
+        self.assertFalse(a.motion_play.has_css_class('flat'))
+        self.assertEqual(a.motion_play.get_pango_context().get_font_description().get_size()/Pango.SCALE,14)
+        a.canvas.set_motion_playing(False)
+        self.assertEqual(a.motion_play.workspace_icon.glyph_name,'play')
+        a.motion_play.emit('clicked')
+        self.assertEqual(a.motion_play.workspace_icon.glyph_name,'pause')
+        a.motion_play.emit('clicked')
+        self.assertEqual(a.motion_play.workspace_icon.glyph_name,'play')
+        a.motion_reset.emit('clicked')
+        children=[];child=rate.get_first_child()
+        while child:
+            if child is a.motion_speed_text or isinstance(child,Gtk.Button) and child.get_label() in ('−1','+1'):
+                children.append(child)
+            child=child.get_next_sibling()
+        self.assertEqual([w.get_label() if isinstance(w,Gtk.Button) else 'entry' for w in children],['−1','entry','+1'])
+        self.assertTrue(children[0].has_css_class('flat'));self.assertTrue(children[2].has_css_class('flat'))
+        original=a.motion_speed_text.get_text();raw='12.3456789012345'
+        try:
+            a.motion_speed_text.set_text(raw);a.motion_speed_text.emit('activate')
+            self.assertEqual(a.motion_speed_text.get_text(),raw)
+            self.assertEqual(a.motion_rpm,float(raw))
+        finally:
+            a.motion_speed_text.set_text(original);a.motion_speed_text.emit('activate')
+
+    def test_status_tooltip_only_repeats_ellipsized_text(self):
+        from unittest.mock import Mock
+        from test_interference_gui import wait_until
+        from workspace_ui import StatusLabel
+        a=self.app;label=a.status;original=label.get_text()
+        self.assertIsInstance(label,StatusLabel)
+        tooltip=Mock()
+        try:
+            a.status_text('Ready');pump(.05)
+            self.assertFalse(label.get_layout().is_ellipsized())
+            self.assertFalse(label.do_query_tooltip(0,0,False,tooltip))
+            tooltip.set_text.assert_not_called()
+            full='Detailed status retained for accessibility and export diagnostics. '*40
+            a.status_text(full)
+            self.assertTrue(wait_until(lambda:label.get_layout().is_ellipsized(),3))
+            self.assertTrue(label.do_query_tooltip(0,0,False,tooltip))
+            tooltip.set_text.assert_called_once_with(full)
+            self.assertEqual(label.get_text(),full)
+            self.assertEqual(label.get_tooltip_text(),full)
+        finally:a.status_text(original)
 
     def test_single_motion_bar_and_separate_cad_menu(self):
         a = self.app
         self.assertIs(a.quick_play, a.motion_play)
-        self.assertIs(a.motion_play.get_parent(), a.motion_speed_text.get_parent())
+        self.assertTrue(a.motion_play.is_ancestor(a.motion_bar))
+        self.assertTrue(a.motion_speed_text.is_ancestor(a.motion_bar))
         self.assertTrue(a.send_btn.is_ancestor(a.cad_menu.get_popover()))
-        self.assertIs(a.export_menu.get_parent(), a.cad_menu.get_parent())
+        self.assertTrue(a.export_menu.is_ancestor(a.cad_split.get_parent()))
         self.assertEqual(a.selector.get_model().get_n_items(), len(FAMILIES))
         self.assertEqual(a.geometry_derived['planets'].get_text(),'54')
 

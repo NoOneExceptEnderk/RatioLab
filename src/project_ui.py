@@ -467,6 +467,7 @@ class ProjectActions:
             box.append(Gtk.Label(label='No recent projects'))
         for path in paths:
             button = Gtk.Button()
+            button._ratiolab_no_translate = True
             content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
             content.append(Gtk.Label(label=Path(path).name+(' · Missing' if not Path(path).is_file() else ''),
                                      xalign=0, ellipsize=Pango.EllipsizeMode.MIDDLE, css_classes=['action-title']))

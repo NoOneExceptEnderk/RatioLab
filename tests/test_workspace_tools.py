@@ -83,11 +83,11 @@ class ToolWorkspaceTests(unittest.TestCase):
     def test_closed_dock_gives_space_back_to_model(self):
         a=self.app
         self.assertFalse(a.tools.box.get_visible())
-        # Preserve the original 470px viewport at 800px while allowing the same
-        # maximum 330px of chrome when the desktop allocates a shorter window.
-        self.assertGreaterEqual(a.canvas.get_height(),max(250,a.win.get_height()-330),self.layout_budget())
+        # The approved second toolbar and visible transport/rate rows share
+        # the native window height with the model; retain a usable 3D area.
+        self.assertGreaterEqual(a.canvas.get_height(),max(250,a.win.get_height()-420),self.layout_budget())
         width=a.canvas.get_width();a.components.open();pump(.05)
-        self.assertLess(a.canvas.get_width(),width);self.assertEqual(a.tools.active,'components')
+        self.assertEqual(a.canvas.get_width(),width);self.assertEqual(a.tools.active,'components')
         a.tools.close_current();pump(.05)
         self.assertIsNone(a.components.window);self.assertFalse(a.tools.box.get_visible())
         self.assertEqual(a.canvas.get_width(),width)
@@ -174,7 +174,7 @@ class ToolWorkspaceTests(unittest.TestCase):
                     self.assertLessEqual(a.win.get_width(),self.window_limit[0],self.layout_budget())
                     self.assertLessEqual(a.win.get_height(),self.window_limit[1],self.layout_budget())
                     self.assertGreater(a.canvas.get_width(),250)
-                    for control in (a.tools.menu,a.export_menu,a.cad_menu,a.pick_mode,a.motion_reset):
+                    for control in (a.tools.menu,a.export_menu,a.cad_menu,a.motion_reset):
                         ok,rect=control.compute_bounds(a.win)
                         self.assertTrue(ok)
                         self.assertGreaterEqual(rect.get_x(),0)
@@ -207,8 +207,9 @@ class ToolWorkspaceTests(unittest.TestCase):
         visibility=(a.parameter_panel.get_visible(),a.preview_overlay.get_visible(),a.workspace_extras.get_visible())
         child_visible=a.warning_bar.get_visible()
         a.tools.expand_button.emit('clicked');self.assertTrue(a.tools.expanded)
-        self.wait_for(lambda:a.tools.box.get_width()>=a.win.get_width()-8)
-        for parent in (a.parameter_panel,a.preview_overlay,a.workspace_extras):self.assertFalse(parent.get_visible())
+        self.wait_for(lambda:a.tools.box.get_width()>=a.win.get_width()-32)
+        for parent in (a.parameter_panel,a.canvas,a.workspace_extras):self.assertFalse(parent.get_visible())
+        self.assertTrue(a.preview_overlay.get_visible())
         self.assertEqual(a.warning_bar.get_visible(),child_visible)
         # New child state while the parent is hidden must remain current.
         a.warning_bar.set_visible(not child_visible)
@@ -230,14 +231,14 @@ class ToolWorkspaceTests(unittest.TestCase):
         self.assertEqual(a.combination_search.fields['target'].get_text(),'7.125')
         a.components.open();self.assertIs(a.components.window,components);self.assertEqual(a.components.selected,(0,))
         search.close();self.assertTrue(a.tools.expanded);self.assertEqual(a.tools.active,'components')
-        self.assertFalse(a.parameter_panel.get_visible());self.assertFalse(a.preview_overlay.get_visible())
+        self.assertFalse(a.parameter_panel.get_visible());self.assertFalse(a.canvas.get_visible())
         a.tools.expand_button.emit('clicked');self.wait_for(lambda:not a.tools.restoring)
         self.assertEqual(a.components.selected,(0,))
 
     def test_restore_then_close_same_frame_keeps_normal_reopen_width(self):
         a=self.app;a.components.open();a.viewport_paned.set_position(450);pump(.05)
         normal=a.tools.box.get_width();a.tools.expand_button.emit('clicked')
-        self.wait_for(lambda:a.tools.box.get_width()>=a.win.get_width()-8)
+        self.wait_for(lambda:a.tools.box.get_width()>=a.win.get_width()-32)
         self.assertGreater(a.tools.box.get_width(),normal)
         a.tools.expand_button.emit('clicked');a.tools.close_button.emit('clicked')
         self.assertFalse(a.tools.expanded);self.assertIsNone(a.components.window)
@@ -272,7 +273,7 @@ class ToolWorkspaceTests(unittest.TestCase):
                         normal_height=controller.window.scroll.get_height()
                         a.tools.expand_button.emit('clicked')
                         try:
-                            self.wait_for(lambda:a.tools.box.get_width()>=a.win.get_width()-8 and controller.window.scroll.get_height()>0)
+                            self.wait_for(lambda:a.tools.box.get_width()>=a.win.get_width()-32 and controller.window.scroll.get_height()>0)
                             self.next_frame()
                             self.assertLessEqual(a.win.get_width(),self.window_limit[0],self.layout_budget())
                             self.assertLessEqual(a.win.get_height(),self.window_limit[1],self.layout_budget())
@@ -288,6 +289,135 @@ class ToolWorkspaceTests(unittest.TestCase):
                         finally:
                             a.tools.restore_workspace();self.wait_for(lambda:not a.tools.restoring)
         a.text_size.set_selected(0)
+
+    def test_reference_controls_use_local_vectors_and_separate_buttons(self):
+        a=self.app
+        self.assertFalse(hasattr(a,'help_button'))
+        self.assertFalse(hasattr(a,'app_guide'))
+        buttons=(a.view_menu,a.tools.menu,a.language_menu)
+        for button,name in zip(buttons,('sliders','wrench','globe')):
+            with self.subTest(glyph=name):
+                self.assertTrue(button.get_mapped())
+                self.assertIsInstance(button.workspace_icon,Gtk.DrawingArea)
+                self.assertEqual(button.workspace_icon.glyph_name,name)
+                self.assertEqual(button.workspace_icon.get_width(),16)
+                self.assertEqual(button.workspace_icon.get_height(),16)
+                self.assertTrue(button.workspace_icon.is_ancestor(button.get_parent()))
+        self.assertEqual([button.get_label() for button in buttons],['View','Tools','Language'])
+        self.assertIsInstance(a.theme_switch,Gtk.Switch)
+        self.assertTrue(a.theme_switch.get_mapped())
+        self.assertFalse(hasattr(a,'settings'))
+        self.assertEqual(a.preview_toolbar.get_spacing(),6)
+        ok,view=a.view_menu.compute_bounds(a.preview_toolbar);self.assertTrue(ok)
+        ok,tools=a.tools.menu.compute_bounds(a.preview_toolbar);self.assertTrue(ok)
+        self.assertEqual(round(tools.get_x()-view.get_x()-view.get_width()),6)
+        self.assertEqual(round(view.get_height()),34)
+        self.assertEqual(round(tools.get_height()),34)
+        self.assertEqual(round(a.preview_toolbar.get_height()),34)
+        for button in buttons:
+            # GTK button coordinates start inside padding/borders. Compare
+            # both real allocations in their shared wrapper instead.
+            wrapper=button.get_parent()
+            ok,icon=button.workspace_icon.compute_bounds(wrapper);self.assertTrue(ok)
+            ok,action=button.compute_bounds(wrapper);self.assertTrue(ok)
+            self.assertGreaterEqual(icon.get_x(),action.get_x())
+            self.assertLessEqual(icon.get_x()+icon.get_width(),action.get_x()+action.get_width())
+        # Both original toggle actions still control their real overlays.
+        a.view_menu.emit('clicked');pump(.05)
+        self.assertTrue(a.view_panel.get_visible());self.assertTrue(a.view_menu.get_active())
+        a.tools.menu.emit('clicked');pump(.05)
+        self.assertTrue(a.tools.box.get_visible());self.assertTrue(a.tools.menu.get_active())
+        self.assertFalse(a.view_menu.get_active());self.assertFalse(a.view_panel.get_visible())
+        a.tools.close_current()
+
+    def test_reference_tool_chooser_uses_local_vectors_and_compact_rows(self):
+        a=self.app
+        a.tools.menu.set_active(True);pump(.1)
+        try:
+            self.assertEqual(len(a.tools.command_buttons),8)
+            for button in a.tools.command_buttons:
+                with self.subTest(action=button.get_label()):
+                    self.assertIsInstance(button.workspace_icon,Gtk.DrawingArea)
+                    self.assertEqual(button.workspace_icon.get_width(),16)
+                    self.assertEqual(button.workspace_icon.get_height(),16)
+                    row=button.get_parent()
+                    ok,rect=button.compute_bounds(row);self.assertTrue(ok)
+                    self.assertEqual(round(rect.get_height()),41)
+                    ok,icon=button.workspace_icon.compute_bounds(row);self.assertTrue(ok)
+                    ok,text=button.get_child().compute_bounds(row);self.assertTrue(ok)
+                    self.assertEqual(round(text.get_x()-icon.get_x()-icon.get_width()),6)
+        finally:a.tools.close_current()
+
+    def test_tools_button_chooser_back_and_view_keep_actual_forms(self):
+        a=self.app;tools=a.tools
+        width,height=a.canvas.get_width(),a.canvas.get_height()
+        token=a.document.token;scene=a.canvas.scene
+        tools.menu.emit('clicked');pump(.05)
+        self.assertTrue(tools.menu.get_active());self.assertTrue(tools.box.get_visible())
+        self.assertEqual(tools.stack.get_visible_child_name(),'chooser')
+        self.assertFalse(tools.back_button.get_visible())
+        self.assertFalse(tools.expand_button.get_visible())
+        self.assertEqual(set(tools.controllers),{'components','search','interference','gear_measurement','backlash'})
+        rows=[];row=tools.commands.get_first_child()
+        while row:
+            rows.append(row.get_child());row=row.get_next_sibling()
+        self.assertEqual(rows[:5],[tools.controllers[key].button for key in
+            ('components','search','interference','gear_measurement','backlash')])
+        self.assertEqual(len(tools.command_buttons),8)
+        self.assertTrue({'Bill of materials','Calculation report','Model notes'} <= {button.get_label() for button in tools.command_buttons})
+        for controller in tools.controllers.values():
+            self.assertTrue(controller.button.is_ancestor(tools.commands))
+        a.combination_search.button.emit('clicked');pump(.05)
+        panel=a.combination_search.window
+        a.combination_search.fields['target'].set_text('7.125')
+        self.assertEqual(tools.stack.get_visible_child_name(),'search')
+        self.assertTrue(tools.back_button.get_visible());self.assertTrue(tools.menu.get_active())
+        tools.back_button.emit('clicked');pump(.05)
+        self.assertEqual(tools.stack.get_visible_child_name(),'chooser')
+        tools.close_button.emit('clicked');pump(.05)
+        self.assertFalse(tools.menu.get_active());self.assertFalse(tools.box.get_visible())
+        self.assertIs(a.combination_search.window,panel)
+        tools.menu.emit('clicked');a.combination_search.button.emit('clicked');pump(.05)
+        self.assertEqual(a.combination_search.fields['target'].get_text(),'7.125')
+        tools.expand_button.emit('clicked');self.assertTrue(tools.expanded)
+        a.view_menu.set_active(True);pump(.1)
+        self.assertFalse(tools.expanded);self.assertFalse(tools.menu.get_active())
+        self.assertTrue(a.view_panel.get_visible());self.assertFalse(tools.box.get_visible())
+        tools.menu.emit('clicked');pump(.05)
+        self.assertFalse(a.view_menu.get_active());self.assertFalse(a.view_panel.get_visible())
+        self.assertEqual(tools.stack.get_visible_child_name(),'chooser')
+        a.combination_search.button.emit('clicked');pump(.05)
+        self.assertIs(a.combination_search.window,panel)
+        self.assertEqual(a.combination_search.fields['target'].get_text(),'7.125')
+        self.assertEqual((a.canvas.get_width(),a.canvas.get_height()),(width,height))
+        self.assertEqual(a.document.token,token);self.assertEqual(id(a.canvas.scene),id(scene))
+        tools.close_current();pump(.05)
+        self.assertIsNone(a.combination_search.window)
+        self.assertFalse(tools.menu.get_active());self.assertFalse(tools.box.get_visible())
+
+    def test_view_and_all_tools_overlay_preserve_camera_viewport_and_drafts(self):
+        a=self.app
+        a.canvas.view('front');pump(.05)
+        a.inputs['module'].set_text('-')
+        self.assertFalse(a.refresh());pump(.2)
+        scene=a.canvas.scene;token=a.document.token
+        width,height=a.canvas.get_width(),a.canvas.get_height()
+        raw=a.inputs['module'].get_text()
+        for controller in (a.components,a.combination_search,a.interference,a.gear_measurement,a.backlash):
+            controller.open();pump(.08)
+            self.assertIs(controller.window.get_parent(),a.tools.stack)
+            self.assertTrue(a.tools.box.get_visible())
+            self.assertEqual((a.canvas.get_width(),a.canvas.get_height()),(width,height))
+            ok,panel=a.tools.box.compute_bounds(a.preview_overlay)
+            self.assertTrue(ok);self.assertGreaterEqual(panel.get_x(),0)
+            self.assertLessEqual(panel.get_x()+panel.get_width(),a.preview_overlay.get_width())
+            self.assertEqual(a.inputs['module'].get_text(),raw)
+            a.view_menu.set_active(True);pump(.05)
+            self.assertFalse(a.tools.box.get_visible());self.assertTrue(a.view_panel.get_visible())
+            self.assertEqual((a.canvas.get_width(),a.canvas.get_height()),(width,height))
+            a.view_menu.set_active(False)
+            controller.window.close()
+        self.assertEqual(id(a.canvas.scene),id(scene));self.assertEqual(a.document.token,token)
 
 
 if __name__=='__main__':unittest.main()

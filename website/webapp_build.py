@@ -13,9 +13,12 @@ ROOT = Path(__file__).resolve().parents[1]
 MAX_FILE_SIZE = 25 * 1024 * 1024
 # Independent publication boundary: adding a canonical bundle file requires review.
 APP_FILES = (
-    'index.html', 'app.css', 'app.js', 'tools.css', 'tools.js', 'document.js',
+    'index.html', 'app.css', 'app.js', 'tools.css', 'tools.js', 'document.js', 'preferences.js',
+    'ui-language.js', 'ui-translations.json',
+    'fonts/NotoSansCJK-Regular.ttc', 'fonts/NotoSansTamil-Regular.ttf',
+    'fonts/LICENSE-NotoCJK.txt', 'fonts/LICENSE-NotoTamil.txt', 'fonts/SOURCE-NOTO.json',
     'viewer.js', 'engine-client.js', 'worker.js', 'engine.zip', 'runtime.json',
-    'LICENSE', 'COPYRIGHT', 'README.txt', 'serve.py', 'source.zip',
+    'LICENSE', 'COPYRIGHT', 'README.txt', 'serve.py', 'source.zip', 'help-illustrations.json',
     'branding/ratiolab-icon.png', 'branding/ratiolab-logo-dark.png',
     'notices/README.txt', 'notices/provenance.json', 'notices/PYODIDE-LICENSE',
     'notices/CPYTHON-LICENSE', 'notices/CPYTHON-NOTICES',

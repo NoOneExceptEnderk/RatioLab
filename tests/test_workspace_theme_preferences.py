@@ -62,6 +62,25 @@ class WorkspaceThemePreferencesTests(unittest.TestCase):
         self.assertIsNone(app.canvas.get_error())
         return app
 
+    def test_theme_switch_changes_theme_directly_without_editing_project(self):
+        app=self.launch()
+        before=deepcopy(app.project_snapshot())
+        design=app.design
+        self.assertFalse(app.theme_switch.get_active())
+        self.assertFalse(hasattr(app,'theme_popover'))
+        for active, theme in ((True,'light'), (False,'dark'), (True,'light')):
+            app.theme_switch.set_active(active);pump(.1)
+            self.assertEqual(app.workspace_theme,theme)
+            self.assertEqual(app.canvas.theme,theme)
+            self.assertEqual(app_paths.load_preferences()['theme'],theme)
+            self.assertIs(app.design,design)
+            self.assertEqual(app.project_snapshot(),before)
+        app.language.change('it');pump(.1)
+        self.assertEqual(app.theme_caption.get_label(),'Tema')
+        app.theme_switch.set_active(False);pump(.1)
+        self.assertEqual(app.workspace_theme,'dark')
+        self.assertEqual(app.theme_caption.get_label(),'Tema')
+
     def test_missing_or_invalid_preference_keeps_existing_dark_default(self):
         app = self.launch()
         self.assertEqual(app.workspace_theme, 'dark')
@@ -87,6 +106,12 @@ class WorkspaceThemePreferencesTests(unittest.TestCase):
         self.assertEqual(restarted.output_dir, self.root/'exports')
         self.assertEqual(app_paths.load_preferences()['custom'], {'keep': 7})
         self.assertEqual(app_paths.load_preferences()['recent'], ['example.json'])
+        repository = Path(__file__).resolve().parents[1]
+        child_environment = os.environ.copy()
+        child_paths = [str(repository/'src'), str(repository/'tests')]
+        if child_environment.get('PYTHONPATH'):
+            child_paths.append(child_environment['PYTHONPATH'])
+        child_environment['PYTHONPATH'] = os.pathsep.join(child_paths)
         result = subprocess.run([sys.executable, '-W', 'ignore::DeprecationWarning', '-c', '''
 import json
 import app
@@ -100,7 +125,8 @@ pump(.15)
 print(json.dumps(dict(theme=a.workspace_theme, preview=a.canvas.theme,
                      selected=a.theme_selector.get_selected())))
 for w in a.get_windows():w.destroy()
-'''], check=True, capture_output=True, text=True, timeout=30)
+'''], env=child_environment, capture_output=True, text=True, timeout=30)
+        self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(json.loads(result.stdout.strip().splitlines()[-1]),
                          dict(theme='light', preview='light', selected=1))
 
@@ -113,17 +139,43 @@ for w in a.get_windows():w.destroy()
         config, states = deepcopy(app.config()), deepcopy(app.document.states)
         token, dirty, scene, design = app.document.token, app.document.dirty, canvas.scene, app.design
         vertices = scene.vertices.tobytes()
+        # Palette changes and native font allocation complete on a mapped frame.
+        # Read the baseline after paint rather than during initial realization.
+        painted=[];clock=app.win.get_frame_clock()
+        handler=clock.connect('after-paint',lambda *_:painted.append(True))
+        try:
+            app.win.queue_draw()
+            self.assertTrue(wait_until(lambda:bool(painted) and app.project_title.get_mapped(),3))
+        finally:
+            clock.disconnect(handler)
         base_font_size = app.project_title.get_pango_context().get_font_description().get_size()
         before = stl_export.write_stl(self.root/'before.stl', design.parts).read_bytes()
         for theme in (1, 0, 1):
             app.theme_selector.set_selected(theme)
             for scale in (2, 1, 0):
                 app.text_size.set_selected(scale)
-                pump(.3)  # Native color transitions need time after palette changes.
-                color = app.project_title.get_style_context().get_color()
                 expected = (38, 56, 70) if theme else (233, 238, 244)
+                expected_scale = (1, 1.25, 1.5)[scale]
+                def displayed_style_ready():
+                    color=app.project_title.get_style_context().get_color()
+                    font_size=app.project_title.get_pango_context().get_font_description().get_size()
+                    return (app.project_title.get_mapped()
+                        and all(abs(actual-value/255)<=.01
+                            for actual,value in zip((color.red,color.green,color.blue),expected))
+                        and abs(font_size/base_font_size-expected_scale)<=.02)
+                ready=wait_until(displayed_style_ready,3)
+                color = app.project_title.get_style_context().get_color()
+                self.assertTrue(ready,
+                    f'Native style did not settle: theme={theme}, scale={scale}, '
+                    f'mapped={app.project_title.get_mapped()}, '
+                    f'actual_rgb={(color.red,color.green,color.blue)}, '
+                    f'font_scale={app.project_title.get_pango_context().get_font_description().get_size()/base_font_size}')
                 for actual, value in zip((color.red, color.green, color.blue), expected):
-                    self.assertAlmostEqual(actual, value/255, delta=.01)
+                    self.assertAlmostEqual(actual, value/255, delta=.01,
+                        msg=f'theme={theme}, scale={scale}, app_theme={app.workspace_theme}, '
+                            f'selected={app.theme_selector.get_selected()}, canvas_theme={canvas.theme}, '
+                            f'actual_rgb={(color.red,color.green,color.blue)}, '
+                            f'palette_lookup={app.project_title.get_style_context().lookup_color("rl_text")}')
                 font_size = app.project_title.get_pango_context().get_font_description().get_size()
                 self.assertAlmostEqual(font_size/base_font_size, (1, 1.25, 1.5)[scale], delta=.02)
                 self.assertEqual(canvas.theme, ('dark', 'light')[theme])

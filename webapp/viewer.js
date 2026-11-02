@@ -82,6 +82,7 @@ export class ModelViewer extends EventTarget {
     this.selected = new Set(); this.hidden = new Set(); this.supports = false; this.housing = false;
     this.explosion = 0; this.section = false; this.yaw = -35*Math.PI/180; this.pitch = -55*Math.PI/180; this.zoom = 1;
     this.center = [0,0,0]; this.radius = 30; this.lost = false; this.disposed = false; this.captureBusy = false;
+    this.zoomSpeed = 1; this.rotationSpeed = 1; this.invertZoom = false;
     this.events = new AbortController(); const signal = this.events.signal;
     this.gl = canvas.getContext('webgl', {antialias: true, alpha: true, preserveDrawingBuffer: true});
     if (!this.gl) throw Error('WebGL is unavailable. Enable hardware acceleration or use another WebGL-capable browser.');
@@ -99,12 +100,12 @@ export class ModelViewer extends EventTarget {
     canvas.addEventListener('pointermove', event => {
       if (!drag) return;
       if (!drag.moved && Math.hypot(event.clientX-drag.startX,event.clientY-drag.startY)<4) return;
-      this.yaw += (event.clientX-drag.x)*0.008; this.pitch = Math.max(-Math.PI, Math.min(Math.PI, this.pitch+(event.clientY-drag.y)*0.008));
+      this.yaw += (event.clientX-drag.x)*0.008*this.rotationSpeed; this.pitch = Math.max(-Math.PI, Math.min(Math.PI, this.pitch+(event.clientY-drag.y)*0.008*this.rotationSpeed));
       drag = {...drag,x:event.clientX,y:event.clientY,moved:true}; this.render(); this.dispatchEvent(new Event('camera'));
     }, {signal});
     canvas.addEventListener('pointerup',event => { const click=drag && !drag.moved; drag=null; if (click) this.dispatchEvent(new CustomEvent('surfaceclick',{detail:{clientX:event.clientX,clientY:event.clientY,add:event.ctrlKey||event.metaKey||event.shiftKey}})); },{signal});
     for (const name of ['pointercancel','lostpointercapture']) canvas.addEventListener(name, () => { drag = null; }, {signal});
-    canvas.addEventListener('wheel', event => { if (this.captureBusy) return; event.preventDefault(); this.zoom = Math.max(0.12, Math.min(14, this.zoom*Math.exp(-event.deltaY*0.001))); this.render(); }, {signal, passive: false});
+    canvas.addEventListener('wheel', event => { if (this.captureBusy) return; event.preventDefault(); const delta = Math.max(-20,Math.min(20,-event.deltaY*0.001*this.zoomSpeed*(this.invertZoom ? -1 : 1))); this.zoom = Math.max(0.12, Math.min(14, this.zoom*Math.exp(delta))); this.render(); }, {signal, passive: false});
     canvas.addEventListener('keydown', event => {
       if (this.captureBusy) return;
       if (event.key.toLowerCase() === 'f') this.fit();
@@ -240,17 +241,17 @@ export class ModelViewer extends EventTarget {
           const p=project(a),q=project(b); path+=`M${p[0]},${p[1]}L${q[0]},${q[1]}`;
         }
       }
-      grid.append(element('path',{d:path,fill:'none',stroke:'#1f2934','stroke-width':.7}));
+      grid.append(element('path',{d:path,fill:'none',stroke:document.documentElement.dataset.theme === 'light' ? '#c6d1d8' : '#1f2934','stroke-width':.7}));
     }
     for (const [name,v] of [['X',[1,0,0]],['Y',[0,1,0]],['Z',[0,0,1]]]) {
-      const q=this.projectVector(v),x=43+26*q[0],y=43-26*q[1],attrs={stroke:'#c2d6e6','stroke-width':1.4,fill:'none'};
+      const q=this.projectVector(v),x=43+26*q[0],y=43-26*q[1],attrs={stroke:document.documentElement.dataset.theme === 'light' ? '#48606e' : '#c2d6e6','stroke-width':1.4,fill:'none'};
       axes.append(element('path',{d:`M43,43L${x},${y}`,...attrs}));
       if (Math.hypot(q[0],q[1])*26>4) {
         const angle=Math.atan2(y-43,x-43); let d='';
         for (const delta of [-.45,.45]) d+=`M${x},${y}L${x-5*Math.cos(angle+delta)},${y-5*Math.sin(angle+delta)}`;
         axes.append(element('path',{d,...attrs}));
       }
-      const label=element('text',{x:x+4,y:y-4,fill:'#c2d6e6','font-size':12}); label.textContent=name; axes.append(label);
+      const label=element('text',{x:x+4,y:y-4,fill:document.documentElement.dataset.theme === 'light' ? '#48606e' : '#c2d6e6','font-size':12}); label.textContent=name; axes.append(label);
     }
   }
   render({indices = null, nominal = false} = {}) {

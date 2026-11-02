@@ -105,6 +105,7 @@ class GuiEventLoopTests(unittest.TestCase):
         clock.get_frame_counter.side_effect = lambda: frame[0]
         callbacks = []
         clock.connect.side_effect = lambda signal, callback: callbacks.append((signal, callback)) or 7
+        clock.disconnect.side_effect = lambda handler: callbacks.clear()
         canvas = unittest.mock.Mock(gl=object(), dirty=False)
         canvas.get_frame_clock.return_value = clock
         canvas.get_mapped.return_value = True
@@ -125,9 +126,16 @@ class GuiEventLoopTests(unittest.TestCase):
         from ratiolab_checks import _wait_for_frame
         canvas, context, clock = self.frame_fixture()
         with patch('ratiolab_checks.time.sleep'):
-            _wait_for_frame(canvas, context)
-        self.assertEqual(context.iteration.call_count, 2)
-        clock.disconnect.assert_called_once_with(7)
+            for lifecycle in ('mapped', 'unmapped'):
+                with self.subTest(lifecycle=lifecycle):
+                    canvas.queue_render.reset_mock()
+                    context.iteration.reset_mock()
+                    before=clock.get_frame_counter()
+                    _wait_for_frame(canvas, context)
+                    self.assertGreater(clock.get_frame_counter(),before)
+                    self.assertEqual(context.iteration.call_count,2)
+                    canvas.queue_render.assert_called_once()
+        self.assertEqual(clock.disconnect.call_args_list,[unittest.mock.call(7)]*2)
 
     def test_capture_barrier_rejects_zero_size_and_disconnects_on_timeout(self):
         from ratiolab_checks import _wait_for_frame
@@ -262,6 +270,7 @@ class BundleIntegrityTests(unittest.TestCase):
                          'ratiolab_resources/icons/hicolor/256x256/apps/local.solidcraft.reducers.png',
                          'ratiolab_resources/bearing-catalog.json',
                          'ratiolab_resources/hardware-catalog.json',
+                'ratiolab_resources/ui-translations.json',
                          'ratiolab_resources/INSTALL.md', 'ratiolab_resources/MCP.md',
                          'ratiolab_resources/CHANGELOG.md', 'ratiolab_resources/version.json',
                          'etc/fonts/fonts.conf', 'share/fonts/DejaVuSans.ttf',

@@ -1,0 +1,10 @@
+{
+  "name": "Noto Sans CJK and Tamil",
+  "version": "CJK 20240730; Tamil 20201225",
+  "source": "https://github.com/notofonts",
+  "provider": "Ubuntu fonts-noto-cjk 1:20240730+repack1-1build1; fonts-noto-core 20201225-2build1",
+  "files": {
+    "NotoSansCJK-Regular.ttc": "b76b0433203017ca80401b2ee0dd69350349871c4b19d504c34dbdd80541690a",
+    "NotoSansTamil-Regular.ttf": "a7bb7f92f165479af2f0556c4fd669b74c5959f464f603e18389b532f4d07a71"
+  }
+}

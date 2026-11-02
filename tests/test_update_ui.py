@@ -67,7 +67,7 @@ class UpdateUITests(unittest.TestCase):
         controller=self.controller(lambda:[release(assets=[asset('RatioLab-0.1.2-linux-x86_64.run')])])
         self.assertFalse(controller.button.get_visible());controller.start()
         pump(lambda:not controller.inflight)
-        self.assertEqual(controller.badge_label.get_text(),'Update to 0.1.2')
+        self.assertEqual(controller.badge_label.get_text(),'Update to v0.1.2')
         self.assertTrue(controller.button.get_visible());self.assertIsNone(controller.window)
         controller.button.emit('clicked');self.assertIsNotNone(controller.window)
         self.assertEqual(self.opened,[])

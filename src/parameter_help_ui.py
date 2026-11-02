@@ -5,48 +5,66 @@ from dataclasses import replace
 import gi
 gi.require_version('Gtk', '4.0')
 from gi.repository import Gtk, Gdk, GLib
-from parameter_help import lookup, OPTION_LABELS, CHECK_LABELS
+from parameter_help import Help, lookup, OPTION_LABELS, CHECK_LABELS
 from parameter_help_diagrams import draw_diagram, diagram_kind
 
-HOVER_DELAY_MS = 550
-LEAVE_DELAY_MS = 280
+HOVER_DELAY_MS = 250
+LEAVE_DELAY_MS = 220
+SECTION_KEY = "__model_dimensions__"
 
 
 class Binding:
     def __init__(self, owner, label, control, key, row):
         self.owner, self.label, self.control, self.key, self.row = owner, label, control, key, row
-        self.button = Gtk.Button.new_from_icon_name('dialog-information-symbolic')
+        # A single centered outline avoids font-dependent question-mark
+        # baselines inside a separately painted CSS circle.
+        from workspace_ui import workspace_glyph
+        self.button = Gtk.Button()
+        self.button.set_valign(Gtk.Align.CENTER)
+        self.glyph = workspace_glyph('help', self.button)
+        self.glyph.set_content_width(14)
+        self.glyph.set_content_height(14)
+        self.glyph.set_halign(Gtk.Align.CENTER)
+        self.glyph.set_valign(Gtk.Align.CENTER)
+        self.button.set_child(self.glyph)
         self.button.add_css_class('flat')
         self.button.add_css_class('parameter-help-trigger')
         self.button.set_tooltip_text('Explain this parameter · F1')
         self.button.update_property([Gtk.AccessibleProperty.LABEL], ['Explain '+label.get_text()])
-        self.button.connect('clicked', lambda _: self.open())
+        self.button_activation = 'explicit'
+        self.button_events = Gtk.EventControllerLegacy()
+        self.button_events.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
+        self.button_events.connect('event', self.button_event)
+        self.button.add_controller(self.button_events)
+        self.button.connect('clicked', self.button_clicked)
         row.insert_child_after(self.button, label)
         label.add_css_class('parameter-help-label')
         label.set_tooltip_text(None)
-        label.set_mnemonic_widget(control)
-        row_motion = Gtk.EventControllerMotion()
-        def row_enter(*_):
-            if owner.active is self and owner.leave_timer:
-                GLib.source_remove(owner.leave_timer)
-                owner.leave_timer = 0
-        row_motion.connect('enter', row_enter)
-        row_motion.connect('leave', lambda *_: owner.leave() if owner.active is self else None)
-        row.add_controller(row_motion)
+        if control is not label:
+            label.set_mnemonic_widget(control)
+        self.over_row = self.over_control = False
+        self.row_motion = Gtk.EventControllerMotion()
+        self.row_motion.connect('enter', self.row_enter)
+        self.row_motion.connect('leave', self.row_leave)
+        row.add_controller(self.row_motion)
+        # Controls may live below their caption (choice fields). Include those
+        # too, without intercepting any edit or selection event.
         self.motion = Gtk.EventControllerMotion()
-        self.motion.connect('enter', lambda *_: owner.enter(self))
-        self.motion.connect('leave', lambda *_: owner.leave() if not row_motion.contains_pointer() else None)
-        label.add_controller(self.motion)
+        self.motion.connect('enter', self.control_enter)
+        self.motion.connect('leave', self.control_leave)
+        if control is not label:
+            control.add_controller(self.motion)
         self.key_controllers = []
-        for widget in (control, self.button):
+        for widget in dict.fromkeys((control, self.button)):
             keys = Gtk.EventControllerKey()
             keys.connect('key-pressed', self.key_pressed)
             widget.add_controller(keys)
             self.key_controllers.append(keys)
             focus = Gtk.EventControllerFocus()
             def departed(*_):
+                popup = owner.popover
                 def check():
-                    if owner.active is not self or not owner.pinned:
+                    if owner.popover is not popup or owner.active is not self or owner.activation != 'explicit':
                         return GLib.SOURCE_REMOVE
                     root = control.get_root()
                     current = root.get_focus() if root else None
@@ -59,6 +77,44 @@ class Binding:
             widget.add_controller(focus)
         self.describe()
 
+    def button_event(self, controller, event):
+        kind = event.get_event_type() if event is not None else None
+        if kind in (Gdk.EventType.BUTTON_PRESS, Gdk.EventType.BUTTON_RELEASE):
+            self.button_activation = 'pointer'
+        elif kind in (Gdk.EventType.KEY_PRESS, Gdk.EventType.TOUCH_BEGIN, Gdk.EventType.TOUCH_END):
+            self.button_activation = 'explicit'
+        return False
+
+    def button_clicked(self, *_):
+        activation, self.button_activation = self.button_activation, 'explicit'
+        self.owner.open(self, activation=activation)
+
+    def row_enter(self, *_):
+        self.over_row = True
+        self.owner.enter(self)
+
+    def row_leave(self, *_):
+        self.over_row = False
+        if not self.over_control:
+            self.owner.unsuppress(self)
+        if self.owner.active is self or self.owner.pending is self:
+            self.owner.leave()
+
+    @property
+    def hovered(self):
+        return self.over_row or self.over_control
+
+    def control_enter(self, *_):
+        self.over_control = True
+        self.owner.enter(self)
+
+    def control_leave(self, *_):
+        self.over_control = False
+        if not self.over_row:
+            self.owner.unsuppress(self)
+            if self.owner.active is self or self.owner.pending is self:
+                self.owner.leave()
+
     def describe(self):
         help = self.owner.help_for(self)
         self.control.update_property([Gtk.AccessibleProperty.DESCRIPTION],
@@ -70,12 +126,12 @@ class Binding:
             self.open()
             return True
         if keyval == Gdk.KEY_Escape and self.owner.active is self:
-            self.owner.close()
+            self.owner.close(dismissed=True)
             return True
         return False
 
     def open(self):
-        self.owner.open(self, pinned=True)
+        self.owner.open(self, activation='explicit')
 
 
 def effect_sections(effect):
@@ -92,7 +148,12 @@ class HelpController:
         self.bindings, self.all_bindings = {}, []
         self.active = self.popover = None
         self.timer = self.leave_timer = 0
-        self.pinned = self.over_popup = False
+        self.pending = None
+        self.over_popup = False
+        self.activation = 'pointer'
+        self.suppressed = None
+        self.section_binding = None
+        self.return_focus = None
         self.style = Gtk.CssProvider()
         self.style_scale = None
         Gtk.StyleContext.add_provider_for_display(Gdk.Display.get_default(), self.style,
@@ -104,29 +165,31 @@ class HelpController:
             return
         self.style_scale = scale
         self.style.load_from_data(('''
-.parameter-help > contents { background: #1d2630; border: 1px solid #49606c;
- border-radius: 11px; padding: 0; box-shadow: 0 8px 22px alpha(black, 0.28); }
-.parameter-help .help-header { padding: 13px 16px 11px; border-bottom: 1px solid #344653; }
-.parameter-help .help-family { color: #91acb9; font-size: %gpx; }
-.parameter-help .help-title { color: #f2f5f7; font-weight: 700; font-size: %gpx; }
-.parameter-help .help-value { color: #a9e2df; background: #283f49; border-radius: 5px;
+.parameter-help { background: transparent; }
+.parameter-help > contents { background: alpha(@rl_surface, 0.89); background-image: none; border: 1px solid @rl_line;
+ border-radius: 10px; padding: 0; box-shadow: 0 10px 30px alpha(#11161d, 0.33); }
+.parameter-help .help-header { padding: 12px; border-bottom: 1px solid @rl_line; }
+.parameter-help .help-family { color: @rl_muted; font-size: %gpx; }
+.parameter-help .help-title { color: @rl_text; font-weight: 700; font-size: %gpx; }
+.parameter-help .help-value { color: @rl_accent; background: @rl_selected; border-radius: 5px;
  padding: 3px 7px; font-size: %gpx; font-variant-numeric: tabular-nums; }
 .parameter-help .help-meaning, .parameter-help .help-effect,
-.parameter-help .help-details { color: #d7e1e8; font-size: %gpx; }
-.parameter-help .help-caption { color: #b0bfca; font-size: %gpx; }
-.parameter-help .help-subtitle { color: #9cd9d3; font-weight: 600; font-size: %gpx; }
-.parameter-help .help-footer { padding: 8px 16px; border-top: 1px solid #344653; }
-.parameter-help .help-footnote { color: #9caebb; font-size: %gpx; }
-.parameter-help button { min-height: 22px; min-width: 20px; padding: 2px 6px;
+.parameter-help .help-details { color: @rl_text; font-size: %gpx; }
+.parameter-help .help-caption { color: @rl_muted; font-size: %gpx; }
+.parameter-help .help-subtitle { color: @rl_muted; font-weight: 600; font-size: %gpx; }
+.parameter-help .help-footer { padding: 8px 12px; border-top: 1px solid @rl_line; }
+.parameter-help .help-footnote { color: @rl_muted; font-size: %gpx; }
+.parameter-help button { min-height: 22px; min-width: 20px; padding: 3px;
  background: transparent; border-color: transparent; font-size: %gpx; }
-.parameter-help button:hover { background: #304753; }
-.parameter-help button:checked { background: #304c55; color: #b9ece6; border-color: #568a90; }
-.parameter-help expander > title { padding: 2px 0; color: #a9c7d3; font-size: %gpx; }
-.parameter-help-trigger { min-height: 19px; min-width: 19px; padding: 2px;
- border-radius: 5px; opacity: 0.72; }
+.parameter-help button:hover { background: @rl_hover; }
+.parameter-help button:checked { background: @rl_selected; color: @rl_text; border-color: @rl_accent; }
+.parameter-help expander > title { padding: 2px 0; color: @rl_muted; font-size: %gpx; }
+.reducers .parameter-help-trigger { min-height: 14px; min-width: 14px; padding: 0;
+ background: transparent; border: 0; border-radius: 0;
+ font-size: 10px; font-weight: 500; color: @rl_muted; opacity: 0.72; }
 .parameter-help-trigger:hover, .parameter-help-trigger:focus-visible { opacity: 1; }
-.parameter-help-label:hover { color: #a9e2df; text-decoration: underline; }
-''' % tuple(x*scale for x in (10,17,12,13,11,11,10,10,12))).encode())
+.parameter-help-label:hover { color: @rl_accent; text-decoration: underline; }
+''' % tuple(x*scale for x in (11,14,11,12,11,11,11,12,12))).encode())
 
     def values(self):
         values = dict(getattr(self.app, 'field_values', {}))
@@ -137,6 +200,12 @@ class HelpController:
         return values
 
     def help_for(self, binding):
+        if binding.key == SECTION_KEY:
+            return Help('Model & dimensions',
+                        'Choose a gear or reducer family, then its available variant.',
+                        'Set dimensions in the grouped controls and inspect the model and results. '
+                        'Advanced groups expose the additional geometry and assembly options supported by the selected model.',
+                        'text', '')
         result = lookup(self.app.family, binding.key, self.values())
         if self.app.family in ('spur', 'helical', 'double') and binding.key in ('input_rpm', 'input_torque'):
             result = replace(result, diagram='single_motion')
@@ -169,6 +238,13 @@ class HelpController:
     def reset(self):
         self.close()
         self.bindings, self.all_bindings = {}, []
+        if self.section_binding:
+            self.all_bindings.append(self.section_binding)
+
+    def bind_section(self, label, row=None):
+        """Attach the same guide to the model-and-dimensions heading."""
+        self.section_binding = self.bind(label, label, SECTION_KEY, row)
+        return self.section_binding
 
     def bind(self, label, control, key, row=None):
         existing = getattr(label, '_parameter_help_binding', None)
@@ -194,45 +270,85 @@ class HelpController:
         return binding
 
     def cancel_timers(self):
+        self.pending = None
         for attr in ('timer', 'leave_timer'):
             value = getattr(self, attr)
             if value:
                 GLib.source_remove(value)
                 setattr(self, attr, 0)
 
+    def unsuppress(self, binding):
+        if self.suppressed is binding:
+            self.suppressed = None
+
     def enter(self, binding):
         self.cancel_timers()
-        if self.active is binding or self.pinned:
+        if not getattr(self.app, 'workspace_preferences', {}).get('hover_help', True):
             return
+        if self.active is binding or self.suppressed is binding:
+            return
+        if self.active and self.activation == 'explicit':
+            return
+        self.pending = binding
         def show():
             self.timer = 0
+            self.pending = None
             self.open(binding)
             return GLib.SOURCE_REMOVE
         self.timer = GLib.timeout_add(HOVER_DELAY_MS, show)
 
     def leave(self):
+        self.pending = None
         if self.timer:
             GLib.source_remove(self.timer)
             self.timer = 0
-        if self.pinned or not self.active:
+        if not self.active or self.activation != 'pointer':
             return
         if self.leave_timer:
             GLib.source_remove(self.leave_timer)
         def hide():
             self.leave_timer = 0
-            if not self.over_popup:
+            binding = self.active
+            # A pointer-opened card never becomes pinned by focusing Expand.
+            # Keyboard/touch activation remains available without a pointer.
+            if binding and not self.over_popup and not binding.hovered:
                 self.close()
             return GLib.SOURCE_REMOVE
         self.leave_timer = GLib.timeout_add(LEAVE_DELAY_MS, hide)
 
-    def close(self):
+    def popup_enter(self, *_):
+        self.over_popup = True
+        if self.leave_timer:
+            GLib.source_remove(self.leave_timer)
+            self.leave_timer = 0
+
+    def popup_leave(self, *_):
+        self.over_popup = False
+        self.leave()
+
+    def close(self, dismissed=False):
         self.cancel_timers()
-        self.active = None
-        self.pinned = self.over_popup = False
-        if self.popover:
-            self.popover.popdown()
-            self.popover.unparent()
-            self.popover = None
+        binding, popup = self.active, self.popover
+        if dismissed:
+            self.suppressed = binding if binding and binding.hovered else None
+        root = binding.control.get_root() if binding else None
+        focus = root.get_focus() if root else None
+        # Restore focus only if it is inside the dismissed guide. Merely
+        # hovering or leaving must never steal focus from a text edit.
+        restore = bool(focus and popup and (focus is popup or focus.is_ancestor(popup)))
+        self.active = self.popover = None
+        self.over_popup = False
+        self.activation = 'pointer'
+        if popup:
+            popup.popdown()
+            popup.unparent()
+        target = self.return_focus
+        self.return_focus = None
+        if restore:
+            if target is not None and target.get_mapped():
+                target.grab_focus()
+            elif binding.button.get_mapped():
+                binding.button.grab_focus()
 
     @staticmethod
     def _text(value, css, *, selectable=False):
@@ -240,42 +356,33 @@ class HelpController:
         label.set_max_width_chars(48)
         return label
 
-    def open(self, binding, pinned=False):
+    def open(self, binding, pinned=False, activation=None):
         if not binding.label.get_mapped():
             return
         from geometry import FAMILIES
         from gi.repository import Pango
         self.close()
-        self.active, self.pinned = binding, pinned
+        root = binding.control.get_root()
+        self.return_focus = root.get_focus() if root else None
+        self.active = binding
+        self.activation = activation or ('explicit' if pinned else 'pointer')
         help = self.help_for(binding)
         popup = Gtk.Popover(css_classes=['parameter-help'])
         popup.set_autohide(False)
-        popup.set_has_arrow(True)
+        popup.set_has_arrow(False)
         popup.set_parent(binding.row)
         self.popover = popup
         card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         self.header = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=5, css_classes=['help-header'])
-        top = Gtk.Box(spacing=8)
+        top = Gtk.Box(spacing=6)
         family = Gtk.Label(label=FAMILIES[self.app.family].split(' · ')[0], xalign=0,
                            hexpand=True, ellipsize=Pango.EllipsizeMode.END, css_classes=['help-family'])
         top.append(family)
-        self.pin = Gtk.ToggleButton(label='Keep open')
-        self.pin.set_active(pinned)
-        self.pin.set_tooltip_text('Keep this guide open when the pointer moves away · F1')
-        self.pin.update_property([Gtk.AccessibleProperty.LABEL], ['Keep parameter guide open'])
-        def pin_changed(button):
-            self.pinned = button.get_active()
-            self.footer_hint.set_text('Esc to close' if self.pinned else 'F1 to keep open · Esc to close')
-            if self.pinned:
-                self.cancel_timers()
-            elif not self.over_popup:
-                self.leave()
-        self.pin.connect('toggled', pin_changed)
-        top.append(self.pin)
         close = Gtk.Button.new_from_icon_name('window-close-symbolic')
         close.set_tooltip_text('Close guide · Escape')
         close.update_property([Gtk.AccessibleProperty.LABEL], ['Close parameter guide'])
-        close.connect('clicked', lambda _: self.close())
+        close.connect('clicked', lambda _: self.close(dismissed=True))
+        self.close_button = close
         top.append(close)
         self.header.append(top)
         title_row = Gtk.Box(spacing=10)
@@ -297,8 +404,9 @@ class HelpController:
         self.body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
         for setter in (self.body.set_margin_start,self.body.set_margin_end,
                        self.body.set_margin_top,self.body.set_margin_bottom):
-            setter(16)
+            setter(12)
         self.drawing = Gtk.DrawingArea(css_classes=['help-diagram'])
+        self.drawing.set_halign(Gtk.Align.START)
         self.drawing.set_content_width(360)
         self.drawing.set_content_height(220)
         def draw(area, cr, width, height):
@@ -313,6 +421,8 @@ class HelpController:
         self.diagram_expander.set_visible(illustrated)
         self.diagram_expander.set_tooltip_text('Open the illustrated explanation')
         def diagram_changed(expander, *_):
+            if self.popover is not popup:
+                return
             expanded = expander.get_expanded()
             expander.set_label('Diagram' if expanded else 'Show diagram')
             # A closed expander must not retain the drawing's minimum width.
@@ -320,13 +430,19 @@ class HelpController:
             self._popup_geometry = None
         self.diagram_expander.connect('notify::expanded',diagram_changed)
         self.body.append(self.diagram_expander)
+        section = binding.key == SECTION_KEY
+        if section:
+            self.body.append(self._text('CHOOSE MODEL', 'help-subtitle'))
         self.body.append(self._text(help.meaning, 'help-meaning', selectable=True))
-        self.body.append(self._text('WHAT CHANGES', 'help-subtitle'))
+        self.body.append(self._text('SET DIMENSIONS' if section else 'WHAT CHANGES', 'help-subtitle'))
         summary, detail = effect_sections(help.effect)
         self.body.append(self._text(summary, 'help-effect', selectable=True))
         self.details = Gtk.Expander(label='Model and limits' if binding.key == 'worm_static_friction' else 'Geometry and dependencies')
         self.details.set_child(self._text(detail, 'help-details', selectable=True))
-        self.details.set_visible(bool(detail))
+        self.details.set_visible(bool(detail) and not section)
+        if section:
+            self.body.append(self._text('ADVANCED OPTIONS', 'help-subtitle'))
+            self.body.append(self._text(detail, 'help-details', selectable=True))
         self.details.connect('notify::expanded', lambda *_: setattr(self, '_popup_geometry', None))
         self.body.append(self.details)
         self.scroll = Gtk.ScrolledWindow()
@@ -335,27 +451,20 @@ class HelpController:
         self.scroll.set_child(self.body)
         card.append(self.scroll)
         self.footer = Gtk.Box(spacing=8, css_classes=['help-footer'])
-        self.footer.append(Gtk.Label(label='Static contact model' if binding.key == 'worm_static_friction' else 'Schematic · not to scale', xalign=0,
+        self.footer.append(Gtk.Label(label='Choose · adjust · preview' if binding.key == SECTION_KEY else 'Static contact model' if binding.key == 'worm_static_friction' else 'Schematic · not to scale', xalign=0,
                                     hexpand=True, css_classes=['help-footnote']))
-        self.footer_hint = Gtk.Label(label='Esc to close' if pinned else 'F1 to keep open · Esc to close',
+        self.footer_hint = Gtk.Label(label='Esc to close',
                                     css_classes=['help-footnote'])
         self.footer.append(self.footer_hint)
         card.append(self.footer)
         popup.set_child(card)
         motion = Gtk.EventControllerMotion()
-        def popup_enter(*_):
-            self.over_popup = True
-            if self.leave_timer:
-                GLib.source_remove(self.leave_timer)
-                self.leave_timer = 0
-        def popup_leave(*_):
-            self.over_popup = False
-            self.leave()
-        motion.connect('enter',popup_enter)
-        motion.connect('leave',popup_leave)
+        motion.connect('enter', lambda *_: self.popup_enter() if self.popover is popup else None)
+        motion.connect('leave', lambda *_: self.popup_leave() if self.popover is popup else None)
+        self.popup_motion = motion
         popup.add_controller(motion)
         keys = Gtk.EventControllerKey()
-        keys.connect('key-pressed',lambda _,key,*args: (self.close() or True) if key==Gdk.KEY_Escape else False)
+        keys.connect('key-pressed',lambda _,key,*args: (self.close(dismissed=True) or True) if key==Gdk.KEY_Escape else False)
         popup.add_controller(keys)
         self._popup_geometry = None
         self._size_popup(binding,popup)
@@ -397,7 +506,7 @@ class HelpController:
             keys = Gtk.EventControllerKey()
             keys.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
             keys.connect('key-pressed',lambda _,key,*args:
-                         (self.close() or True) if key==Gdk.KEY_Escape and self.active else False)
+                         (self.close(dismissed=True) or True) if key==Gdk.KEY_Escape and self.active else False)
             root.add_controller(keys)
         ok,bounds = binding.row.compute_bounds(root)
         if not ok:
@@ -409,14 +518,19 @@ class HelpController:
                                 bounds.get_height(),self.app.text_size.get_selected(),
                                 self.header.get_height(),self.footer.get_height())
         expanded = self.diagram_expander.get_visible() and self.diagram_expander.get_expanded()
-        width = int(min((390 if expanded else 320)*scale,max(220,rw-56)))
-        right = rw-bounds.get_x()-bounds.get_width()-24
+        width = round(min((390 if expanded else 286)*scale,max(220,rw-56)))
+        sidebar = getattr(self.app, "parameter_panel", None)
+        sidebar_ok, sidebar_bounds = sidebar.compute_bounds(root) if sidebar else (False, None)
+        edge = (sidebar_bounds.get_x()+sidebar_bounds.get_width()
+                if sidebar_ok and binding.row.is_ancestor(sidebar)
+                else bounds.get_x()+bounds.get_width())
+        right = rw-edge-24
         left = bounds.get_x()-24
         rect = Gdk.Rectangle()
         if right>=width or left>=width:
             popup.set_position(Gtk.PositionType.RIGHT if right>=width else Gtk.PositionType.LEFT)
             # Reserve room for the native shadow as well as visible content.
-            rect.x = binding.row.get_width()+12 if right>=width else -12
+            rect.x = round(edge-bounds.get_x()+10) if right>=width else 0
             rect.y = binding.row.get_height()//2
             available = rh-80
         else:
@@ -440,7 +554,7 @@ class HelpController:
         self.scroll.set_size_request(width,-1)
         # Preserve the original readable figure scale when a narrow root needs
         # horizontal scrolling; compact mode contains no hidden minimum width.
-        diagram_width = max(round(358*scale),width-32)
+        diagram_width = round(360*scale)
         self.drawing.set_content_width(diagram_width)
         self.drawing.set_content_height(round(diagram_width*220/360))
         header_height = max(self.header.get_height(),self.header.measure(Gtk.Orientation.VERTICAL,width)[1])

@@ -3,13 +3,14 @@ import os
 from pathlib import Path
 import sys
 sys.path.insert(0, str(Path(SPECPATH)))
-from bundle_support import write_notices
+from bundle_support import write_notices, write_font_config
 
 root = Path(SPECPATH).parent
 metadata = Path(os.environ['RATIOLAB_BUNDLE_METADATA'])
 version = os.environ['RATIOLAB_VERSION']
-datas = [(str(root/'packaging/fonts.conf'), 'etc/fonts')]
-datas += [(str(path), 'share/fonts') for path in (root/'packaging/fonts').glob('*.ttf')]
+font_config = write_font_config(root/'packaging/fonts', root/'packaging/fonts.conf', metadata.parent/'fontconfig/fonts.conf')
+datas = [(str(font_config), 'etc/fonts')]
+datas += [(str(path), 'share/fonts') for path in (root/'packaging/fonts').iterdir() if path.suffix in ('.ttf', '.ttc')]
 a = Analysis(
     [str(root/'packaging/entrypoint.py'), str(root/'packaging/mcp_entrypoint.py')], pathex=[str(root/'src')],
     binaries=[], datas=datas,

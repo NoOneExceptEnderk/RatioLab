@@ -6,6 +6,58 @@ published packages and their verification results.
 
 ## Unreleased
 
+## 0.1.16 — 2026-11-02
+
+### Changed
+
+- Replace Appearance with a direct Theme on/off switch and a Language menu on desktop
+  and web. Theme offers light and dark palettes with a contrast symbol;
+  Language uses a matching local globe outline on both platforms. Interface
+  labels use the nine documentation languages and persist independently of model
+  values, numeric precision, projects and history. Bundle Chinese/Tamil fonts.
+  Untranslated technical explanations and calculation reports retain English.
+
+- Place compact family/variant controls above the horizontal Dimensions, Motion
+  and Assembly navigation bar in the browser and desktop app, without redundant
+  Model/Define headings.
+
+- Fit the browser workspace to computer and tablet viewports with internal pane
+  scrolling, while retaining natural page scrolling on phones.
+
+- Center parameter information symbols with local vector icons and remove the
+  general Help toolbar button.
+
+- Align the desktop and browser workspace with compact paired dimensions, a
+  Project menu and a separate history, theme and language toolbar. Give the preview its full
+  width, with View and Tools in
+  translucent overlays and prominent family-specific results above motion controls.
+  Keep analysis tools, component measurements, reports and model notes accessible.
+  Use compact numeric fields with units in their labels and adjacent help icons;
+  keep paired fields aligned with bundled fonts and enlarged text, with consistent
+  disclosure spacing. Use separate icon buttons for View and Tools; keep desktop
+  toolbar and tool-list symbols available without relying on system icon themes.
+  Align the CAD split action with the workspace preview, then compact the result
+  strip and motion controls into two rows while retaining prominent results.
+  Keep tools usable with enlarged text and show full status
+  tooltips only when their visible text is truncated.
+- Add the desktop CAD Connections split button, switching its main action to the
+  successfully connected CAD while retaining connection selection and readiness
+  checks. Place eligible versioned update notices beside it. Use a compact CAD
+  chooser with the complete setup and connection status available separately.
+- Replace bulky parameter help with a shared adjacent hover guide, also available
+  for Model & dimensions, retaining original schematics and optional expansion.
+
+### Fixed
+
+- Refresh the bundled font cache when its font payload changes, including
+  upgrades with normalized installer timestamps, so Chinese and Tamil glyphs
+  remain available in existing desktop installations.
+
+- Keep I/O actions, section titles and sidebar navigation within the chosen
+  sidebar width, including enlarged text.
+- Wait for native frames between panel transitions in the full GUI self-test,
+  preventing a Wayland input-context crash during rapid panel checks.
+
 ## 0.1.15 — 2026-11-01
 
 ### Fixed

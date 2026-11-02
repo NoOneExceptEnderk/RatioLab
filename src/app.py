@@ -63,8 +63,14 @@ class ReducerApp(ProjectActions, Gtk.Application):
         if hasattr(self,'win'):self.win.present();return
         self.BASE=BASE;self.output_dir=GENERATED;self.file_buttons=[];self.reset_values=None
         self.output_dir=app_paths.saved_output_dir(legacy_root=BASE)
+        self.workspace_preferences = app_paths.ui_preferences(app_paths.load_preferences(legacy_root=BASE))
         self.families = FAMILIES
         workspace_ui.build(self, LABELS)
+        from language_ui import Controller as Language
+        self.language = Language(self)
+        self.canvas.zoom_speed = self.workspace_preferences['zoom_speed']
+        self.canvas.rotation_speed = self.workspace_preferences['rotation_speed']
+        self.canvas.invert_zoom = self.workspace_preferences['invert_zoom']
         self._geometry_waiting=False
         self.geometry_worker=LatestOnly(prepare_geometry,
             lambda callback,*args:GLib.idle_add(callback,*args,priority=GLib.PRIORITY_DEFAULT),
@@ -91,13 +97,17 @@ class ReducerApp(ProjectActions, Gtk.Application):
         return result
     def set_connection(self,connected):
         self.connected=connected
+        if connected:self.active_cad='solidcraft'
         self.cad_hint.set_text('Adds a new group to the open CAD document.' if connected else 'Launches or connects to SolidCraft and adds a new group.')
         self.connection_label.set_text('● Connected' if connected else '● Disconnected')
         if connected:self.connection_label.add_css_class('connected')
         else:self.connection_label.remove_css_class('connected')
+        gui_workflow.sync_cad_action(self)
         return False
     def set_fusion_connection(self,status=None):
         self.fusion_connected=status is not None
+        self.fusion_has_document=bool(status and status.get('document'))
+        if status is not None:self.active_cad='fusion'
         label=self.fusion_connection_label
         if status is None:
             label.set_text('○ Disconnected')
@@ -108,6 +118,7 @@ class ReducerApp(ProjectActions, Gtk.Application):
             label.set_text('● Connected · '+(document['name'] if document else 'no design document'))
             label.add_css_class('connected')
             self.fusion_hint.set_text('Adds a new group of STEP solids to the active Fusion design. RatioLab parameters are stored as metadata. '+('' if document else 'Open a design document first.'))
+        gui_workflow.sync_cad_action(self)
         return False
     def install_fusion_addin(self):
         try:
@@ -220,7 +231,7 @@ class ReducerApp(ProjectActions, Gtk.Application):
             body=self.sections[key][1];child=body.get_first_child()
             while child:
                 nxt=child.get_next_sibling();body.remove(child);child=nxt
-        self.advanced_expander=Gtk.Expander(label='Advanced · profile & clearances')
+        self.advanced_expander=Gtk.Expander(label='Advanced tooth geometry')
         self.advanced_expander.set_expanded(bool(advanced_open));self.advanced_fields=Gtk.Box(orientation=Gtk.Orientation.VERTICAL,spacing=10);self.advanced_expander.set_child(self.advanced_fields)
         field_target=self.sections['geometry'][1]
         values=self.values.get(self.family,defaults(self.family));variants=VARIANTS.get(self.family,{})
@@ -236,6 +247,7 @@ class ReducerApp(ProjectActions, Gtk.Application):
             target=target or field_target
             target.append(Gtk.Label(label=label,xalign=0,css_classes=['field-label']))
             dropdown=Gtk.DropDown.new_from_strings(list(choices.values()))
+            gui_workflow.compact_dropdown(dropdown)
             keys=list(choices);dropdown.set_selected(keys.index(values.get(key,default)))
             self.option_values[key]=values.get(key,default)
             def change(widget,*args):

@@ -69,8 +69,8 @@ def metadata(route, title, description, *, schema=None, noindex=False):
         for prefix, attr in (('og:', 'property'), ('twitter:', 'name')):
             for key, value in (('title', title), ('description', description), ('image', IMAGE), ('image:alt', IMAGE_ALT)):
                 lines.append(f'<meta {attr}="{prefix}{key}" content="{escape(value)}">')
-        lines.extend(['<meta property="og:image:width" content="1280">',
-                      '<meta property="og:image:height" content="800">',
+        lines.extend(['<meta property="og:image:width" content="1366">',
+                      '<meta property="og:image:height" content="736">',
                       '<meta name="twitter:card" content="summary_large_image">'])
     if schema is not None:
         lines.append(json_script(schema))

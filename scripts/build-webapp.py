@@ -31,7 +31,9 @@ MODULES = (
 )
 RESOURCES = ('__init__.py', 'version.json', 'bearing-catalog.json', 'hardware-catalog.json')
 ASSETS = ('engine-client.js', 'worker.js', 'index.html', 'app.css',
-          'app.js', 'viewer.js', 'document.js', 'tools.js', 'tools.css')
+          'app.js', 'ui-language.js', 'viewer.js', 'document.js', 'preferences.js', 'tools.js', 'tools.css', 'help-illustrations.json')
+UI_RESOURCES = ('ui-translations.json',)
+FONTS = ('NotoSansCJK-Regular.ttc', 'NotoSansTamil-Regular.ttf', 'LICENSE-NotoCJK.txt', 'LICENSE-NotoTamil.txt', 'SOURCE-NOTO.json')
 BRANDING = ('ratiolab-icon.png', 'ratiolab-logo-dark.png')
 LEGAL = ('LICENSE', 'COPYRIGHT')
 NOTICES = ('README.txt', 'provenance.json', 'PYODIDE-LICENSE', 'CPYTHON-LICENSE',
@@ -146,6 +148,11 @@ def build(output, runtime_dir=None, external_runtime=False, root=ROOT):
         (staging/'runtime.json').write_bytes(encoded(runtime))
         for name in ASSETS:
             (staging/name).write_bytes((root/'webapp'/name).read_bytes())
+        for name in UI_RESOURCES:
+            (staging/name).write_bytes((root/'src/ratiolab_resources'/name).read_bytes())
+        (staging/'fonts').mkdir()
+        for name in FONTS:
+            (staging/'fonts'/name).write_bytes((root/'packaging/fonts'/name).read_bytes())
         (staging/'branding').mkdir()
         for name in BRANDING:
             (staging/'branding'/name).write_bytes((root/'src/ratiolab_resources/branding'/name).read_bytes())
@@ -162,12 +169,16 @@ def build(output, runtime_dir=None, external_runtime=False, root=ROOT):
                 shutil.copyfile(runtime_dir/name, staging/'runtime'/name)
         # Engine source is readable in engine.zip; include web glue and builder too.
         source = {'src/'+name: data for name, data in files.items() if name != 'engine_bridge.py'}
+        source.update({'src/ratiolab_resources/'+name: (root/'src/ratiolab_resources'/name).read_bytes() for name in UI_RESOURCES})
+        source.update({'packaging/fonts/'+name: (root/'packaging/fonts'/name).read_bytes() for name in FONTS})
         source['webapp/catalog.json'] = encoded(metadata(root))
         source.update({name: (root/name).read_bytes() for name in LEGAL})
         source.update({'webapp/'+name: (root/'webapp'/name).read_bytes() for name in (*ASSETS, 'runtime.json', 'engine_bridge.py')})
         source.update({'src/ratiolab_resources/branding/'+name: (root/'src/ratiolab_resources/branding'/name).read_bytes() for name in BRANDING})
         source.update({'scripts/'+name: (root/'scripts'/name).read_bytes() for name in RECIPES})
         source['webapp/README.txt'] = (root/'webapp/README.txt').read_bytes()
+        for name in ('scripts/generate-web-help.py', 'src/parameter_help_diagrams.py'):
+            source[name] = (root/name).read_bytes()
         source['docs/web-app.md'] = (root/'docs/web-app.md').read_bytes()
         source.update({'webapp/notices/'+name: (root/'webapp/notices'/name).read_bytes() for name in NOTICES})
         (staging/'source.zip').write_bytes(zip_bytes(source))

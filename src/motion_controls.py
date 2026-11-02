@@ -18,11 +18,15 @@ def unscale_rpm(value):
 
 
 def install(app, container):
-    row = Gtk.Box(spacing=9)
+    app.motion_bar=container
+    container.set_spacing(6)
+    transport = Gtk.Box(spacing=7)
+    container.append(transport)
+    row = Gtk.Box(spacing=7)
     container.append(row)
-    play = Gtk.Button(label='Start motion')
+    play = Gtk.Button(label='Play')
     app.motion_play = app.quick_play = play
-    row.append(play)
+    transport.append(play)
     def toggle(_):
         if not app.canvas.motion_playing and app.view_options['exploded'].get_active():
             app.view_options['exploded'].set_active(False)
@@ -34,8 +38,8 @@ def install(app, container):
     entry = Gtk.Entry(css_classes=['motion-rate'])
     entry.set_enable_undo(False)
     _track_numeric_entry(entry)
-    entry.set_width_chars(8)
-    entry.set_max_width_chars(10)
+    entry.set_width_chars(7)
+    entry.set_max_width_chars(7)
     entry.set_alignment(1)
     entry.set_input_purpose(Gtk.InputPurpose.NUMBER)
     entry.set_tooltip_text('Precise input speed. Press Enter or leave the field to apply; decimals and decimal commas are accepted.')
@@ -44,18 +48,19 @@ def install(app, container):
     unit = Gtk.Label(label='rpm', css_classes=['muted'])
     app.motion_unit = unit
     row.append(unit)
-    button = Gtk.MenuButton(label='Adjust')
+    button = Gtk.MenuButton(label='Rate info')
     app.motion_button = button
-    row.append(button)
     popup = Gtk.Popover(css_classes=['motion-palette'])
     button.set_popover(popup)
     content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
     content.set_size_request(290, -1)
     content.append(Gtk.Label(label='Input speed · progressive scale', xalign=0, css_classes=['step-title']))
     slider_row = Gtk.Box(spacing=8)
-    content.append(slider_row)
+    row.append(slider_row)
+    slider_row.set_hexpand(True)
     slider = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, 0, log1p(100000), .01)
     slider.set_draw_value(False)
+    slider.set_valign(Gtk.Align.CENTER)
     slider.set_hexpand(True)
     app.motion_speed = slider
     info = Gtk.Label(xalign=0, wrap=True, css_classes=['muted'])
@@ -63,13 +68,52 @@ def install(app, container):
     content.append(info)
     app.motion_info = info
     popup.set_child(content)
-    reset = Gtk.Button(label='Initial pose')
+    reset = Gtk.Button(label='Initial pose',css_classes=['flat'])
     app.motion_reset = reset
-    row.append(reset)
+    transport.insert_child_after(reset,play)
     reset.connect('clicked', lambda _: app.canvas.reset_motion())
     status = Gtk.Label(xalign=1, hexpand=True, css_classes=['muted'])
-    row.append(status)
+    transport.append(status)
+    transport.append(button)
     app.playback_hint = status
+    app.motion_phase_label = Gtk.Label(xalign=0, css_classes=['muted'])
+    transport.insert_child_after(app.motion_phase_label,reset)
+    connections = Gtk.Button(label='I/O', css_classes=['flat','motion-connections'])
+    connections.set_tooltip_text('I/O connections')
+    app.motion_connections=connections
+    connections.connect('clicked', lambda _: __import__('gui_workflow').show_page(app,'motion'))
+    transport.append(connections)
+    from workspace_ui import decorate_action
+    decorate_action(play,'play',vector=True)
+    decorate_action(reset,'reset',vector=True)
+    decorate_action(connections,'io',vector=True)
+    def play_icon(*_):
+        play.workspace_icon.glyph_name='pause' if play.get_label()=='Pause' else 'play'
+        play.workspace_icon.queue_draw()
+    play.connect('notify::label',play_icon)
+    def adaptive_spacing(*_):
+        scale=app.text_size.get_selected()
+        for name,active in (('enlarged-transport',scale>0),('compact-transport',scale==2)):
+            if active:container.add_css_class(name)
+            else:container.remove_css_class(name)
+        container.set_spacing(4 if scale==2 else 6)
+    app.text_size.connect('notify::selected',adaptive_spacing)
+    adaptive_spacing()
+    def show_phase(*_):
+        from math import degrees
+        text=f'Reference phase · {degrees(app.canvas.motion_phase)%360:.1f}°'
+        if app.motion_phase_label.get_text()!=text:app.motion_phase_label.set_text(text)
+        return True
+    phase_tick=[0]
+    def phase_watch(*_):
+        if app.canvas.motion_playing and not phase_tick[0]:
+            phase_tick[0]=app.motion_phase_label.add_tick_callback(show_phase)
+        elif not app.canvas.motion_playing and phase_tick[0]:
+            app.motion_phase_label.remove_tick_callback(phase_tick[0]);phase_tick[0]=0
+        show_phase()
+    app.canvas.connect('motion-state',phase_watch)
+    app.motion_phase_label.connect('unrealize',lambda *_: app.motion_phase_label.remove_tick_callback(phase_tick[0]) if phase_tick[0] else None)
+    show_phase()
     error = Gtk.Label(xalign=0, wrap=True, css_classes=['motion-input-error'])
     error.set_visible(False)
     container.append(error)
@@ -168,12 +212,13 @@ def install(app, container):
             app.motion_document_pending=0
     container.connect('unrealize',dispose)
     for title, delta in [('−1', -1), ('+1', 1)]:
-        step = Gtk.Button(label=title)
+        step = Gtk.Button(label=title,css_classes=["flat"])
+        step.set_valign(Gtk.Align.CENTER)
         step.set_tooltip_text(f'Change input speed by {delta:+d} rpm')
         step.connect('clicked', lambda _, d=delta: apply_rate(max(app.motion_rate_limits[0],
             min(app.motion_rate_limits[1], (app.motion_rpm if hasattr(app, 'motion_rpm')
                 else 12*app.canvas.motion_speed) + d))))
-        slider_row.append(step)
+        row.insert_child_after(step,caption if delta<0 else entry)
         if delta < 0:
             slider_row.append(slider)
     def update(*args):
@@ -184,7 +229,7 @@ def install(app, container):
         reset.set_sensitive(c.design is not None and not app.busy)
         entry.set_sensitive(not app.busy)
         slider.set_sensitive(not app.busy)
-        play.set_label('Pause' if c.motion_playing else 'Resume motion' if c.motion_enabled and c.motion_phase else 'Start motion')
+        play.set_label('Pause' if c.motion_playing else 'Play')
         status.set_text('Playing' if c.motion_playing else '' if available else 'Animation unavailable')
         if not app.motion_rate_editing:
             show_value(app.motion_rpm if hasattr(app, 'motion_rpm') else 12*c.motion_speed)
@@ -206,8 +251,6 @@ def configure(app,values,specs):
   app.motion_speed_text._numeric_typed_text=None
   set_numeric_value(app.motion_speed_text,app.motion_rpm)
   speed.set_range(scale_rpm(low),scale_rpm(high));speed.set_value(scale_rpm(app.motion_rpm))
-  for rpm in (-100000,0,100000):
-   if low<=rpm<=high:speed.add_mark(scale_rpm(rpm),Gtk.PositionType.BOTTOM,'−100k' if rpm==-100000 else '100k' if rpm==100000 else str(rpm))
   classic=app.family=='differential' and values.get('configuration')=='classic'
   app.motion_caption.set_text('Carrier input speed' if classic else 'Input A speed' if app.family=='differential' else 'Input speed · stage 1' if app.family=='planetary' and values.get('variant') in ('two_stage','two_stage_double') else 'Sun input speed' if app.family=='wolfrom' else 'Input speed')
   speed.set_tooltip_text('Signed carrier RPM; prescribe the side-speed difference independently in Motion.' if classic else 'Signed input A RPM; set input B independently in Motion.' if app.family=='differential' else 'Signed sun input RPM · −100,000 to +100,000. Positive is counterclockwise viewed from +Z toward XY; reversing input reverses all moving members. Zero stops every member.' if app.family=='wolfrom' else 'Actual input RPM · progressive scale 0–100,000. Also updates calculations and configuration. Use the arrows to adjust.')

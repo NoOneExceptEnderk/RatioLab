@@ -53,9 +53,26 @@ def json_text(value):
     return json.dumps(value, ensure_ascii=False, allow_nan=False, separators=(',', ':'))
 
 
+def help_diagram_context(family, key, values):
+    """Finite structural choices used by the canonical schematic renderer.
+
+    Numeric sizes/counts are deliberately schematic in the original drawings.
+    Keep these flags and the development asset generator in sync when its
+    renderer starts using another context value. No Cairo enters the worker.
+    """
+    variant = values.get('variant')
+    double = family == 'double' or variant in ('double', 'two_stage_double')
+    joined = values.get('double_style') == 'joined' or family == 'double' and variant == 'joined'
+    za = family == 'worm' and values.get('variant', 'za') == 'za'
+    left = family == 'worm' and values.get('worm_hand', 1) == -1
+    return '/'.join((family, key, str(int(double)), str(int(joined)), str(int(za)), str(int(left))))
+
+
 def help_for(family, key, values):
     try:
-        return asdict(parameter_help.lookup(family, key, values))
+        result = asdict(parameter_help.lookup(family, key, values))
+        result['diagram_context'] = help_diagram_context(family, key, values)
+        return result
     except KeyError:
         return None
 

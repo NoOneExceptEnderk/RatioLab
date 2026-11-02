@@ -109,9 +109,15 @@ def build(app, values, variant, choice):
         entry.set_text(str(values.get(FRICTION_KEY, '')))
         entry.set_tooltip_text('Explicit static coefficient for the actual tooth contact and conditions. No material or lubrication value is inferred.')
         box.append(entry)
-        buttons = Gtk.Box(spacing=5)
+        # These are independent actions: wrap them rather than making the
+        # parameter sidebar wider when the Motion page receives focus.
+        buttons = Gtk.FlowBox(selection_mode=Gtk.SelectionMode.NONE,
+                              min_children_per_line=1, max_children_per_line=2,
+                              column_spacing=5, row_spacing=5)
         apply = Gtk.Button(label='Apply coefficient')
         clear = Gtk.Button(label='Clear coefficient · unknown')
+        for button in (apply, clear):
+            button.get_child().set_wrap(True)
         def apply_friction(*args):
             try:
                 coefficient = float(entry.get_text().strip().replace(',', '.'))
@@ -237,9 +243,11 @@ def build(app, values, variant, choice):
         app.io_results.append((0, result))
     box.set_tooltip_text('Interfaces follow the selected arrangement and are visible when Supports is enabled in the preview.')
     reset = Gtk.Button(label='Reset default arrangement')
+    reset.get_child().set_wrap(True)
     reset.connect('clicked', lambda _: commit({'io_scheme': default(app.family), **({'io_scheme2': default(app.family)} if 'io_scheme2' in app.option_values else {})}))
     box.append(reset)
     app.io_frame.set_label('Drive · input and output')
+    app.io_frame.get_label_widget().set_wrap(True)
 
 def update(app, design):
     if design is not None and getattr(app, 'io_policy_error', None) is not None:

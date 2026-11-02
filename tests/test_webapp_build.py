@@ -80,13 +80,14 @@ class BuildTests(unittest.TestCase):
             self.assertEqual(runtime['indexURL'], 'https://cdn.jsdelivr.net/pyodide/v314.0.7/full/')
             self.assertNotIn('runtime/pyodide.mjs', manifest['files'])
             self.assertTrue({'LICENSE', 'COPYRIGHT', 'source.zip', 'engine.zip'} <= set(first))
-            self.assertEqual(set(builder.ASSETS), {'engine-client.js', 'worker.js', 'index.html', 'app.css', 'app.js', 'viewer.js', 'document.js', 'tools.js', 'tools.css'})
+            self.assertEqual(set(builder.ASSETS), {'engine-client.js', 'worker.js', 'index.html', 'app.css', 'app.js', 'ui-language.js', 'viewer.js', 'document.js', 'preferences.js', 'tools.js', 'tools.css', 'help-illustrations.json'})
             self.assertEqual(set(builder.BRANDING), {'ratiolab-icon.png', 'ratiolab-logo-dark.png'})
             for name in builder.ASSETS:
                 self.assertEqual(first[name], (ROOT/'webapp'/name).read_bytes())
             for name in builder.BRANDING:
                 self.assertEqual(first['branding/'+name], (ROOT/'src/ratiolab_resources/branding'/name).read_bytes())
             expected_static = set(builder.ASSETS) | {'branding/'+name for name in builder.BRANDING} | {'runtime.json', 'bundle-manifest.json', 'LICENSE', 'COPYRIGHT', 'source.zip', 'engine.zip', 'README.txt', 'serve.py'} | {'notices/'+name for name in builder.NOTICES}
+            expected_static |= set(builder.UI_RESOURCES) | {'fonts/'+name for name in builder.FONTS}
             self.assertEqual(set(first), expected_static)
             self.assertEqual(first['serve.py'], (ROOT/'scripts/serve-webapp.py').read_bytes())
             self.assertEqual(first['README.txt'], (ROOT/'webapp/README.txt').read_bytes())

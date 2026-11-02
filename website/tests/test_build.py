@@ -198,9 +198,10 @@ class ComposedSiteFixture(unittest.TestCase):
         cls.web_root = Path(cls.temporary.name) / 'browser-source'
         cls.web_root.mkdir()
         shutil.copytree(REPO / 'webapp', cls.web_root / 'webapp')
+        (cls.web_root / 'packaging').symlink_to(REPO / 'packaging', target_is_directory=True)
         (cls.web_root / 'src').symlink_to(REPO / 'src', target_is_directory=True)
         (cls.web_root / 'scripts').mkdir()
-        for name in ('build-webapp.py', 'fetch-web-runtime.py', 'serve-webapp.py'):
+        for name in ('build-webapp.py', 'fetch-web-runtime.py', 'serve-webapp.py', 'generate-web-help.py'):
             shutil.copyfile(REPO / 'scripts' / name, cls.web_root / 'scripts' / name)
         (cls.web_root / 'docs').mkdir()
         shutil.copyfile(REPO / 'docs/web-app.md', cls.web_root / 'docs/web-app.md')
@@ -229,7 +230,9 @@ class BuildTests(ComposedSiteFixture):
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory) / 'site'
             result = build.build(offline=True, output=output)
-            self.assertEqual(result['files'], 69)
+            self.assertEqual(result['files'], 78)
+            for name in ('preferences.js', 'help-illustrations.json'):
+                self.assertTrue((output/'app'/name).is_file())
             self.assertEqual(result['pages'], 19)
             self.assertEqual(set(hashes(output)), set(build.public_files()))
             build.validate_output(output)
@@ -322,7 +325,7 @@ class BuildTests(ComposedSiteFixture):
             build.build(offline=True, output=output)
             for relative in ('404.html', 'sitemap.xml', 'robots.txt'):
                 (output / relative).unlink()
-            self.assertEqual(len(hashes(output)), 66)
+            self.assertEqual(len(hashes(output)), 75)
             build.build(offline=True, output=output)
             page = Content((output / '404.html').read_text())
             metas = {a.get('name'): a.get('content') for tag, a in page.tags if tag == 'meta'}
@@ -332,7 +335,7 @@ class BuildTests(ComposedSiteFixture):
                 for key in ('src', 'href'):
                     if key in attrs:
                         self.assertTrue(attrs[key].startswith('/'), (tag, attrs[key]))
-            self.assertEqual(len(hashes(output)), 69)
+            self.assertEqual(len(hashes(output)), 78)
             asset_versions(output)
             previous = hashes(output)
             build.build(offline=True, output=output)

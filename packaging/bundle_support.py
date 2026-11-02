@@ -25,6 +25,30 @@ _windows_files = None
 _msys_notice_root = Path(__file__).resolve().parent/'notices/msys2'
 
 
+def write_font_config(font_root, template, output):
+    """Version font-directory caches by their actual font payload, not timestamps.
+
+    Reproducible installers normalize directory mtimes. Fontconfig may therefore
+    reuse an older directory cache at the unchanged installation path even after
+    fonts have been added. Its documented dir salt gives each font set its own
+    cache identity without deleting user/system caches or depending on version.
+    """
+    font_root, template, output = map(Path, (font_root, template, output))
+    fonts = sorted(path for path in font_root.iterdir() if path.suffix in ('.ttf', '.ttc'))
+    if not fonts:
+        raise ValueError('The native bundle requires its font payload')
+    digest = hashlib.sha256()
+    for path in fonts:
+        digest.update(path.name.encode('utf-8') + b'\0')
+        digest.update(hashlib.sha256(path.read_bytes()).digest())
+    source = template.read_text(encoding='utf-8')
+    if source.count('@FONT_SET_SHA256@') != 1:
+        raise ValueError('Fontconfig template must contain exactly one font-set salt')
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(source.replace('@FONT_SET_SHA256@', digest.hexdigest()), encoding='utf-8')
+    return output
+
+
 def command(args):
     result = subprocess.run(args, capture_output=True, text=True, encoding='utf-8',
                             errors='replace', env=os.environ | {'LC_ALL': 'C'}, timeout=120)
@@ -443,7 +467,12 @@ def write_notices(binaries, staging, datas=()):
         provider='vendored upstream fonts', source=font_source['source'],
         license_declarations=['Bitstream Vera license; DejaVu changes are public domain'],
         bundled_files=['share/fonts/'+name for name in font_source['files']],
-        _licenses=list(font_root.glob('*.txt')))
+        _licenses=[font_root/'LICENSE-DejaVu.txt', font_root/'AUTHORS-DejaVu.txt'])
+    noto_source = json.loads((font_root/'SOURCE-NOTO.json').read_text(encoding='utf-8'))
+    components['vendored:Noto-fonts'] = dict(name=noto_source['name'], version=noto_source['version'],
+        provider=noto_source['provider'], source=noto_source['source'], license_declarations=['OFL-1.1'],
+        bundled_files=['share/fonts/'+name for name in noto_source['files']],
+        _licenses=[font_root/'LICENSE-NotoCJK.txt', font_root/'LICENSE-NotoTamil.txt'])
     records = []
     for key, component in sorted(components.items()):
         identifier = re.sub(r'[^A-Za-z0-9_.+-]', '_', key)

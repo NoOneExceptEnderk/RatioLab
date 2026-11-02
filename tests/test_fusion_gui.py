@@ -52,6 +52,153 @@ class FusionGuiTests(unittest.TestCase):
     def status(self):
         return dict(application='Fusion',version='2600',document={'id':'doc1','name':'Test Design'},bridge_session='session')
 
+    def test_compact_menu_geometry_setup_back_and_reopen_at_all_text_sizes(self):
+        from test_interference_gui import wait_until
+        from ratiolab_checks import _wait_for_frame
+        a=self.app;a.set_connection(False);a.set_fusion_connection(None)
+        popup=a.cad_menu.get_popover()
+        def card():
+            ok,rect=popup.get_child().get_parent().compute_bounds(popup)
+            self.assertTrue(ok)
+            return rect
+        try:
+            self.assertEqual(list(a.cad_compact_buttons),['fusion','solidcraft'])
+            self.assertFalse(popup.get_has_arrow())
+            for scale in (0,1,2):
+                with self.subTest(scale=scale):
+                    a.text_size.set_selected(scale)
+                    _wait_for_frame(a.canvas,GLib.MainContext.default())
+                    size=(a.canvas.get_width(),a.canvas.get_height());scene=a.canvas.scene
+                    a.cad_menu.popup()
+                    def footer_inside():
+                        if not popup.get_mapped():return False
+                        ok,bounds=a.cad_setup_caption.compute_bounds(popup)
+                        return ok and bounds.get_height()>0 and bounds.get_y()+bounds.get_height()<=card().get_y()+card().get_height()-12
+                    self.assertTrue(wait_until(footer_inside,3))
+                    self.assertEqual(a.cad_stack.get_visible_child_name(),'compact')
+                    from gi.repository import Pango
+                    factor=(1,1.25,1.5)[scale]
+                    self.assertEqual(a.cad_setup_button.get_pango_context().get_font_description().get_size()/Pango.SCALE,12*factor)
+                    self.assertEqual(a.cad_compact_buttons['fusion'].get_pango_context().get_font_description().get_size()/Pango.SCALE,14*factor)
+                    self.assertEqual(round(card().get_width()),292)
+                    self.assertGreater(a.cad_setup_caption.get_height(),0)
+                    self.assertGreaterEqual(a.cad_setup_caption.get_height(),a.cad_setup_caption.get_layout().get_pixel_size().height)
+                    ok,caption=a.cad_setup_caption.compute_bounds(popup);self.assertTrue(ok)
+                    self.assertLessEqual(caption.get_y()+caption.get_height(),card().get_y()+card().get_height()-12)
+                    ok,anchor=a.cad_split.compute_bounds(a.win);self.assertTrue(ok)
+                    surface=popup.get_surface();rect=card()
+                    self.assertAlmostEqual(surface.get_position_x()+rect.get_x()+rect.get_width(),anchor.get_x()+anchor.get_width(),delta=2)
+                    self.assertGreaterEqual(surface.get_position_y()+rect.get_y(),anchor.get_y()+anchor.get_height()+7)
+                    adjustment=a.cad_card_view.get_hadjustment()
+                    self.assertLessEqual(adjustment.get_upper(),adjustment.get_page_size()+.5)
+                    compact_height=round(card().get_height())
+                    a.set_fusion_connection(self.status());pump(.03)
+                    self.assertEqual(round(card().get_width()),292)
+                    a.set_fusion_connection(dict(document=None));pump(.03)
+                    self.assertEqual(round(card().get_width()),292)
+                    a.set_fusion_connection(None);pump(.03)
+                    a.cad_setup_button.emit('clicked')
+                    self.assertTrue(wait_until(lambda:a.cad_stack.get_visible_child_name()=='setup',3))
+                    self.assertTrue(a.fusion_install_btn.get_mapped())
+                    self.assertEqual(round(card().get_width()),292)
+                    a.cad_back_button.emit('clicked')
+                    self.assertTrue(wait_until(lambda:a.cad_stack.get_visible_child_name()=='compact' and round(card().get_height())==compact_height,3))
+                    self.assertEqual(round(card().get_width()),292)
+                    self.assertEqual((a.canvas.get_width(),a.canvas.get_height()),size)
+                    self.assertIs(a.canvas.scene,scene)
+                    popup.popdown();pump(.04);a.cad_menu.popup()
+                    self.assertTrue(wait_until(lambda:popup.get_mapped() and a.cad_stack.get_visible_child_name()=='compact',3))
+                    self.assertEqual(round(card().get_width()),292)
+                    a.cad_setup_button.emit('clicked');pump(.03)
+                    popup.popdown()
+                    self.assertTrue(wait_until(lambda:not popup.get_mapped(),3))
+                    a.cad_menu.popup()
+                    self.assertTrue(wait_until(lambda:popup.get_mapped() and a.cad_stack.get_visible_child_name()=='compact',3))
+                    self.assertEqual(round(card().get_height()),compact_height)
+                    popup.popdown();pump(.04)
+        finally:
+            popup.popdown();a.text_size.set_selected(0)
+            _wait_for_frame(a.canvas,GLib.MainContext.default())
+
+    def test_compact_connect_delegates_without_import_and_selects_only_real_known_connections(self):
+        a=self.app;a.set_connection(False);a.set_fusion_connection(None)
+        with patch.object(a,'background') as background,patch.object(a,'send_fusion') as send:
+            a.cad_compact_buttons['fusion'].emit('clicked')
+            background.assert_called_once_with(a.connect_fusion)
+            send.assert_not_called()
+            self.assertFalse(a.fusion_connected)
+            self.assertEqual(a.cad_action.get_label(),'CAD Connections')
+        a.set_fusion_connection(self.status())
+        self.assertEqual(a.cad_compact_status['fusion'].get_text(),'Connected · selected')
+        self.assertFalse(a.cad_compact_buttons['fusion'].get_sensitive())
+        a.set_connection(True)
+        self.assertEqual(a.cad_compact_buttons['fusion'].get_label(),'Select')
+        with patch.object(a,'background') as background,patch.object(a,'send_fusion') as send:
+            a.cad_compact_buttons['fusion'].emit('clicked')
+            background.assert_not_called();send.assert_not_called()
+        self.assertEqual(a.cad_action.get_label(),'Import in Fusion')
+        a.set_fusion_connection(dict(document=None))
+        self.assertIn('no active document',a.cad_compact_status['fusion'].get_text())
+        self.assertEqual(a.cad_compact_buttons['fusion'].get_label(),'Check')
+        self.assertFalse(a.cad_action.get_sensitive())
+        a.set_connection(True)
+        with patch.object(a,'background') as background:
+            a.cad_compact_buttons['fusion'].emit('clicked')
+            background.assert_called_once_with(a.connect_fusion)
+            self.assertEqual(a.active_cad,'solidcraft')
+        a.set_fusion_connection(None)
+        self.assertEqual(a.cad_compact_status['fusion'].get_text(),'Not connected')
+        self.assertEqual(a.cad_compact_buttons['fusion'].get_label(),'Connect')
+        a.set_connection(False)
+
+    def test_compact_connect_busy_success_and_error_preserve_actual_readiness(self):
+        from test_interference_gui import wait_until
+        a=self.app;a.set_connection(False);a.set_fusion_connection(None)
+        release=threading.Event()
+        def connect():
+            release.wait(3)
+            GLib.idle_add(a.set_fusion_connection,self.status())
+            return 'Connected to test CAD'
+        with patch.object(a,'connect_fusion',side_effect=connect),patch.object(a,'send_fusion') as send:
+            a.cad_compact_buttons['fusion'].emit('clicked')
+            try:
+                self.assertTrue(a.busy)
+                self.assertEqual(a.cad_compact_status['fusion'].get_text(),'Connecting…')
+                self.assertFalse(a.fusion_connected)
+                self.assertTrue(all(not b.get_sensitive() for b in a.cad_compact_buttons.values()))
+            finally:release.set()
+            self.assertTrue(wait_until(lambda:not a.busy and a.fusion_connected,3))
+            self.assertEqual(a.cad_compact_status['fusion'].get_text(),'Connected · selected')
+            self.assertEqual(a.cad_action.get_label(),'Import in Fusion')
+            send.assert_not_called()
+        a.set_fusion_connection(None)
+        with patch.object(module.fusion_connection,'Client') as client:
+            client.return_value.__enter__.side_effect=module.fusion_connection.FusionError('test offline')
+            a.cad_compact_buttons['fusion'].emit('clicked')
+            self.assertTrue(wait_until(lambda:not a.busy,3))
+            self.assertFalse(a.fusion_connected)
+            self.assertEqual(a.cad_compact_status['fusion'].get_text(),'Not connected')
+            self.assertEqual(a.cad_action.get_label(),'CAD Connections')
+            self.assertTrue(a.cad_compact_buttons['fusion'].get_sensitive())
+            self.assertIn('test offline',a.status.get_text())
+
+    def test_primary_action_tracks_only_successful_connection_and_readiness(self):
+        a=self.app;a.set_connection(False)
+        self.assertEqual(a.cad_action.get_label(),'CAD Connections')
+        with patch.object(a,'send_fusion') as send:
+            a.set_fusion_connection(self.status())
+            send.assert_not_called()
+            self.assertEqual(a.cad_action.get_label(),'Import in Fusion')
+            self.assertTrue(a.cad_action.get_sensitive())
+            a.cad_action.emit('clicked');send.assert_called_once()
+        a.set_fusion_connection(dict(document=None))
+        self.assertFalse(a.cad_action.get_sensitive())
+        a.set_connection(True)
+        self.assertEqual(a.cad_action.get_label(),'Import in SolidCraft')
+        a.set_connection(False)
+        self.assertEqual(a.cad_action.get_label(),'CAD Connections')
+        self.assertTrue(a.cad_menu.get_sensitive())
+
     def test_new_section_preserves_original_solidcraft_controls(self):
         a=self.app
         self.assertEqual(a.connect_btn.get_label(),'Connect SolidCraft')

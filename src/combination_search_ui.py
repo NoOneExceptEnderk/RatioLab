@@ -150,6 +150,7 @@ class Controller:
         report_scroll.set_child(self.report)
         details(advanced, 'Full search report', report_scroll)
         self.scope = label('')
+        setup.append(self.scope)
         self.status = label('Choose a ratio and ranges, then Search.')
         self.progress = Gtk.ProgressBar()
         buttons = actions(box)
@@ -208,8 +209,12 @@ class Controller:
             return False
         win.connect('close-request', close)
         self.setup.connect('notify::expanded', lambda *_: self.update_step_view())
+        box.append(self.status)
+        box.append(compare)
         self.populate()
-        win.pin(self.scope, self.envelope_summary, self.status, self.progress, run_actions, compare)
+        from workspace_tools import status_actions
+        status_row,self.status_badge=status_actions(self.status,run_actions)
+        win.pin(status_row,self.progress)
         win.present()
         self.fields['target'].grab_focus()
 

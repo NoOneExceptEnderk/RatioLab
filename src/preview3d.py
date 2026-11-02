@@ -464,8 +464,12 @@ class Preview3D(Gtk.GLArea):
     def drag_update(self,g,x,y):
         self.drag_distance=max(self.drag_distance,sqrt(x*x+y*y))
         if self.drag_distance<=4:return
-        self.yaw=self.drag_origin[0]+x*.008;self.tilt=max(-pi,min(pi,self.drag_origin[1]+y*.008));self.queue_render();self.emit('view-changed','custom')
-    def scroll(self,c,dx,dy):self.zoom=max(.25,min(8,self.zoom*1.12**(-dy)));self.queue_render();self.emit('view-changed','custom');return True
+        speed = .008*getattr(self, 'rotation_speed', 1)
+        self.yaw=self.drag_origin[0]+x*speed;self.tilt=max(-pi,min(pi,self.drag_origin[1]+y*speed));self.queue_render();self.emit('view-changed','custom')
+    def scroll(self,c,dx,dy):
+        direction = -1 if getattr(self, 'invert_zoom', False) else 1
+        delta = max(-20., min(20., -dy*direction*getattr(self, 'zoom_speed', 1)))
+        self.zoom=max(.25,min(8,self.zoom*1.12**delta));self.queue_render();self.emit('view-changed','custom');return True
     def on_realize(self,*args):
         self.failure=None;self.use_es=None
         self.make_current()

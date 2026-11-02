@@ -4,6 +4,8 @@ import {EngineClient} from './engine-client.js';
 import {BrowserDocument, automaticText, clone, downloadBlob, numberValue, storage} from './document.js';
 import {ModelViewer} from './viewer.js';
 import {initTools} from './tools.js';
+import {LANGUAGES, initLanguage} from './ui-language.js';
+import {readPreferences, savePreferences} from './preferences.js';
 
 const $ = id => document.getElementById(id);
 const node = (tag, text, className) => { const n = document.createElement(tag); if (text != null) n.textContent = text; if (className) n.className = className; return n; };
@@ -14,6 +16,8 @@ const shaftKeys = new Set(['bore','output_bore','wheel_bore','input_shaft','outp
 const outputKeys = new Set(['output_count','output_radius','output_pin','flange_radius','bolt_count','bolt_diameter']);
 const mainOrder = ['teeth','side_teeth','output_teeth','sun','planet','planets','sun2','planet2','output_ring','pinion','wheel','pins','radius','pin_radius','eccentric','module','width','spiral_angle','width2','layer_gap','disc_gap','helix','gap'];
 const doc = new BrowserDocument();
+const preferences = readPreferences();
+let languageUI;
 const events = new EventTarget();
 let engine, viewer, catalog, schema, design = null, validToken = null, tab = 'dimensions', inspection = 'components';
 let startup = true, generationRunning = false, generationTimer, schemaSerial = 0, operationSerial = 0, busy = false;
@@ -28,7 +32,8 @@ let sourceParameters = null;
 let activeTool = 'components';
 let analysisActive = false, cancellation = null;
 let rateCompletion = null, actionConfirmation = false;
-const toolControllers = new Map();
+const toolControllers = new Map(), parameterGroupOpen = new Map();
+let remainingParametersOpen = false;
 const recent = () => storage.recent();
 // Keep an offered recovery intact until the user explicitly restores/dismisses
 // it. A fresh clean boot must not erase the previous unsaved document.
@@ -52,15 +57,17 @@ function updateActions() {
   for (const id of ['show-bom','show-report']) $(id).disabled = !valid;
   if (analysisActive) for (const id of ['save-document','save-as-document','export-document','show-bom','show-report','reset-motion']) $(id).disabled = true;
   $('show-notes').disabled = !design;
+  for (const [id,source] of [['tool-bom','show-bom'],['tool-report','show-report'],['tool-notes','show-notes']]) $(id).disabled = $(source).disabled;
   $('play-motion').disabled = analysisActive || !motionAvailable() || !design?.motion.supported || viewer?.lost;
   $('reset-motion').disabled = analysisActive || !valid || viewer?.lost;
+  $('phase-range').disabled = analysisActive || !motionAvailable() || !design?.motion.supported || viewer?.lost;
   $('undo').disabled = !doc.past.length || busy; $('redo').disabled = !doc.future.length || busy;
   $('family').disabled = !catalog || busy; $('reset-family').disabled = !catalog || busy;
   for (const id of ['new-document','open-document','recent-documents']) $(id).disabled = !catalog || busy || actionConfirmation;
   for (const button of document.querySelectorAll('[data-export-kind]')) button.disabled = !documentReady;
   $('cancel-generation').hidden = !generationRunning;
   const title = doc.name === 'Untitled design' ? 'Untitled' : doc.name;
-  $('document-name').textContent = 'RatioLab · '+title;
+  $('document-name').textContent = title;
   $('document-state').textContent = `${title} · ${doc.dirty ? 'unsaved changes' : doc.name === 'Untitled design' ? 'not saved' : 'saved'}`;
   syncMotionControl();
   document.title = `${doc.dirty ? '• ' : ''}${doc.name} · RatioLab`;
@@ -136,12 +143,99 @@ function changeOption(key, value) {
   }
   doc.editOptions(values);
 }
+// One help surface avoids stacked popovers. The anchor and pane share a
+// short pointer-leave grace, so crossing their gap never dismisses the guide.
+const helpBindings = new WeakMap(), helpTriggers = new WeakMap();
+let dismissedHelpAnchor = null, helpDisplaySerial = 0, helpActivation = 'pointer';
+let helpPane = null, helpAnchor = null, helpSpec = null, helpOpenTimer, helpCloseTimer;
+function closeParameterHelp({dismiss=false} = {}) {
+  ++helpDisplaySerial;
+  if (dismiss) dismissedHelpAnchor = helpAnchor;
+  clearTimeout(helpOpenTimer); clearTimeout(helpCloseTimer);
+  if (helpAnchor) helpBindings.get(helpAnchor)?.trigger.setAttribute('aria-expanded','false');
+  if (helpPane) { helpPane.hidden = true; helpPane.classList.remove('expanded'); }
+  helpAnchor = null; helpSpec = null; helpActivation = 'pointer';
+}
+function scheduleHelpClose(reason = 'pointer') {
+  // Bounds changes can synthesize pointerleave while a keyboard/touch guide
+  // still owns focus. Explicit guides end through focus departure or dismissal.
+  clearTimeout(helpOpenTimer);
+  if (reason === 'pointer' && helpAnchor && helpActivation !== 'pointer') return;
+  clearTimeout(helpCloseTimer);
+  helpCloseTimer = setTimeout(closeParameterHelp,220);
+}
+function keepParameterHelp() { clearTimeout(helpCloseTimer); }
+function placeParameterHelp() {
+  if (!helpPane || helpPane.hidden || !helpAnchor?.isConnected) { if (helpAnchor && !helpAnchor.isConnected) closeParameterHelp(); return; }
+  const margin = 8, anchor = helpAnchor.getBoundingClientRect(), width = document.documentElement.clientWidth, height = window.innerHeight;
+  const panel = helpPane.getBoundingClientRect(), sidebar = helpAnchor.closest?.('.parameter-panel')?.getBoundingClientRect();
+  let x = (sidebar?.right ?? anchor.right)+10, y = anchor.top;
+  if (x+panel.width > width-margin) { x = anchor.left; y = anchor.bottom+10; }
+  helpPane.style.left = `${Math.max(margin,Math.min(x,width-panel.width-margin))}px`;
+  helpPane.style.top = `${Math.max(margin,Math.min(y,height-panel.height-margin))}px`;
+}
+function showParameterHelp(anchor,{keyboard=false,activation=keyboard ? 'keyboard' : 'pointer'} = {}) {
+  const binding = helpBindings.get(anchor); if (!binding) return;
+  clearTimeout(helpOpenTimer); clearTimeout(helpCloseTimer);
+  if (helpAnchor !== anchor) closeParameterHelp();
+  if (!helpPane) {
+    helpPane = node('aside',null,'parameter-help-pane'); helpPane.id = 'parameter-help-pane';
+    helpPane.setAttribute('role','region'); helpPane.setAttribute('aria-label','Parameter guide');
+    helpPane.addEventListener('pointerenter',keepParameterHelp); helpPane.addEventListener('pointerleave',event => { if (event.pointerType !== 'touch') scheduleHelpClose(); });
+    helpPane.addEventListener('focusin',keepParameterHelp);
+    helpPane.addEventListener('focusout',event => { if (!helpPane.contains(event.relatedTarget) && !helpAnchor?.contains(event.relatedTarget)) scheduleHelpClose('focus'); });
+    document.body.append(helpPane);
+  }
+  helpAnchor = anchor; helpSpec = binding.spec; helpActivation = activation;
+  binding.trigger.setAttribute('aria-expanded','true'); helpPane.hidden = false; helpPane.replaceChildren();
+  const heading = node('header'), title = node('strong',helpSpec.help.title), close = node('button','×','flat');
+  close.setAttribute('aria-label','Close parameter guide'); close.addEventListener('click',() => { closeParameterHelp({dismiss:true}); if (keyboard) binding.trigger.focus(); }); heading.append(title,close);
+  const body = node('div',null,'parameter-help-body');
+  for (const [label,text] of [['Meaning',helpSpec.help.meaning],['Effect',helpSpec.help.effect]]) if (text) { body.append(node('h3',label),node('p',text)); }
+  const displayedSpec = helpSpec, displayedSerial = ++helpDisplaySerial;
+  if (helpSpec.help.diagram_url) appendHelpDiagram(body,helpSpec.help.diagram_url,helpSpec.help);
+  else if (helpSpec.help.diagram_context) {
+    loadHelpIllustrations().then(asset => {
+      if (helpDisplaySerial !== displayedSerial || helpAnchor !== anchor || helpSpec !== displayedSpec || helpPane.hidden) return;
+      const digest = asset.entries[displayedSpec.help.diagram_context], url = asset.images[digest];
+      if (url) appendHelpDiagram(body,url,displayedSpec.help);
+    }).catch(() => { if (helpDisplaySerial === displayedSerial && helpAnchor === anchor && helpSpec === displayedSpec) body.append(node('p','Illustration unavailable. Close and reopen this guide to retry.','muted')); });
+  }
+  helpPane.append(heading,body); placeParameterHelp();
+  if (keyboard) close.focus({preventScroll:true});
+}
+let helpIllustrationsPromise;
+function loadHelpIllustrations() {
+  if (!helpIllustrationsPromise) helpIllustrationsPromise = fetch('./help-illustrations.json').then(response => {
+    if (!response.ok) throw Error('Illustrations could not be loaded.'); return response.json();
+  }).then(asset => { if (asset.format !== 'ratiolab-help-illustrations/1') throw Error('Unsupported illustration asset.'); return asset; }).catch(error => { helpIllustrationsPromise = null; throw error; });
+  return helpIllustrationsPromise;
+}
+function appendHelpDiagram(body,url,help) {
+  const figure = node('figure'), image = node('img'); image.src = url; image.alt = help.dimension ?? help.title;
+  image.addEventListener('load',placeParameterHelp); figure.append(image,node('figcaption','Schematic illustration · not exact model geometry','muted')); body.append(figure);
+  const expand = node('button','Expand diagram'); expand.setAttribute('aria-expanded','false');
+  expand.addEventListener('click',() => { const expanded = helpPane.classList.toggle('expanded'); expand.textContent = expanded ? 'Compact diagram' : 'Expand diagram'; expand.setAttribute('aria-expanded',String(expanded)); placeParameterHelp(); }); body.append(expand); placeParameterHelp();
+}
+function bindParameterHelp(anchor,spec,trigger) {
+  // makeField and the section heading promote the small icon's binding to
+  // the whole row. Abort the old binding instead of stacking listeners.
+  const previous = helpTriggers.get(trigger); previous?.controller.abort();
+  if (previous) helpBindings.delete(previous.anchor);
+  const controller = new AbortController(), options = {signal:controller.signal};
+  helpTriggers.set(trigger,{anchor,controller}); helpBindings.set(anchor,{spec,trigger});
+  trigger.setAttribute('aria-controls','parameter-help-pane'); trigger.setAttribute('aria-expanded','false');
+  anchor.addEventListener('pointerenter',event => { if (!preferences.hover_help || event.pointerType === 'touch' || helpAnchor && helpActivation !== 'pointer') return; keepParameterHelp(); clearTimeout(helpOpenTimer); helpOpenTimer = setTimeout(() => { if (preferences.hover_help && dismissedHelpAnchor !== anchor) showParameterHelp(anchor); },250); },options);
+  anchor.addEventListener('pointerleave',event => { if (dismissedHelpAnchor === anchor) dismissedHelpAnchor = null; if (event.pointerType !== 'touch') scheduleHelpClose(); },options);
+  trigger.addEventListener('click',event => { event.preventDefault(); helpAnchor === anchor && !helpPane?.hidden ? closeParameterHelp({dismiss:true}) : showParameterHelp(anchor,{keyboard:event.detail === 0,activation:event.pointerType === 'touch' ? 'touch' : event.detail === 0 ? 'keyboard' : 'pointer'}); },options);
+  anchor.addEventListener('keydown',event => { if (event.key === 'F1') { event.preventDefault(); showParameterHelp(anchor,{keyboard:true}); } },options);
+  anchor.addEventListener('focusout',event => { if (!anchor.contains(event.relatedTarget) && !helpPane?.contains(event.relatedTarget)) scheduleHelpClose('focus'); },options);
+}
 function helpDetails(spec) {
   if (!spec.help) return null;
-  const details = node('details',null,'field-help'), summary = node('summary','i');
-  summary.setAttribute('aria-label',`Help: ${spec.help.title}`); details.append(summary);
-  const copy = node('div',null,'help-copy'); copy.append(node('strong',spec.help.title),node('p',spec.help.meaning),node('p',spec.help.effect));
-  details.append(copy); return details;
+  const wrap = node('span',null,'field-help'), trigger = node('button',null,'help-trigger'); trigger.type = 'button';
+  trigger.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3m.1 4h.01"/></svg>';
+  trigger.setAttribute('aria-label',`Help: ${spec.help.title}`); wrap.append(trigger); bindParameterHelp(wrap,spec,trigger); return wrap;
 }
 let overlayPlacementFrame = 0;
 function resetOverlayPlacement(copy) {
@@ -149,24 +243,14 @@ function resetOverlayPlacement(copy) {
 }
 function placeFloatingOverlays() {
   overlayPlacementFrame = 0;
+  placeParameterHelp();
   const margin = 8, width = document.documentElement.clientWidth, height = window.innerHeight;
-  for (const copy of document.querySelectorAll('.popover[open]>.popover-body, .field .field-help[open]>.help-copy, #motion-help .field-help[open]>.help-copy')) {
+  for (const copy of document.querySelectorAll('.popover[open]>.popover-body')) {
     // Measure the normal anchor first so a menu keeps its usual placement
     // whenever it fits, including after scrolling or changing text size.
     resetOverlayPlacement(copy);
     const rect = copy.getBoundingClientRect();
     const x = Math.max(margin,Math.min(rect.left,width-margin-rect.width))-rect.left;
-    const field = copy.closest('.field');
-    if (field) {
-      // Escape the parameter panel's scrolling clip while retaining the row's
-      // horizontal anchor and measured width. Prefer above when below is full.
-      const above = field.getBoundingClientRect().top-rect.height;
-      const preferredTop = rect.bottom > height-margin && above >= margin ? above : rect.top;
-      copy.style.position = 'fixed'; copy.style.left = `${rect.left+x}px`; copy.style.right = 'auto';
-      copy.style.top = `${Math.max(margin,Math.min(preferredTop,height-margin-rect.height))}px`;
-      copy.style.bottom = 'auto'; copy.style.width = `${rect.width}px`;
-      continue;
-    }
     const y = Math.max(margin,Math.min(rect.top,height-margin-rect.height))-rect.top;
     // Move the actual box: a transform can retain its original scroll overflow.
     if (x) { copy.style.left = `${copy.offsetLeft+x}px`; copy.style.right = 'auto'; copy.style.width = `${rect.width}px`; }
@@ -178,10 +262,10 @@ function scheduleOverlayPlacement() {
 }
 function makeField(spec, {top = false} = {}) {
   const key = spec.key, linked = linkedFields().has(key), row = node('div',null,'field'); row.dataset.field = key;
-  const heading = node('div',null,'field-top'); const labelText = top ? (key === 'variant' ? 'Variant' : key === 'configuration' ? 'Configuration' : labels[key] ?? displayKey(key)) : spec.label ?? labels[key] ?? displayKey(key);
-  const unitMatch = labelText.match(/\[([^\]]+)\]/), caption = labelText.replace(/\s*\[[^\]]+\]/,'').split(' (')[0];
-  const label = node('label',caption); label.htmlFor = `parameter-${key}`; heading.append(label); row.append(heading);
-  let input;
+  const heading = node('div',null,'field-top'); const labelText = top ? (key === 'variant' ? ['parallel','internal'].includes(doc.family) ? 'Tooth type' : 'Construction' : key === 'configuration' ? 'Configuration' : labels[key] ?? displayKey(key)) : spec.label ?? labels[key] ?? displayKey(key);
+  const unitMatch = labelText.match(/\[([^\]]+)\]/), caption = ({pinion:'Pinion teeth',wheel:'Wheel teeth',module:'Module',width:'Face width'}[key]) ?? labelText.replace(/\s*\[[^\]]+\]/,'').split(' (')[0];
+  const label = node('label',caption+(unitMatch ? ' · '+unitMatch[1] : '')); label.htmlFor = `parameter-${key}`; heading.append(label); row.append(heading);
+  let input, inputWrapper = null;
   if (spec.type === 'choice') {
     input = node('select');
     for (const choice of spec.choices) {
@@ -202,7 +286,7 @@ function makeField(spec, {top = false} = {}) {
     input.title = `${caption}${spec.minimum != null ? ' · minimum '+spec.minimum : ''}${spec.maximum != null ? ', maximum '+spec.maximum : ''}`;
     input.addEventListener('input',() => { doc.editNumber(key,input.value); applyFieldErrors(); });
     input.addEventListener('keydown',event => { if (event.key === 'Enter') { event.preventDefault(); clearTimeout(generationTimer); scheduleGeneration(0); } });
-    const wrap = node('div',null,'field-input'), spin = node('div',null,'numeric-control'); spin.append(input);
+    const wrap = node('div',null,'field-input'), spin = node('div',null,'numeric-control'); inputWrapper = wrap; spin.append(input);
     if (!linked) for (const delta of [-1,1]) {
       const button = node('button',delta < 0 ? '−' : '+'); button.type = 'button';
       button.setAttribute('aria-label',`${delta < 0 ? 'Decrease' : 'Increase'} ${caption}`); button.disabled = busy || schemaPending;
@@ -212,7 +296,7 @@ function makeField(spec, {top = false} = {}) {
         doc.checkpoint(`${doc.family}:${key}:step`); doc.entries[key] = {text:automaticText(value),exact:value,typed:false}; doc.changed();
       }); spin.append(button);
     }
-    wrap.append(spin,node('span',unitMatch?.[1] ?? (key === 'worm_static_friction' ? 'μ' : ''),'unit')); row.append(wrap);
+    wrap.append(spin); row.append(wrap);
     if (linked) {
       const note = node('div',null,'linked-note'); note.append(node('span',linkedDescription(key)+' '));
       const source = node('button','Change source…','text-button'); source.addEventListener('click',() => {
@@ -221,8 +305,8 @@ function makeField(spec, {top = false} = {}) {
       }); note.append(source); row.append(note);
     }
   }
-  input.id = `parameter-${key}`; input.dataset.key = key;
-  const help = helpDetails(spec); if (help) heading.append(help);
+  input.id = `parameter-${key}`; input.dataset.key = key; input.setAttribute('aria-label',labelText);
+  const help = helpDetails(spec); if (help) { (inputWrapper ?? heading).append(help); bindParameterHelp(row,spec,help.querySelector('button')); }
   if (spec.type === 'choice') row.append(input);
   if (spec.type === 'boolean') heading.append(input);
   const feedback = node('div',errors[key] ?? '','field-error'); feedback.id = `error-${key}`; feedback.hidden = !errors[key]; row.append(feedback); input.setAttribute('aria-describedby',feedback.id);
@@ -236,25 +320,36 @@ function makeField(spec, {top = false} = {}) {
 }
 function renderFields() {
   if (!schema || !doc.draft) return;
+  closeParameterHelp();
+  const resetButton = $('reset-family');
   const container = $('parameters'), top = $('variant-fields'), scroll = container.scrollTop, focused = document.activeElement?.dataset.key;
   const selection = document.activeElement?.selectionStart, selectionEnd = document.activeElement?.selectionEnd;
   fields = new Map(); container.replaceChildren(); top.replaceChildren();
   for (const spec of schema.options.filter(f => f.key === 'variant')) top.append(makeField(spec,{top:true}));
-  const groups = new Map();
+  const groups = new Map(); let remaining = null;
+  const primaryKeys = new Set(({parallel:['pinion','wheel','module','width'],internal:['pinion','wheel','module','width'],planetary:['sun','planet','module','width'],wolfrom:['sun','planet','module','width'],cycloidal:['pins','radius','pin_radius','eccentric'],worm:['starts','wheel','module','diameter'],differential:['side_teeth','output_teeth','module','width'],harmonic:['teeth','module','width','wall']}[doc.family]) ?? ['teeth','module','width','helix']);
+  function remainingParameters() {
+    if (!remaining) { remaining = node('details',null,'all-model-parameters'); remaining.open = remainingParametersOpen; remaining.addEventListener('toggle',() => { remainingParametersOpen = remaining.open; }); remaining.append(node('summary','All model parameters')); const body = node('div',null,'remaining-parameter-fields'); remaining.append(body); container.append(remaining); }
+    return remaining.children[1];
+  }
   const specs = [...schema.fields,...schema.options.filter(f => f.key !== 'variant')];
   const order = ['configuration','ratio_mode','double_style',...mainOrder];
   specs.sort((a,b) => { const ia = order.indexOf(a.key), ib = order.indexOf(b.key); return (ia < 0 ? 100 : ia)-(ib < 0 ? 100 : ib); });
   for (const spec of specs) {
     if (spec.key === 'input_rpm' || spec.key === 'harmonic_output' || spec.key === 'io_scheme2' && !['two_stage','two_stage_double'].includes(doc.draft.options.variant) || spec.key === 'double_style' && (doc.family === 'double' || !['double','two_stage_double'].includes(doc.draft.options.variant)) || spec.inactive || spec.key.startsWith('print_') && doc.draft.options.eccentric_design !== 'fdm_bolted') continue;
-    const [page, group] = classify(spec); if (page !== tab) continue;
+    const [page, classifiedGroup] = classify(spec); if (page !== tab) continue;
+    const group = page === 'dimensions' && classifiedGroup === 'Main geometry' && !primaryKeys.has(spec.key) ? 'Additional geometry' : classifiedGroup;
     if (!groups.has(group)) {
       let section, target;
       if (['Advanced · profile & clearances','Nominal operating loads','Drive connections','Bearings & fits','Standard hardware','Housing & flanges','Eccentric shaft construction'].includes(group)) {
-        section = node('details'); section.open = group.startsWith('Advanced') ? advancedOpen : !['Nominal operating loads','Standard hardware','Eccentric shaft construction'].includes(group);
-        section.append(node('summary',group)); target = node('div',null,'field-group'); section.append(target);
+        section = node('details'); const groupKey = `${tab}:${group}`; section.open = group.startsWith('Advanced') ? advancedOpen : parameterGroupOpen.get(groupKey) ?? !['Nominal operating loads','Standard hardware','Eccentric shaft construction'].includes(group);
+        section.addEventListener('toggle',() => parameterGroupOpen.set(groupKey,section.open));
+        section.append(node('summary',group.startsWith('Advanced') ? 'Advanced tooth geometry' : group)); target = node('div',null,'field-group'); section.append(target);
         if (group.startsWith('Advanced')) section.addEventListener('toggle',() => { advancedOpen = section.open; });
-      } else { section = target = node('div',null,'field-group'); target.append(node('h3',group)); }
-      groups.set(group,target); container.append(section);
+      } else { section = target = node('div',null,'field-group'); if (group === 'Main geometry') section.className += ' primary-geometry'; else target.append(node('h3',group)); }
+      groups.set(group,target);
+      if (page === 'dimensions' && !['Main geometry','Advanced · profile & clearances'].includes(group)) remainingParameters().append(section);
+      else if (remaining) container.insertBefore(section,remaining); else container.append(section);
     }
     if (spec.key === 'io_scheme' || spec.key === 'io_scheme2') groups.get(group).append(makeDriveConnections(spec));
     else if (spec.key === 'configuration' || spec.key === 'ratio_mode' || spec.key === 'double_style') {
@@ -274,6 +369,19 @@ function renderFields() {
       groups.get(group).append(derived);
     }
   }
+  // Each adjacent pair shares caption/input/message tracks. Wrapped labels
+  // cannot offset one input at larger text scales; whole-width derived rows
+  // retain their original position between pairs and keep their own space.
+  const primary = groups.get('Main geometry');
+  if (primary) {
+    let pair = null;
+    for (const child of [...primary.children]) {
+      if (!child.classList.contains('field')) { pair = null; primary.append(child); continue; }
+      if (!pair || pair.children.length === 2) { pair = node('div',null,'parameter-pair'); primary.append(pair); }
+      pair.append(child);
+    }
+  }
+  if (resetButton) (groups.get('Advanced · profile & clearances') ?? remainingParameters()).append(resetButton);
   if (!container.children.length) container.append(node('p','No additional parameters for this model.','empty-state'));
   if (tab === 'motion') {
     const note = node('p',doc.family === 'differential' ? doc.draft.options.configuration === 'classic' ? 'Set carrier input C in the motion bar. Prescribe B−A here to explore the two outputs; this is a speed boundary condition, not another motor.' : 'Input A is set in the motion bar. Set input B here. Both signs use the same world +X direction; the shafts face opposite sides.' : 'Set input speed and playback in the motion bar. Operating assumptions are not allowable loads.','subtle'); container.prepend(note);
@@ -283,7 +391,7 @@ function renderFields() {
     const input = fields.get(focused).input; input.focus({preventScroll:true});
     if (input.type === 'text' && selection != null) input.setSelectionRange(selection,selectionEnd);
   }
-  container.scrollTop = scroll; syncMotionControl();
+  container.scrollTop = scroll; syncMotionControl(); updateModelChip();
 }
 function applyFieldErrors() {
   if (!schema || !doc.draft) return;
@@ -301,13 +409,17 @@ function chooseInspection(name) {
   if (name === 'results') return showDocuments('report');
   if (name === 'notes') return showNotes();
   if (activeTool !== name) events.dispatchEvent(new CustomEvent('toolswitch',{detail:{key:name}}));
-  inspection = name; activeTool = name;
-  $('tool-dock').hidden = false; $('inspection-panel').setAttribute('aria-label',name === 'components' ? 'Components' : 'Analysis tools');
-  for (const button of document.querySelectorAll('[data-inspection]')) { const active = button.dataset.inspection === name; button.setAttribute('aria-pressed',String(active)); button.tabIndex = active ? 0 : -1; }
+  inspection = name; activeTool = name; revealDock('inspection',name === 'components' ? 'Components & measurements' : 'Analysis tools');
   renderInspection();
 }
+function updateModelChip() {
+  const family = familyDefinition(); if (!family) return;
+  const variant = schema?.options.find(field => field.key === 'variant')?.choices.find(choice => choice.value === doc.draft.options.variant)?.label;
+  $('family-variant-chip').textContent = family.label+(variant ? ' / '+variant : '');
+  $('preview-family').textContent = family.label;
+}
 function updateFamilyHeader() {
-  const family = familyDefinition(); $('family').value = doc.family; $('family-description').textContent = family.description; $('family').title = family.description; $('model-title').textContent = family.label;
+  const family = familyDefinition(); $('family').value = doc.family; $('family-description').textContent = family.description; $('family').title = family.description; $('model-title').textContent = family.label; updateModelChip();
 }
 async function refreshSchema() {
   const serial = ++schemaSerial, token = currentToken(), family = doc.family;
@@ -346,7 +458,7 @@ async function generateCurrent() {
     const changedFamily = lastFamily !== family;
     if (changedFamily) { viewer.supports = family === 'differential'; viewer.housing = false; }
     viewer.setDesign(result,{fit: changedFamily || !design}); design = result; lastFamily = family; rememberSourceParameters();
-    validToken = token; phase = 0; $('motion-phase').textContent = '0.00 rad';
+    validToken = token; phase = 0; syncPhaseControl();
     if (changedFamily) { viewer.supports = family === 'differential'; $('show-supports').checked = viewer.supports; viewer.housing = false; $('show-housing').checked = false; }
     $('stage-message').hidden = true; $('stale-banner').hidden = true;
     $('model-meta').textContent = `${result.triangle_count.toLocaleString()} triangles · nominal geometry · mm`;
@@ -398,11 +510,21 @@ async function requestPose(nextPhase) {
   try {
     const result = await engine.request('pose',{design_id:current.design_id,phases:[nextPhase]});
     if (!isCurrent(token) || design !== current || !motionAvailable() || busy || viewer.captureBusy) return false;
-    viewer.applyFrame(result.frames[0]); phase = nextPhase; $('motion-phase').textContent = `${phase.toFixed(2)} rad`; return true;
+    viewer.applyFrame(result.frames[0]); phase = nextPhase; syncPhaseControl(); return true;
   } catch (error) {
     if (isCurrent(token) && design === current && error.name !== 'AbortError') { setPlaying(false); status('Motion stopped: '+error.message,'error'); handleFatal(error); }
     return false;
   } finally { if (poseCompletion === completion) posePending = false; finishPose(); }
+}
+function syncPhaseControl() {
+  $('motion-phase').textContent = `${phase.toFixed(2)} rad`;
+  $('phase-range').value = String(((phase % (2*Math.PI)) + 2*Math.PI) % (2*Math.PI));
+}
+async function scrubPreviewPhase() {
+  setPlaying(false); const source = design, token = currentToken();
+  await poseCompletion;
+  if (design !== source || !isCurrent(token) || !motionAvailable() || analysisActive) return false;
+  return requestPose(Number($('phase-range').value));
 }
 function tick(time) {
   animationFrame = 0; if (!playing) return;
@@ -521,7 +643,7 @@ async function resetMotion() {
     const {buffers,...metadata} = result; Object.assign(source,metadata); viewer.design = source; phase = 0;
     const pose = await engine.request('pose',{design_id:source.design_id,phases:[0]});
     if (!isCurrent(token) || source !== design) return false;
-    viewer.applyFrame(pose.frames[0]); nominalFrame = clone(pose.frames[0]); $('motion-phase').textContent = '0.00 rad';
+    viewer.applyFrame(pose.frames[0]); nominalFrame = clone(pose.frames[0]); syncPhaseControl();
     $('play-motion').textContent = 'Start motion'; status('Initial pose'); return true;
   } catch (error) { if (error.name !== 'AbortError') { status(error.message,'error'); handleFatal(error); } return false; }
   finally {
@@ -595,18 +717,34 @@ function makeDriveConnections(spec) {
 function selectView(name) {
   viewer.setView(name);
 }
+let dockMode = null, dockOrigin = 'open-tools-panel';
+function revealDock(mode,title) {
+  dockMode = mode; $('tool-dock').hidden = false; $('tool-panel-title').textContent = title; $('tool-panel-category').textContent = mode === 'view' ? 'View' : 'Tools';
+  $('tools-menu-extension').hidden = mode !== 'tools'; $('view-panel').hidden = mode !== 'view'; $('inspection-panel').hidden = mode !== 'inspection';
+  $('tools-back').hidden = mode !== 'inspection';
+  $('open-view-panel').setAttribute('aria-expanded',String(mode === 'view'));
+  $('open-tools-panel').setAttribute('aria-expanded',String(mode !== 'view'));
+}
+function openPreviewPanel(mode) {
+  const origin = mode === 'view' ? 'open-view-panel' : 'open-tools-panel';
+  if (!$('tool-dock').hidden && dockMode === mode) { closeToolDock(); return; }
+  if (!$('tool-dock').hidden && dockMode === 'inspection') events.dispatchEvent(new Event('toolclose'));
+  dockOrigin = origin; revealDock(mode,mode === 'view' ? 'View' : 'Tools');
+}
 function closeToolDock() {
-  $('tool-dock').hidden = true; $('tools-menu-extension').closest('details').querySelector('summary').focus({preventScroll:true});
-  events.dispatchEvent(new Event('toolclose'));
+  if ($('tool-dock').hidden) return;
+  $('tool-dock').hidden = true; dockMode = null;
+  $('open-view-panel').setAttribute('aria-expanded','false'); $('open-tools-panel').setAttribute('aria-expanded','false');
+  $(dockOrigin).focus({preventScroll:true}); events.dispatchEvent(new Event('toolclose'));
 }
 function setDockPanel(key,body,{title = key} = {}) {
   if (activeTool !== key) events.dispatchEvent(new CustomEvent('toolswitch',{detail:{key}}));
-  activeTool = key; inspection = key; $('tool-dock').hidden = false;
+  activeTool = key; inspection = key; dockOrigin = 'open-tools-panel'; revealDock('inspection',title);
   $('inspection-panel').replaceChildren(body); $('inspection-panel').setAttribute('aria-label',title);
-  for (const button of $('tool-dock-tabs').querySelectorAll('[data-tool],[data-inspection]')) button.setAttribute('aria-pressed',String((button.dataset.tool ?? button.dataset.inspection) === key));
   return $('inspection-panel');
 }
 function openTool(key) {
+  dockOrigin = 'open-tools-panel';
   if (key === 'components') return chooseInspection('components');
   toolControllers.get(key)?.open();
 }
@@ -615,7 +753,7 @@ function registerTool(key,{label = key,open}) {
   toolControllers.set(key,{open});
   let button = $('tools-menu-extension').querySelector(`[data-tool="${key}"]`);
   if (!button) { button = node('button',label); button.dataset.tool = key; button.addEventListener('click',() => openTool(key)); $('tools-menu-extension').append(button); }
-  button.textContent = label; button.disabled = false;
+  const caption = button.querySelector('.tool-label'); if (caption) caption.textContent = label; else button.textContent = label; button.disabled = false;
   for (const tab of $('tool-dock-tabs').querySelectorAll('[data-tool]')) if (tab.dataset.tool === key) tab.disabled = false;
 }
 async function showDocuments(kind) {
@@ -774,6 +912,25 @@ function dialog(title, body, actions = [{label:'Close',value:null}], {dismiss = 
     modal.finish = finish; modal.addEventListener('cancel',cancel); modal.showModal();
   });
 }
+function applyPreferences() {
+  document.documentElement.style.setProperty('--text-scale',String(preferences.text_scale));
+  document.documentElement.dataset.theme = preferences.theme;
+  $('theme-toggle').setAttribute('aria-checked',String(preferences.theme === 'light'));
+  $('theme-toggle').title = preferences.theme === 'light' ? 'Light' : 'Dark';
+  for (const input of document.querySelectorAll('input[name="language"]')) input.checked = input.value === preferences.language;
+  if (languageUI) languageUI.setLanguage(preferences.language);
+  viewer.render();
+  viewer.zoomSpeed = preferences.zoom_speed;
+  viewer.rotationSpeed = preferences.rotation_speed;
+  viewer.invertZoom = preferences.invert_zoom;
+  if (!preferences.hover_help) { clearTimeout(helpOpenTimer); if (helpActivation === 'pointer') closeParameterHelp(); }
+  scheduleOverlayPlacement();
+}
+function changePreference(key, value) {
+  preferences[key] = value;
+  applyPreferences();
+  $('preference-error').hidden = savePreferences(preferences);
+}
 function documentShortcut(event) {
   if (!(event.ctrlKey || event.metaKey) || $('app-dialog').open) return;
   const key = event.key.toLowerCase();
@@ -925,7 +1082,7 @@ async function recentDialog() {
   const items = recent(), body = node('div');
   if (!items.length) body.append(node('p','Saved and opened projects will appear here. This list is stored in this browser.'));
   for (const [i,item] of items.entries()) {
-    const row = node('div',null,'recent-row'), info = node('div'); info.append(node('strong',item.name),node('p',new Date(item.time).toLocaleString()));
+    const row = node('div',null,'recent-row'), info = node('div'); info.dataset.noI18n = ''; info.append(node('strong',item.name),node('p',new Date(item.time).toLocaleString()));
     const button = node('button','Open'); button.addEventListener('click',() => $('app-dialog').finish?.(i)); row.append(info,button); body.append(row);
   }
   const index = await dialog('Recent projects',body);
@@ -945,13 +1102,6 @@ async function recoverDocument() {
     if (await refreshSchema()) { renderFields(); scheduleGeneration(0); }
   } catch (error) { startup = false; status('Recovery could not be restored: '+error.message,'error'); }
 }
-async function showHelp() {
-  const body = node('div');
-  body.append(node('h3','Choose · configure · preview · export'),node('p','Choose a model and construction, then edit Dimensions, Motion and Assembly. Every numeric field accepts decimal points or commas. Incomplete and invalid entries remain visible; exports wait for a valid matching model.'),node('p','Drag the preview to orbit, scroll to zoom, or use Fit. With the canvas focused, arrow keys orbit and + / − zoom. Supports and Housing filter canonical component roles. Section removes the positive-Y half without adding a cap. Explosion is an inspection view and clears when motion starts.'),node('h3','Documents & downloads'),node('p','Save downloads a desktop-compatible JSON project. Recent projects and unsaved draft recovery stay in this browser. New or Open asks before discarding unsaved work. Browser storage may be cleared by private browsing or site-data settings; keep downloaded project files.'),node('h3','Accuracy & sources'),node('p','RatioLab generates nominal dimensions and ideal motion. Sampled surfaces and prescribed strain-wave deformation do not establish continuous clearance, strength, bearing life or manufacturing readiness. Read model warnings and requirements before using exported geometry.'));
-  const links = node('p');
-  for (const [title,url] of [['Technical references','https://github.com/NoOneExceptEnderk/RatioLab/tree/main/docs/technical'],['Usage','README.txt'],['Corresponding source','source.zip'],['License','LICENSE'],['Runtime notices','notices/README.txt']]) { const a = node('a',title); a.href = url; if (url.startsWith('http')) { a.target = '_blank'; a.rel = 'noopener'; } links.append(a,document.createTextNode(' · ')); }
-  body.append(links); await dialog('Using RatioLab in your browser',body);
-}
 async function boot({retry = false} = {}) {
   startup = true; fatal = false; validToken = null; setPlaying(false); updateActions();
   if (retry) { sourceParameters = null; engine.cancel('Restart requested'); }
@@ -969,6 +1119,7 @@ async function boot({retry = false} = {}) {
 function setup() {
   try { viewer = new ModelViewer($('model-canvas')); }
   catch (error) { stageMessage('3D preview unavailable',error.message); status(error.message,'error'); return; }
+  applyPreferences();
   viewer.addEventListener('context',({detail}) => {
     if (detail.lost) { setPlaying(false); stageMessage('Graphics context lost','The browser will try to restore the preview.'); }
     else { $('stage-message').hidden = !!design; status('Graphics context restored.'); }
@@ -1011,11 +1162,12 @@ function setup() {
   });
   $('retry-engine').addEventListener('click',() => boot({retry:true}));
   $('cancel-generation').addEventListener('click',cancelOperations);
-  $('help').addEventListener('click',showHelp); $('recover-document').addEventListener('click',recoverDocument); $('dismiss-recovery').addEventListener('click',() => { recovery = null; storage.clearRecovery(); saveRecovery(); $('recovery-banner').hidden = true; });
+  $('recover-document').addEventListener('click',recoverDocument); $('dismiss-recovery').addEventListener('click',() => { recovery = null; storage.clearRecovery(); saveRecovery(); $('recovery-banner').hidden = true; });
   $('fit-view').addEventListener('click',() => viewer.fit());
   for (const [id,key] of [['show-supports','supports'],['show-housing','housing'],['section-view','section']]) $(id).addEventListener('change',() => { viewer[key] = $(id).checked; if (key !== 'section') viewer.updateFraming(); viewer.render(); renderInspection(); });
   $('explosion').addEventListener('input',() => { setPlaying(false); viewer.explosion = Number($('explosion').value); viewer.render(); });
   $('play-motion').addEventListener('click',() => setPlaying(!playing)); $('reset-motion').addEventListener('click',resetMotion);
+  $('phase-range').addEventListener('input',scrubPreviewPhase); $('motion-io').addEventListener('click',() => switchTab('motion'));
   $('motion-rpm').addEventListener('input',() => doc.editNumber('input_rpm',$('motion-rpm').value));
   $('motion-rpm').addEventListener('keydown',event => { if (event.key === 'Enter') { event.preventDefault(); commitRates(); } });
   $('motion-rpm').addEventListener('blur',() => { if (rateEditing) commitRates(); });
@@ -1023,22 +1175,41 @@ function setup() {
   for (const [id,delta] of [['rpm-minus',-1],['rpm-plus',1]]) $(id).addEventListener('click',() => editSpeed((design?.values.input_rpm ?? 0)+delta));
   $('front-view').addEventListener('click',() => selectView('front'));
   for (const [id,name] of [['isometric-view','isometric'],['top-view','top']]) $(id).addEventListener('click',() => selectView(name));
-  $('text-size').addEventListener('change',() => { document.documentElement.style.setProperty('--text-scale',$('text-size').value); scheduleOverlayPlacement(); });
+  for (const [code,name] of Object.entries(LANGUAGES)) {
+    const label = node('label'), input = document.createElement('input');
+    input.type = 'radio'; input.name = 'language'; input.value = code; input.setAttribute('aria-label',name);
+    input.checked = preferences.language === code;
+    input.addEventListener('change',() => { if (input.checked) changePreference('language',code); });
+    label.lang = code; label.append(input,document.createTextNode(' '+name));
+    $('language-options').append(label);
+  }
+  $('theme-toggle').addEventListener('click',() => changePreference('theme',preferences.theme === 'dark' ? 'light' : 'dark'));
+  initLanguage(preferences.language).then(ui => { languageUI = ui; ui.setLanguage(preferences.language); }).catch(error => {
+    $('language-menu').hidden = true; status(error.message,'error');
+  });
   $('close-tool-dock').addEventListener('click',closeToolDock);
+  $('open-view-panel').addEventListener('click',() => openPreviewPanel('view'));
+  $('open-tools-panel').addEventListener('click',() => openPreviewPanel('tools'));
+  $('tools-back').addEventListener('click',() => openPreviewPanel('tools'));
+  $('expand-tool-dock').addEventListener('click',() => { const expanded = $('tool-dock').classList.toggle('expanded'); $('expand-tool-dock').setAttribute('aria-pressed',String(expanded)); $('expand-tool-dock').setAttribute('aria-label',expanded ? 'Compact panel' : 'Expand panel'); });
+  const overview = {help:{title:'Model & dimensions',meaning:'Choose a generator family and construction, then set the dimensions of the mechanism. The preview uses the current valid design.',effect:'Dimensions contains geometry and advanced profile controls. Motion configures inputs, outputs and operating rates. Assembly contains connections, bearings, fits and hardware. Linked dimensions show Change source; invalid edits stay visible until corrected.'}};
+  const sectionHelp = helpDetails(overview); $('section-help').append(sectionHelp); bindParameterHelp($('model-dimensions-heading'),overview,sectionHelp.querySelector('button'));
+  for (const [id,source] of [['tool-bom','show-bom'],['tool-report','show-report'],['tool-notes','show-notes']]) $(id).addEventListener('click',() => $(source).click());
   for (const button of document.querySelectorAll('[data-tool]')) button.addEventListener('click',() => openTool(button.dataset.tool));
   $('pick-mode').addEventListener('change',() => { if ($('pick-mode').value !== 'navigate') openTool('components'); events.dispatchEvent(new CustomEvent('pickmode',{detail:{mode:$('pick-mode').value}})); });
   $('show-bom').addEventListener('click',() => showDocuments('bom')); $('show-report').addEventListener('click',() => showDocuments('report')); $('show-notes').addEventListener('click',showNotes); $('warning-details').addEventListener('click',showNotes);
+  document.addEventListener('pointerdown',event => { if (helpAnchor && !helpAnchor.contains(event.target) && !helpPane?.contains(event.target)) closeParameterHelp(); });
   document.addEventListener('click',event => { for (const menu of document.querySelectorAll('.popover[open]')) if (!menu.contains(event.target) || event.target.closest('button') && !event.target.closest('.motion-palette')) menu.open = false; });
   document.addEventListener('toggle',event => {
     if (!event.target.open) {
-      const copy = event.target.querySelector(':scope>.popover-body, :scope>.help-copy');
+      const copy = event.target.querySelector(':scope>.popover-body');
       if (copy) resetOverlayPlacement(copy);
     }
     scheduleOverlayPlacement();
   },true);
   document.addEventListener('scroll',scheduleOverlayPlacement,true);
   window.addEventListener('resize',scheduleOverlayPlacement);
-  document.addEventListener('keydown',event => { if (event.key === 'Escape' && !$('app-dialog').open) { closeToolDock(); for (const menu of document.querySelectorAll('.popover[open]')) menu.open = false; } });
+  document.addEventListener('keydown',event => { if (event.key === 'Escape' && !$('app-dialog').open) { if (helpAnchor) { const trigger = helpBindings.get(helpAnchor)?.trigger; const focused = helpPane?.contains(document.activeElement); closeParameterHelp({dismiss:true}); if (focused) trigger?.focus({preventScroll:true}); return; } closeToolDock(); for (const menu of document.querySelectorAll('.popover[open]')) menu.open = false; } });
   $('playback-speed').addEventListener('change',() => { lastTick = 0; });
   document.addEventListener('visibilitychange',() => { if (document.hidden) setPlaying(false); });
   window.addEventListener('beforeunload',event => { saveRecovery(); if (doc.dirty) { event.preventDefault(); event.returnValue = ''; } });
@@ -1073,7 +1244,7 @@ function setup() {
     requestPose, setPlaying, showDialog:dialog, downloadBlob, cancelOperations,
     async pauseForAnalysis() { setPlaying(false); await poseCompletion; },
     setAnalysisActive(value) { analysisActive = !!value; if (value) setPlaying(false); updateActions(); },
-    restoreInspection(frame,savedPhase,selection) { setPlaying(false); viewer.applyFrame(frame); phase = savedPhase; $('motion-phase').textContent = `${phase.toFixed(2)} rad`; viewer.setSelection(selection); renderInspection(); },
+    restoreInspection(frame,savedPhase,selection) { setPlaying(false); viewer.applyFrame(frame); phase = savedPhase; syncPhaseControl(); viewer.setSelection(selection); renderInspection(); },
     openTool, closeToolDock, setDockPanel, registerTool,
     get pickMode() { return $('pick-mode').value; },
     get nominalFrame() { return nominalFrame ? clone(nominalFrame) : null; },

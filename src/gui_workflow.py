@@ -5,7 +5,7 @@ from pathlib import Path
 import json
 import gi
 gi.require_version('Gtk', '4.0')
-from gi.repository import Gtk, Gio, Gdk
+from gi.repository import Gtk, Gio, Gdk, Pango
 CATALOG = {'spur': ('Spur gear', 'A single gear: choose the tooth count, module and bore.'), 'helical': ('Helical gear', 'A single gear with an adjustable helix angle.'), 'double': ('Double helical gear', 'Two opposing helices, joined or separated by a groove.'), 'planetary': ('Planetary gearbox', 'Sun, planets and ring gear. One or two reduction stages.'), 'cycloidal': ('Cycloidal reducer', 'Eccentric discs and rollers, with one or two discs.'), 'harmonic': ('Strain wave reducer', 'A flexible gear with prescribed wave deformation and a generated matching ring.'), 'worm': ('Worm and wheel', 'Perpendicular axes with a wheel generated from the selected ZA or ZI screw.'), 'parallel': ('Parallel shaft reducer', 'A gear pair with input and output shafts.'), 'internal': ('Internal gear reducer', 'A pinion inside an internal gear, with fixed axes.')}
 ADVANCED = {'pressure', 'backlash', 'profile_shift', 'addendum', 'dedendum', 'clearance', 'assembly_clearance', 'output_clearance', 'profile_tolerance', 'wave_clearance', 'wave_factor'}
 CATALOG['differential'] = ('Bevel differential', 'Spherical involute gears: wrist with two inputs or classic carrier input with two side outputs.')
@@ -17,7 +17,25 @@ def searchable_dropdown(labels):
     dropdown.set_expression(Gtk.PropertyExpression.new(Gtk.StringObject, None, 'string'))
     dropdown.set_search_match_mode(Gtk.StringFilterMatchMode.SUBSTRING)
     dropdown.set_enable_search(True)
+    compact_dropdown(dropdown)
     return dropdown
+
+def compact_dropdown(dropdown):
+    """Keep full choices in the popup while fitting the selected sidebar value."""
+    factory = Gtk.SignalListItemFactory()
+    def setup(_, item):
+        item.set_child(Gtk.Label(xalign=0, ellipsize=Pango.EllipsizeMode.END,
+                                 max_width_chars=20, width_chars=1))
+    factory.connect('setup', setup)
+    factory.connect('bind', lambda _, item: item.get_child().set_text(item.get_item().get_string()))
+    dropdown.set_factory(factory)
+    listing = Gtk.SignalListItemFactory()
+    listing.connect('setup', lambda _, item: item.set_child(Gtk.Label(xalign=0, wrap=True, max_width_chars=35)))
+    listing.connect('bind', lambda _, item: item.get_child().set_text(item.get_item().get_string()))
+    dropdown.set_list_factory(listing)
+    dropdown.set_hexpand(True)
+    return dropdown
+
 
 def _numeric_parts(value):
     import re
@@ -205,17 +223,21 @@ def install_sections(app, left):
     app.page_buttons = {}
     nav = Gtk.Box(spacing=2, css_classes=['page-nav'])
     app.section_nav = nav
-    left.append(nav)
     app.fields = Gtk.Stack(vexpand=True)
     app.fields.set_hhomogeneous(False)
     app.fields.set_vhomogeneous(False)
     app.pages, app.page_scrolls = {}, {}
     for key, title in [('geometry','Dimensions'), ('motion','Motion'), ('assembly','Assembly')]:
         button = Gtk.ToggleButton(label=title, hexpand=True)
+        if key=='geometry':button.add_css_class('dimensions-tab')
+        if key=='assembly':button.add_css_class('assembly-tab')
         if app.page_buttons:
             button.set_group(next(iter(app.page_buttons.values())))
         button.connect('clicked', lambda _, key=key: show_page(app, key))
         nav.append(button)
+        button.get_child().set_wrap(True)
+        button.get_child().set_wrap_mode(Pango.WrapMode.WORD_CHAR)
+        button.get_child().set_width_chars(1)
         app.page_buttons[key] = button
         body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12, css_classes=['parameter-scroll'])
         scroll = Gtk.ScrolledWindow(vexpand=True)
@@ -240,6 +262,7 @@ def install_sections(app, left):
     app.parameter_error.set_margin_start(18)
     app.parameter_error.set_margin_end(18)
     app.parameter_error.set_visible(False)
+    left.append(nav)
     left.append(app.parameter_error)
     left.append(app.fields)
     app.sections = {}
@@ -260,6 +283,7 @@ def install_sections(app, left):
             section.append(body)
         else:
             section.set_child(body)
+            section.get_label_widget().set_wrap(True)
         app.pages[page].append(section)
         app.sections[key] = (section, body)
     app.eccentric_design_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
@@ -277,10 +301,77 @@ def install_sections(app, left):
 
 
 def install_cad(app):
-    app.cad_menu = Gtk.MenuButton(label='CAD integrations')
-    popup = Gtk.Popover()
+    app.active_cad = None
+    app.fusion_has_document = False
+    app.cad_split = Gtk.Box(css_classes=['linked', 'cad-split'])
+    app.cad_action = Gtk.Button(label='CAD Connections')
+    app.cad_menu = Gtk.MenuButton(icon_name='pan-down-symbolic')
+    app.cad_menu.set_tooltip_text('Choose and connect a CAD')
+    app.cad_split.append(app.cad_action)
+    app.cad_split.append(app.cad_menu)
+    popup = Gtk.Popover(css_classes=['cad-popover'])
+    popup.set_has_arrow(False)
+    popup.set_halign(Gtk.Align.END)
+    popup.set_offset(0,8)
+    app.cad_popup_open=False
+    stack=Gtk.Stack(hhomogeneous=False,vhomogeneous=False)
+    stack.set_size_request(266,-1)
+    app.cad_stack=stack
+    card_view=Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.AUTOMATIC,
+        vscrollbar_policy=Gtk.PolicyType.NEVER,min_content_width=266,max_content_width=266,
+        propagate_natural_width=True,propagate_natural_height=True)
+    app.cad_card_view=card_view
+    card_view.set_child(stack)
+    popup.set_child(card_view)
+    compact=Gtk.Box(orientation=Gtk.Orientation.VERTICAL,spacing=0)
+    compact.append(Gtk.Label(label='CAD Connections',xalign=0,css_classes=['cad-menu-title']))
+    app.cad_compact_buttons={};app.cad_compact_status={}
+    app.cad_pending_connection=None
+    app.cad_connection_rows=[]
+    for key,name in (('fusion','Autodesk Fusion'),('solidcraft','SolidCraft')):
+        row=Gtk.Box(spacing=9,css_classes=['cad-connection-row'])
+        info=Gtk.Box(orientation=Gtk.Orientation.VERTICAL,spacing=3,hexpand=True)
+        info.append(Gtk.Label(label=name,xalign=0,wrap=True,width_chars=1,max_width_chars=20,css_classes=['cad-connection-name']))
+        status=Gtk.Label(label='Not connected',xalign=0,wrap=True,width_chars=1,max_width_chars=24,css_classes=['cad-connection-status'])
+        info.append(status);row.append(info)
+        connect=Gtk.Button(label='Connect',valign=Gtk.Align.CENTER)
+        connect.update_property([Gtk.AccessibleProperty.LABEL],['Connect '+name])
+        connect.connect('clicked',lambda _,key=key:_cad_compact_connect(app,key))
+        row.append(connect);compact.append(row)
+        app.cad_compact_buttons[key]=connect;app.cad_compact_status[key]=status
+        app.cad_connection_rows.append(row)
+    footer=Gtk.Box(orientation=Gtk.Orientation.VERTICAL,css_classes=['cad-menu-footer'])
+    app.cad_setup_button=Gtk.Button(css_classes=['flat'])
+    app.cad_setup_button.update_property([Gtk.AccessibleProperty.LABEL],['Setup & connection status'])
+    footer_content=Gtk.Box(spacing=6)
+    from workspace_ui import workspace_glyph
+    icon=workspace_glyph('settings',app.cad_setup_button)
+    icon.set_valign(Gtk.Align.CENTER);icon.set_can_target(False)
+    footer_content.append(icon);app.cad_setup_button.workspace_icon=icon
+    app.cad_setup_caption=Gtk.Label(label='Setup & connection status',xalign=0,wrap=True,hexpand=True,width_chars=1)
+    footer_content.append(app.cad_setup_caption)
+    app.cad_setup_button.set_child(footer_content)
+    footer.append(app.cad_setup_button);compact.append(footer)
+    stack.add_named(compact,'compact')
+    setup=Gtk.Box(orientation=Gtk.Orientation.VERTICAL,spacing=9,css_classes=['cad-setup'])
+    app.cad_back_button=Gtk.Button(label='Back',halign=Gtk.Align.START,css_classes=['flat'])
+    setup.append(app.cad_back_button)
+    stack.add_named(setup,'setup')
+    def show_setup(*_):
+        stack.set_visible_child_name('setup')
+        app.cad_back_button.grab_focus()
+        app.cad_fit()
+    def show_compact(*_):
+        stack.set_visible_child_name('compact')
+        app.cad_setup_button.grab_focus()
+        app.cad_fit()
+    app.cad_setup_button.connect('clicked',show_setup)
+    app.cad_back_button.connect('clicked',show_compact)
+    def dismissed(*_):
+        app.cad_popup_open=False
+        stack.set_visible_child_name('compact')
+    popup.connect('closed',dismissed)
     body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
-    body.set_size_request(315, -1)
     body.append(text('SolidCraft', 'step-title'))
     app.connection_label = text('○ Disconnected')
     body.append(app.connection_label)
@@ -292,7 +383,10 @@ def install_cad(app):
     app.send_btn.set_tooltip_text('Add a new group to the active CAD document. Sending again creates another group.')
     body.append(app.send_btn)
     app.cad_hint = text('Connect or launch SolidCraft, then add a new group to the active document.')
-    body.append(app.cad_hint)
+    solidcraft_details = Gtk.Expander(label='Connection details')
+    solidcraft_details.set_child(app.cad_hint)
+    solidcraft_details.get_label_widget().set_wrap(True)
+    body.append(solidcraft_details)
     body.append(Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL))
     body.append(text('Autodesk Fusion', 'step-title'))
     app.fusion_connection_label = text('○ Disconnected')
@@ -308,9 +402,129 @@ def install_cad(app):
     app.fusion_send_btn.set_tooltip_text('Import STEP solids into a new group in the active Fusion document. Each send creates another group.')
     body.append(app.fusion_send_btn)
     app.fusion_hint = text('Install the add-in, then in Fusion open Utilities > Scripts and Add-Ins > Add-Ins and run RatioLabBridge. Transfers STEP solids with RatioLab parameters as metadata; Fusion timeline features are not regenerated.')
-    body.append(app.fusion_hint)
-    popup.set_child(body)
+    fusion_details = Gtk.Expander(label='Fusion bridge setup and details')
+    fusion_setup = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+    fusion_setup.append(app.fusion_hint)
+    fusion_details.set_child(fusion_setup)
+    fusion_details.get_label_widget().set_wrap(True)
+    body.append(fusion_details)
+    cad_scroll = Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.NEVER,
+                                    max_content_height=420, propagate_natural_height=True)
+    cad_scroll.set_child(body)
+    setup.append(cad_scroll)
+    for label in (app.connection_label,app.fusion_connection_label,app.cad_hint,app.fusion_hint):
+        label.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
+    app.cad_setup_scroll=cad_scroll
+    def setup_height(*_):
+        cad_scroll.set_max_content_height(max(150,min(420,app.win.get_height()-180)))
+    def fit_card(*_):
+        # The width-constrained viewport must request the wrapped page height,
+        # rather than the shorter height of its unconstrained natural width.
+        padding=app.cad_setup_button.get_style_context().get_padding()
+        border=app.cad_setup_button.get_style_context().get_border()
+        caption_width=max(1,266-padding.left-padding.right-border.left-border.right
+                          -footer_content.get_spacing()-icon.measure(Gtk.Orientation.HORIZONTAL,-1)[1])
+        caption_height=app.cad_setup_caption.measure(Gtk.Orientation.VERTICAL,caption_width)[1]
+        footer_content.set_size_request(-1,caption_height)
+        page=stack.get_visible_child()
+        changed=False
+        if page:
+            height=page.measure(Gtk.Orientation.VERTICAL,266)[1]
+            changed=card_view.get_size_request()!=(266,height)
+            if changed:card_view.set_size_request(266,height)
+        if changed and popup.get_visible() and app.cad_popup_open:popup.present()
+    app.cad_fit=fit_card
+    popup.connect('show',lambda *_:setattr(app,'cad_popup_open',True))
+    popup.connect('show',setup_height)
+    popup.connect('show',fit_card)
+    stack.connect('notify::visible-child-name',fit_card)
+    paint_watch=[None,0]
+    def stop_paint_watch(*_):
+        if paint_watch[0] and paint_watch[1]:paint_watch[0].disconnect(paint_watch[1])
+        paint_watch[:]=[None,0]
+    def watch_paint(*_):
+        stop_paint_watch()
+        clock=popup.get_frame_clock()
+        if clock:
+            paint_watch[:]=[clock,clock.connect('after-paint',fit_card)]
+    # Hidden popover styles can settle only when mapped. Recheck after paint;
+    # unchanged requests do not queue more frames, and unmap removes the hook.
+    popup.connect('map',watch_paint)
+    popup.connect('unmap',stop_paint_watch)
     app.cad_menu.set_popover(popup)
+    stack.set_visible_child_name('compact')
+    def primary(_):
+        if app.busy:return
+        if app.active_cad == 'fusion' and app.fusion_connected:
+            app.send_fusion()
+        elif app.active_cad == 'solidcraft' and app.connected:
+            app.send()
+        else:
+            app.cad_menu.popup()
+    app.cad_action.connect('clicked', primary)
+    for control in (app.send_btn,app.fusion_send_btn,app.connect_btn,app.fusion_connect_btn):
+        control.connect('notify::sensitive',lambda *_:sync_cad_action(app))
+    for label in (app.connection_label,app.fusion_connection_label):
+        label.connect('notify::label',lambda *_:_sync_cad_compact(app))
+    sync_cad_action(app)
+
+
+def sync_cad_action(app):
+    """Present the selected successful connection; preserve backend readiness."""
+    if not hasattr(app, 'cad_action'):return
+    active = app.active_cad
+    if active == 'fusion' and not app.fusion_connected:active = None
+    if active == 'solidcraft' and not app.connected:active = None
+    app.active_cad = active
+    label = {'fusion': 'Import in Fusion', 'solidcraft': 'Import in SolidCraft'}.get(active, 'CAD Connections')
+    app.cad_action.set_label(label)
+    ready = (app.fusion_send_btn.get_sensitive() and app.fusion_has_document if active == 'fusion' else
+             app.send_btn.get_sensitive() if active == 'solidcraft' else True)
+    app.cad_action.set_sensitive(not app.busy and ready)
+    app.cad_menu.set_sensitive(not app.busy)
+    _sync_cad_compact(app)
+
+
+def _cad_compact_connect(app,key):
+    """Select a known connection or invoke its unchanged explicit connect action."""
+    if app.busy:return
+    connected=app.fusion_connected if key=='fusion' else app.connected
+    if connected and app.active_cad!=key and not(key=='fusion' and not app.fusion_has_document):
+        app.active_cad=key
+        sync_cad_action(app)
+        return
+    control=app.fusion_connect_btn if key=='fusion' else app.connect_btn
+    if not control.get_sensitive():return
+    control.emit('clicked')
+    if app.busy:app.cad_pending_connection=key
+    _sync_cad_compact(app)
+
+
+def _sync_cad_compact(app):
+    if not hasattr(app,'cad_compact_buttons'):return
+    if not app.busy:app.cad_pending_connection=None
+    for key,button in app.cad_compact_buttons.items():
+        connected=app.fusion_connected if key=='fusion' else app.connected
+        selected=connected and app.active_cad==key
+        no_document=key=='fusion' and connected and not app.fusion_has_document
+        pending=app.busy and app.cad_pending_connection==key
+        status=app.cad_compact_status[key]
+        message=('Connecting…' if pending else 'Connected · no active document' if no_document else
+                 'Connected · selected' if selected else 'Connected' if connected else 'Not connected')
+        status.set_text(message)
+        detail=app.fusion_connection_label if key=='fusion' else app.connection_label
+        status.set_tooltip_text(detail.get_text())
+        status.update_property([Gtk.AccessibleProperty.DESCRIPTION],[detail.get_text()])
+        if selected:status.add_css_class('cad-connected')
+        else:status.remove_css_class('cad-connected')
+        label='Connect' if pending else 'Check' if no_document else 'Connected' if selected else 'Select' if connected else 'Connect'
+        button.set_label(label)
+        if selected and not no_document:button.add_css_class('flat')
+        else:button.remove_css_class('flat')
+        control=app.fusion_connect_btn if key=='fusion' else app.connect_btn
+        button.set_sensitive(not app.busy and control.get_sensitive() and not(selected and not no_document))
+        button.update_property([Gtk.AccessibleProperty.LABEL],[label+' '+('Autodesk Fusion' if key=='fusion' else 'SolidCraft')])
+    if hasattr(app,'cad_fit'):app.cad_fit()
 
 
 def preserve_scroll(app):
@@ -355,12 +569,21 @@ def geometry_groups(app, specs):
     help_controller = controller(app)
     help_controller.reset()
     import re
+    old_groups=getattr(app,'geometry_group_boxes',{})
+    group_open={key:box._section.get_expanded() for key,box in old_groups.items() if hasattr(box,'_section')}
     groups = {}
     def group(key, title):
         if key not in groups:
             box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=9, css_classes=['parameter-group'])
-            box.append(text(title, 'parameter-heading'))
-            app.sections['geometry'][1].append(box)
+            if key=='main':
+                box.add_css_class('primary-geometry')
+                box.set_spacing(11)
+                app.sections['geometry'][1].append(box)
+            else:
+                disclosure=Gtk.Expander(label=title,expanded=group_open.get(key,True))
+                disclosure.set_child(box)
+                box._section=disclosure
+                app.sections['geometry'][1].append(disclosure)
             groups[key] = box
         return groups[key]
     # Render groups in a useful order, independent of the generator's spec order.
@@ -369,6 +592,7 @@ def geometry_groups(app, specs):
     order = {key: i for i, key in enumerate(main_order)}
     specs = sorted(specs, key=lambda s: order.get(s[0], len(order)))
     app.field_feedback, app.linked_notes, app.field_containers = {}, {}, {}
+    app.input_geometry_groups = {}
     app.geometry_derived = {}
     app.geometry_group_boxes = groups
     load_box = app.sections['loads'][1]
@@ -390,7 +614,7 @@ def geometry_groups(app, specs):
             target, page = app.sections['bearings'][1], 'assembly'
         elif key in ('plate','housing_wall','rim','stage_gap','carrier_bolt_diameter','spider_pin_diameter','spider_clearance') or key.startswith('print_'):
             target, page = app.sections['housing'][1], 'assembly'
-        elif key in ADVANCED:
+        elif key in ADVANCED or key=='center_extra':
             target = app.advanced_fields
         elif key in ('bore','output_bore','wheel_bore','input_shaft','output_shaft','shaft_extension','journal_length','journal_diameter','output_extension','passage_diameter'):
             target = group('shafts', 'Shafts & bores')
@@ -400,10 +624,11 @@ def geometry_groups(app, specs):
             target = group('main', 'Disc & rollers' if app.family=='cycloidal' else 'Main geometry')
         unit_match = re.search(r'\[([^]]+)\]', label)
         caption = re.sub(r'\s*\[[^]]+\]', '', label).split(' (')[0]
+        caption = {'pinion':'Pinion teeth', 'wheel':'Wheel teeth', 'module':'Module', 'width':'Face width'}.get(key,caption)
         unit = unit_match.group(1) if unit_match else ''
-        container = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
-        row = Gtk.Box(spacing=7)
-        name = Gtk.Label(label=caption, xalign=0, wrap=True, hexpand=True, css_classes=['field-label'])
+        container = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=5, hexpand=True)
+        row = Gtk.Box(spacing=3)
+        name = Gtk.Label(label=caption+('\u2009·\u2009'+unit if unit else ''), xalign=0, wrap=True, hexpand=True, css_classes=['field-label'])
         name.set_max_width_chars(20)
         row.append(name)
         spin = Gtk.SpinButton.new_with_range(low, high, step)
@@ -414,21 +639,50 @@ def geometry_groups(app, specs):
         spin.set_numeric(False)
         spin.set_enable_undo(False)
         spin.set_value(value)
-        spin.set_width_chars(6)
+        spin.set_width_chars(3)
         spin.set_max_width_chars(8)
-        spin.set_alignment(1)
-        spin.set_tooltip_text(label)
+        spin.set_hexpand(True)
+        spin.set_alignment(0)
+        spin.add_css_class("parameter-input")
+        # Keep the original spin control, range and key stepping. The compact
+        # input surface reserves its right edge for the illustrated guide.
+        child = spin.get_first_child()
+        while child:
+            if isinstance(child, Gtk.Button): child.set_visible(False)
+            child = child.get_next_sibling()
+        spin.set_tooltip_text(label + " · Use Up/Down to step")
+        spin.update_property([Gtk.AccessibleProperty.LABEL],[label])
         bind_numeric_spin(spin, low=low, high=high, integer=key in INTEGER, app=app)
         set_numeric_value(spin, value)
         spin.connect('value-changed', app.changed)
         spin.connect('changed', app.changed)
         name.set_mnemonic_widget(spin)
-        row.append(spin)
-        units = Gtk.Label(label=unit, xalign=0, css_classes=['muted'])
-        units.set_width_chars(3)
-        row.append(units)
-        help_controller.bind(name, spin, key, row)
+        binding = help_controller.bind(name, spin, key, row)
+        row.remove(binding.button)
+        field = Gtk.Overlay()
+        field.set_child(spin)
+        binding.button.set_halign(Gtk.Align.END)
+        binding.button.set_valign(Gtk.Align.CENTER)
+        binding.button.set_margin_end(7)
+        field.add_overlay(binding.button)
+        # The icon and input form one hover source, including its right edge.
+        spin.remove_controller(binding.motion)
+        field.add_controller(binding.motion)
+        steppers=[]
+        child=spin.get_first_child()
+        while child:
+            if isinstance(child,Gtk.Button):steppers.append(child)
+            child=child.get_next_sibling()
+        def stepping_focus(controller, *, steppers=tuple(steppers), help_button=binding.button):
+            focused=controller.contains_focus()
+            for button in steppers:button.set_visible(focused)
+            help_button.set_margin_end(33 if focused else 7)
+        stepping=Gtk.EventControllerFocus()
+        stepping.connect('enter',stepping_focus)
+        stepping.connect('leave',stepping_focus)
+        spin.add_controller(stepping)
         container.append(row)
+        container.append(field)
         feedback = text('', 'error')
         feedback.set_visible(False)
         container.append(feedback)
@@ -447,30 +701,65 @@ def geometry_groups(app, specs):
         if key in ('planets', 'pins'):
             derived = Gtk.Box(spacing=8)
             title = ('First ring teeth · fixed · derived' if app.family=='wolfrom' else 'Ring teeth · derived') if key=='planets' else 'Disc lobes · derived'
-            derived.append(Gtk.Label(label=title, xalign=0, hexpand=True, css_classes=['muted']))
+            derived.append(Gtk.Label(label=title, xalign=0, hexpand=True, wrap=True, css_classes=['muted']))
             value_label = Gtk.Label(selectable=True, xalign=1, css_classes=['derived-output'])
             value_label.set_tooltip_text('Calculated from the current tooth counts; edit the source geometry above.')
             derived.append(value_label)
             target.append(derived)
             app.geometry_derived[key] = value_label
         if app.family=='wolfrom' and key=='module':
-            derived = Gtk.Box(spacing=8)
+            derived = Gtk.Box(orientation=Gtk.Orientation.VERTICAL,spacing=5)
             derived.append(Gtk.Label(label='Second layer module · derived [mm]', xalign=0, hexpand=True, wrap=True, css_classes=['muted']))
             value_label = Gtk.Label(selectable=True, xalign=1, css_classes=['derived-output'])
+            value_label.set_wrap(True)
+            value_label.set_wrap_mode(Pango.WrapMode.CHAR)
+            value_label.set_halign(Gtk.Align.END)
+            value_label.set_max_width_chars(16)
             value_label.set_tooltip_text('m2 = m1 × (S + P1) / (Ro − P2); common planet centre distance. Only the first layer module is editable.')
             derived.append(value_label)
             target.append(derived)
             app.geometry_derived['module2'] = value_label
         app.inputs[key], app.input_labels[key], app.input_pages[key] = spin, label, page
         app.field_containers[key] = container
+        for group_key,group_box in groups.items():
+            if target is group_box:app.input_geometry_groups[key]=group_key
         if app.family=='differential' and key=='output_teeth' and app.option_values.get('ratio_mode','custom')!='custom':spin.set_sensitive(False)
-    for key in ('main', 'output', 'shafts'):
+    parent=app.sections['geometry'][1]
+    extra_open=bool(getattr(app,'extra_geometry_expander',None) and app.extra_geometry_expander.get_expanded())
+    app.extra_geometry_expander=Gtk.Expander(label='All model parameters',expanded=extra_open,css_classes=['geometry-disclosure'])
+    app.extra_geometry_expander.get_label_widget().set_wrap(True)
+    extra_fields=Gtk.Box(orientation=Gtk.Orientation.VERTICAL,spacing=9)
+    app.extra_geometry_expander.set_child(extra_fields)
+    for key in ('output','shafts'):
         if key in groups:
-            parent = app.sections['geometry'][1]
-            parent.remove(groups[key])
-            parent.append(groups[key])
+            section=getattr(groups[key],'_section',groups[key])
+            parent.remove(section)
+            extra_fields.append(section)
+    for first, second in [('pinion','wheel'),('sun','planet'),('sun2','planet2'),('module','width')]:
+        one,two=app.field_containers.get(first),app.field_containers.get(second)
+        if one is None or two is None or one.get_parent() is not two.get_parent():continue
+        parent=one.get_parent();previous=one.get_prev_sibling()
+        parent.remove(one);parent.remove(two)
+        pair=Gtk.Grid(column_spacing=8,row_spacing=5,column_homogeneous=True,css_classes=['parameter-pair'])
+        parent.insert_child_after(pair,previous)
+        # A shared grid row honors height-for-width wrapping; GtkSizeGroup
+        # alone cannot equalize independently wrapped caption boxes.
+        for column,container in enumerate((one,two)):
+            caption_row=container.get_first_child()
+            container.remove(caption_row)
+            pair.attach(caption_row,column,0,1,1)
+            pair.attach(container,column,1,1,1)
     if app.advanced_fields.get_first_child():
+        app.advanced_expander.add_css_class('geometry-disclosure')
+        app.advanced_expander.get_label_widget().set_wrap(True)
+        restore=Gtk.Button(label='Restore model defaults',css_classes=['flat','model-restore'])
+        restore.get_child().set_wrap(True)
+        restore.set_tooltip_text('Restore defaults. Use Undo in the toolbar to restore your edits.')
+        restore.connect('clicked',app.reset_defaults)
+        app.advanced_fields.append(restore)
         app.sections['geometry'][1].append(app.advanced_expander)
+    if extra_fields.get_first_child():
+        app.sections['geometry'][1].append(app.extra_geometry_expander)
     app.sections['housing'][0].set_visible(app.sections['housing'][1].get_first_child() is not None)
     app.sections['loads'][0].set_visible(any(k in app.inputs for k in ('input_torque','efficiency','pull_force')))
 
@@ -528,19 +817,30 @@ def reveal_error(app):
     if key not in app.inputs:
         return
     show_page(app, app.input_pages.get(key, 'geometry'))
-    if key in ADVANCED:
+    if key in ADVANCED or key=='center_extra':
         app.advanced_expander.set_expanded(True)
+    group=getattr(app,'input_geometry_groups',{}).get(key)
+    if group and group!='main':
+        app.extra_geometry_expander.set_expanded(True)
+        app.geometry_group_boxes[group]._section.set_expanded(True)
     page = app.input_pages.get(key, 'geometry')
     if page == 'assembly':
         for section, _ in app.sections.values():
             if section.is_ancestor(app.pages['assembly']):
                 section.set_expanded(True)
+    parent=app.inputs[key].get_parent()
+    while parent is not None and parent is not app.fields:
+        if isinstance(parent,Gtk.Expander):parent.set_expanded(True)
+        parent=parent.get_parent()
     app.inputs[key].grab_focus()
 
 def update_family(app):
     from parameter_help_ui import bind_options
     bind_options(app)
     description = CATALOG[app.family][1]
+    variant=app.variant_selector.get_selected_item()
+    app.family_chip.set_text(CATALOG[app.family][0]+(' / '+variant.get_string() if variant else ''))
+    app.variant_caption.set_text('Tooth type' if app.family in ('parallel','internal','planetary') else 'Variant')
     app.selector.set_tooltip_text(description)
     # Construction notices are decided from the generated model below.
     app.family_hint.set_text('')
@@ -669,7 +969,8 @@ def install_exports(app):
     app.file_buttons.append(app.export_menu)
 
 def choose_output(app):
-    dialog = Gtk.FileChooserNative(title='Where should exported files be saved?', transient_for=app.win, action=Gtk.FileChooserAction.SELECT_FOLDER, accept_label='Use this folder', cancel_label='Cancel')
+    parent = app.win
+    dialog = Gtk.FileChooserNative(title='Where should exported files be saved?', transient_for=parent, action=Gtk.FileChooserAction.SELECT_FOLDER, accept_label='Use this folder', cancel_label='Cancel')
     if app.output_dir.exists():
         dialog.set_current_folder(Gio.File.new_for_path(str(app.output_dir)))
 
