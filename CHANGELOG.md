@@ -6,6 +6,15 @@ published packages and their verification results.
 
 ## Unreleased
 
+## 0.2.1 — 2026-11-04
+
+### Fixed
+
+- Keep the illustrated model selector visibly highlighted without hovering in
+  both browser and desktop workspaces. Match the compact reference card with a
+  60-pixel minimum height, readable name/variant spacing and the existing fixed
+  thumbnail, without widening the sidebar.
+
 ## 0.2.0 — 2026-11-04
 
 ### Added

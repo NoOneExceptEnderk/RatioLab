@@ -207,12 +207,12 @@ window.reducers { background: @rl_window; color: @rl_text; font-size: 14px; }
 .reducers .io-output { border-left-color: @rl_io_output; }
 .reducers .io-value { font-weight: 500; }
 .reducers .io-result { color: @rl_io_result; font-size: 12px; }
-.reducers button.catalog-opener { background: transparent; border: 0; border-radius: 5px; padding: 6px; min-height: 44px; }
-.reducers button.catalog-opener:hover { background: @rl_hover; }
+.reducers button.catalog-opener { background: @rl_hover; border: 0; border-radius: 5px; padding: 6px; min-height: 48px; }
+.reducers button.catalog-opener:hover { background: @rl_active; }
 .reducers .catalog-thumbnail { background: @rl_preview; border-radius: 4px; }
 .reducers .catalog-grid-symbol { color: @rl_muted; }
-.reducers .catalog-name { font-size: 13px; font-weight: 500; }
-.reducers .catalog-summary { font-size: 11px; color: @rl_muted; }
+.reducers .catalog-name { font-size: 13px; line-height: 1.15em; font-weight: 500; }
+.reducers .catalog-summary { font-size: 11px; line-height: 1.15em; color: @rl_muted; }
 .reducers .drive-caption, .reducers .drive-direction { font-size: 12px; color: @rl_muted; }
 .reducers .drive-caption { margin: 0; }
 .reducers .direct-drive-body { border-spacing: 0; padding: 10px 0 12px; }

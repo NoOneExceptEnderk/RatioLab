@@ -1622,12 +1622,13 @@ dialog:has(.settings-panel) {width:min(620px,calc(100% - 30px));}
 .parameter-scroll {padding:12px 12px 17px;}
 .model-picker {margin:-6px -6px 0;gap:0;}
 .model-picker .family-caption {display:block;position:relative;}
-.model-picker .catalog-opener {display:flex;align-items:center;gap:9px;min-height:44px;padding:6px 28px 6px 6px;background:transparent;border:0;text-align:left;}
-.model-picker .catalog-opener:hover {background:var(--button-hover);}
+.model-picker .catalog-opener {display:flex;align-items:center;gap:9px;min-height:60px;padding:6px 28px 6px 6px;background:#303a46;border:0;text-align:left;}
+:root[data-theme=light] #model-catalog-open {background:#eef3f5;}
+.model-picker .catalog-opener:hover,:root[data-theme=light] #model-catalog-open:hover {background:var(--button-hover);}
 .catalog-opener #model-catalog-image {width:50px;height:44px;flex:none;object-fit:contain;background:var(--preview);border-radius:4px;}
 .catalog-opener .catalog-opener-copy {display:flex;flex:1;min-width:0;flex-direction:column;gap:4px;}
-.catalog-opener #model-catalog-caption {font-size:calc(13px * var(--text-scale));font-weight:500;white-space:normal;overflow-wrap:anywhere;}
-.catalog-opener #model-catalog-summary {font-size:calc(11px * var(--text-scale));color:var(--muted);white-space:normal;overflow-wrap:anywhere;}
+.catalog-opener #model-catalog-caption {font-size:calc(13px * var(--text-scale));line-height:1.15;font-weight:500;white-space:normal;overflow-wrap:anywhere;}
+.catalog-opener #model-catalog-summary {font-size:calc(11px * var(--text-scale));line-height:1.15;color:var(--muted);white-space:normal;overflow-wrap:anywhere;}
 .catalog-opener .catalog-grid-symbol {position:absolute;right:6px;top:50%;transform:translateY(-50%);width:15px;height:15px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;color:var(--muted);pointer-events:none;}
 .parameter-tabs {margin:6px -12px 12px;gap:0;padding:0 9px;border-block:1px solid var(--line);}
 .parameter-tabs button,:root:not([lang=en]) .parameter-tabs button {flex:1;min-width:0;min-height:0;border-radius:0;border:0;border-bottom:2px solid transparent;box-shadow:none;font-size:calc(12px * var(--text-scale));padding:10px 1px 8px;}
