@@ -112,7 +112,7 @@ class SelfTestProfileTests(unittest.TestCase):
                           patch.object(subprocess, 'Popen', side_effect=AssertionError('Headless self-test launched a child')) as child):
                         result = ratiolab_checks.self_test()
                     self.assertEqual(result['self_test'], 'passed')
-                    self.assertEqual(result['families'], 11)
+                    self.assertEqual(result['families'], 15)
                     self.assertEqual(len(result['features']), 6)
                     self.assertTrue(all(value == 'passed' for value in result['features'].values()))
                     self.assertEqual(len(observed), 1)
