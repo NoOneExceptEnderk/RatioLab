@@ -27,8 +27,11 @@ def card(title, value, unit='', detail='', compact=False):
         suffix.set_valign(Gtk.Align.END)
         suffix.set_margin_bottom(3)
         line.append(suffix)
-    if detail:
-        box.append(label(detail, 'result-detail'))
+    detail_label = label(detail, 'result-detail') if detail else None
+    if detail_label:
+        box.append(detail_label)
+    box.result_value = number
+    box.result_detail = detail_label
     return box
 
 
@@ -40,6 +43,10 @@ def clear(box):
 def items(design):
     """Present existing calculation values; do not introduce a second solver."""
     a, v = design.analysis, design.values
+    if design.family == 'rack':
+        q=a['rack'];return [('Travel per revolution',f"{q['travel_per_revolution_mm']:.4f}",'mm/rev','Pinion rotation → rack translation'),
+            ('Linear speed',f"{a['linear_output']['velocity_mm_s']:+.4f}",'mm/s','Along world +X'),
+            ('Working stroke',f"±{q['travel_limits_mm'][1]:.4f}",'mm','Preview stops at the travel limit')]
     if design.family == 'differential':
         q = a['kinematics']['rates_rpm']
         if v.get('configuration','wrist')=='classic':
@@ -61,9 +68,24 @@ def items(design):
                f'At {a["input"]["rpm"]:g} rpm input')]
     # Housing envelopes are already calculated by the assembly generators.
     match = re.search(r'housing (?:diameter |Ø )([0-9.]+) mm', ' · '.join(design.metrics), re.I)
-    if match:
+    if design.family == 'bevel':
+        q=a['bevel_pair']
+        result[0]=('Effective ratio', f'{ratio:+.4g}', ':1', 'Signs about pinion +X and wheel +Z')
+        result.append(('Pitch cone angles', f'{q["pinion_pitch_angle_deg"]:.3f} / {q["wheel_pitch_angle_deg"]:.3f}', '°', 'Shaft angle 90°'))
+    elif design.family == 'face':
+        q=a['face_gear'];result[0]=('Effective ratio',f'{ratio:+.4g}',':1','Signs about pinion +X and face wheel +Z')
+        result.append(('Tooth-band width',f"{v['width']:g}",'mm','Along pinion shaft · shaft angle 90°'))
+        if v['offset']:
+            result[-1]=('Shaft offset',f"{v['offset']:+g}",'mm','Skew axes · directions 90°')
+    elif design.family == 'hypoid':
+        result[0]=('Effective ratio', f'{ratio:+.4g}', ':1', 'Signs about offset pinion +X and wheel +Z')
+        result.append(('Shaft offset',f'{v["offset"]:+g}','mm','90° shaft directions · offset along world Y'))
+    elif match:
         result.append(('Housing diameter', match.group(1), 'mm',
                        'Nominal housing envelope'))
+    elif 'parallel_train' in a:
+        distances = ' / '.join(f"{q['center_distance_mm']:g}" for q in a['meshes'])
+        result.append(('Stage distances', distances, 'mm', 'Stage 1 / 2' + (' / 3' if len(a['meshes']) == 3 else '')))
     elif 'center_distance_mm' in a:
         result.append(('Centre distance', f'{a["center_distance_mm"]:.3f}', 'mm', 'Axis spacing'))
     elif a.get('meshes'):
@@ -74,6 +96,19 @@ def items(design):
 
 
 def update(app, design):
+    results = items(design)
+    # Retain widgets and selection/focus during live speed changes. Rebuild
+    # only when the kind of result changes (family, arrangement or units).
+    shape = [(title, unit, bool(detail)) for title, _, unit, detail in results]
+    if getattr(app, '_result_shape', None) == shape:
+        child = app.metric_cards.get_first_child()
+        for _, value, _, detail in results:
+            box = child.get_child()
+            if box.result_value.get_text() != value:box.result_value.set_text(value)
+            if box.result_detail and box.result_detail.get_text() != detail:box.result_detail.set_text(detail)
+            child = child.get_next_sibling()
+        return
     clear(app.metric_cards)
-    for title, value, unit, detail in items(design):
+    for title, value, unit, detail in results:
         app.metric_cards.insert(card(title, value, unit, detail), -1)
+    app._result_shape = shape

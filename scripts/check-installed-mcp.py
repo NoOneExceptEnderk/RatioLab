@@ -15,7 +15,8 @@ from threading import Thread
 MODERN = '2026-07-28'
 LEGACY = '2025-11-25'
 EXPECTED_FAMILIES = frozenset(('spur', 'helical', 'double', 'planetary', 'cycloidal',
-                             'harmonic', 'worm', 'parallel', 'internal', 'differential', 'wolfrom'))
+                             'harmonic', 'worm', 'parallel', 'internal', 'differential', 'wolfrom',
+                             'bevel', 'hypoid', 'rack', 'face'))
 
 
 def verify_families(families):

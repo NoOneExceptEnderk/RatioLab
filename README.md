@@ -34,7 +34,7 @@ Your system may show an unrecognized-publisher warning or block launch.
 
 ## What you can do
 
-- Build eleven gear/transmission families: spur, helical, double helical, planetary, cycloidal, strain wave, worm, parallel shaft, internal gear, bevel differentials with wrist or classic configurations, and two-rim spur Wolfrom reducers.
+- Build fifteen gear/transmission families: spur, helical, double helical, planetary, cycloidal, strain wave, worm, parallel shaft, internal gear, bevel differentials with wrist or classic configurations, two-rim spur Wolfrom reducers, and standalone bevel pairs with straight, spiral or circular Zerol-style traces on 90° shafts, and custom generated hypoid pairs with a signed shaft offset, plus finite spur, helical and double-helical rack-and-pinion drives, and generated face gears with spur, helical or joined/separated double-helical pinions, 90° shaft directions and adjustable signed offset.
 - Edit parameters and inspect an animated 3D model with component selection and sampled measurements.
 - Save projects, undo changes, search finite parameter combinations and run discrete interference checks.
 - Export STEP, STL, SVG/DXF, component lists, calculation reports or complete packages.
@@ -58,7 +58,7 @@ they do not certify strength, service life or manufacturing readiness.
 Interference checks and measurements use sampled surfaces. Read the
 [accuracy and limitations](docs/user-guide.md#accuracy-and-limitations) and the
 reference equations for [worm pairs](docs/technical/worm.md) and
-[bevel differentials](docs/technical/differential.md), and
+[bevel differentials](docs/technical/differential.md), [hypoid pairs](docs/technical/hypoid.md), [racks](docs/technical/rack.md), [face gears](docs/technical/face-gears.md), and
 [strain wave](docs/technical/strain-wave.md), and [Wolfrom](docs/technical/wolfrom.md) before using exported designs.
 
 ## Community

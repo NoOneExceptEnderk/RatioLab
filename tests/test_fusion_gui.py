@@ -19,7 +19,8 @@ def pump(duration=.05):
     until=time.monotonic()+duration
     context=GLib.MainContext.default()
     while time.monotonic()<until:
-        while context.pending():context.iteration(False)
+        # Dispatch one event per turn so the budget and other threads stay live.
+        context.iteration(False)
         time.sleep(.002)
 
 
@@ -72,6 +73,10 @@ class FusionGuiTests(unittest.TestCase):
                     a.cad_menu.popup()
                     def footer_inside():
                         if not popup.get_mapped():return False
+                        # A reopened surface can still expose its allocation
+                        # from the previous text scale. Compare heights only
+                        # after fit_card's current request has been allocated.
+                        if a.cad_card_view.get_height()!=a.cad_card_view.get_size_request().height:return False
                         ok,bounds=a.cad_setup_caption.compute_bounds(popup)
                         return ok and bounds.get_height()>0 and bounds.get_y()+bounds.get_height()<=card().get_y()+card().get_height()-12
                     self.assertTrue(wait_until(footer_inside,3))
@@ -87,11 +92,7 @@ class FusionGuiTests(unittest.TestCase):
                     self.assertLessEqual(caption.get_y()+caption.get_height(),card().get_y()+card().get_height()-12)
                     ok,anchor=a.cad_split.compute_bounds(a.win);self.assertTrue(ok)
                     surface=popup.get_surface();rect=card()
-                    # GTK 4.14/X11 places the native popup content four pixels
-                    # beyond this CSS border; newer GTK/Wayland differs by one.
-                    # Check close anchoring without assuming identical native
-                    # surface rounding. Width/footer/scroll checks stay exact.
-                    self.assertAlmostEqual(surface.get_position_x()+rect.get_x()+rect.get_width(),anchor.get_x()+anchor.get_width(),delta=6)
+                    self.assertAlmostEqual(surface.get_position_x()+rect.get_x()+rect.get_width(),anchor.get_x()+anchor.get_width(),delta=2)
                     self.assertGreaterEqual(surface.get_position_y()+rect.get_y(),anchor.get_y()+anchor.get_height()+7)
                     adjustment=a.cad_card_view.get_hadjustment()
                     self.assertLessEqual(adjustment.get_upper(),adjustment.get_page_size()+.5)
@@ -111,13 +112,13 @@ class FusionGuiTests(unittest.TestCase):
                     self.assertEqual((a.canvas.get_width(),a.canvas.get_height()),size)
                     self.assertIs(a.canvas.scene,scene)
                     popup.popdown();pump(.04);a.cad_menu.popup()
-                    self.assertTrue(wait_until(lambda:popup.get_mapped() and a.cad_stack.get_visible_child_name()=='compact',3))
+                    self.assertTrue(wait_until(lambda:footer_inside() and a.cad_stack.get_visible_child_name()=='compact' and round(card().get_height())==compact_height,3))
                     self.assertEqual(round(card().get_width()),292)
                     a.cad_setup_button.emit('clicked');pump(.03)
                     popup.popdown()
                     self.assertTrue(wait_until(lambda:not popup.get_mapped(),3))
                     a.cad_menu.popup()
-                    self.assertTrue(wait_until(lambda:popup.get_mapped() and a.cad_stack.get_visible_child_name()=='compact',3))
+                    self.assertTrue(wait_until(lambda:footer_inside() and a.cad_stack.get_visible_child_name()=='compact' and round(card().get_height())==compact_height,3))
                     self.assertEqual(round(card().get_height()),compact_height)
                     popup.popdown();pump(.04)
         finally:

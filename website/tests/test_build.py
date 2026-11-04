@@ -128,7 +128,7 @@ class RenderingTests(unittest.TestCase):
                 self.assertNotIn('&lt;a id=', body)
                 aliases += 1
         self.assertGreaterEqual(aliases, 28)
-        self.assertEqual(len(DOCUMENTS), 15)
+        self.assertEqual(len(DOCUMENTS), 24)
 
     def test_source_links_follow_verified_revision_and_docs_stay_relative(self):
         revision = 'a' * 40
@@ -230,10 +230,10 @@ class BuildTests(ComposedSiteFixture):
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory) / 'site'
             result = build.build(offline=True, output=output)
-            self.assertEqual(result['files'], 78)
+            self.assertEqual(result['files'], len(build.public_files()))
             for name in ('preferences.js', 'help-illustrations.json'):
                 self.assertTrue((output/'app'/name).is_file())
-            self.assertEqual(result['pages'], 19)
+            self.assertEqual(result['pages'], len(DOCUMENTS) + 4)
             self.assertEqual(set(hashes(output)), set(build.public_files()))
             build.validate_output(output)
             for name in build.STATIC_ASSETS:
@@ -262,7 +262,7 @@ class BuildTests(ComposedSiteFixture):
             routes = ['index.html', 'docs/index.html', *(d.route for d in DOCUMENTS)]
             namespace = {'s': 'http://www.sitemaps.org/schemas/sitemap/0.9'}
             sitemap = ET.parse(output / 'sitemap.xml')
-            self.assertEqual([item.text for item in sitemap.findall('s:url/s:loc', namespace)], [canonical(r) for r in routes])
+            self.assertEqual([item.text for item in sitemap.findall('s:url/s:loc', namespace)], [canonical(r) for r in [*routes, 'app/index.html']])
             self.assertEqual({node.tag.rsplit('}', 1)[-1] for node in sitemap.iter()}, {'urlset', 'url', 'loc'})
             self.assertEqual((output / 'robots.txt').read_text(), 'User-agent: *\nAllow: /\n\nSitemap: https://ratiolab.dev/sitemap.xml\n')
             titles, descriptions = [], []
@@ -294,7 +294,7 @@ class BuildTests(ComposedSiteFixture):
                     self.assertEqual(title, HOME_TITLE)
                     self.assertEqual(metas['description'], HOME_DESCRIPTION)
                     graph = {node['@type']: node for node in structured['@graph']}
-                    self.assertEqual(set(graph), {'WebSite', 'SoftwareApplication'})
+                    self.assertEqual(set(graph), {'WebSite', 'SoftwareApplication', 'WebApplication'})
                     software = graph['SoftwareApplication']
                     release = load_cache(WEBSITE / 'release.json')
                     self.assertEqual(software['softwareVersion'], release.version)
@@ -316,8 +316,8 @@ class BuildTests(ComposedSiteFixture):
                     self.assertEqual(crumbs[0]['item'], ORIGIN + '/docs/')
                     self.assertEqual(crumbs[-1]['item'], canonical(route))
                     self.assertEqual([c['position'] for c in crumbs], list(range(1, len(crumbs) + 1)))
-            self.assertEqual(len(set(titles)), 17)
-            self.assertEqual(len(set(descriptions)), 17)
+            self.assertEqual(len(set(titles)), len(routes))
+            self.assertEqual(len(set(descriptions)), len(routes))
 
     def test_404_is_noindex_uses_root_assets_and_upgrades_old_output_safely(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -325,7 +325,7 @@ class BuildTests(ComposedSiteFixture):
             build.build(offline=True, output=output)
             for relative in ('404.html', 'sitemap.xml', 'robots.txt'):
                 (output / relative).unlink()
-            self.assertEqual(len(hashes(output)), 75)
+            self.assertEqual(len(hashes(output)), len(build.public_files()) - 3)
             build.build(offline=True, output=output)
             page = Content((output / '404.html').read_text())
             metas = {a.get('name'): a.get('content') for tag, a in page.tags if tag == 'meta'}
@@ -335,7 +335,7 @@ class BuildTests(ComposedSiteFixture):
                 for key in ('src', 'href'):
                     if key in attrs:
                         self.assertTrue(attrs[key].startswith('/'), (tag, attrs[key]))
-            self.assertEqual(len(hashes(output)), 78)
+            self.assertEqual(len(hashes(output)), len(build.public_files()))
             asset_versions(output)
             previous = hashes(output)
             build.build(offline=True, output=output)
@@ -415,6 +415,9 @@ class BuildTests(ComposedSiteFixture):
         with tempfile.TemporaryDirectory() as directory:
             repo = Path(directory) / 'repository'
             shutil.copytree(REPO / 'docs', repo / 'docs')
+            (repo / 'examples').mkdir()
+            for name in build.EXAMPLE_PROJECTS:
+                shutil.copyfile(REPO / 'examples' / name, repo / 'examples' / name)
             doc = repo / 'docs/user-guide.md'
             first = 'Canonical freshness firstmarker'
             second = 'Canonical freshness secondmarker'
@@ -440,6 +443,9 @@ class BuildTests(ComposedSiteFixture):
         with tempfile.TemporaryDirectory() as directory:
             repo = Path(directory) / 'repository'
             shutil.copytree(REPO / 'docs', repo / 'docs')
+            (repo / 'examples').mkdir()
+            for name in build.EXAMPLE_PROJECTS:
+                shutil.copyfile(REPO / 'examples' / name, repo / 'examples' / name)
             output = repo / '_site'
             build.build(offline=True, repository_root=repo)
             previous, cache = hashes(output), (WEBSITE / 'release.json').read_bytes()
@@ -496,6 +502,46 @@ class BuildTests(ComposedSiteFixture):
             self.assertEqual(build.source_provenance(REPO, {})[0], 'main')
         with patch('build.subprocess.run', side_effect=OSError('no git')):
             self.assertEqual(build.source_provenance(REPO, {})[0], 'main')
+
+    def test_worked_examples_are_local_downloads_and_match_canonical_projects(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / 'site'
+            build.build(offline=True, output=output)
+            home = (output / 'index.html').read_text()
+            for family, tutorial in [('planetary', 'planetary-gear-generator'), ('cycloidal', 'cycloidal-drive-generator')]:
+                name = family + '-browser-guide.config.json'
+                self.assertEqual((output / 'examples' / name).read_bytes(), (REPO / 'examples' / name).read_bytes())
+                project = json.loads((output / 'examples' / name).read_text())
+                self.assertEqual(project['family'], family)
+                self.assertEqual(project['format'], 'solidcraft-riduttori/1')
+                self.assertEqual(project['parameters']['input_rpm'], 60)
+                page = Content((output / 'docs/tutorials' / tutorial / 'index.html').read_text())
+                downloads = [attrs for tag, attrs in page.tags if tag == 'a' and 'download' in attrs]
+                self.assertEqual(len(downloads), 1)
+                self.assertEqual(downloads[0]['download'], name)
+                self.assertIn('docs/tutorials/' + tutorial + '/', home)
+                self.assertEqual((output / 'assets' / (family + '-guide.svg')).read_bytes(), (WEBSITE / 'assets' / (family + '-guide.svg')).read_bytes())
+            self.assertIn('Free, <strong>open-source gear and reducer generator.', home)
+            self.assertIn('Set dimensions, preview motion and export STEP or STL.', home)
+            build.validate_output(output)
+
+    def test_browser_metadata_keeps_source_version_separate_from_desktop_release(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / 'site'
+            with patch.object(build, 'load_cache', return_value=validate_release(FIXTURE)):
+                build.build(offline=True, output=output)
+            self.assertEqual((output / 'app/index.html').read_bytes(), (REPO / 'webapp/index.html').read_bytes())
+            app = Content((output / 'app/index.html').read_text())
+            canonical_links = [a['href'] for tag, a in app.tags if tag == 'link' and a.get('rel') == 'canonical']
+            self.assertEqual(canonical_links, ['https://ratiolab.dev/app/'])
+            home = (output / 'index.html').read_text()
+            graph = json.loads(re.search(r'<script type="application/ld\+json">(.*?)</script>', home, re.S)[1])['@graph']
+            kinds = {item['@type']: item for item in graph}
+            self.assertEqual(kinds['SoftwareApplication']['softwareVersion'], '0.1.3')
+            source_version = json.loads((REPO / 'src/ratiolab_resources/version.json').read_text())['release']
+            self.assertEqual(kinds['WebApplication']['softwareVersion'], source_version)
+            self.assertNotEqual(source_version, '0.1.3')
+
 
 
 class WebAppBuildTests(ComposedSiteFixture):

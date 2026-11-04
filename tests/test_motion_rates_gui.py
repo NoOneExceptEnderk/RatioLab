@@ -120,13 +120,16 @@ class MotionRateGuiTests(unittest.TestCase):
             a.begin_motion_rate_drag()
             for value in range(61, 91):
                 a.motion_speed.set_value(scale_rpm(value))
+                self.assertEqual(a.design.values['input_rpm'],60)
+                self.assertEqual(a.document.revision,revision)
+                self.assertEqual(a.motion_rate_preview.get_text(),str(value))
             a.end_motion_rate_drag()
             pump(.3)
             self.assertEqual((generation.call_count, scene.call_count, upload.call_count), (0, 0, 0))
             self.assertLessEqual(saves.call_count, 2)
         self.assertIs(c.scene, mesh)
         self.assertTrue(c.motion_playing)
-        self.assertGreaterEqual(a.document.revision-revision, 30)
+        self.assertEqual(a.document.revision-revision, 1)
         self.assertEqual(len(a.document.states), states+1)
         self.assertEqual(a.design.values['input_rpm'], 90)
         c.set_motion_playing(False)
@@ -134,6 +137,46 @@ class MotionRateGuiTests(unittest.TestCase):
         self.assertEqual(a.motion_rpm, 60)
         a.redo_project()
         self.assertEqual(a.motion_rpm, 90)
+
+    def test_slider_retains_continuous_position_and_static_results(self):
+        a = self.app
+        cards = []
+        child = a.metric_cards.get_first_child()
+        while child:
+            cards.append(child)
+            child = child.get_next_sibling()
+        summary = a.bom_summary.get_text()
+        with patch('app.bom.build', side_effect=AssertionError('rate edit rebuilt BOM')):
+            a.begin_motion_rate_drag()
+            a.motion_speed.set_value(scale_rpm(12.3))
+            self.assertEqual(a.design.values['input_rpm'], 60)
+            self.assertEqual(a.motion_rate_preview.get_text(),'12')
+            self.assertEqual(a.motion_rate_display.get_visible_child_name(),'preview')
+            self.assertEqual(a.project_snapshot()['values']['planetary']['input_rpm'],60)
+            self.assertAlmostEqual(a.motion_speed.get_value(), scale_rpm(12.3))
+            revision = a.document.revision
+            a.motion_speed.set_value(scale_rpm(12.4))
+            self.assertEqual(a.document.revision, revision)
+            self.assertAlmostEqual(a.motion_speed.get_value(), scale_rpm(12.4))
+            a.end_motion_rate_drag()
+            self.assertEqual(a.design.values['input_rpm'],12)
+            self.assertEqual(a.motion_rate_display.get_visible_child_name(),'value')
+        self.assertEqual(a.bom_summary.get_text(), summary)
+        child = a.metric_cards.get_first_child()
+        for previous in cards:
+            self.assertIs(child, previous)
+            child = child.get_next_sibling()
+        self.assertIsNone(child)
+        self.commit('12.3456789')
+        self.assertEqual(a.design.values['input_rpm'], 12.3456789)
+        self.assertAlmostEqual(a.motion_speed.get_value(), scale_rpm(12.3456789))
+        self.commit(12)
+        self.commit('invalid')
+        self.assertTrue(a.motion_input_invalid)
+        a.motion_speed.set_value(scale_rpm(12.3))
+        self.assertFalse(a.motion_input_invalid)
+        self.assertEqual(a.design.values['input_rpm'], 12)
+        self.assertEqual(a.motion_speed_text.get_text(), '12')
 
     def test_drag_group_survives_slow_changes_and_ends_before_next_edit(self):
         a = self.app
@@ -151,18 +194,35 @@ class MotionRateGuiTests(unittest.TestCase):
         a.undo_project()
         self.assertEqual(a.motion_rpm, 60)
 
-    def test_closing_speed_popover_ends_the_drag_history_group(self):
+    def test_slider_focus_leave_confirms_the_drag_history_group(self):
         a = self.app
         count = len(a.document.states)
         a.begin_motion_rate_drag()
         a.motion_speed.set_value(scale_rpm(80))
-        a.motion_button.get_popover().emit('closed')
+        a.motion_rate_slider_focus.emit('leave');pump(.04)
         a.motion_speed.set_value(scale_rpm(90))
         self.assertEqual(len(a.document.states), count+2)
         a.undo_project()
         self.assertEqual(a.motion_rpm, 80)
         a.undo_project()
         self.assertEqual(a.motion_rpm, 60)
+
+    def test_cancelled_drag_or_model_replacement_never_applies_preview(self):
+        a=self.app;revision=a.document.revision
+        with patch.object(a,'apply_motion_rate',wraps=a.apply_motion_rate) as apply:
+            a.begin_motion_rate_drag()
+            a.motion_speed.set_value(scale_rpm(120))
+            self.assertEqual(a.motion_rate_preview.get_text(),'120')
+            a.cancel_motion_rate_drag()
+            self.assertEqual(apply.call_count,0)
+        self.assertEqual(a.motion_rpm,60)
+        self.assertEqual(a.document.revision,revision)
+        self.assertAlmostEqual(a.motion_speed.get_value(),scale_rpm(60))
+        a.begin_motion_rate_drag();a.motion_speed.set_value(scale_rpm(200))
+        self.load('wolfrom',input_rpm=-30)
+        a.end_motion_rate_drag()
+        self.assertEqual(a.design.values['input_rpm'],-30)
+        self.assertEqual(a.motion_rate_display.get_visible_child_name(),'value')
 
     def test_save_interrupts_drag_and_preserves_saved_undo_position(self):
         a = self.app

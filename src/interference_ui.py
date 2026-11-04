@@ -23,7 +23,7 @@ class Controller:
     def __init__(self,app,container):
         self.app=app;self.serial=0;self.cancel=None;self.thread=None;self.result=None;self.snapshot=None;self.design_key=None;self.alive=True;self.window=None;self.saved_view=None;self.page=0;self.revision=None
         self.button=Gtk.Button(label='Check interference…')
-        self.button.set_tooltip_text('Discrete 3D surface distance and interference check over the full labelled kinematic period')
+        self.button.set_tooltip_text('Discrete 3D surface distance and interference check over the labelled kinematic period or finite working stroke')
         self.button.connect('clicked',lambda _:self.open())
         self.summary=Gtk.Label(label='Not checked',xalign=0,hexpand=True)
         container.register('interference',self)

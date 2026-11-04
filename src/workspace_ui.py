@@ -103,6 +103,9 @@ window.reducers { background: @rl_window; color: @rl_text; font-size: 14px; }
 .reducers paned > separator { background: @rl_line; background-image: none; box-shadow: none; border: 0; padding: 0; margin: 0; min-width: 1px; min-height: 1px; }
 .reducers headerbar { background: @rl_window; border-bottom: 1px solid @rl_line; box-shadow: none; min-height: 48px; }
 .reducers headerbar windowcontrols button { background: transparent; border: 0; box-shadow: none; }
+.reducers .cube-actions button { min-width: 19px; min-height: 19px; padding: 4px; background: transparent; border-color: transparent; }
+.reducers .cube-actions button:hover { background: @rl_hover; border-color: @rl_line; }
+.reducers .cube-actions button:checked { background: @rl_selected; border-color: @rl_accent; color: @rl_accent; }
 .reducers button { background: @rl_surface; color: @rl_text; border: 1px solid @rl_line; border-radius: 5px; box-shadow: none; min-height: 28px; padding: 4px 10px; }
 .reducers button:hover { background: @rl_hover; }
 .reducers button.flat { background: transparent; border-color: transparent; }
@@ -124,8 +127,8 @@ window.reducers { background: @rl_window; color: @rl_text; font-size: 14px; }
 .reducers .sidebar spinbutton { font-size: 12px; line-height: 1.45em; }
 .reducers .sidebar spinbutton.parameter-input { min-height: 32px; }
 .reducers .sidebar spinbutton.parameter-input button { min-width: 12px; padding: 0; }
-.reducers .sidebar spinbutton.parameter-input text { padding-left: 9px; padding-right: 23px; }
-.reducers .sidebar spinbutton.parameter-input:focus-within text { padding-right: 19px; }
+.reducers .sidebar spinbutton.parameter-input text { padding-left: 9px; padding-right: 9px; }
+.reducers .sidebar spinbutton.parameter-input:focus-within text { padding-right: 9px; }
 .reducers .sidebar .parameter-heading { font-size: 12px; font-weight: 400; }
 .reducers .sidebar button.model-restore { font-size: 12px; line-height: 1.45em; }
 .reducers .sidebar .field-label { line-height: 1.45em; }
@@ -137,7 +140,7 @@ window.reducers { background: @rl_window; color: @rl_text; font-size: 14px; }
 .reducers .model-picker .step-title { font-weight: 500; line-height: 1.45em; }
 .reducers .parameter-pair { padding-bottom: 0; }
 .reducers .sidebar { background: @rl_window; }
-.reducers .model-picker { padding: 6px 14px 0; }
+.reducers .model-picker { padding: 6px 6px 0; }
 .reducers .model-picker .field-label { line-height: 1.15em; }
 .reducers .model-picker dropdown > button { min-height: 18px; padding: 1px 7px; }
 .reducers .field-label { color: @rl_muted; font-size: 12px; }
@@ -148,16 +151,16 @@ window.reducers { background: @rl_window; color: @rl_text; font-size: 14px; }
 .reducers spinbutton { background: @rl_input; border: 1px solid @rl_line; border-radius: 4px; min-height: 30px; }
 .reducers spinbutton button { background: transparent; border: 0; min-width: 16px; padding: 2px; }
 .reducers entry { background: @rl_input; color: @rl_text; border: 1px solid @rl_line; border-radius: 4px; min-height: 30px; }
-.reducers .page-nav { padding: 7px 14px; border-bottom: 1px solid @rl_line; }
-.reducers .page-nav button { background: transparent; border-color: transparent; padding: 4px 3px; font-size: 12px; min-width: 42px; }
+.reducers .page-nav { padding: 0 9px; margin-top: 6px; border-top: 1px solid @rl_line; border-bottom: 1px solid @rl_line; }
+.reducers .page-nav button { background: transparent; border: 0; border-bottom: 2px solid transparent; border-radius: 0; padding: 9px 3px; font-size: 12px; min-width: 42px; }
 .reducers .theme-control { padding: 0 7px; }
 .reducers switch.theme-switch { min-width: 32px; min-height: 16px; padding: 2px; border-radius: 12px; border: 1px solid @rl_line; background: @rl_trough; }
 .reducers switch.theme-switch:checked { background: @rl_accent; border-color: @rl_accent; }
 .reducers switch.theme-switch slider { min-width: 14px; min-height: 14px; margin: 0; border-radius: 50%; background: #ffffff; border: 0; box-shadow: none; }
-.reducers.localized-ui .page-nav button { font-size: 11px; }
+
 .reducers .page-nav button.dimensions-tab { min-width: 72px; }
 .reducers .page-nav button.assembly-tab { min-width: 59px; }
-.reducers .page-nav button:checked { background: @rl_active; box-shadow: inset 0 -2px @rl_accent; }
+.reducers .page-nav button:checked { background: transparent; color: @rl_accent; border-bottom-color: @rl_accent; box-shadow: none; }
 .reducers .parameter-scroll { padding: 4px 14px 12px; }
 .reducers .parameter-group { padding-bottom: 12px; }
 .reducers .sidebar-actions { padding: 9px 12px; border-top: 1px solid @rl_line; }
@@ -204,16 +207,74 @@ window.reducers { background: @rl_window; color: @rl_text; font-size: 14px; }
 .reducers .io-output { border-left-color: @rl_io_output; }
 .reducers .io-value { font-weight: 500; }
 .reducers .io-result { color: @rl_io_result; font-size: 12px; }
+.reducers button.catalog-opener { background: transparent; border: 0; border-radius: 5px; padding: 6px; min-height: 44px; }
+.reducers button.catalog-opener:hover { background: @rl_hover; }
+.reducers .catalog-thumbnail { background: @rl_preview; border-radius: 4px; }
+.reducers .catalog-grid-symbol { color: @rl_muted; }
+.reducers .catalog-name { font-size: 13px; font-weight: 500; }
+.reducers .catalog-summary { font-size: 11px; color: @rl_muted; }
+.reducers .drive-caption, .reducers .drive-direction { font-size: 12px; color: @rl_muted; }
+.reducers .drive-caption { margin: 0; }
+.reducers .direct-drive-body { border-spacing: 0; padding: 10px 0 12px; }
+.reducers .motion-sidebar { padding: 12px; }
+.reducers .motion-section-title { min-height: 25px; font-size: 13px; }
+.reducers .direct-drive-loads { border-top: 1px solid @rl_line; padding-top: 10px; }
+.reducers .drive-member-card radio:checked { background: @rl_accent; color: @rl_on_accent; border-color: @rl_accent; }
+.reducers .drive-member-card { padding: 9px 7px; border: 1px solid @rl_line; border-radius: 5px; background: @rl_input; }
+.reducers .drive-member-card:checked { background: @rl_selected; border-color: @rl_accent; }
+.reducers .drive-member-name { font-size: 13px; font-weight: 500; }
+.reducers .drive-member-role, .reducers .drive-member-hint { font-size: 11px; color: @rl_muted; }
+.reducers .drive-member-card:checked .drive-member-role, .reducers .drive-member-card:checked .drive-member-hint { color: @rl_accent; }
+.reducers .drive-result { padding: 8px 0; border-top: 1px solid @rl_line; border-bottom: 1px solid @rl_line; }
+.reducers .drive-result-title { font-size: 12px; color: @rl_text; }
+.reducers .drive-result-value { font-size: 16px; color: @rl_accent; }
+.reducers .drive-result-unit { font-size: 11px; color: @rl_muted; }
+.reducers .drive-reset { font-size: 11px; color: @rl_muted; padding: 6px 7px; min-height: 0; border: 0; }
+.reducers .drive-footer { font-size: 11px; color: @rl_muted; }
+
 .reducers .footer { padding: 8px 15px; border-top: 1px solid @rl_line; }
 .reducers .footer button { font-size: 12px; }
 .reducers .status { color: @rl_status; font-size: 12px; }
 .reducers .status.error { color: @rl_error; }
 .reducers .connected { color: @rl_status; }
+/* Motion hierarchy: preserve the two-row transport and exact rate controls. */
+.reducers .playback-bar .motion-play { background: @rl_accent; color: @rl_on_accent; border-color: @rl_accent; }
+.reducers .playback-bar .motion-play.playing { background: @rl_selected; color: @rl_accent; }
+.reducers .playback-bar .motion-phase { padding: 3px 8px; border-left: 1px solid @rl_line; }
+.reducers .motion-input-row { border-top: 1px solid @rl_line; padding-top: 4px; }
+.reducers .playback-bar button { padding-top: 4px; padding-bottom: 4px; }
+.reducers .playback-bar entry.motion-rate { background: @rl_input; border-color: @rl_io_line; }
+.reducers .playback-bar .motion-step { min-width: 18px; padding-left: 4px; padding-right: 4px; }
+.reducers .io-stage { border: 1px solid @rl_line; border-radius: 5px; }
+.reducers .io-stage > label { font-size: 12px; color: @rl_text; }
+.reducers .io-stage .io-role { padding: 5px 7px; }
+.reducers .io-stage .io-role .field-label { font-size: 11px; color: @rl_muted; }
+.reducers .io-stage .io-fixed { border-left: 2px solid @rl_io_line; }
+.reducers .io-stage .io-swap { font-size: 11px; min-height: 20px; padding: 3px 5px; }
+.reducers .motion-demos flowboxchild { padding: 0; }
+.reducers .motion-demos button { font-size: 11px; min-height: 22px; padding: 3px 7px; }
+.reducers .motion-notes > title { padding: 4px 0; font-size: 11px; font-weight: 400; color: @rl_muted; }
 .reducers .motion-input-error { color: @rl_error; font-size: 12px; }
-.reducers popover > contents { background: @rl_window; color: @rl_text; border: 1px solid @rl_line; border-radius: 7px; padding: 12px; }
-.reducers popover list, .reducers popover listview { background: @rl_input; color: @rl_text; }
-.reducers popover row:selected { background: @rl_selected; color: @rl_text; }
+.reducers popover > contents { background: alpha(@rl_surface, 0.89); color: @rl_text; border: 1px solid @rl_line; border-radius: 10px; padding: 12px; box-shadow: 0 12px 35px alpha(@rl_preview, 0.35); }
+.reducers popover list, .reducers popover listview { background: transparent; color: @rl_text; }
+.reducers popover row:selected { background: alpha(@rl_accent, 0.14); color: @rl_accent; }
 .reducers popover row:hover, .reducers popover modelbutton:hover { background: @rl_hover; }
+.reducers dropdown > button { background: @rl_surface; border-radius: 6px; }
+.reducers dropdown > button:hover { background: @rl_hover; }
+.reducers dropdown > button:checked { background: @rl_selected; border-color: @rl_accent; color: @rl_accent; }
+
+.reducers .catalog-card { padding: 10px; background: @rl_surface; border-radius: 8px; }
+.reducers .catalog-card.selected { border-color: @rl_accent; background: @rl_selected; }
+.reducers .catalog-card label { font-size: 13px; min-height: 36px; }
+.reducers.model-catalog flowboxchild { padding: 0; }
+.reducers .catalog-card picture { background: @rl_preview; border-radius: 5px; }
+.reducers .choice-row { padding: 7px 9px; }
+.reducers .choice-popover > contents { padding: 5px; border-radius: 8px; box-shadow: 0 4px 12px alpha(@rl_preview, 0.3); }
+.reducers .choice-popover row { padding: 0; margin: 1px 0; min-height: 0; }
+.reducers .choice-popover .choice-row { padding: 5px 8px; min-height: 20px; font-size: 14px; }
+.reducers .choice-tick { opacity: 0; }
+.reducers .choice-popover row:selected .choice-tick { opacity: 1; }
+.reducers .choice-popover scrolledwindow, .reducers .choice-popover listview { padding: 0; border: 0; }
 .reducers progressbar trough { background: @rl_trough; }
 .reducers progressbar progress { background: @rl_accent; border-color: @rl_accent; }
 .reducers .tool-dock, .reducers .view-panel { background: alpha(@rl_surface, 0.89); border: 1px solid @rl_line; border-radius: 10px; }
@@ -270,13 +331,14 @@ class StatusLabel(Gtk.Label):
 
 def workspace_glyph(name, color_source):
     """Self-contained outline symbols, available in frozen builds without themes."""
-    area=Gtk.DrawingArea(content_width=16,content_height=16)
+    size=19 if name=='cad-link' else 16
+    area=Gtk.DrawingArea(content_width=size,content_height=size)
     area.glyph_name=name
     def draw(widget,cr,width,height):
         name=widget.glyph_name
         color_widget=color_source.get_first_child() if isinstance(color_source,Gtk.MenuButton) else color_source
         color=color_widget.get_style_context().get_color()
-        alpha=color.alpha*(.5 if name in ("undo","redo","folder","plug","download") and not color_source.get_sensitive() else 1)
+        alpha=color.alpha*(.5 if name in ("undo","redo","folder","plug","cad-link","download") and not color_source.get_sensitive() else 1)
         cr.set_source_rgba(color.red,color.green,color.blue,alpha)
         cr.scale(width/24,height/24)
         cr.set_line_width(2)
@@ -300,11 +362,52 @@ def workspace_glyph(name, color_source):
             else:
                 while last>first:last-=2*pi
                 cr.arc_negative(cx,cy,radius,first,last)
-        if name=='globe':
+        if name=='layout-grid':
+            for x,y in ((3,3),(14,3),(14,14),(3,14)):
+                cr.new_sub_path()
+                for cx,cy,start in ((x+6,y+1,-pi/2),(x+6,y+6,0),(x+1,y+6,pi/2),(x+1,y+1,pi)):
+                    cr.arc(cx,cy,1,start,start+pi/2)
+                cr.close_path()
+        elif name=='cad-link':
+            # Lucide box + link, composed exactly as the approved 19px preview.
+            # Copyright/licence notices for both paths are included in COPYRIGHT.
+            cr.save();cr.scale(24/19,24/19)
+            cr.save()
+            cr.rectangle(0,0,19,19);cr.new_sub_path()
+            for x,y,start in ((17,11,-pi/2),(17,17,0),(11,17,pi/2),(11,11,pi)):
+                cr.arc(x,y,3,start,start+pi/2)
+            cr.close_path();cr.set_fill_rule(1);cr.clip()
+            cr.scale(16/24,16/24);cr.set_line_width(1.9)
+            cr.move_to(21,8);arc(2,20,6.27,sweep=False)
+            cr.line_to(13,2.27);arc(2,11,2.27,sweep=False)
+            cr.line_to(4,6.27);arc(2,3,8,sweep=False)
+            cr.line_to(3,16);arc(2,4,17.73,sweep=False)
+            cr.line_to(11,21.73);arc(2,13,21.73,sweep=False)
+            cr.line_to(20,17.73);arc(2,21,16,sweep=False);cr.close_path()
+            cr.move_to(3.3,7);cr.line_to(12,12);cr.line_to(20.7,7)
+            line(12,22,12,12);cr.stroke();cr.restore()
+            cr.save();cr.translate(8.5,8.5);cr.scale(11/24,11/24);cr.set_line_width(2.3)
+            cr.move_to(10,13);arc(5,17.54,13.54,sweep=False)
+            cr.line_to(20.54,10.54);arc(5,13.47,3.47,sweep=False);cr.line_to(11.75,5.18)
+            cr.move_to(14,11);arc(5,6.46,10.46,sweep=False)
+            cr.line_to(3.46,13.46);arc(5,10.53,20.53,sweep=False);cr.line_to(12.24,18.82)
+            cr.stroke();cr.restore();cr.restore()
+        elif name=='globe':
             cr.arc(12,12,10,0,2*pi)
             cr.new_sub_path()
             cr.save();cr.translate(12,12);cr.scale(.45,1);cr.arc(0,0,10,0,2*pi);cr.restore()
             line(2,12,22,12)
+        elif name=='home':
+            cr.move_to(3,11);cr.line_to(12,3);cr.line_to(21,11)
+            cr.move_to(6,9);cr.line_to(6,21);cr.line_to(18,21);cr.line_to(18,9)
+        elif name=='fit':
+            for coords in ((3,9,3,3),(3,3,9,3),(15,3,21,3),(21,3,21,9),(21,15,21,21),(21,21,15,21),(9,21,3,21),(3,21,3,15)):line(*coords)
+        elif name=='pan':
+            cr.move_to(8,13);cr.line_to(8,4);cr.curve_to(8,2,11,2,11,4);cr.line_to(11,10)
+            cr.line_to(11,3);cr.curve_to(11,1,14,1,14,3);cr.line_to(14,10)
+            cr.line_to(14,5);cr.curve_to(14,3,17,3,17,5);cr.line_to(17,11)
+            cr.line_to(17,8);cr.curve_to(17,6,20,6,20,8);cr.line_to(20,15)
+            cr.curve_to(20,23,10,24,7,19);cr.line_to(3,13);cr.curve_to(2,10,5,9,8,13)
         elif name=='sliders':
             for coords in ((3,4,10,4),(14,4,21,4),(3,12,8,12),(12,12,21,12),
                            (3,20,12,20),(16,20,21,20),(14,2,14,6),(8,10,8,14),(16,18,16,22)):
@@ -366,8 +469,8 @@ def workspace_glyph(name, color_source):
         elif name=='pause':
             cr.rectangle(6,4,4,16);cr.rectangle(14,4,4,16)
         elif name=='reset':
-            cr.move_to(3,10);cr.line_to(3,4);cr.line_to(9,4)
-            cr.move_to(3,4);cr.curve_to(8,-1,20,3,21,11);cr.curve_to(22,20,9,24,4,16)
+            cr.move_to(3,11);arc(9,5.9,17.7,large=True)
+            cr.move_to(3,4);cr.line_to(3,11);cr.line_to(10,11)
         elif name=='io':
             line(3,7,21,7);line(3,17,21,17)
             cr.move_to(17,3);cr.line_to(21,7);cr.line_to(17,11)
@@ -417,7 +520,7 @@ def decorate_action(button, icon_name, *, vector=False):
     button.workspace_icon=image
     image.set_halign(Gtk.Align.START)
     image.set_valign(Gtk.Align.CENTER)
-    image.set_margin_start(10)
+    image.set_margin_start(7 if icon_name=='cad-link' else 10)
     image.set_can_target(False)
     wrapper.add_overlay(image)
     def inset(widget):
@@ -489,38 +592,34 @@ def margins(widget, value):
         setter(value)
 
 
-def install_axes(app, overlay):
-    """Project the coordinate axes using the same orbit as the OpenGL view."""
-    axes = Gtk.DrawingArea(width_request=86, height_request=86)
-    axes.set_halign(Gtk.Align.END)
-    axes.set_valign(Gtk.Align.END)
-    axes.set_can_target(False)
-    margins(axes, 12)
-    def draw(widget, cr, width, height):
-        cr.translate(width/2, height/2)
-        cr.set_source_rgb(*app.canvas.palette['axes'])
-        cr.set_line_width(1.4)
-        cr.set_font_size(12)
-        c, s = cos(app.canvas.yaw), sin(app.canvas.yaw)
-        a, b = cos(app.canvas.tilt), sin(app.canvas.tilt)
-        for name, (x, y, z) in zip('XYZ', ((1,0,0), (0,1,0), (0,0,1))):
-            x, y = c*x-s*y, s*x+c*y
-            x, y = 26*x, -26*(a*y-b*z)
-            cr.move_to(0, 0)
-            cr.line_to(x, y)
-            cr.stroke()
-            if hypot(x, y)>4:
-                angle = atan2(y, x)
-                for delta in (-.45, .45):
-                    cr.move_to(x, y)
-                    cr.line_to(x-5*cos(angle+delta), y-5*sin(angle+delta))
-                cr.stroke()
-            cr.move_to(x+4, y-4)
-            cr.show_text(name)
-    axes.set_draw_func(draw)
-    app.axes = axes
-    app.canvas.connect('view-changed', lambda *_: axes.queue_draw())
-    overlay.add_overlay(axes)
+def install_navigation(app, overlay):
+    from navigation_cube import NavigationCube
+    navigation=Gtk.Box(orientation=Gtk.Orientation.VERTICAL,spacing=2)
+    navigation.set_halign(Gtk.Align.END);navigation.set_valign(Gtk.Align.START)
+    navigation.set_margin_top(54);navigation.set_margin_end(14)
+    cube=NavigationCube(app.canvas);navigation.append(cube)
+    row=Gtk.Box(spacing=2,halign=Gtk.Align.CENTER,css_classes=['cube-actions'])
+    app.pan_button=Gtk.ToggleButton(tooltip_text='Pan · right mouse drag')
+    app.pan_button.set_child(workspace_glyph('pan',app.pan_button))
+    def toggle_pan(button):
+        app.canvas.pan_mode=button.get_active()
+        app.canvas.set_cursor_from_name('grab' if button.get_active() else 'default')
+    app.pan_button.connect('toggled',toggle_pan)
+    for label,icon,tip,callback in [('Home','home','Isometric view and fit',lambda *_:app.select_view('iso')),
+                                    ('Fit','fit','Fit model in the current orientation',lambda *_:fit_camera(app))]:
+        button=Gtk.Button(label=label,tooltip_text=tip)
+        button.set_child(workspace_glyph(icon,button));button.connect('clicked',callback);row.append(button)
+    for button in (row.get_first_child(),row.get_last_child(),app.pan_button,app.view_menu):
+        button.add_css_class('flat')
+    row.append(app.pan_button);row.append(app.view_menu)
+    navigation.append(row);overlay.add_overlay(navigation)
+    overlay.set_measure_overlay(navigation,False)
+    app.axes=cube;app.navigation_cube=cube;app.navigation_controls=navigation
+
+
+def fit_camera(app):
+    app.canvas.zoom=1.;app.canvas.pan_offset=(0.,0.,0.)
+    app.canvas.queue_render();app.canvas.emit('view-changed','custom')
 
 
 def build(app, labels):
@@ -541,6 +640,10 @@ def build(app, labels):
     app.workspace_style = provider
     Gtk.StyleContext.add_provider_for_display(Gdk.Display.get_default(), provider,
                                               Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+    # A display owns its providers independently of the window. Retiring a
+    # workspace must not leave its selectors participating in later layouts.
+    app.win.connect('unrealize', lambda window: Gtk.StyleContext.remove_provider_for_display(
+        window.get_display(), provider))
     root = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
     app.win.set_child(root)
     header = Gtk.Box(spacing=12, css_classes=['studio-header'])
@@ -604,7 +707,7 @@ def build(app, labels):
         child.set_valign(Gtk.Align.CENTER)
         child=child.get_next_sibling()
     decorate_action(project_menu,'folder',vector=True)
-    decorate_action(app.cad_action,'plug',vector=True)
+    decorate_action(app.cad_action,'cad-link',vector=True)
     decorate_action(app.export_menu,'download',vector=True)
     app.win.set_titlebar(header_handle)
     secondary = Gtk.Box(spacing=3, css_classes=['studio-toolbar'])
@@ -665,27 +768,33 @@ def build(app, labels):
     app.model_dimensions_heading_row = Gtk.Box(spacing=6)
     app.model_dimensions_heading = gui_workflow.text('Family', 'field-label')
     app.model_dimensions_heading.set_hexpand(True)
-    app.model_dimensions_heading_row.append(app.model_dimensions_heading)
-    picker.append(app.model_dimensions_heading_row)
-    from parameter_help_ui import controller as help_controller
-    help_controller(app).bind_section(app.model_dimensions_heading, app.model_dimensions_heading_row)
     model_field=Gtk.Box(orientation=Gtk.Orientation.VERTICAL,spacing=1)
     picker.append(model_field)
     app.selector = gui_workflow.searchable_dropdown(labels)
     app.selector.set_selected(list(app.families).index(app.family))
     app.selector.connect('notify::selected', app.change_family)
     model_field.append(app.selector)
+    import model_catalog_ui
+    model_catalog_ui.install(app, model_field)
     app.family_hint = gui_workflow.text('', 'study')
     app.family_hint.set_visible(False)
     picker.append(app.family_hint)
     app.variant_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=1)
     app.variant_box.set_margin_top(2)
+    app.stage_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=1)
+    app.stage_box.append(gui_workflow.text('Number of stages', 'field-label'))
+    app.stage_selector = gui_workflow.choice_dropdown(['1', '2', '3'])
+    app.stage_selector.connect('notify::selected', app.change_stage_count)
+    app.stage_box.append(app.stage_selector)
+    app.variant_box.append(app.stage_box)
     app.variant_caption = gui_workflow.text('Tooth type', 'field-label')
     app.variant_box.append(app.variant_caption)
-    app.variant_selector = Gtk.DropDown.new_from_strings(['Standard'])
-    gui_workflow.compact_dropdown(app.variant_selector)
+    app.variant_selector = gui_workflow.choice_dropdown(['Standard'])
     app.variant_selector.connect('notify::selected', app.change_variant)
     app.variant_box.append(app.variant_selector)
+    app.stage_notice = gui_workflow.text('', 'study')
+    app.stage_notice.set_wrap(True)
+    app.variant_box.append(app.stage_notice)
     picker.append(app.variant_box)
     gui_workflow.install_sections(app, left)
     reset_row = Gtk.Box(spacing=5, css_classes=['sidebar-actions'])
@@ -719,6 +828,7 @@ def build(app, labels):
         button.connect('clicked', lambda _, v=key: app.select_view(v))
         views.append(button)
         app.view_buttons[key] = button
+    app.camera_presets=views
     app.view_buttons['iso'].set_active(True)
     app.canvas.connect('view-changed', app.on_view_changed)
     fit = Gtk.Button(label='Fit')
@@ -726,46 +836,32 @@ def build(app, labels):
     fit.connect('clicked', lambda _: app.select_view('iso'))
     views.append(fit)
     toolbar.append(Gtk.Box(hexpand=True))
-    app.pick_mode = Gtk.DropDown.new_from_strings(['Navigate', 'Select', 'Measure'])
+    app.pick_mode = gui_workflow.choice_dropdown(['Navigate', 'Select', 'Measure'])
     app.pick_mode.set_selected(1)
     app.pick_mode.set_tooltip_text('Navigate: orbit and zoom. Select: click surfaces; Ctrl/Shift adds. Measure: pick two surface points.')
-    visibility = Gtk.ToggleButton(label='View')
+    visibility = Gtk.ToggleButton(tooltip_text='Display options')
     app.view_menu = visibility
-    toolbar.append(visibility)
-    view_panel = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, css_classes=['view-panel'], visible=False)
-    view_panel.set_size_request(340, -1)
-    view_panel.set_halign(Gtk.Align.END)
-    view_panel.set_valign(Gtk.Align.FILL)
-    margins(view_panel, 12)
-    view_panel.set_margin_top(60)
-    view_head = Gtk.Box(spacing=8)
-    view_heading=Gtk.Box(orientation=Gtk.Orientation.VERTICAL,spacing=1,hexpand=True)
-    view_heading.append(Gtk.Label(label='View',xalign=0,css_classes=['overlay-category']))
-    view_heading.append(Gtk.Label(label='View', xalign=0, css_classes=['step-title']))
-    view_head.append(view_heading)
-    close_view = Gtk.Button(icon_name='window-close-symbolic', css_classes=['flat'])
-    close_view.set_tooltip_text('Close View · Escape')
-    close_view.connect('clicked', lambda _: visibility.set_active(False))
-    view_head.append(close_view)
-    view_panel.append(view_head)
-    view_scroll = Gtk.ScrolledWindow(vexpand=True, hscrollbar_policy=Gtk.PolicyType.NEVER)
-    view_panel.append(view_scroll)
-    view_body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=9)
-    view_scroll.set_child(view_body)
-    app.view_panel = view_panel
-    view_body.append(Gtk.Label(label='Camera', xalign=0, css_classes=['muted']))
-    view_body.append(views)
-    view_body.append(Gtk.Label(label='Interaction', xalign=0, css_classes=['muted']))
+    view_panel=Gtk.Popover(autohide=True,has_arrow=True,position=Gtk.PositionType.BOTTOM)
+    view_panel.set_parent(visibility)
+    view_scroll=Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.NEVER,
+                                  min_content_width=240,max_content_height=380,propagate_natural_height=True)
+    view_panel.set_child(view_scroll)
+    view_body=Gtk.Box(orientation=Gtk.Orientation.VERTICAL,spacing=9,css_classes=['display-options'])
+    margins(view_body,12);view_scroll.set_child(view_body)
+    app.view_panel=view_panel
+    # Canonical preset controls retained for integrations; the cube is visible.
+    view_body.append(Gtk.Label(label='Display',xalign=0,css_classes=['step-title']))
+    view_body.append(Gtk.Label(label='Interaction',xalign=0,css_classes=['muted']))
     view_body.append(app.pick_mode)
     # Keep the existing theme preference API behind the direct on/off control.
-    app.theme_selector = Gtk.DropDown.new_from_strings(['Dark', 'Light'])
+    app.theme_selector = gui_workflow.choice_dropdown(['Dark', 'Light'])
     app.theme_selector.set_selected(THEMES.index(app.workspace_theme))
     app.theme_error = Gtk.Label(label='Changed for this session. Could not save preference.', visible=False)
     app.theme_selector.connect('notify::selected', lambda widget, *_: change_theme(app, widget))
     app.theme_switch.connect('notify::active', lambda widget, *_:
                              app.theme_selector.set_selected(1 if widget.get_active() else 0))
     # Preserve the saved text scale; the cancelled Settings screen is not exposed.
-    app.text_size = Gtk.DropDown.new_from_strings(['100%', '125%', '150%'])
+    app.text_size = gui_workflow.choice_dropdown(['100%', '125%', '150%'])
     app.text_size.set_selected((1, 1.25, 1.5).index(app.workspace_preferences['text_scale']))
     app.text_size.connect('notify::selected', lambda *_: apply_theme(app))
 
@@ -804,17 +900,17 @@ def build(app, labels):
     app.viewport_paned.set_resize_start_child(True)
     right.append(app.viewport_paned)
     app.preview_overlay = overlay
-    overlay.add_overlay(view_panel)
-    overlay.set_measure_overlay(view_panel, False)
     from workspace_tools import Dock
     app.tools = Dock(app, app.viewport_paned, toolbar)
-    decorate_action(visibility,"sliders",vector=True)
+    visibility.set_child(workspace_glyph('sliders',visibility))
     decorate_action(app.tools.menu,"wrench",vector=True)
     def toggle_view(button):
         if button.get_active():
             app.tools.hide()
-        view_panel.set_visible(button.get_active())
+        if button.get_active():view_panel.popup()
+        else:view_panel.popdown()
     visibility.connect('toggled', toggle_view)
+    view_panel.connect('closed',lambda *_:visibility.set_active(False))
     app.empty = Gtk.Label(label='Generating geometry…', css_classes=['preview-state'])
     app.empty.set_halign(Gtk.Align.START)
     app.empty.set_valign(Gtk.Align.START)
@@ -826,9 +922,9 @@ def build(app, labels):
     app.hidden_hint.set_valign(Gtk.Align.CENTER)
     app.hidden_hint.set_visible(False)
     overlay.add_overlay(app.hidden_hint)
-    install_axes(app, overlay)
-    # Keep tools above decorative axes and preview hints.
-    for panel in (view_panel, app.tools.box):
+    install_navigation(app, overlay)
+    # Keep the tool overlay above the cube and preview hints.
+    for panel in (app.tools.box,):
         overlay.remove_overlay(panel)
         overlay.add_overlay(panel)
         overlay.set_measure_overlay(panel, False)

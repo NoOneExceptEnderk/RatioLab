@@ -6,6 +6,7 @@ Only explicit grids vary. Every accepted candidate is regenerated and checked
 against its normalized locked baseline; ranking has no continuous/global optimum
 claim. Cancellation and time budgets are observed between core operations.
 """
+from parallel_multistage import VARIANTS as PARALLEL_MULTISTAGE_VARIANTS
 from copy import deepcopy
 from dataclasses import dataclass, field
 from itertools import product
@@ -14,15 +15,20 @@ from time import monotonic
 from geometry import generate, get_specs, INTEGER
 from solid_geometry import rings, point
 
-FAMILIES = ('parallel', 'internal', 'planetary', 'cycloidal', 'harmonic', 'worm')
-COUNT_KEYS = dict(parallel=('pinion', 'wheel'), internal=('pinion', 'wheel'),
+FAMILIES = ('parallel', 'internal', 'planetary', 'cycloidal', 'harmonic', 'worm', 'bevel', 'hypoid', 'face')
+COUNT_KEYS = dict(parallel=('pinion', 'wheel', 'pinion2', 'wheel2', 'pinion3', 'wheel3'), internal=('pinion', 'wheel'),
                   planetary=('sun', 'planet', 'sun2', 'planet2', 'planets'),
                   cycloidal=('pins',), harmonic=('teeth',), worm=('teeth', 'starts'))
+COUNT_KEYS['bevel'] = ('pinion', 'wheel')
+COUNT_KEYS['hypoid'] = ('pinion', 'wheel')
+COUNT_KEYS['face'] = ('pinion', 'wheel')
 
 
 def variables(family, values):
     """Only these geometrical dimensions can be unlocked. Every other key is fixed."""
     allowed = set(COUNT_KEYS.get(family, ())) | {'module', 'width', 'width2', 'radius'}
+    if family == 'parallel':
+        allowed.update(('module2', 'module3', 'width3'))
     return [s for s in get_specs(family, values.get('variant'), values.get('double_style')) if s[0] in allowed]
 
 
@@ -94,6 +100,10 @@ def matches(ratio, settings):
 def estimated_ratio(family, values):
     """Cheap shared I/O equation, used only for pruning, never for accepted results."""
     from kinematics import coefficients, solve
+    if family == 'parallel' and values['variant'] in PARALLEL_MULTISTAGE_VARIANTS:
+        from parallel_multistage import forward_ratio
+        ratio = forward_ratio(values)
+        return 1/ratio if values['io_scheme'] == 'reverse' else ratio
     if family in ('planetary', 'cycloidal', 'harmonic'):
         stages = 2 if family == 'planetary' and values['variant'] in ('two_stage', 'two_stage_double') else 1
         ratio = 1.
@@ -101,8 +111,8 @@ def estimated_ratio(family, values):
             scheme = values['io_scheme2' if stage == 2 else 'io_scheme']
             ratio *= solve(coefficients(family, values, stage), scheme, 1.)['signed_ratio']
         return ratio
-    ratio = ((-1 if family == 'parallel' else 1)*values['wheel']/values['pinion']
-             if family in ('parallel', 'internal') else values['worm_hand']*values['teeth']/values['starts'])
+    ratio = ((-1 if family in ('parallel', 'bevel', 'hypoid') else 1)*values['wheel']/values['pinion']
+             if family in ('parallel', 'internal', 'bevel', 'hypoid', 'face') else values['worm_hand']*values['teeth']/values['starts'])
     return 1/ratio if values['io_scheme'] == 'reverse' else ratio
 
 

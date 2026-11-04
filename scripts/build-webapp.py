@@ -21,18 +21,19 @@ ROOT = Path(__file__).resolve().parents[1]
 # Reviewed closure of headless generation, shared surfaces, motion and exporters.
 # A new dependency must be reviewed and added explicitly, never collected blindly.
 MODULES = (
-    'app_paths', 'assemblies', 'backdrivability', 'backlash_solver', 'bevel_geometry', 'bom',
+    'app_paths', 'assemblies', 'backdrivability', 'backlash_solver', 'bevel_geometry', 'bevel_pair', 'hypoid_geometry', 'rack_geometry', 'face_geometry', 'face_herringbone', 'bom',
     'cad_export', 'catalog', 'collision_geometry', 'combination_search', 'component_geometry', 'differential_wrist', 'engineering',
     'export_transaction', 'gear_measurement', 'geartrains', 'geometry', 'hardware',
     'hardware_catalog', 'interference', 'kinematics', 'motion', 'mounting', 'package_export',
-    'pair_assembly', 'parameter_help', 'printed_shaft', 'profile_export',
+    'pair_assembly', 'parallel_multistage', 'parameter_help', 'printed_shaft', 'profile_export',
     'selected_export', 'solid_geometry', 'special_drives', 'standard_parts',
     'stl_export', 'tooth_profiles', 'internal_mesh', 'wave_envelope', 'wave_geometry', 'worm_geometry', 'wolfrom',
 )
 RESOURCES = ('__init__.py', 'version.json', 'bearing-catalog.json', 'hardware-catalog.json')
 ASSETS = ('engine-client.js', 'worker.js', 'index.html', 'app.css',
-          'app.js', 'ui-language.js', 'viewer.js', 'document.js', 'preferences.js', 'tools.js', 'tools.css', 'help-illustrations.json')
-UI_RESOURCES = ('ui-translations.json',)
+          'app.js', 'model-catalog.js', 'choice-menu.js', 'ui-language.js', 'viewer.js', 'document.js', 'preferences.js', 'tools.js', 'tools.css', 'help-illustrations.json')
+MODEL_IMAGES = tuple('model-catalog/'+key+'.png' for key in ('spur','helical','double','planetary','cycloidal','harmonic','worm','parallel','internal','differential','wolfrom','bevel','hypoid','rack','face'))
+UI_RESOURCES = ('ui-translations.json', *MODEL_IMAGES)
 FONTS = ('NotoSansCJK-Regular.ttc', 'NotoSansTamil-Regular.ttf', 'LICENSE-NotoCJK.txt', 'LICENSE-NotoTamil.txt', 'SOURCE-NOTO.json')
 BRANDING = ('ratiolab-icon.png', 'ratiolab-logo-dark.png')
 LEGAL = ('LICENSE', 'COPYRIGHT')
@@ -69,7 +70,7 @@ def metadata(root):
                 result[target.id] = ast.literal_eval(node.value)
             elif isinstance(target, ast.Subscript) and isinstance(target.value, ast.Name) and target.value.id == 'CATALOG':
                 result['CATALOG'][ast.literal_eval(target.slice)] = ast.literal_eval(node.value)
-    if len(result.get('CATALOG', {})) != 11:
+    if len(result.get('CATALOG', {})) != 15:
         raise ValueError('Review browser catalog metadata after desktop catalog changes.')
     return dict(catalog=result['CATALOG'], advanced=sorted(result['ADVANCED']))
 
@@ -149,6 +150,7 @@ def build(output, runtime_dir=None, external_runtime=False, root=ROOT):
         for name in ASSETS:
             (staging/name).write_bytes((root/'webapp'/name).read_bytes())
         for name in UI_RESOURCES:
+            (staging/name).parent.mkdir(parents=True, exist_ok=True)
             (staging/name).write_bytes((root/'src/ratiolab_resources'/name).read_bytes())
         (staging/'fonts').mkdir()
         for name in FONTS:

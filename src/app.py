@@ -2,6 +2,7 @@
 # SPDX-FileCopyrightText: 2026 NoOneExceptEnderk
 # SPDX-License-Identifier: GPL-3.0-only
 """GTK 4 desktop companion with a local 3D preview and automatic geometry refresh."""
+from parallel_multistage import VARIANTS as PARALLEL_MULTISTAGE_VARIANTS
 import json
 from copy import deepcopy
 from pathlib import Path
@@ -60,7 +61,13 @@ class ReducerApp(ProjectActions, Gtk.Application):
         super().__init__(application_id=app_paths.APP_ID)
         self.values={};self.design=None;self.family='parallel';self.busy=False;self.pending=0;self.building=False;self.variant_model_family=None;self.last_valid_family=None;self.connected=False;self.fusion_connected=False
     def do_activate(self):
-        if hasattr(self,'win'):self.win.present();return
+        if hasattr(self,'win'):
+            # Launching RatioLab returns to the workspace. The optional model
+            # catalog may still be open from an earlier activation.
+            catalog=getattr(self,'model_catalog',None)
+            if catalog is not None:catalog.window.close()
+            self.win.present()
+            return
         self.BASE=BASE;self.output_dir=GENERATED;self.file_buttons=[];self.reset_values=None
         self.output_dir=app_paths.saved_output_dir(legacy_root=BASE)
         self.workspace_preferences = app_paths.ui_preferences(app_paths.load_preferences(legacy_root=BASE))
@@ -165,7 +172,9 @@ class ReducerApp(ProjectActions, Gtk.Application):
             if not self.motion_rate_editing:self.motion_input_invalid=False
             if self.motion_input_invalid:self.error_field='input_rpm'
             self.motion_rpm=rpm
-        if self.family in VARIANTS:result['variant']=list(VARIANTS[self.family])[self.variant_selector.get_selected()]
+        if self.family in VARIANTS:
+            keys=self.parallel_tooth_keys if self.family=='parallel' else list(VARIANTS[self.family])
+            result['variant']=keys[self.variant_selector.get_selected()]
         return result
     def collect_fields(self):
         values=super().collect_fields()
@@ -182,6 +191,9 @@ class ReducerApp(ProjectActions, Gtk.Application):
     def change_variant(self,*args):
         if self.building:return
         self.remember();self.make_fields()
+    def change_stage_count(self,*args):
+        if self.building or self.family!='parallel':return
+        self.rebuild_options({'variant':self.parallel_stage_keys[self.stage_selector.get_selected()]})
     def change_view_options(self,*args):
         if not hasattr(self,'view_options') or getattr(self,'explode_syncing',False):return
         if args and args[0] is self.view_options['exploded']:
@@ -235,25 +247,49 @@ class ReducerApp(ProjectActions, Gtk.Application):
         self.advanced_expander.set_expanded(bool(advanced_open));self.advanced_fields=Gtk.Box(orientation=Gtk.Orientation.VERTICAL,spacing=10);self.advanced_expander.set_child(self.advanced_fields)
         field_target=self.sections['geometry'][1]
         values=self.values.get(self.family,defaults(self.family));variants=VARIANTS.get(self.family,{})
-        self.variant_box.set_visible(bool(variants))
-        if self.variant_model_family!=self.family:
+        self.variant_box.set_visible(False)  # Canonical models remain; edits live in the illustrated catalog.
+        variant=values.get('variant',next(iter(variants),None))
+        self.stage_box.set_visible(self.family=='parallel')
+        self.stage_notice.set_visible(self.family=='parallel')
+        if self.family=='parallel':
+            from parallel_multistage import selectors, SELECTOR_NOTICE
+            stage,teeth=selectors(variant)
+            self.parallel_stage_keys=[c['value'] for c in stage['choices']]
+            self.parallel_tooth_keys=[c['value'] for c in teeth['choices']]
+            for control,spec in ((self.stage_selector,stage),(self.variant_selector,teeth)):
+                labels=[c['label'] for c in spec['choices']]
+                model=control.get_model()
+                # Keep the model alive while its selected notification is running.
+                if [model.get_string(i) for i in range(model.get_n_items())]!=labels:
+                    control.set_model(Gtk.StringList.new(labels))
+            stage_selected=self.parallel_stage_keys.index(variant)
+            if self.stage_selector.get_selected()!=stage_selected:self.stage_selector.set_selected(stage_selected)
+            self.stage_notice.set_text(SELECTOR_NOTICE)
+            self.stage_selector.set_tooltip_text(SELECTOR_NOTICE)
+            self.variant_selector.set_tooltip_text(SELECTOR_NOTICE)
+            selected=self.parallel_tooth_keys.index(variant)
+        elif self.variant_model_family!=self.family:
             self.variant_model_family=self.family
             self.variant_selector.set_model(Gtk.StringList.new(list(variants.values()) or ['Standard']))
-        variant=values.get('variant',next(iter(variants),None))
-        selected=list(variants).index(variant) if variant in variants else 0
+        if self.family!='parallel':selected=list(variants).index(variant) if variant in variants else 0
+        self.variant_model_family=self.family
         if self.variant_selector.get_selected()!=selected:self.variant_selector.set_selected(selected)
+        import model_catalog_ui
+        model_catalog_ui.sync_header(self,values)
         self.inputs={};self.input_labels={};self.input_pages={};self.field_values=values;self.option_values={k:values[k] for k in ('bearing_mode','bearing','fit','hardware_mode','hardware_screw','hardware_shim','hardware_retaining','hardware_keys','hardware_bolts','hardware_shims','double_style','harmonic_output','io_scheme','io_scheme2','eccentric_design','output_interface','carrier_style','ratio_mode','spiral_hand','configuration') if k in values}
         def choice(key,label,choices,default,target=None):
             target=target or field_target
             target.append(Gtk.Label(label=label,xalign=0,css_classes=['field-label']))
-            dropdown=Gtk.DropDown.new_from_strings(list(choices.values()))
-            gui_workflow.compact_dropdown(dropdown)
+            dropdown=gui_workflow.choice_dropdown(list(choices.values()))
             keys=list(choices);dropdown.set_selected(keys.index(values.get(key,default)))
             self.option_values[key]=values.get(key,default)
             def change(widget,*args):
                 if self.building:return
                 current=self.collect_fields()
                 current[key]=keys[widget.get_selected()]
+                if key=='double_style' and self.family=='face':
+                    if current[key]=='joined' and current.get('gap',0)>0:self.face_groove_draft=current['gap']
+                    if current[key]=='separated' and current.get('gap',0)<=0:current['gap']=getattr(self,'face_groove_draft',4.)
                 if key=='hardware_mode' and self.family in ('parallel','internal'):current['hardware_bolts']=False
                 if key=='eccentric_design':
                     if current[key]=='fdm_bolted':
@@ -264,6 +300,7 @@ class ReducerApp(ProjectActions, Gtk.Application):
                 self.rebuild_options(changes)
             dropdown.connect('notify::selected',change);target.append(dropdown)
             return dropdown
+        multistage = self.family == 'parallel' and variant in PARALLEL_MULTISTAGE_VARIANTS
         self.differential_selectors={}
         if self.family=='differential':
             from differential_wrist import OUTPUT_INTERFACES,CARRIER_STYLES,CONFIGURATIONS,ratio_labels
@@ -290,11 +327,13 @@ class ReducerApp(ProjectActions, Gtk.Application):
                 self.rebuild_options(PRESET)
             preset.connect('clicked',apply_printed_preset);self.eccentric_design_box.append(preset)
             self.printed_preset_button=preset
-        if double and self.family!='double':choice('double_style','Double helix construction',DOUBLE_STYLES,'joined' if values.get('gap',1)==0 else 'separated')
+        if double and self.family!='double':
+            style_control=choice('double_style','Double helix construction',DOUBLE_STYLES,'joined' if values.get('gap',0 if self.family=='face' else 1)==0 else 'separated')
+            if self.family=='face':self.face_style_selector=style_control
         io_controls.build(self,values,variant,choice)
         self.sections['bearings'][0].set_visible(True)
         field_target=self.sections['bearings'][1]
-        if self.family in SUPPORTED and not printed:
+        if self.family in SUPPORTED and not printed and not multistage:
             modes=dict(MODES)
             if self.family in ('parallel','internal'):modes.pop('gear')
             choice('bearing_mode','Standard fit',modes,'manual')
@@ -313,10 +352,17 @@ class ReducerApp(ProjectActions, Gtk.Application):
         else:
             from pair_assembly import STUDY_REASON,PRINT_REASON
             disabled=Gtk.Button(label='Automatic bearing catalog · unavailable');disabled.set_sensitive(False);field_target.append(disabled)
-            field_target.append(Gtk.Label(label=PRINT_REASON if printed else STUDY_REASON,xalign=0,wrap=True))
+            from parallel_multistage import CATALOG_REASON
+            from bevel_pair import CATALOG_REASON as BEVEL_CATALOG_REASON
+            from hypoid_geometry import CATALOG_REASON as HYPOID_CATALOG_REASON
+            from rack_geometry import CATALOG_REASON as RACK_CATALOG_REASON
+            from face_geometry import CATALOG_REASON as FACE_CATALOG_REASON
+            field_target.append(Gtk.Label(label=FACE_CATALOG_REASON if self.family=='face' else RACK_CATALOG_REASON if self.family=='rack' else HYPOID_CATALOG_REASON if self.family=='hypoid' else BEVEL_CATALOG_REASON if self.family=='bevel' else CATALOG_REASON if multistage else PRINT_REASON if printed else STUDY_REASON,xalign=0,wrap=True))
+            if multistage:
+                self.option_values.update(bearing_mode='manual', hardware_mode='none')
         self.sections['hardware'][0].set_visible(True)
         field_target=self.sections['hardware'][1]
-        if self.family in hw.SUPPORTED and not printed:
+        if self.family in hw.SUPPORTED and not printed and not multistage:
             choice('hardware_mode','Hardware and assembly',hw.MODES,'none')
             if self.option_values['hardware_mode']=='standard':
                 for key,label in [('retaining','Retaining rings and grooves'),('keys','Compatible keys and keyways'),('bolts','Flange screws, nuts and holes'),('shims','Shims and spacers')]:
@@ -341,7 +387,14 @@ class ReducerApp(ProjectActions, Gtk.Application):
         else:
             from pair_assembly import STUDY_REASON,PRINT_REASON
             disabled=Gtk.Button(label='Automatic hardware · unavailable');disabled.set_sensitive(False);field_target.append(disabled)
-            field_target.append(Gtk.Label(label=PRINT_REASON if printed else STUDY_REASON,xalign=0,wrap=True))
+            from parallel_multistage import CATALOG_REASON
+            from bevel_pair import CATALOG_REASON as BEVEL_CATALOG_REASON
+            from hypoid_geometry import CATALOG_REASON as HYPOID_CATALOG_REASON
+            from rack_geometry import CATALOG_REASON as RACK_CATALOG_REASON
+            from face_geometry import CATALOG_REASON as FACE_CATALOG_REASON
+            field_target.append(Gtk.Label(label=FACE_CATALOG_REASON if self.family=='face' else RACK_CATALOG_REASON if self.family=='rack' else HYPOID_CATALOG_REASON if self.family=='hypoid' else BEVEL_CATALOG_REASON if self.family=='bevel' else CATALOG_REASON if multistage else PRINT_REASON if printed else STUDY_REASON,xalign=0,wrap=True))
+            if multistage:
+                self.option_values.update(bearing_mode='manual', hardware_mode='none')
         specs=get_specs(self.family,variant,self.option_values.get('double_style'))
         if self.family=='differential':
             from differential_wrist import labelled_specs
@@ -568,16 +621,19 @@ class ReducerApp(ProjectActions, Gtk.Application):
                      if key=='planets' else design.values['pins']-1)
             label.set_text(str(int(value)))
         io_controls.update(self, design)
-        purchases = sum(row['quantity'] for row in bom.build(design)['rows']
-                        if row['category'] == 'PURCHASE')
+        # A rate-only edit shares the validated construction. Recomputing the
+        # full BOM on every pointer event scans all tooth contours needlessly.
+        if not reuse_scene:
+            purchases = sum(row['quantity'] for row in bom.build(design)['rows']
+                            if row['category'] == 'PURCHASE')
+            self.bom_summary.set_text(
+                f'{len(design.parts)} components'
+                + (f' · {purchases} to purchase' if purchases else '')
+            )
+            self.bom_summary.set_tooltip_text(f'BOM: {purchases} components to purchase')
         self.metric_cards.set_sensitive(True)
         self.update_metrics(design)
         self.metrics.set_text('\n'.join(design.metrics))
-        self.bom_summary.set_text(
-            f'{len(design.parts)} components'
-            + (f' · {purchases} to purchase' if purchases else '')
-        )
-        self.bom_summary.set_tooltip_text(f'BOM: {purchases} components to purchase')
         self.notes.set_text('\n\n'.join(design.notes))
         gui_workflow.update_geometry_warning(self, design)
         self.hidden_hint.set_visible(bool(self.canvas.scene and not self.canvas.scene.parts))
@@ -726,7 +782,7 @@ class ReducerApp(ProjectActions, Gtk.Application):
         if export_job:self.export_feedback.begin()
         self.busy=True;self.spinner.start();self.update_playback_bar()
         self.components.update()
-        self.send_btn.set_sensitive(False); self.connect_btn.set_sensitive(False); self.selector.set_sensitive(False); self.fields.set_sensitive(False);self.variant_selector.set_sensitive(False);self.motion_button.set_sensitive(False);self.io_frame.set_sensitive(False)
+        self.send_btn.set_sensitive(False); self.connect_btn.set_sensitive(False); self.selector.set_sensitive(False); self.fields.set_sensitive(False);self.variant_box.set_sensitive(False);self.motion_button.set_sensitive(False);self.io_frame.set_sensitive(False)
         self.fusion_install_btn.set_sensitive(False);self.fusion_connect_btn.set_sensitive(False);self.fusion_send_btn.set_sensitive(False);self.export_menu.set_sensitive(False)
         for button in self.file_buttons: button.set_sensitive(False)
         self.status_text('Operation in progress… please wait.');self.live_label.set_text('● Working')
@@ -752,7 +808,7 @@ class ReducerApp(ProjectActions, Gtk.Application):
             self.components.update()
             for button in self.file_buttons: button.set_sensitive(True)
             self.fusion_install_btn.set_sensitive(True);self.fusion_connect_btn.set_sensitive(True);self.fusion_send_btn.set_sensitive(self.design is not None)
-            self.connect_btn.set_sensitive(True); self.selector.set_sensitive(True); self.fields.set_sensitive(True);self.variant_selector.set_sensitive(True);self.motion_button.set_sensitive(True);self.io_frame.set_sensitive(True);self.live_label.set_text('● Live update'); self.send_btn.set_sensitive(self.design is not None); self.export_menu.set_sensitive(self.design is not None); self.status_text(message); self.update_document(); return False
+            self.connect_btn.set_sensitive(True); self.selector.set_sensitive(True); self.fields.set_sensitive(True);self.variant_box.set_sensitive(True);self.motion_button.set_sensitive(True);self.io_frame.set_sensitive(True);self.live_label.set_text('● Live update'); self.send_btn.set_sensitive(self.design is not None); self.export_menu.set_sensitive(self.design is not None); self.status_text(message); self.update_document(); return False
         threading.Thread(target=run,daemon=True).start()
     def send(self,*args):
         if self.busy or not self.refresh():return

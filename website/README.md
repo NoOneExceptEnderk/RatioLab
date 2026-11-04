@@ -1,6 +1,6 @@
 # RatioLab public website
 
-Static website, download links and searchable English documentation. The build reads all 15 canonical guides directly from `docs/`; there is no second documentation snapshot to synchronise. Output is the repository's `_site/` directory: the documentation/download site plus the self-hosted browser workspace at `/app/` (69 public files). Hosting needs no Python, application server or database; the app runs the shared Python engine through a pinned Pyodide runtime in the browser.
+Static website, download links and searchable English documentation. The build reads all canonical guides listed in `website/render_docs.py` (including the browser app and Wolfrom references) directly from `docs/`; there is no second documentation snapshot to synchronise. Output is the repository's `_site/` directory: the documentation/download site plus the self-hosted browser workspace at `/app/`. Hosting needs no Python, application server or database; the app runs the shared Python engine through a pinned Pyodide runtime in the browser.
 
 ## Build and check
 
@@ -24,7 +24,7 @@ website/.venv/bin/python website/build.py --offline --web-runtime-dir work/webap
 
 `bash website/build.sh --offline` also selects the validated release/runtime caches and disables network dependency installation. Prepare the isolated environment and runtime cache with a normal build first. `--web-runtime-dir PATH` selects an existing runtime cache and always verifies it without fetching, even in a normal build. Missing, edited or symlinked runtime files fail while preserving the previous public output. `--output /path/to/site` selects an output outside the repository; inside the repository, only `_site/` is accepted. Source directories, symlinks and existing directories containing unrelated files are protected.
 
-The builder copies only its public allowlist. Website templates, build code, tests, raw guide Markdown and private work files stay outside `_site/`. The app retains its canonical 32-file bundle, including legal notices, portable `serve.py`, readable engine/source archives and `bundle-manifest.json`. The site validates its exact inventory, pinned runtime, every manifest size/SHA256 and the per-file hosting size limit before swapping output atomically. Extra files/directories, symlinks or edited app bundles in existing output are preserved by refusing replacement; select another output to retain such edits. Documentation source links name an exact commit only when Git verifies clean canonical documents; local changes are labelled honestly. Legacy Italian heading anchors remain valid after the English translation. Search and code copying run locally in the browser.
+The builder copies only its public allowlist. Website templates, build code, tests, raw guide Markdown and private work files stay outside `_site/`. The app retains its canonical self-hosted bundle, including legal notices, portable `serve.py`, readable engine/source archives and `bundle-manifest.json`. The site validates its exact inventory, pinned runtime, every manifest size/SHA256 and the per-file hosting size limit before swapping output atomically. Extra files/directories, symlinks or edited app bundles in existing output are preserved by refusing replacement; select another output to retain such edits. Documentation source links name an exact commit only when Git verifies clean canonical documents; local changes are labelled honestly. Legacy Italian heading anchors remain valid after the English translation. Search and code copying run locally in the browser.
 
 ## Cloudflare Pages
 
@@ -54,20 +54,28 @@ A normal website build never regenerates geometry. Maintainers can explicitly ru
 ## Search metadata and discovery
 
 The production origin is `https://ratiolab.dev`, configured in `website/seo.py`.
-Every published page has a unique title and description, an HTTPS apex canonical
+Every indexable page has a unique title and description, an HTTPS apex canonical
 URL ending in `/`, and Open Graph/Twitter previews using the real workspace
 screenshot. Local internal page links use directory URLs and keep their fragment
 anchors. Preview builds deliberately name the production canonical origin.
 See Google's [canonical URL guidance](https://developers.google.com/search/docs/crawling-indexing/consolidate-duplicate-urls).
 
-The homepage includes `WebSite` and [SoftwareApplication](https://schema.org/SoftwareApplication)
-structured data. Application version and download URLs come from the same
-validated public release used by the download controls, rather than the source
-checkout version. The 15 guides have two-level breadcrumbs; the documentation overview declares
-a `CollectionPage`. No ratings, reviews or search ranking claims are added.
+The homepage includes `WebSite`, desktop [SoftwareApplication](https://schema.org/SoftwareApplication)
+and browser [WebApplication](https://schema.org/WebApplication) structured data.
+Desktop version and installer URLs come from the validated public release used
+by the download controls. The browser application's version comes separately
+from the canonical source identity and must match its composed bundle manifest;
+these versions can differ. Browser requirements reflect JavaScript, WebAssembly,
+Web Workers, WebGL and HTTPS/localhost. The canonical browser HTML supplies a
+descriptive title, `/app/` canonical and social previews before JavaScript runs;
+the default untitled workspace retains that title, while named projects keep
+their project titles. A noscript introduction links to browser help and desktop
+downloads. See Google's [JavaScript SEO basics](https://developers.google.com/search/docs/crawling-indexing/javascript/javascript-seo-basics).
+All published guides have two-level breadcrumbs; the documentation overview
+declares a `CollectionPage`. No ratings, reviews or search ranking claims are added.
 
 The build generates [a sitemap](https://developers.google.com/search/docs/crawling-indexing/sitemaps/build-sitemap)
-for the 17 canonical pages at `https://ratiolab.dev/sitemap.xml` and advertises it
+for the homepage, documentation overview, every published guide and `/app/` at `https://ratiolab.dev/sitemap.xml` and advertises it
 in `robots.txt`. It does not invent update dates or crawler priorities. A top-level
 `404.html` is marked `noindex` and uses root-relative assets, so nested missing
 addresses retain working styling. Cloudflare Pages [serves this custom 404 instead
@@ -97,3 +105,19 @@ worker, forced cross-origin isolation or external runtime fallback. The site
 keeps its custom 404 so missing bundle assets do not become an app HTML response.
 Local `python -m http.server` previews do not apply Cloudflare's `_headers`;
 verify response headers on the deployed Pages site as part of publication.
+
+
+Browser metadata is maintained in `webapp/index.html` before the canonical app
+builder calculates `bundle-manifest.json`. The composed `/app/` files are never
+rewritten by the site's asset fingerprint or directory-link passes. Sitemap,
+page counts and allowlists follow the maintained routes, including the browser
+and Wolfrom guides. Search indexes the canonical guide text on every build.
+
+## Worked examples
+
+The homepage links to two canonical Markdown tutorials under `docs/tutorials/`.
+Only the two named browser-guide projects in `examples/` are copied unchanged
+to the public site. Their JSON links download files for Project → Open project
+in the browser or the desktop app. Technical illustrations are top-view profiles
+from those exact projects, generated with RatioLab; they omit supporting parts.
+Tutorials participate in navigation, local search, canonical metadata and sitemap.

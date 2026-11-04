@@ -1,5 +1,7 @@
 // SPDX-FileCopyrightText: 2026 NoOneExceptEnderk
 // SPDX-License-Identifier: GPL-3.0-only
+import {initModelCatalog,selectionSummary} from './model-catalog.js';
+import {initChoiceMenus} from './choice-menu.js';
 import {EngineClient} from './engine-client.js';
 import {BrowserDocument, automaticText, clone, downloadBlob, numberValue, storage} from './document.js';
 import {ModelViewer} from './viewer.js';
@@ -7,6 +9,7 @@ import {initTools} from './tools.js';
 import {LANGUAGES, initLanguage} from './ui-language.js';
 import {readPreferences, savePreferences} from './preferences.js';
 
+const defaultPageTitle = document.title;
 const $ = id => document.getElementById(id);
 const node = (tag, text, className) => { const n = document.createElement(tag); if (text != null) n.textContent = text; if (className) n.className = className; return n; };
 const labels = {variant:'Variant', double_style:'Double helix construction', bearing_mode:'Standard fit', bearing:'NSK bearing · d × D × B', fit:'Seat dimensions', hardware_mode:'Standard hardware', hardware_screw:'Screw size', hardware_shim:'Shim thickness', hardware_retaining:'Retaining rings', hardware_keys:'Parallel keys', hardware_bolts:'Assembly bolts', hardware_shims:'Shim washers', seat_allowance:'Bearing seat allowance', shaft_allowance:'Shaft allowance', shoulder:'Bearing shoulder', io_scheme:'Input / output arrangement', io_scheme2:'Second-stage input / output', harmonic_output:'Output member', eccentric_design:'Eccentric shaft construction', configuration:'Differential configuration', output_interface:'Output connection', carrier_style:'Carrier construction', ratio_mode:'Side / output tooth ratio', worm_static_friction:'Static tooth-contact friction μ'};
@@ -21,8 +24,9 @@ let languageUI;
 const events = new EventTarget();
 let engine, viewer, catalog, schema, design = null, validToken = null, tab = 'dimensions', inspection = 'components';
 let startup = true, generationRunning = false, generationTimer, schemaSerial = 0, operationSerial = 0, busy = false;
-let playing = false, phase = 0, lastTick = 0, lastPose = 0, posePending = false, animationFrame = 0;
+let playing = false, phase = 0, lastTick = 0, posePending = false, animationFrame = 0;
 let poseCompletion = Promise.resolve();
+let scrubCompletion = null, scrubTarget = null;
 let previousRevision = -1, schemaPending = false, initialClean = true, recovery = storage.readRecovery(), fatal = false;
 let fields = new Map(), errors = {}, advancedOpen = false, lastFamily = null;
 // Operating edits retain the last valid motion while blocking source exports.
@@ -32,6 +36,8 @@ let sourceParameters = null;
 let activeTool = 'components';
 let analysisActive = false, cancellation = null;
 let rateCompletion = null, actionConfirmation = false;
+let sliderRateQueued = false, speedSliderActive = false;
+let speedSliderPreview = null, speedSliderKeyActive = false;
 const toolControllers = new Map(), parameterGroupOpen = new Map();
 let remainingParametersOpen = false;
 const recent = () => storage.recent();
@@ -62,7 +68,7 @@ function updateActions() {
   $('reset-motion').disabled = analysisActive || !valid || viewer?.lost;
   $('phase-range').disabled = analysisActive || !motionAvailable() || !design?.motion.supported || viewer?.lost;
   $('undo').disabled = !doc.past.length || busy; $('redo').disabled = !doc.future.length || busy;
-  $('family').disabled = !catalog || busy; $('reset-family').disabled = !catalog || busy;
+  $('family').disabled = !catalog || busy; $('model-catalog-open').disabled = !catalog || busy; $('reset-family').disabled = !catalog || busy;
   for (const id of ['new-document','open-document','recent-documents']) $(id).disabled = !catalog || busy || actionConfirmation;
   for (const button of document.querySelectorAll('[data-export-kind]')) button.disabled = !documentReady;
   $('cancel-generation').hidden = !generationRunning;
@@ -70,7 +76,7 @@ function updateActions() {
   $('document-name').textContent = title;
   $('document-state').textContent = `${title} · ${doc.dirty ? 'unsaved changes' : doc.name === 'Untitled design' ? 'not saved' : 'saved'}`;
   syncMotionControl();
-  document.title = `${doc.dirty ? '• ' : ''}${doc.name} · RatioLab`;
+  document.title = `${doc.dirty ? '• ' : ''}${doc.name === 'Untitled design' ? defaultPageTitle : `${doc.name} · RatioLab`}`;
 }
 function setPlaying(value) {
   if (value && !analysisActive) events.dispatchEvent(new Event('playstart'));
@@ -86,7 +92,9 @@ function invalidate(message = 'Updating geometry…') {
   // Python analyses are synchronous. Stop that worker BEFORE callers queue the
   // new schema/import/generation, so a source edit cannot wait behind old work.
   if (analysisActive) { analysisActive = false; sourceParameters = null; engine.cancel('The source changed during analysis.'); }
-  validToken = null; ++operationSerial; rateEditing = false; rateSource = null; ratePending = false; setPlaying(false); errors = {};
+  validToken = null; ++operationSerial; rateEditing = false; rateSource = null; ratePending = false;
+  sliderRateQueued = false; speedSliderActive = false; speedSliderPreview = null; speedSliderKeyActive = false;
+  scrubTarget = null; setPlaying(false); errors = {};
   if (generationRunning) { generationRunning = false; engine.cancel('A parameter edit superseded the active generation.'); }
   if (design?.family !== doc.family) {
     viewer?.clear(); design = null; phase = 0; renderInspection(); renderMetrics();
@@ -115,8 +123,15 @@ function linkedDescription(key) {
   if (doc.family === 'cycloidal' && doc.draft.options.eccentric_design === 'fdm_bolted' && key === 'bore') return 'Linked to the printed shaft bearing seat.';
   return `Linked to bearing ${doc.draft.options.bearing} and its fit.`;
 }
+function isParallelMultistage(variant) { return /^(two|three)_stage(?:_(helical|double))?$/.test(variant); }
 function classify(spec) {
   const key = spec.key;
+  if (doc.family === 'parallel' && isParallelMultistage(doc.draft.options.variant)) {
+    if (/^layout_angle[23]$/.test(key) || ['stage_gap','hub_wall','assembly_clearance'].includes(key)) return ['assembly','Shaft layout'];
+    if (/^intermediate_bore[12]$/.test(key)) return ['dimensions','Shafts & bores'];
+    const stage = key.match(/^(pinion|wheel|module|width|helix|gap|pressure|backlash|profile_shift|center_extra)([23]?)$/);
+    if (stage) return ['dimensions','Stage '+(stage[2] || '1')];
+  }
   if (motionKeys.has(key)) return ['motion', ['input_torque','efficiency','pull_force'].includes(key) ? 'Nominal operating loads' : 'Drive connections'];
   if (key.startsWith('hardware_')) return ['assembly','Standard hardware'];
   if (key.startsWith('bearing') || key === 'fit' || ['seat_allowance','shaft_allowance','shoulder'].includes(key)) return ['assembly','Bearings & fits'];
@@ -137,6 +152,9 @@ function optionDisabled(spec, value) {
 function changeOption(key, value) {
   const values = {[key]:value};
   if (doc.family === 'double' && key === 'variant') values.double_style = value;
+  if (doc.family === 'parallel' && key === 'variant' && isParallelMultistage(value)) {
+    values.bearing_mode = 'manual'; values.hardware_mode = 'none';
+  }
   if (doc.family === 'harmonic') {
     if (key === 'harmonic_output') values.io_scheme = value === 'circular' ? 'wave_circular_flex' : 'wave_flex_circular';
     if (key === 'io_scheme') values.harmonic_output = value.split('_')[1] === 'circular' ? 'circular' : 'flex';
@@ -189,7 +207,7 @@ function showParameterHelp(anchor,{keyboard=false,activation=keyboard ? 'keyboar
   helpAnchor = anchor; helpSpec = binding.spec; helpActivation = activation;
   binding.trigger.setAttribute('aria-expanded','true'); helpPane.hidden = false; helpPane.replaceChildren();
   const heading = node('header'), title = node('strong',helpSpec.help.title), close = node('button','×','flat');
-  close.setAttribute('aria-label','Close parameter guide'); close.addEventListener('click',() => { closeParameterHelp({dismiss:true}); if (keyboard) binding.trigger.focus(); }); heading.append(title,close);
+  close.setAttribute('aria-label','Close parameter guide'); close.addEventListener('click',() => { closeParameterHelp({dismiss:true}); if (keyboard) (binding.focusTarget ?? binding.trigger).focus(); }); heading.append(title,close);
   const body = node('div',null,'parameter-help-body');
   for (const [label,text] of [['Meaning',helpSpec.help.meaning],['Effect',helpSpec.help.effect]]) if (text) { body.append(node('h3',label),node('p',text)); }
   const displayedSpec = helpSpec, displayedSerial = ++helpDisplaySerial;
@@ -217,25 +235,21 @@ function appendHelpDiagram(body,url,help) {
   const expand = node('button','Expand diagram'); expand.setAttribute('aria-expanded','false');
   expand.addEventListener('click',() => { const expanded = helpPane.classList.toggle('expanded'); expand.textContent = expanded ? 'Compact diagram' : 'Expand diagram'; expand.setAttribute('aria-expanded',String(expanded)); placeParameterHelp(); }); body.append(expand); placeParameterHelp();
 }
-function bindParameterHelp(anchor,spec,trigger) {
+function bindParameterHelp(anchor,spec,trigger,{clickToOpen=false} = {}) {
   // makeField and the section heading promote the small icon's binding to
   // the whole row. Abort the old binding instead of stacking listeners.
   const previous = helpTriggers.get(trigger); previous?.controller.abort();
   if (previous) helpBindings.delete(previous.anchor);
   const controller = new AbortController(), options = {signal:controller.signal};
-  helpTriggers.set(trigger,{anchor,controller}); helpBindings.set(anchor,{spec,trigger});
+  helpTriggers.set(trigger,{anchor,controller}); helpBindings.set(anchor,{spec,trigger,focusTarget:trigger});
+  if (anchor === trigger && trigger.tabIndex < 0) trigger.tabIndex = 0;
+  trigger.setAttribute('aria-keyshortcuts','F1');
   trigger.setAttribute('aria-controls','parameter-help-pane'); trigger.setAttribute('aria-expanded','false');
   anchor.addEventListener('pointerenter',event => { if (!preferences.hover_help || event.pointerType === 'touch' || helpAnchor && helpActivation !== 'pointer') return; keepParameterHelp(); clearTimeout(helpOpenTimer); helpOpenTimer = setTimeout(() => { if (preferences.hover_help && dismissedHelpAnchor !== anchor) showParameterHelp(anchor); },250); },options);
   anchor.addEventListener('pointerleave',event => { if (dismissedHelpAnchor === anchor) dismissedHelpAnchor = null; if (event.pointerType !== 'touch') scheduleHelpClose(); },options);
-  trigger.addEventListener('click',event => { event.preventDefault(); helpAnchor === anchor && !helpPane?.hidden ? closeParameterHelp({dismiss:true}) : showParameterHelp(anchor,{keyboard:event.detail === 0,activation:event.pointerType === 'touch' ? 'touch' : event.detail === 0 ? 'keyboard' : 'pointer'}); },options);
-  anchor.addEventListener('keydown',event => { if (event.key === 'F1') { event.preventDefault(); showParameterHelp(anchor,{keyboard:true}); } },options);
+  if (clickToOpen) trigger.addEventListener('click',event => { event.preventDefault(); helpAnchor === anchor && !helpPane?.hidden ? closeParameterHelp({dismiss:true}) : showParameterHelp(anchor,{keyboard:event.detail === 0,activation:event.pointerType === 'touch' ? 'touch' : event.detail === 0 ? 'keyboard' : 'pointer'}); },options);
+  anchor.addEventListener('keydown',event => { if (event.key === 'F1') { event.preventDefault(); event.stopPropagation(); helpBindings.get(anchor).focusTarget = anchor.contains(document.activeElement) ? document.activeElement : trigger; showParameterHelp(anchor,{keyboard:true}); } },options);
   anchor.addEventListener('focusout',event => { if (!anchor.contains(event.relatedTarget) && !helpPane?.contains(event.relatedTarget)) scheduleHelpClose('focus'); },options);
-}
-function helpDetails(spec) {
-  if (!spec.help) return null;
-  const wrap = node('span',null,'field-help'), trigger = node('button',null,'help-trigger'); trigger.type = 'button';
-  trigger.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3m.1 4h.01"/></svg>';
-  trigger.setAttribute('aria-label',`Help: ${spec.help.title}`); wrap.append(trigger); bindParameterHelp(wrap,spec,trigger); return wrap;
 }
 let overlayPlacementFrame = 0;
 function resetOverlayPlacement(copy) {
@@ -262,10 +276,10 @@ function scheduleOverlayPlacement() {
 }
 function makeField(spec, {top = false} = {}) {
   const key = spec.key, linked = linkedFields().has(key), row = node('div',null,'field'); row.dataset.field = key;
-  const heading = node('div',null,'field-top'); const labelText = top ? (key === 'variant' ? ['parallel','internal'].includes(doc.family) ? 'Tooth type' : 'Construction' : key === 'configuration' ? 'Configuration' : labels[key] ?? displayKey(key)) : spec.label ?? labels[key] ?? displayKey(key);
+  const heading = node('div',null,'field-top'); const labelText = top ? (spec.option_key ? spec.label : key === 'variant' ? ['internal','bevel','rack','face'].includes(doc.family) ? 'Tooth type' : 'Construction' : key === 'configuration' ? 'Configuration' : labels[key] ?? displayKey(key)) : spec.label ?? labels[key] ?? displayKey(key);
   const unitMatch = labelText.match(/\[([^\]]+)\]/), caption = ({pinion:'Pinion teeth',wheel:'Wheel teeth',module:'Module',width:'Face width'}[key]) ?? labelText.replace(/\s*\[[^\]]+\]/,'').split(' (')[0];
   const label = node('label',caption+(unitMatch ? ' · '+unitMatch[1] : '')); label.htmlFor = `parameter-${key}`; heading.append(label); row.append(heading);
-  let input, inputWrapper = null;
+  let input;
   if (spec.type === 'choice') {
     input = node('select');
     for (const choice of spec.choices) {
@@ -273,8 +287,8 @@ function makeField(spec, {top = false} = {}) {
       if (key === 'ratio_mode' && doc.draft.options.configuration === 'classic') title = title.replace('output','spider').replace('Relative spin','Spider spin');
       const option = node('option',title); option.value = choice.value; option.disabled = optionDisabled(spec,choice.value); input.append(option);
     }
-    input.value = doc.draft.options[key];
-    input.addEventListener('change',() => changeOption(key,input.value));
+    input.value = spec.option_key ? spec.value : doc.draft.options[key];
+    input.addEventListener('change',() => changeOption(spec.option_key ?? key,input.value));
   } else if (spec.type === 'boolean') {
     input = node('input'); input.type = 'checkbox'; input.checked = doc.draft.options[key];
     if (key === 'hardware_bolts' && ['parallel','internal'].includes(doc.family)) { input.disabled = true; input.title = 'Automatic assembly bolts are unavailable for this fixed-axis construction.'; }
@@ -286,7 +300,7 @@ function makeField(spec, {top = false} = {}) {
     input.title = `${caption}${spec.minimum != null ? ' · minimum '+spec.minimum : ''}${spec.maximum != null ? ', maximum '+spec.maximum : ''}`;
     input.addEventListener('input',() => { doc.editNumber(key,input.value); applyFieldErrors(); });
     input.addEventListener('keydown',event => { if (event.key === 'Enter') { event.preventDefault(); clearTimeout(generationTimer); scheduleGeneration(0); } });
-    const wrap = node('div',null,'field-input'), spin = node('div',null,'numeric-control'); inputWrapper = wrap; spin.append(input);
+    const wrap = node('div',null,'field-input'), spin = node('div',null,'numeric-control'); spin.append(input);
     if (!linked) for (const delta of [-1,1]) {
       const button = node('button',delta < 0 ? '−' : '+'); button.type = 'button';
       button.setAttribute('aria-label',`${delta < 0 ? 'Decrease' : 'Increase'} ${caption}`); button.disabled = busy || schemaPending;
@@ -306,13 +320,13 @@ function makeField(spec, {top = false} = {}) {
     }
   }
   input.id = `parameter-${key}`; input.dataset.key = key; input.setAttribute('aria-label',labelText);
-  const help = helpDetails(spec); if (help) { (inputWrapper ?? heading).append(help); bindParameterHelp(row,spec,help.querySelector('button')); }
+  if (spec.help) bindParameterHelp(row,spec,input);
   if (spec.type === 'choice') row.append(input);
   if (spec.type === 'boolean') heading.append(input);
   const feedback = node('div',errors[key] ?? '','field-error'); feedback.id = `error-${key}`; feedback.hidden = !errors[key]; row.append(feedback); input.setAttribute('aria-describedby',feedback.id);
   if (key.startsWith('hardware_') && key !== 'hardware_mode' && doc.draft.options.hardware_mode === 'none') input.disabled = true;
   if (['bearing','fit','shoulder','seat_allowance','shaft_allowance'].includes(key) && doc.draft.options.bearing_mode === 'manual') input.disabled = true;
-  if (key === 'double_style' && !['double','two_stage_double'].includes(doc.draft.options.variant) && doc.family !== 'double') { input.disabled = true; input.title = 'Select a double helical construction to use this option.'; }
+  if (key === 'double_style' && !['double','two_stage_double','three_stage_double','double_helical'].includes(doc.draft.options.variant) && doc.family !== 'double') { input.disabled = true; input.title = 'Select a double helical construction to use this option.'; }
   if (key === 'double_style' && doc.family === 'double') { input.disabled = true; input.value = doc.draft.options.variant; input.title = 'Defined by the construction selected above.'; }
   if (key === 'io_scheme2' && !['two_stage','two_stage_double'].includes(doc.draft.options.variant)) { input.disabled = true; input.title = 'Available for a two-stage construction.'; }
   if (busy || schemaPending) input.disabled = true;
@@ -321,37 +335,42 @@ function makeField(spec, {top = false} = {}) {
 function renderFields() {
   if (!schema || !doc.draft) return;
   closeParameterHelp();
-  const resetButton = $('reset-family');
   const container = $('parameters'), top = $('variant-fields'), scroll = container.scrollTop, focused = document.activeElement?.dataset.key;
   const selection = document.activeElement?.selectionStart, selectionEnd = document.activeElement?.selectionEnd;
-  fields = new Map(); container.replaceChildren(); top.replaceChildren();
-  for (const spec of schema.options.filter(f => f.key === 'variant')) top.append(makeField(spec,{top:true}));
+  fields = new Map(); container.classList.remove('direct-motion-panel'); container.replaceChildren(); top.replaceChildren();
+  for (const spec of schema.parallel_selectors ?? schema.options.filter(f => f.key === 'variant')) top.append(makeField(spec,{top:true}));
+  if (schema.parallel_selector_notice) top.append(node('div',schema.parallel_selector_notice,'linked-note'));
   const groups = new Map(); let remaining = null;
-  const primaryKeys = new Set(({parallel:['pinion','wheel','module','width'],internal:['pinion','wheel','module','width'],planetary:['sun','planet','module','width'],wolfrom:['sun','planet','module','width'],cycloidal:['pins','radius','pin_radius','eccentric'],worm:['starts','wheel','module','diameter'],differential:['side_teeth','output_teeth','module','width'],harmonic:['teeth','module','width','wall']}[doc.family]) ?? ['teeth','module','width','helix']);
+  const primaryKeys = new Set(({face:['pinion','wheel','module','width','offset','helix','radial_setting','gap'],rack:['pinion','rack_teeth','module','width','helix','gap','base'],hypoid:['pinion','wheel','module','offset','width','spiral_angle'],bevel:['pinion','wheel','module','width','spiral_angle','trace_radius','spiral_hand'],parallel:['pinion','wheel','module','width'],internal:['pinion','wheel','module','width'],planetary:['sun','planet','module','width'],wolfrom:['sun','planet','module','width'],cycloidal:['pins','radius','pin_radius','eccentric'],worm:['starts','wheel','module','diameter'],differential:['side_teeth','output_teeth','module','width'],harmonic:['teeth','module','width','wall']}[doc.family]) ?? ['teeth','module','width','helix']);
   function remainingParameters() {
     if (!remaining) { remaining = node('details',null,'all-model-parameters'); remaining.open = remainingParametersOpen; remaining.addEventListener('toggle',() => { remainingParametersOpen = remaining.open; }); remaining.append(node('summary','All model parameters')); const body = node('div',null,'remaining-parameter-fields'); remaining.append(body); container.append(remaining); }
     return remaining.children[1];
   }
   const specs = [...schema.fields,...schema.options.filter(f => f.key !== 'variant')];
-  const order = ['configuration','ratio_mode','double_style',...mainOrder];
+  const multistage = doc.family === 'parallel' && isParallelMultistage(doc.draft.options.variant);
+  const stageOrder = [1,2,3].flatMap(s => ['pinion','wheel','module','width','helix','gap','pressure','backlash','profile_shift','center_extra'].map(k => s === 1 ? k : k+s));
+  const order = ['configuration','ratio_mode','double_style',...(doc.family === 'face' ? ['pinion','wheel','module','width','offset','helix','radial_setting','gap'] : doc.family === 'rack' ? ['pinion','rack_teeth','module','width','helix','gap','base'] : doc.family === 'hypoid' ? ['pinion','wheel','module','offset','width','spiral_angle'] : doc.family === 'bevel' ? ['pinion','wheel','module','width','spiral_angle','trace_radius','spiral_hand'] : multistage ? stageOrder : mainOrder)];
   specs.sort((a,b) => { const ia = order.indexOf(a.key), ib = order.indexOf(b.key); return (ia < 0 ? 100 : ia)-(ib < 0 ? 100 : ib); });
   for (const spec of specs) {
-    if (spec.key === 'input_rpm' || spec.key === 'harmonic_output' || spec.key === 'io_scheme2' && !['two_stage','two_stage_double'].includes(doc.draft.options.variant) || spec.key === 'double_style' && (doc.family === 'double' || !['double','two_stage_double'].includes(doc.draft.options.variant)) || spec.inactive || spec.key.startsWith('print_') && doc.draft.options.eccentric_design !== 'fdm_bolted') continue;
+    if (spec.key === 'input_rpm' || spec.key === 'harmonic_output' || spec.key === 'io_scheme2' && !['two_stage','two_stage_double'].includes(doc.draft.options.variant) || spec.key === 'double_style' && (doc.family === 'double' || !['double','two_stage_double','three_stage_double','double_helical'].includes(doc.draft.options.variant)) || spec.inactive || spec.key.startsWith('print_') && doc.draft.options.eccentric_design !== 'fdm_bolted') continue;
     const [page, classifiedGroup] = classify(spec); if (page !== tab) continue;
     const group = page === 'dimensions' && classifiedGroup === 'Main geometry' && !primaryKeys.has(spec.key) ? 'Additional geometry' : classifiedGroup;
     if (!groups.has(group)) {
       let section, target;
-      if (['Advanced · profile & clearances','Nominal operating loads','Drive connections','Bearings & fits','Standard hardware','Housing & flanges','Eccentric shaft construction'].includes(group)) {
+      if (['Advanced · profile & clearances','Nominal operating loads','Drive connections','Bearings & fits','Standard hardware','Housing & flanges','Eccentric shaft construction','Shaft layout','Stage 1','Stage 2','Stage 3'].includes(group)) {
         section = node('details'); const groupKey = `${tab}:${group}`; section.open = group.startsWith('Advanced') ? advancedOpen : parameterGroupOpen.get(groupKey) ?? !['Nominal operating loads','Standard hardware','Eccentric shaft construction'].includes(group);
         section.addEventListener('toggle',() => parameterGroupOpen.set(groupKey,section.open));
-        section.append(node('summary',group.startsWith('Advanced') ? 'Advanced tooth geometry' : group)); target = node('div',null,'field-group'); section.append(target);
+        section.append(node('summary',group.startsWith('Advanced') ? 'Advanced tooth geometry' : group==='Drive connections'?'Drive · input and output':group)); target = node('div',null,'field-group'); section.append(target);
         if (group.startsWith('Advanced')) section.addEventListener('toggle',() => { advancedOpen = section.open; });
       } else { section = target = node('div',null,'field-group'); if (group === 'Main geometry') section.className += ' primary-geometry'; else target.append(node('h3',group)); }
       groups.set(group,target);
-      if (page === 'dimensions' && !['Main geometry','Advanced · profile & clearances'].includes(group)) remainingParameters().append(section);
+      if (page === 'dimensions' && !['Main geometry','Advanced · profile & clearances','Stage 1','Stage 2','Stage 3'].includes(group)) remainingParameters().append(section);
       else if (remaining) container.insertBefore(section,remaining); else container.append(section);
     }
-    if (spec.key === 'io_scheme' || spec.key === 'io_scheme2') groups.get(group).append(makeDriveConnections(spec));
+    if (spec.key === 'io_scheme' || spec.key === 'io_scheme2') {
+      const target=groups.get(group),drive=makeDriveConnections(spec);target.append(drive);
+      if(drive.classList.contains('direct-drive')) target.parentElement.classList.add('direct-drive-section');
+    }
     else if (spec.key === 'configuration' || spec.key === 'ratio_mode' || spec.key === 'double_style') {
       const field = makeField(spec), firstGroup = [...container.children].find(child => !child.classList.contains('field')); container.insertBefore(field,firstGroup ?? null);
     } else if (!(doc.draft.options.bearing_mode === 'manual' && ['bearing','fit','shoulder','seat_allowance','shaft_allowance'].includes(spec.key)) && !(doc.draft.options.hardware_mode === 'none' && spec.key.startsWith('hardware_') && spec.key !== 'hardware_mode')) groups.get(group).append(makeField(spec));
@@ -372,6 +391,9 @@ function renderFields() {
   // Each adjacent pair shares caption/input/message tracks. Wrapped labels
   // cannot offset one input at larger text scales; whole-width derived rows
   // retain their original position between pairs and keep their own space.
+  if (multistage && tab === 'assembly') {
+    container.prepend(node('p','Centre-line turns change the top-view layout; shaft axes stay parallel. Multistage supports use manual dimensions; automatic bearing seats and hardware cover single-stage pairs only.','subtle'));
+  }
   const primary = groups.get('Main geometry');
   if (primary) {
     let pair = null;
@@ -381,11 +403,18 @@ function renderFields() {
       pair.append(child);
     }
   }
-  if (resetButton) (groups.get('Advanced · profile & clearances') ?? remainingParameters()).append(resetButton);
   if (!container.children.length) container.append(node('p','No additional parameters for this model.','empty-state'));
   if (tab === 'motion') {
-    const note = node('p',doc.family === 'differential' ? doc.draft.options.configuration === 'classic' ? 'Set carrier input C in the motion bar. Prescribe B−A here to explore the two outputs; this is a speed boundary condition, not another motor.' : 'Input A is set in the motion bar. Set input B here. Both signs use the same world +X direction; the shafts face opposite sides.' : 'Set input speed and playback in the motion bar. Operating assumptions are not allowable loads.','subtle'); container.prepend(note);
-    if (doc.family === 'differential') appendMotionDemos(container);
+    const drive=groups.get('Drive connections')?.parentElement;
+    if(drive)container.prepend(drive);
+    const paired=!!container.querySelector('.direct-drive');
+    const note = node('p',doc.family === 'differential' ? doc.draft.options.configuration === 'classic' ? 'Set carrier input C in the motion bar. Prescribe B−A here to explore the two outputs; this is a speed boundary condition, not another motor.' : 'Input A is set in the motion bar. Set input B here. Both signs use the same world +X direction; the shafts face opposite sides.' : paired?'Motor → input · Load → output':'Set input speed and playback in the motion bar. Operating assumptions are not allowable loads.','subtle');
+    if(paired){container.classList.add('direct-motion-panel');note.classList.add('drive-footer');note.title='Set input speed and playback in the motion bar. Operating assumptions are not allowable loads.';container.append(note);}else container.prepend(note);
+    if (doc.family === 'differential') {
+      note.classList.add('motion-notation');
+      appendMotionDemos(container);
+      note.after(container.querySelector('.motion-demos'));
+    }
   }
   if (focused && fields.has(focused)) {
     const input = fields.get(focused).input; input.focus({preventScroll:true});
@@ -414,11 +443,14 @@ function chooseInspection(name) {
 }
 function updateModelChip() {
   const family = familyDefinition(); if (!family) return;
+  $('model-catalog-summary').textContent=selectionSummary(family,doc.draft.options);
+  $('model-catalog-image').src='./model-catalog/'+family.key+'.png';
   const variant = schema?.options.find(field => field.key === 'variant')?.choices.find(choice => choice.value === doc.draft.options.variant)?.label;
   $('family-variant-chip').textContent = family.label+(variant ? ' / '+variant : '');
   $('preview-family').textContent = family.label;
 }
 function updateFamilyHeader() {
+  $('model-catalog-caption').textContent = familyDefinition()?.label ?? 'Model catalog';
   const family = familyDefinition(); $('family').value = doc.family; $('family-description').textContent = family.description; $('family').title = family.description; $('model-title').textContent = family.label; updateModelChip();
 }
 async function refreshSchema() {
@@ -483,6 +515,9 @@ function handleFatal(error) {
   fatal = true; validToken = null; setPlaying(false); stageMessage('The calculation engine stopped',error.message,{retry:true}); updateActions();
 }
 async function onDocumentChange() {
+  if (speedSliderPreview && !isCurrent(speedSliderPreview.token)) {
+    speedSliderPreview = null; speedSliderActive = false; speedSliderKeyActive = false;
+  }
   updateActions(); saveRecovery();
   if (doc.revision === previousRevision || startup) return;
   previousRevision = doc.revision; initialClean = false;
@@ -505,12 +540,17 @@ async function onDocumentChange() {
 
 async function requestPose(nextPhase) {
   if (!motionAvailable() || ratePending || posePending || viewer?.captureBusy) return false;
+  const limits = design.motion.phase_limits;
+  const stopped = limits && (nextPhase < limits[0] || nextPhase > limits[1]);
+  if (limits) nextPhase = Math.max(limits[0],Math.min(limits[1],nextPhase));
   const token = currentToken(), current = design; posePending = true;
   let finishPose; const completion = poseCompletion = new Promise(resolve => { finishPose = resolve; });
   try {
     const result = await engine.request('pose',{design_id:current.design_id,phases:[nextPhase]});
     if (!isCurrent(token) || design !== current || !motionAvailable() || busy || viewer.captureBusy) return false;
-    viewer.applyFrame(result.frames[0]); phase = nextPhase; syncPhaseControl(); return true;
+    viewer.applyFrame(result.frames[0]); phase = nextPhase; syncPhaseControl();
+    if (stopped) { setPlaying(false); status('End of rack working stroke. Reverse input speed or return to the initial pose.'); }
+    return true;
   } catch (error) {
     if (isCurrent(token) && design === current && error.name !== 'AbortError') { setPlaying(false); status('Motion stopped: '+error.message,'error'); handleFatal(error); }
     return false;
@@ -518,25 +558,35 @@ async function requestPose(nextPhase) {
 }
 function syncPhaseControl() {
   $('motion-phase').textContent = `${phase.toFixed(2)} rad`;
-  $('phase-range').value = String(((phase % (2*Math.PI)) + 2*Math.PI) % (2*Math.PI));
+  const limits = design?.motion.phase_limits;
+  $('phase-range').step = limits ? 'any' : '0.001';
+  $('phase-range').min = String(limits ? limits[0] : 0); $('phase-range').max = String(limits ? limits[1] : 2*Math.PI);
+  if (scrubTarget === null) $('phase-range').value = String(limits ? phase : ((phase % (2*Math.PI)) + 2*Math.PI) % (2*Math.PI));
 }
-async function scrubPreviewPhase() {
-  setPlaying(false); const source = design, token = currentToken();
-  await poseCompletion;
-  if (design !== source || !isCurrent(token) || !motionAvailable() || analysisActive) return false;
-  return requestPose(Number($('phase-range').value));
+function scrubPreviewPhase() {
+  setPlaying(false); scrubTarget = Number($('phase-range').value);
+  if (scrubCompletion) return scrubCompletion;
+  const source = design, token = currentToken();
+  scrubCompletion = (async () => {
+    await poseCompletion;
+    while (scrubTarget !== null && design === source && isCurrent(token) && motionAvailable() && !analysisActive) {
+      const target = scrubTarget;
+      if (!await requestPose(target) || target === scrubTarget) break;
+    }
+  })().finally(() => { scrubCompletion = null; scrubTarget = null; syncPhaseControl(); });
+  return scrubCompletion;
 }
 function tick(time) {
   animationFrame = 0; if (!playing) return;
   if (!lastTick) lastTick = time;
-  // Advance only the amount actually displayed; dropping worker frames does
-  // not queue unbounded RPCs or introduce a fake independent gear animation.
-  if (!ratePending && !posePending && time-lastPose >= 1000/30) {
-    const elapsed = Math.min(.15,(time-lastTick)/1000); lastTick = time; lastPose = time;
+  // Request canonical poses at the display cadence, with at most one RPC in
+  // flight. A fixed 30 Hz gate skips alternate frames on a 60 Hz display.
+  if (!ratePending && !posePending) {
+    const elapsed = Math.min(.15,(time-lastTick)/1000); lastTick = time;
     const motion = design.motion;
     const moving = [...Object.values(motion.rates),...Object.values(motion.angular_rates),...motion.coordinates.map(c => c.rate)].flat(Infinity).some(rate => typeof rate === 'number' && rate !== 0);
     const rate = moving ? motion.phase_radians_per_second * Number($('playback-speed').value) : 0;
-    if (rate !== 0) requestPose(phase+elapsed*rate);
+    if (rate !== 0 && elapsed > 0) requestPose(phase+elapsed*rate);
   }
   animationFrame = requestAnimationFrame(tick);
 }
@@ -568,31 +618,64 @@ function syncMotionControl() {
   const spec = schema?.fields.find(f => f.key === 'input_rpm');
   const input = $('motion-rpm'); input.disabled = !spec || busy || schemaPending;
   if (!spec || !doc.draft) return;
-  input.value = doc.entries.input_rpm?.text ?? '';
+  input.value = speedSliderPreview ? String(speedSliderPreview.value) : doc.entries.input_rpm?.text ?? '';
   // A family edit can arrive before its async schema: include the actual
   // help content so an old spec cannot be cached under the new family.
   const helpKey = JSON.stringify([doc.family,doc.draft.options.configuration ?? '',spec.help ?? null]);
-  if ($('motion-help').dataset.key !== helpKey) {
-    $('motion-help').replaceChildren(); const help = helpDetails(spec); if (help) $('motion-help').append(help); $('motion-help').dataset.key = helpKey;
+  if (input.dataset.helpKey !== helpKey) {
+    if (spec.help) bindParameterHelp(input.closest('.input-controls'),spec,input);
+    input.dataset.helpKey = helpKey;
   }
   const parsed = numberValue(doc.entries.input_rpm,spec), error = parsed.error;
   input.setAttribute('aria-invalid',String(!!error)); $('motion-error').textContent = error ?? ''; $('motion-error').hidden = !error;
   const low = spec.minimum ?? 0, high = spec.maximum ?? 100000, value = parsed.value ?? design?.values.input_rpm ?? spec.default;
-  $('rpm-slider').min = scaleRPM(low); $('rpm-slider').max = scaleRPM(high); $('rpm-slider').value = scaleRPM(value);
-  for (const id of ['rpm-minus','rpm-plus','rpm-slider']) $(id).disabled = input.disabled || ratePending;
+  $('rpm-slider').min = scaleRPM(low); $('rpm-slider').max = scaleRPM(high);
+  if (!speedSliderActive) $('rpm-slider').value = scaleRPM(value);
+  $('rpm-slider').setAttribute('aria-valuetext',`${speedSliderPreview?.value ?? value} rpm`);
+  for (const id of ['rpm-minus','rpm-plus','rpm-slider']) $(id).disabled = input.disabled;
   $('motion-rpm').title = doc.family === 'wolfrom' ? 'Signed sun input speed. Positive rotation is counterclockwise viewed from +Z toward the XY plane.' : spec.label;
   $('motion-caption').textContent = doc.family === 'wolfrom' ? 'Sun input speed' : doc.family === 'differential' ? doc.draft.options.configuration === 'classic' ? 'Carrier input speed' : 'Input A speed' : doc.family === 'planetary' && ['two_stage','two_stage_double'].includes(doc.draft.options.variant) ? 'Input speed · stage 1' : 'Input speed';
 }
+function previewSpeed(value) {
+  const spec = schema?.fields.find(f => f.key === 'input_rpm');
+  if (!spec || busy || schemaPending) return;
+  speedSliderActive = true;
+  speedSliderPreview = {value:Math.max(spec.minimum ?? 0,Math.min(spec.maximum ?? 100000,value)),token:currentToken(),source:design};
+  // This is presentation only: document/history/worker keep the applied RPM.
+  $('motion-rpm').value = String(speedSliderPreview.value);
+  $('rpm-slider').setAttribute('aria-valuetext',`${speedSliderPreview.value} rpm`);
+}
+function cancelSpeedPreview() {
+  speedSliderPreview = null; speedSliderActive = false; speedSliderKeyActive = false;
+  syncMotionControl();
+}
+function commitSpeedPreview() {
+  const pending = speedSliderPreview;
+  speedSliderPreview = null; speedSliderActive = false; speedSliderKeyActive = false;
+  if (pending && isCurrent(pending.token) && design === pending.source && !busy && !schemaPending) {
+    doc.barrier(); editSpeed(pending.value); doc.barrier();
+  }
+  syncMotionControl();
+}
 function editSpeed(value) {
-  const spec = schema?.fields.find(f => f.key === 'input_rpm'); if (!spec || busy || ratePending) return;
-  doc.editNumber('input_rpm',String(Math.max(spec.minimum ?? 0,Math.min(spec.maximum ?? 100000,value))));
+  const spec = schema?.fields.find(f => f.key === 'input_rpm'); if (!spec || busy) return;
+  const text = String(Math.max(spec.minimum ?? 0,Math.min(spec.maximum ?? 100000,value)));
+  if (doc.entries.input_rpm?.text !== text) doc.editNumber('input_rpm',text);
+  if (!rateEditing) return;
+  sliderRateQueued = true;
   clearTimeout(generationTimer); commitRates();
 }
 function commitRates() {
   // Blur and a document command can confirm the same edit in one event turn.
   if (rateCompletion) return rateCompletion;
+  sliderRateQueued = false;
   const completion = performRateCommit();
-  rateCompletion = completion.finally(() => { rateCompletion = null; });
+  rateCompletion = completion.finally(() => {
+    rateCompletion = null;
+    // Keep only the most recent slider edit while the worker is busy. The
+    // returned promise also drains it before Save/Export can confirm a source.
+    if (sliderRateQueued && rateEditing && rateSource === design && !busy && !fatal) return commitRates();
+  });
   return rateCompletion;
 }
 async function performRateCommit() {
@@ -618,12 +701,14 @@ async function performRateCommit() {
     const {ports,buffers,...metadata} = result; Object.assign(source,metadata);
     for (const {index,port} of ports) source.parts[index].port = port;
     viewer.design = source;
-    ratePending = false; lastTick = 0;
+    // Resume from this commit time: resetting to zero would discard another
+    // display frame after every live slider edit.
+    ratePending = false; lastTick = playing ? performance.now() : 0;
     if (isCurrent(token)) {
       doc.normalize(result.values,schema); rememberSourceParameters(); validToken = token; rateEditing = false; rateSource = null;
       $('stale-banner').hidden = true; renderFields(); status('Geometry generated'); saveRecovery();
       events.dispatchEvent(new CustomEvent('design',{detail:{design:source,token:currentToken()}}));
-    } else if (document.activeElement !== $('motion-rpm')) scheduleGeneration(0);
+    } else if (!sliderRateQueued && document.activeElement !== $('motion-rpm')) scheduleGeneration(0);
     renderMetrics(); renderInspection(); updateActions(); return true;
   } catch (error) {
     if (design === source && rateSource === source && error.name !== 'AbortError') {
@@ -667,27 +752,66 @@ function appendMotionDemos(container) {
 function makeDriveConnections(spec) {
   const body = node('div',null,'drive-connections'), active = doc.draft.options[spec.key];
   if (doc.family === 'wolfrom') {
+    body.classList.add('fixed-drive');
     body.append(node('h3','Fixed Wolfrom drive connections'));
+    const details=node('details',null,'motion-notes');details.append(node('summary','Motion details'));
     for (const [role,member] of [['Input · apply motion here','Sun'],['Fixed to frame','First ring'],['Output · connect the load here','Second ring · exposed annulus']]) {
-      const row = node('div',null,'io-role'); row.append(node('span',role),node('strong',member)); body.append(row);
+      const style=role.startsWith('Input')?'io-input':role.startsWith('Output')?'io-output':'io-fixed';
+      const row = node('div',null,'io-role '+style); row.append(node('span',role),node('strong',member)); body.append(row);
     }
-    body.append(node('p','The common carrier is free. Both planet rims are rigidly joined.','subtle'),node('p','Positive rotation is counterclockwise viewed from +Z toward the XY plane. Physical backdrivability is not established.','subtle'));
+    details.append(node('p','The common carrier is free. Both planet rims are rigidly joined.','subtle'),node('p','Positive rotation is counterclockwise viewed from +Z toward the XY plane. Physical backdrivability is not established.','subtle'));
     const result = design?.analysis.kinematics?.stage_results?.[0];
     if (result && currentValid()) {
       const q = result.rates_rpm;
-      body.append(node('p',`Ratio ${signed(result.signed_ratio,4)} : 1 · sun ${automaticText(q.sun)} rpm · carrier ${automaticText(q.carrier)} rpm · compound spin ${automaticText(q.planet)} rpm · output ring ${automaticText(q.output)} rpm · fixed first ring ${automaticText(q.ring)} rpm`,'subtle'));
+      const output=node('div',null,'drive-result'),value=node('strong',automaticText(q.output));value.append(node('small','rpm'));output.append(node('span','Nominal output'),value);body.append(output);
+      details.append(node('p',`Ratio ${signed(result.signed_ratio,4)} : 1 · sun ${automaticText(q.sun)} rpm · carrier ${automaticText(q.carrier)} rpm · compound spin ${automaticText(q.planet)} rpm · output ring ${automaticText(q.output)} rpm · fixed first ring ${automaticText(q.ring)} rpm`,'subtle'));
     }
-    const help = helpDetails(spec); if (help) body.append(help);
+    body.append(details);
+    if (spec.help) bindParameterHelp(body,spec,body.querySelector('input,select,button') ?? body);
     return body;
   }
   const triples = spec.choices.every(choice => choice.value.split('_').length === 3);
   if (!triples) {
-    for (const choice of spec.choices) {
+    if (doc.family === 'parallel' && isParallelMultistage(doc.draft.options.variant) && currentValid()) {
+      const rates = design.analysis.kinematics.shaft_rates_rpm;
+      body.append(node('p',rates.map((r,i) => `Shaft ${i+1}: ${automaticText(r)} rpm`).join(' · '),'subtle'));
+    }
+    const forward=spec.choices.find(c=>c.value==='forward');
+    const members=(forward?.label??'').split(' → ');
+    // Only true two-member selectors use the paired cards. Three-member,
+    // differential and fixed-topology mechanisms keep their existing controls.
+    if(members.length===2&&spec.choices.length===2) {
+      body.classList.add('direct-drive');
+      body.append(node('div','Choose the driving member','direct-drive-caption'));
+      const cards=node('div',null,'drive-member-cards');cards.setAttribute('role','radiogroup');cards.setAttribute('aria-label','Choose the driving member');
+      for(const [index,member]of members.entries()) {
+        const value=index?'reverse':'forward', selected=value===active;
+        const card=node('label',null,'drive-member-card'),heading=node('span',null,'drive-member-heading'),radio=node('input');
+        radio.type='radio';radio.name=spec.key;radio.value=value;radio.checked=selected;radio.disabled=busy||schemaPending;
+        radio.setAttribute('aria-label',member);
+        heading.append(node('span',member),radio);
+        const role=node('span',null,'drive-member-role');role.append(node('span',selected?'Input':'Output'),node('span',selected?'Motor':'Load'));card.append(heading,role);
+        radio.addEventListener('change',()=>{if(radio.checked)changeOption(spec.key,value);});cards.append(card);
+      }
+      const direction=node('div',null,'drive-direction');
+      const ordered=active==='reverse'?[members[1],members[0]]:members;
+      direction.append(node('span',ordered[0]),node('span',' → '),node('span',ordered[1]));
+      body.append(cards,direction);
+      const output=design?.analysis.output;
+      if(output&&currentValid()) {
+        const result=node('div',null,'drive-result'),value=node('strong',(Math.abs(output.rpm)>=.005&&Math.abs(output.rpm)<1e7)||output.rpm===0?output.rpm.toFixed(2):output.rpm.toExponential(2));
+        value.append(node('small','rpm'));result.append(node('span','Nominal output'),value);body.append(result);
+      }
+      const reset=node('button',null,'flat drive-reset');reset.innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 11a9 9 0 1 1 2.1 5.8M3 4v7h7"/></svg>';reset.append(node('span','Reset arrangement'));reset.disabled=busy||schemaPending;
+      reset.addEventListener('click',()=>changeOption(spec.key,spec.default));body.append(reset);
+      if (spec.help) bindParameterHelp(body,spec,body.querySelector('input,select,button') ?? body);
+    } else for (const choice of spec.choices) {
       const label = node('label',null,'check-control'), radio = node('input'); radio.type = 'radio'; radio.name = spec.key; radio.checked = choice.value === active; radio.disabled = busy || schemaPending;
       radio.addEventListener('change',() => { if (radio.checked) changeOption(spec.key,choice.value); }); label.append(radio,node('span',choice.label)); body.append(label);
     }
     return body;
   }
+  body.classList.add('multi-member-drive');
   const names = {};
   for (const choice of spec.choices) {
     const members = choice.value.split('_'), captions = choice.label.split(/ → | · /);
@@ -695,8 +819,10 @@ function makeDriveConnections(spec) {
   }
   const [source,target,fixed] = active.split('_');
   if (spec.key === 'io_scheme2' || doc.family === 'planetary' && ['two_stage','two_stage_double'].includes(doc.draft.options.variant)) body.append(node('h3',spec.key === 'io_scheme2' ? 'Stage 2' : 'Stage 1'));
-  for (const [role,title,current] of [['input','1 · Motor',source],['output','2 · Output',target]]) {
+  for (const [role,title,current] of [['input','Input',source],['output','Output',target]]) {
     const row = node('label',null,'io-role io-'+role), select = node('select'); row.append(node('span',title),select);
+    select.id=`motion-${spec.key}-${role}`;
+    select.setAttribute('aria-label',`${spec.key==='io_scheme2'?'Stage 2':'Stage 1'} ${title}`);
     const values = [...new Set(spec.choices.filter(choice => role === 'input' || choice.value.split('_')[0] === source).map(choice => choice.value.split('_')[role === 'input' ? 0 : 1]))];
     for (const value of values) { const option = node('option',names[value] ?? displayKey(value)); option.value = value; select.append(option); }
     select.value = current; select.disabled = busy || schemaPending || role === 'input' && doc.family === 'cycloidal' && doc.draft.options.eccentric_design === 'fdm_bolted';
@@ -706,12 +832,13 @@ function makeDriveConnections(spec) {
       if (next) changeOption(spec.key,next.value);
     }); body.append(row);
   }
-  const fixedRow = node('div',null,'io-role'); fixedRow.append(node('span','3 · Fixed to frame'),node('strong',names[fixed] ?? displayKey(fixed))); body.append(fixedRow);
-  const swap = node('button','Swap input and output'); swap.disabled = busy || schemaPending || doc.family === 'cycloidal' && doc.draft.options.eccentric_design === 'fdm_bolted';
+  const fixedRow = node('div',null,'io-role io-fixed'); fixedRow.append(node('span','Fixed to frame'),node('strong',names[fixed] ?? displayKey(fixed))); body.append(fixedRow);
+  const swap = node('button','Swap input and output','flat io-swap'); swap.disabled = busy || schemaPending || doc.family === 'cycloidal' && doc.draft.options.eccentric_design === 'fdm_bolted';
   swap.addEventListener('click',() => changeOption(spec.key,[target,source,fixed].join('_'))); body.append(swap);
   const result = design?.analysis.kinematics?.stage_results?.[spec.key === 'io_scheme2' ? 1 : 0];
-  if (result && currentValid()) body.append(node('p',`Ratio ${signed(result.signed_ratio,4)} : 1 · output ${automaticText(result.rates_rpm[result.output])} rpm`,'subtle'));
+  if (result && currentValid()) body.append(node('p',`Ratio ${signed(result.signed_ratio,4)} : 1 · output ${automaticText(result.rates_rpm[result.output])} rpm`,'drive-stage-result'));
   const reset = node('button','Reset default arrangement','flat'); reset.addEventListener('click',() => changeOption(spec.key,spec.default)); body.append(reset);
+  if (spec.help) bindParameterHelp(body,spec,body.querySelector('input,select,button') ?? body);
   return body;
 }
 function selectView(name) {
@@ -719,19 +846,30 @@ function selectView(name) {
 }
 let dockMode = null, dockOrigin = 'open-tools-panel';
 function revealDock(mode,title) {
-  dockMode = mode; $('tool-dock').hidden = false; $('tool-panel-title').textContent = title; $('tool-panel-category').textContent = mode === 'view' ? 'View' : 'Tools';
+  dockMode = mode; $('tool-dock').hidden = false; $('tool-panel-title').textContent = title; $('tool-panel-category').textContent = mode === 'view' ? 'Display' : 'Tools';
   $('tools-menu-extension').hidden = mode !== 'tools'; $('view-panel').hidden = mode !== 'view'; $('inspection-panel').hidden = mode !== 'inspection';
   $('tools-back').hidden = mode !== 'inspection';
   $('open-view-panel').setAttribute('aria-expanded',String(mode === 'view'));
   $('open-tools-panel').setAttribute('aria-expanded',String(mode !== 'view'));
 }
+function closeDisplayMenu() {
+  const restoreFocus=$('view-panel').contains(document.activeElement);
+  $('view-panel').hidden=true;$('open-view-panel').setAttribute('aria-expanded','false');
+  if(restoreFocus)$('open-view-panel').focus({preventScroll:true});
+}
 function openPreviewPanel(mode) {
-  const origin = mode === 'view' ? 'open-view-panel' : 'open-tools-panel';
+  if (mode==='view') {
+    const show=$('view-panel').hidden;
+    closeToolDock();$('view-panel').hidden=!show;$('open-view-panel').setAttribute('aria-expanded',String(show));
+    return;
+  }
+  closeDisplayMenu();
   if (!$('tool-dock').hidden && dockMode === mode) { closeToolDock(); return; }
   if (!$('tool-dock').hidden && dockMode === 'inspection') events.dispatchEvent(new Event('toolclose'));
-  dockOrigin = origin; revealDock(mode,mode === 'view' ? 'View' : 'Tools');
+  dockOrigin='open-tools-panel';revealDock(mode,'Tools');
 }
 function closeToolDock() {
+  closeDisplayMenu();
   if ($('tool-dock').hidden) return;
   $('tool-dock').hidden = true; dockMode = null;
   $('open-view-panel').setAttribute('aria-expanded','false'); $('open-tools-panel').setAttribute('aria-expanded','false');
@@ -811,12 +949,27 @@ function renderMetrics() {
       ['Carrier input',signed(q.carrier,3),'rpm',`Prescribed B−A: ${signed(v.output_difference_rpm)} rpm`],
       ['Side output A',signed(q.side_a,3),'rpm','About world +X'],['Side output B',signed(q.side_b,3),'rpm','About world +X']
     ] : [['Carrier tilt',signed(q.carrier,3),'rpm','About the common input axis'],['Output spin',signed(q.output_spin,3),'rpm','Relative to the moving carrier'],['Input speeds A / B',`${signed(q.input_a)} / ${signed(q.input_b)}`,'rpm','Both signs measured about world +X']];
+  } else if (design.family === 'rack') {
+    items = [['Travel per revolution',automaticText(a.rack.travel_per_revolution_mm),'mm/rev','Pinion rotation → rack translation'],['Linear speed',signed(a.linear_output.velocity_mm_s,6),'mm/s','Along world +X'],['Working stroke',`±${automaticText(a.rack.travel_limits_mm[1])}`,'mm','Preview stops at the travel limit']];
   } else if (a.signed_ratio == null) {
     items = [['Pitch diameter',(2*a.gear.pitch_radius).toFixed(3),'mm','Reference pitch circle'],['Tooth count',String(v.teeth),'',`Normal module ${automaticText(v.module)} mm`],['Face width',automaticText(v.width),'mm','Axial gear width']];
   } else {
     items = [['Effective ratio',signed(a.signed_ratio,4),':1',a.signed_ratio > 0 ? 'Same rotation direction' : 'Opposite rotation direction'],['Output speed',a.output.rpm.toFixed(2),'rpm',`At ${automaticText(a.input.rpm)} rpm input`]];
     const housing = design.metrics.join(' · ').match(/housing (?:diameter |Ø )([0-9.]+) mm/i);
-    if (housing) items.push(['Housing diameter',housing[1],'mm','Nominal housing envelope']);
+    if (design.family === 'bevel') {
+      items[0][3] = 'Signs about pinion +X and wheel +Z';
+      items.push(['Pitch cone angles',`${a.bevel_pair.pinion_pitch_angle_deg.toFixed(3)} / ${a.bevel_pair.wheel_pitch_angle_deg.toFixed(3)}`,'°','Shaft angle 90°']);
+    }
+    else if (design.family === 'face') {
+      items[0][3] = 'Signs about pinion +X and face wheel +Z';
+      items.push(v.offset ? ['Shaft offset',`${v.offset > 0 ? '+' : ''}${automaticText(v.offset)}`,'mm','Skew axes · directions 90°'] : ['Tooth-band width',automaticText(v.width),'mm','Along pinion shaft · shaft angle 90°']);
+    }
+    else if (design.family === 'hypoid') {
+      items[0][3] = 'Signs about offset pinion +X and wheel +Z';
+      items.push(['Shaft offset',signed(v.offset),'mm','90° shaft directions · offset along world Y']);
+    }
+    else if (housing) items.push(['Housing diameter',housing[1],'mm','Nominal housing envelope']);
+    else if (a.parallel_train) items.push(['Stage distances',a.meshes.map(q => automaticText(q.center_distance_mm)).join(' / '),'mm',a.meshes.map((q,i) => `Stage ${i+1}`).join(' / ')]);
     else if (a.center_distance_mm != null || a.meshes?.length) items.push(['Centre distance',(a.center_distance_mm ?? a.meshes[0].center_distance_mm).toFixed(3),'mm','Axis spacing']);
     else items.push(['Flexible body length',automaticText(v.cup_length),'mm','Prescribed flexible-body geometry']);
   }
@@ -1018,6 +1171,7 @@ function documentSnapshotMatches({token,current,operation}) {
 }
 async function confirmDocumentAction() {
   if (analysisActive || actionConfirmation || busy || fatal || generationRunning || schemaPending || !design) return null;
+  if (speedSliderPreview) commitSpeedPreview();
   const snapshot = {token:currentToken(),current:design,operation:operationSerial};
   actionConfirmation = true; updateActions();
   try {
@@ -1137,7 +1291,21 @@ function setup() {
     // status thirty times per second with worker plumbing.
   }});
   doc.addEventListener('change',onDocumentChange);
-  $('family').addEventListener('change',() => doc.selectFamily($('family').value,catalog.families.find(f => f.key === $('family').value)));
+  const choiceMenus=initChoiceMenus();
+  initModelCatalog({getCatalog:()=>catalog,onClose:()=>choiceMenus.close(),
+    getSelection:family=>doc.state.families[family]?.options,
+    onApply:(family,selected)=>{
+      const options=Object.fromEntries(Object.entries(selected).filter(([key])=>['variant','configuration','double_style'].includes(key)));
+      if(family.key==='double')options.double_style=options.variant;
+      if(family.key==='parallel'&&isParallelMultistage(options.variant))Object.assign(options,{bearing_mode:'manual',hardware_mode:'none'});
+      doc.selectModel(family.key,family,options,entries=>{
+        if(family.key==='face'&&options.variant==='double_helical'&&options.double_style==='separated'&&Number(entries.gap?.text??0)<=0){
+          const gap=Math.max(Number(entries.module?.text.replace(',','.')??2),4);
+          entries.gap={text:automaticText(gap),exact:gap,typed:false};
+        }
+      });
+    }});
+  $('family').addEventListener('change' ,() => doc.selectFamily($('family').value,catalog.families.find(f => f.key === $('family').value)));
   for (const b of document.querySelectorAll('[data-tab]')) b.addEventListener('click',() => switchTab(b.dataset.tab));
   for (const b of document.querySelectorAll('[data-inspection]')) b.addEventListener('click',() => chooseInspection(b.dataset.inspection));
   for (const list of document.querySelectorAll('[role=tablist]')) list.addEventListener('keydown',event => {
@@ -1171,8 +1339,17 @@ function setup() {
   $('motion-rpm').addEventListener('input',() => doc.editNumber('input_rpm',$('motion-rpm').value));
   $('motion-rpm').addEventListener('keydown',event => { if (event.key === 'Enter') { event.preventDefault(); commitRates(); } });
   $('motion-rpm').addEventListener('blur',() => { if (rateEditing) commitRates(); });
-  $('rpm-slider').addEventListener('input',() => editSpeed(Math.round(unscaleRPM(Number($('rpm-slider').value)))));
-  for (const [id,delta] of [['rpm-minus',-1],['rpm-plus',1]]) $(id).addEventListener('click',() => editSpeed((design?.values.input_rpm ?? 0)+delta));
+  $('rpm-slider').addEventListener('input',() => previewSpeed(Math.round(unscaleRPM(Number($('rpm-slider').value)))));
+  $('rpm-slider').addEventListener('change',() => { if (!speedSliderKeyActive) commitSpeedPreview(); });
+  $('rpm-slider').addEventListener('blur',commitSpeedPreview);
+  $('rpm-slider').addEventListener('pointercancel',cancelSpeedPreview);
+  const speedSliderKeys = new Set(['ArrowLeft','ArrowRight','ArrowUp','ArrowDown','Home','End','PageUp','PageDown']);
+  $('rpm-slider').addEventListener('keydown',event => {
+    if (speedSliderKeys.has(event.key)) speedSliderKeyActive = true;
+    else if (event.key === 'Escape') { event.preventDefault(); cancelSpeedPreview(); }
+  });
+  $('rpm-slider').addEventListener('keyup',event => { if (speedSliderKeys.has(event.key)) commitSpeedPreview(); });
+  for (const [id,delta] of [['rpm-minus',-1],['rpm-plus',1]]) $(id).addEventListener('click',() => editSpeed((numberValue(doc.entries.input_rpm,schema.fields.find(f => f.key === 'input_rpm')).value ?? design?.values.input_rpm ?? 0)+delta));
   $('front-view').addEventListener('click',() => selectView('front'));
   for (const [id,name] of [['isometric-view','isometric'],['top-view','top']]) $(id).addEventListener('click',() => selectView(name));
   for (const [code,name] of Object.entries(LANGUAGES)) {
@@ -1188,12 +1365,23 @@ function setup() {
     $('language-menu').hidden = true; status(error.message,'error');
   });
   $('close-tool-dock').addEventListener('click',closeToolDock);
+  $('cube-home').addEventListener('click',()=>viewer.fit());
+  $('cube-fit').addEventListener('click',()=>viewer.fitCurrent());
+  $('pan-view').addEventListener('click',()=>{
+    viewer.panMode=!viewer.panMode;$('pan-view').setAttribute('aria-pressed',String(viewer.panMode));
+    $('model-canvas').classList.toggle('pan-active',viewer.panMode);
+  });
+  document.addEventListener('pointerdown',event=>{
+    if (!$('view-panel').hidden && !$('view-panel').contains(event.target) && !$('open-view-panel').contains(event.target) && !event.target.closest?.('.choice-popup')) closeDisplayMenu();
+  });
   $('open-view-panel').addEventListener('click',() => openPreviewPanel('view'));
   $('open-tools-panel').addEventListener('click',() => openPreviewPanel('tools'));
   $('tools-back').addEventListener('click',() => openPreviewPanel('tools'));
   $('expand-tool-dock').addEventListener('click',() => { const expanded = $('tool-dock').classList.toggle('expanded'); $('expand-tool-dock').setAttribute('aria-pressed',String(expanded)); $('expand-tool-dock').setAttribute('aria-label',expanded ? 'Compact panel' : 'Expand panel'); });
   const overview = {help:{title:'Model & dimensions',meaning:'Choose a generator family and construction, then set the dimensions of the mechanism. The preview uses the current valid design.',effect:'Dimensions contains geometry and advanced profile controls. Motion configures inputs, outputs and operating rates. Assembly contains connections, bearings, fits and hardware. Linked dimensions show Change source; invalid edits stay visible until corrected.'}};
-  const sectionHelp = helpDetails(overview); $('section-help').append(sectionHelp); bindParameterHelp($('model-dimensions-heading'),overview,sectionHelp.querySelector('button'));
+  const catalogOpener = $('model-catalog-open');
+  bindParameterHelp(catalogOpener,overview,catalogOpener,{clickToOpen:false});
+  catalogOpener.setAttribute('aria-keyshortcuts','F1');
   for (const [id,source] of [['tool-bom','show-bom'],['tool-report','show-report'],['tool-notes','show-notes']]) $(id).addEventListener('click',() => $(source).click());
   for (const button of document.querySelectorAll('[data-tool]')) button.addEventListener('click',() => openTool(button.dataset.tool));
   $('pick-mode').addEventListener('change',() => { if ($('pick-mode').value !== 'navigate') openTool('components'); events.dispatchEvent(new CustomEvent('pickmode',{detail:{mode:$('pick-mode').value}})); });
@@ -1209,7 +1397,7 @@ function setup() {
   },true);
   document.addEventListener('scroll',scheduleOverlayPlacement,true);
   window.addEventListener('resize',scheduleOverlayPlacement);
-  document.addEventListener('keydown',event => { if (event.key === 'Escape' && !$('app-dialog').open) { if (helpAnchor) { const trigger = helpBindings.get(helpAnchor)?.trigger; const focused = helpPane?.contains(document.activeElement); closeParameterHelp({dismiss:true}); if (focused) trigger?.focus({preventScroll:true}); return; } closeToolDock(); for (const menu of document.querySelectorAll('.popover[open]')) menu.open = false; } });
+  document.addEventListener('keydown',event => { if (event.key === 'Escape' && !$('app-dialog').open) { if (helpAnchor) { const binding = helpBindings.get(helpAnchor), trigger = binding?.focusTarget ?? binding?.trigger; const focused = helpPane?.contains(document.activeElement); closeParameterHelp({dismiss:true}); if (focused) trigger?.focus({preventScroll:true}); return; } closeToolDock(); for (const menu of document.querySelectorAll('.popover[open]')) menu.open = false; } });
   $('playback-speed').addEventListener('change',() => { lastTick = 0; });
   document.addEventListener('visibilitychange',() => { if (document.hidden) setPlaying(false); });
   window.addEventListener('beforeunload',event => { saveRecovery(); if (doc.dirty) { event.preventDefault(); event.returnValue = ''; } });

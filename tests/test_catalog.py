@@ -12,10 +12,14 @@ class CatalogTests(unittest.TestCase):
 
     def test_desktop_catalog_keeps_only_requested_transmissions(self):
         from geometry import FAMILIES, VARIANTS
-        self.assertEqual(len(FAMILIES), 11)
-        for family in ('internal', 'parallel', 'planetary', 'cycloidal', 'harmonic', 'worm', 'differential', 'wolfrom'):
+        self.assertEqual(len(FAMILIES), 15)
+        for family in ('internal', 'parallel', 'planetary', 'cycloidal', 'harmonic', 'worm', 'differential', 'wolfrom', 'bevel', 'hypoid', 'rack', 'face'):
             self.assertIn(family, FAMILIES)
-        self.assertEqual(set(VARIANTS['parallel']), {'spur', 'helical', 'double'})
+        self.assertEqual(set(VARIANTS['parallel']), {
+            'spur', 'helical', 'double', 'two_stage', 'three_stage',
+            'two_stage_helical', 'three_stage_helical',
+            'two_stage_double', 'three_stage_double',
+        })
         self.assertEqual(set(VARIANTS['internal']), {'spur', 'helical', 'double'})
 
     def test_linked_catalog_dimensions_and_roundtrip(self):

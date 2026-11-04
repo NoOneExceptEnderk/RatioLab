@@ -4,7 +4,7 @@
 
 ## Workspace
 
-The application uses the **Technical workspace**: a compact parameter panel on the left with paired primary dimensions and expandable advanced parameters, a dominant 3D preview, a prominent results band below the model and a single motion bar beneath it. **View** and **Tools** open one translucent panel over the right side of the preview, keeping its size and camera unchanged. The window displays the RatioLab name and RL icon.
+The application uses the **Technical workspace**: a compact parameter panel on the left with paired primary dimensions and expandable advanced parameters, a dominant 3D preview, a prominent results band below the model and a single motion bar beneath it. **Tools** opens a translucent panel over the preview. The orientation cube and its compact navigation controls stay in the upper-right corner; the sliders icon opens Display options without resizing the preview. The window displays the RatioLab name and RL icon.
 
 ![RatioLab technical workspace](../assets/screenshots/workspace.png)
 
@@ -41,7 +41,7 @@ remain in English. Desktop preferences are saved in the user profile; web
 preferences are saved for the current browser and site. A failed preference save
 keeps the selection for the current session and displays a notice.
 
-The **Explode** slider in **View** moves continuously from the assembled pose at **0.00** to the exploded pose at **1.00**. Moving it pauses motion; **Play** or **Initial pose** returns to the assembled pose. Explosion affects only the preview: geometry exports and package previews use nominal assembly coordinates. Component selection and surface measurements follow the displayed pose; changing the amount clears existing measurement points.
+The **Explode** slider in **View** moves continuously from the assembled pose at **0.00** to the exploded pose at **1.00**. Moving it pauses motion; **Start motion** or **Initial pose** returns to the assembled pose. Explosion affects only the preview: geometry exports and package previews use nominal assembly coordinates. Component selection and surface measurements follow the displayed pose; changing the amount clears existing measurement points.
 
 Invalid input remains visible, with a field message when the generator identifies the cause. Geometry actions are blocked immediately while a geometry update is pending. Invalid geometry stops motion; the last valid model of the same family remains visible with an explicit warning that it does not match the current parameters. An incomplete or unconfirmed RPM entry keeps motion at the last valid speed. Pressing Enter, leaving the speed field or requesting a save/export confirms the entry; failed confirmation shows a field error and blocks geometry exports and CAD transfers until the speed is corrected, while prior motion continues. No automatic correction replaces an invalid numeric entry on focus loss.
 
@@ -67,7 +67,7 @@ server maintains its own project handles rather than controlling an open window.
 
 ## Active catalog
 
-These eleven families are available, in this order:
+These fifteen families are available, in this order:
 
 | Family | Main variants or purpose |
 |---|---|
@@ -78,10 +78,14 @@ These eleven families are available, in this order:
 | Cycloidal reducer | Single or dual disc with opposing eccentrics |
 | Strain wave reducer | Cup, flat cup, silk hat; generated matching ring |
 | Worm and wheel | Cylindrical ZA / ZI with generated wheel |
-| Parallel shaft reducer | Spur, helical, double helical |
+| Parallel shaft reducer | One, two or three stages; spur, helical or double helical teeth |
 | Internal gear reducer | Fixed axes; spur, helical, double helical |
 | Bevel differential | Wrist or classic configuration; straight or spiral bevel gears |
 | Wolfrom / 3K reducer | Two-rim spur; sun input, fixed first ring, second ring output |
+| Bevel gear pair | Straight, spiral or circular Zerol-style traces; 90° shafts; reversible ports |
+| Hypoid gear pair | Generated spiral pinion; signed shaft offset; reversible ports |
+| Rack and pinion | Finite spur, helical or double-helical rack; rotary input and linear output |
+| Face gear pair | Generated face wheel and spur/helical/joined or separated double-helical pinion; 90° shaft directions and signed offset |
 
 Unsupported families are rejected by both the interface and generator. Previously exported files remain independent artifacts.
 
@@ -196,9 +200,30 @@ opened directly. No crown/pinion input stage, belts, pulleys or motors are gener
 
 ## Preview and motion
 
-Drag to rotate, scroll to zoom, and double click or use Fit to reset the camera. **Supports**, **Housing**, **Exploded** and **Section** control the view. Cycloidal output pins remain visible when Supports is disabled, in both single and dual disc variants.
+### Orient and pan the preview
 
-Use the motion controls below the results: **Play / Pause**, **Initial pose**, a precise RPM entry, the progressive RPM slider and ±1 controls. **Rate info** opens the current motion convention; **I/O connections** opens the Motion parameters. The reference phase is a readout of the current preview. Press Enter or leave the entry to apply; both decimal points and commas are accepted. All inputs at zero freeze the phase. Changing only valid RPM preserves the current phase.
+Drag with the **left mouse button** to orbit, with the **right mouse button** to
+pan, and scroll to zoom. The **Pan** hand toggle also lets you pan with a left
+or touch drag. Pan changes only the camera; it does not move mechanism parts.
+
+Click a face, edge or corner of the orientation cube to choose one of 26 views;
+drag the cube to orbit. **Home** restores and fits the isometric view. **Fit**
+centres the model at the current orientation. With the cube focused, keys **1–6**
+choose Front, Back, Right, Left, Top and Bottom; arrows orbit and **Home** fits.
+The cube uses the same Z-up orientation as the preview.
+
+The adjacent **Display options** icon retains Navigate/Select/Measure, Supports,
+Housing, Section and the continuous Explode slider. Section and explosion remain
+preview-only; pan and orientation do not edit the project or nominal exports.
+
+**Supports**, **Housing**, **Exploded** and **Section** control the view. Cycloidal output pins remain visible when Supports is disabled, in both single and dual disc variants.
+
+Use the motion controls below the results: **Start motion / Pause**, **Initial pose**, a precise RPM entry, the progressive RPM slider and ±1 controls. **Rate info** opens the current motion convention; **I/O connections** opens the Motion parameters. The reference phase is a readout of the current preview. Press Enter or leave the entry to apply; both decimal points and commas are accepted. All inputs at zero freeze the phase. Changing only valid RPM preserves the current phase.
+
+Dragging the RPM slider previews the chosen number while the model retains its
+applied speed. Release the slider to apply the final value as one Undo step.
+Keyboard adjustments apply on key release; Save/Export also confirms a pending
+slider choice. Cancelling the gesture leaves the applied speed unchanged.
 
 Closing Rate info does not stop playback. Starting motion returns from exploded view to the assembly pose. At high speeds, video sampling may cause visual aliasing.
 
@@ -339,6 +364,11 @@ locked baseline, budgets, coverage and retained proposals.
 
 ## Input and output connections
 
+Three-member mechanisms use full-width Input and Output selectors, followed by
+an explicit Fixed to frame member. Two-stage planetary reducers retain separate
+selectors for each stage. Wolfrom shows its fixed topology and nominal output;
+expand **Motion details** for all member speeds and the sign convention.
+
 **Motion → Drive · input and output** selects which member is driven, which delivers motion, and which is fixed. Planetary, cycloidal and strain wave drives offer all six physical member combinations. The planetary two-stage variants have independent connections for each stage.
 
 Parallel shaft, internal gear and worm drives offer forward/reverse operation.
@@ -370,9 +400,77 @@ The selector preserves the entered shaft diameter and disc thickness. If they ar
 
 ## Bearings and hardware
 
+**Face gear pair:** choose the pinion tooth type, both tooth counts, normal
+module and band width. **Band setting beyond reference radius** places the pinion
+span and the generated face teeth; inner and outer limits depend on undercut,
+pointing and ideal engagement checks. Width is along the pinion shaft, so mapped
+face-band ends can curve slightly. Advanced **Face addendum coefficient** controls
+the custom stub crest; backing thickness and bores are independent. For double helical, **Joined** gives continuous teeth through the centre.
+**Separated** adds a groove and exposes **Central band relief**. Joined trims
+a common circular tooth band inside the supported pinion span; its radial width
+can be slightly smaller than the pinion axial width. Positive speeds use pinion world +X through (0,offset,2rp) and face
+wheel world +Z; the positive ratio follows these perpendicular right-hand axes.
+**Signed shaft offset** shifts the pinion along world Y: zero gives intersecting
+axes, a nonzero value gives skew axes at the same 90° direction angle. This
+regenerates the face teeth and differs from radial band setting along the pinion
+shaft. Absolute offset must be below half the reference wheel radius; geometric
+checks may be tighter. Complete shafts/supports in CAD. See
+[generation and limits](technical/face-gears.md).
+
+**Rack and pinion:** choose **Spur teeth**, **Helical teeth** or **Double helical teeth**.
+Set pinion and rack tooth counts, normal module, face width and base below the
+roots. The matching rack trace follows the signed pinion helix; double helices
+can join or have a central groove. Results show mm per pinion revolution, signed
+linear speed and conservative working stroke. Positive +Z pinion rotation moves
+the rack toward world +X. Preview stops at the stroke end: reverse input speed
+or select Initial pose to return. Complete guide, mounting and end stops in CAD.
+Fixed rectangular rack ends include untothed lands for the tooth sweep. Exports
+retain the nominal initial pose. See [equations and limits](technical/rack.md).
+
+**Hypoid gear pair:** choose the tooth counts, wheel reference module and width,
+master spiral angle and signed shaft offset. The pinion is generated from the
+master wheel with the offset included in the conjugacy equation. Shaft directions
+are 90°; their shortest distance is the absolute offset. The sign mirrors the
+construction and determines the trace hands. This first custom construction allows
+up to 6% of the reference cone distance; branch, root-wall, regularity and connected
+engagement checks can reject additional combinations. Module and pressure angle
+refer to the chosen master, not standard hypoid manufacturing dimensions. Complete
+supports and validate the exported pair for your application. See
+[method and limits](technical/hypoid.md).
+
+**Bevel gear pair:** two gear blanks on intersecting 90° shafts. **Tooth type**
+selects straight, spiral or Zerol-style. Spiral exposes its angle and local hand;
+Zerol-style exposes the developed trace curvature radius and hand, with zero mean
+spiral angle. Its custom spherical flanks are not industrial Gleason octoids.
+Set pinion/wheel teeth, outer module, face width along the pitch cone and both
+bores. Motion → Drive connections swaps the input and output without swapping
+the physical bore assignments. Positive speeds use pinion world +X and wheel
+world +Z. The result cards show both pitch-cone angles. Shafts, supports and
+retention are completed in CAD. These custom spherical-involute blanks are not
+a standard cutter design; see [equations and limits](technical/bevel-pair.md).
+
 The verified local NSK catalog provides nominal open deep groove ball bearing dimensions and official source links. It does not automatically substitute sealed variants, other clearances or manufacturers. Linked dimensions are highlighted and locked in the interface.
 
-Automatic bearing and hardware options cover supported single spur/helical/double helical gears, planetary and cycloidal assemblies, plus fixed-axis shaft supports: **both shafts for parallel reducers**, and **the pinion shaft only for internal reducers**. The internal ring output still needs a dedicated annular bearing/support. The new supports share their real seats, shafts, applicable grooves, keys and spacers across preview, CAD, STL and BOM. Forward/reverse connections preserve the physical shaft ownership of rotating hardware.
+**Parallel-shaft stages:** use **Number of stages** and **Tooth type** in the model
+selector. Both controls remain independent: one, two or three stages support
+spur, helical and double-helical teeth. Changing stage count preserves tooth type.
+Existing spur projects keep their original construction identifiers.
+Each stage has its own tooth counts, normal module, face width and helix angle
+when applicable. The mating wheel automatically has the opposite helix hand.
+Double helices offer **Joined** teeth or **Separated** halves with a positive
+central groove per stage; the groove is part of that stage’s total face width.
+In Assembly,
+**Centre-line turn · stage 2** sets the signed turn from the first to the second
+centre line; stage 3 has its own relative turn. Shaft axes remain parallel.
+Zero is straight, +90° folds left and −90° right viewed from above (+Z).
+Each intermediate wheel, connecting hub and following pinion share a shaft.
+The generator rejects nonmating swept-envelope overlap. These constructions use
+manual shaft dimensions; automatic bearings/hardware and the working-backlash
+solver remain single-stage features. See the [equations and limits](technical/parallel.md)
+and the folded [two-stage](../examples/parallel-two-stage-folded.config.json) and
+[three-stage](../examples/parallel-three-stage-folded.config.json) examples.
+
+Automatic bearing and hardware options cover supported single spur/helical/double helical gears, planetary and cycloidal assemblies, plus fixed-axis shaft supports: **both shafts for single-stage parallel reducers**, and **the pinion shaft only for internal reducers**. The internal ring output still needs a dedicated annular bearing/support. The new supports share their real seats, shafts, applicable grooves, keys and spacers across preview, CAD, STL and BOM. Forward/reverse connections preserve the physical shaft ownership of rotating hardware.
 
 Bearing-in-bore and common flange screws are disabled with reasons for parallel/internal pairs; their independent bearing blocks do not form a common frame. Generic automation is explicitly disabled for crossed-axis worm and deforming strain-wave constructions and the dedicated printed eccentric construction. Catalog omissions, such as keys or external retainers unavailable at a selected shaft diameter, are explained beside the controls and in BOM requirements. Existing supported assemblies retain their flange fastener options.
 

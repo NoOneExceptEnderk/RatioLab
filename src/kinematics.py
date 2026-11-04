@@ -5,9 +5,13 @@
 Speeds use rpm; signed ratio is input speed / output speed. This stage completes
 the selected I/O mounting and ports after family/catalog/hardware construction.
 """
+from parallel_multistage import VARIANTS as PARALLEL_MULTISTAGE_VARIANTS
 from itertools import permutations
 TRIPLES = {'planetary': {'sun': 'Sun', 'carrier': 'Planet carrier', 'ring': 'Ring'}, 'cycloidal': {'eccentric': 'Eccentric', 'output': 'Pin flange', 'ring': 'Ring / housing'}, 'harmonic': {'wave': 'Wave generator', 'flex': 'Flexspline', 'circular': 'Circular spline'}}
 PAIRS = {'parallel': ('Pinion', 'Wheel'), 'internal': ('Pinion', 'Ring'), 'worm': ('Worm', 'Wheel')}
+PAIRS['bevel'] = ('Pinion · +X', 'Wheel · +Z')
+PAIRS['face'] = ('Pinion · +X', 'Face wheel · +Z')
+PAIRS['hypoid'] = ('Pinion · offset +X axis', 'Wheel · +Z')
 DEFAULT = {'planetary': 'sun_carrier_ring', 'cycloidal': 'eccentric_output_ring', 'harmonic': 'wave_flex_circular'}
 
 def options(family):
@@ -91,6 +95,11 @@ def apply(d):
         from wolfrom import apply_kinematics
         apply_kinematics(d)
         record = d.analysis['kinematics']
+    elif f == 'parallel' and v['variant'] in PARALLEL_MULTISTAGE_VARIANTS:
+        from parallel_multistage import apply_kinematics
+        apply_kinematics(d)
+        record = d.analysis['kinematics']
+        label = record['label']
     elif f in TRIPLES:
         n = 2 if f == 'planetary' and v['variant'] in ('two_stage', 'two_stage_double') else 1
         speed = v['input_rpm']
@@ -140,7 +149,7 @@ def apply(d):
         for p in d.parts:
             name = p.name
             member = ''
-            if f == 'parallel':
+            if f in ('parallel', 'bevel', 'hypoid', 'face'):
                 member = p.port.get('member','') if p.port.get('member') in ('A','B') else 'A' if any((k in name for k in ('Pinion', 'Shaft_input'))) else 'B' if any((k in name for k in ('Wheel', 'Shaft_output'))) else ''
             if f == 'internal':
                 member = p.port.get('member','') if p.port.get('member') in ('A','B') else 'A' if 'input' in name else 'B' if 'Ring' in name else ''
@@ -148,10 +157,10 @@ def apply(d):
                 member = 'A' if name.startswith('Screw_') else 'B' if name.startswith('Wheel_') else ''
             if member:
                 driving = (member == 'A') == (scheme == 'forward')
-                p.port = dict(member=member, role='input' if driving else 'output', rpm=a_speed if member == 'A' else b_speed)
+                p.port = dict(p.port if f in ('bevel','hypoid','face') else {}, member=member, role='input' if driving else 'output', rpm=a_speed if member == 'A' else b_speed)
     if scheme != default(f):
         from mounting import pairs
-        if f in PAIRS and f not in TRIPLES:
+        if f in PAIRS and f not in TRIPLES and f not in ('bevel','hypoid','face') and not (f == 'parallel' and v['variant'] in PARALLEL_MULTISTAGE_VARIANTS):
             pairs(d)
         for p in d.parts:
             if not (p.stations or p.mesh or p.double or p.twist):

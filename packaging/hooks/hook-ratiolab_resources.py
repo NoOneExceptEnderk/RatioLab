@@ -20,3 +20,7 @@ datas += [(str(path), str(Path('ratiolab_resources')/path.parent.relative_to(res
 addin = resources/'fusion_addin'/'RatioLabBridge'
 datas += [(str(path), 'ratiolab_resources/fusion_addin/RatioLabBridge')
           for pattern in ('*.py', '*.manifest') for path in sorted(addin.glob(pattern))]
+
+# Reviewed thumbnails rendered from the actual default generator models.
+datas += [(str(path), "ratiolab_resources/model-catalog")
+          for path in sorted((resources/"model-catalog").glob("*.png"))]

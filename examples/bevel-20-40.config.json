@@ -1,0 +1,19 @@
+{
+  "format": "solidcraft-riduttori/1",
+  "family": "bevel",
+  "parameters": {
+    "variant": "straight",
+    "module": 2,
+    "pinion": 20,
+    "wheel": 40,
+    "width": 8,
+    "pressure": 20,
+    "backlash": 0.15,
+    "bore": 6,
+    "output_bore": 8,
+    "io_scheme": "forward",
+    "input_rpm": 1500,
+    "input_torque": 1,
+    "efficiency": 90
+  }
+}

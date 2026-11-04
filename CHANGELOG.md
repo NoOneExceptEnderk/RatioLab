@@ -6,6 +6,119 @@ published packages and their verification results.
 
 ## Unreleased
 
+## 0.2.0 — 2026-11-04
+
+### Added
+
+- Add two- and three-stage parallel-shaft reducers with spur, helical and
+  joined/separated double-helical teeth. Provide independent stage-count and
+  tooth-type selectors, per-stage dimensions, helix/groove controls, compound
+  intermediate shafts and signed planar centre-line turns. Preserve legacy
+  variants, shaft-based motion, reverse operation, finite search and exports;
+  reject nonmating swept-envelope overlap. Automatic bearing seats and standard
+  hardware remain limited to single-stage pairs.
+
+- Add standalone bevel pairs on 90° intersecting shafts with straight,
+  logarithmic spiral and circular Zerol-style tooth traces, independent bores,
+  reversible ports and shared preview/export surfaces. Use spherical involute
+  working flanks with bounded engagement and trace checks. The curved traces
+  are custom constructions, not industrial Gleason octoidal cutter geometry.
+
+- Add custom generated hypoid pairs with signed shaft offset, a conjugate pinion
+  envelope, reversible ports and shared desktop/browser/export surfaces. Limit
+  offset to 6% of the reference distance and refuse unresolved branch, regularity,
+  root-wall or connected engagement checks. This is a custom master-wheel system,
+  without industrial cutter or strength/manufacturing certification.
+
+- Add finite rack-and-pinion drives with spur, helical and joined/separated
+  double helices. Share surfaces across previews and exports; report linear
+  speed, travel per revolution and a conservative finite stroke. Stop animation
+  at the stroke limit and preserve position on signed RPM edits. Interference
+  sampling covers the finite stroke without claiming a rotary period.
+
+- Add generated face-gear pairs with spur, helical and joined/separated
+  double-helical pinions, 90° shaft directions and signed shaft offset. Expose
+  radial setting, crest, bore and backing dimensions. Generate the matching
+  wheel envelope and joined pinion-cusp transition; trim concave intersections
+  and retain independent separated-groove controls and old positive-groove
+  projects. Apply envelope, regularity, pointing and bounded engagement checks.
+  Equal-count generation, crest and nonworking root relief remain nominal
+  constructions, without industrial localization, loaded-contact or strength
+  qualification.
+
+### Changed
+
+- Describe browser and desktop gear generation in search and social metadata.
+- Add downloadable planetary and cycloidal worked examples, real profile illustrations, and discoverable browser and current model guides.
+
+- Clarify Motion controls in desktop and browser with full-width input/output
+  selectors for multi-member mechanisms, distinct fixed-member panels and a
+  compact transport/rate bar. Keep all Wolfrom member speeds in Motion details
+  beside a visible nominal-output readout; preserve all I/O schemes, rate drafts
+  and apply-on-release slider behavior.
+
+- Preview RPM values while dragging the desktop/browser speed slider; apply
+  only the final choice on pointer/key release as one Undo step. Preserve the
+  applied speed during dragging and confirm pending choices for Save/Export.
+
+- Replace the family dropdown with a searchable illustrated model catalog and
+  variant selection before applying. Browse or cancel without changing the
+  project; apply a family and its variants as one undoable action in desktop
+  and browser. Centre thumbnails on the nominal mechanism without exploded
+  padding, and open the catalog through the compact four-square outline icon.
+
+- Integrate direct input/output member cards with the compact sidebar and live
+  variant summary. Preserve all supported three-member/stage permutations,
+  fixed topologies, physical refusals, precise drafts and history. Keep model
+  reset in the Project menu and return desktop launches to the workspace even
+  when the optional catalog was previously left open.
+
+- Share compact choice menus across desktop model, motion, I/O, export and tools.
+  Preserve search where supported, keyboard navigation and selection models;
+  size menus to translated contents, open below their fields and scroll long
+  lists within viewport bounds. Browser menus omit repeated titles and close
+  buttons; retain the shared palette and active-control highlighting.
+
+- Replace preview axes and the View camera panel with an interactive orientation
+  cube in browser and desktop: face, edge and corner snaps, dragging, Home, Fit
+  and Pan. Right mouse drag pans without rotating or selecting components.
+  Keep section, supports, housing, interaction and continuous explosion in a
+  compact Display menu, preserving picking and measurement markers.
+
+- Remove model-header and parameter question-mark icons while retaining
+  contextual hover/F1 help, original schematics and native field controls.
+  Enlarge the model selector hit area within the existing sidebar. Thicken
+  hover-card outlines inward without changing their outer size or palette.
+
+### Fixed
+
+- Use the approved cube-and-chain icon for CAD connections on desktop and web.
+
+- Align the desktop Initial pose icon with the browser's circular return arrow.
+
+- Keep the Components status summary visible when closing and reopening its
+  tool panel, rather than leaving the shared label in the retired panel.
+
+- Include the orientation-cube modules in Python wheels and the CJK font
+  collection in source archives. Check lazy local runtime dependencies and the
+  complete source font payload, licences and provenance when verifying builds.
+
+- Smooth browser motion using display cadence and one canonical pose request at
+  a time. Retain the latest RPM and phase slider edits during worker updates;
+  keep continuous slider positions while rounding RPM values and preserve
+  explicitly typed precision. Desktop rate edits retain BOM/result widgets;
+  phase text no longer refreshes at the model's frame rate.
+
+- Reuse nominal component bounds, BOM identities and component-list widgets
+  during RPM-only edits, including heavy paused Wolfrom models. Keep the
+  existing 3D frame when a paused speed change preserves its displayed pose;
+  invalidate cached details when geometry changes.
+
+### Verification
+
+- Extend installed-runtime catalog checks and agent project round trips to all
+  fifteen families, including joined/separated double-helical face gears.
+
 ## 0.1.16 — 2026-11-02
 
 ### Changed

@@ -36,7 +36,8 @@ class CatalogVerificationTests(unittest.TestCase):
     def test_previous_ten_family_runtime_and_duplicate_wolfrom_are_rejected(self):
         from geometry import FAMILIES
         current = [dict(id=key) for key in FAMILIES]
-        previous = [row for row in current if row['id'] != 'wolfrom']
+        previous = [dict(id=key) for key in ('spur','helical','double','planetary',
+                    'cycloidal','harmonic','worm','parallel','internal','differential')]
         self.assertEqual(len(previous), 10)
         for rows in (previous, current+[dict(id='wolfrom')],
                      [row for row in current if row['id'] != 'spur']+[dict(id='wolfrom')]):
@@ -60,7 +61,9 @@ class ArtifactVerificationTests(unittest.TestCase):
                  'packaging/mcp_entrypoint.py':'# fixture entrypoint',
                  'scripts/check-installed-mcp.py':'# fixture verifier'}
         for name in ('DejaVuSans.ttf','DejaVuSansMono.ttf','DejaVuSans-Bold.ttf',
-                     'LICENSE-DejaVu.txt','AUTHORS-DejaVu.txt','SOURCE.json'):
+                     'LICENSE-DejaVu.txt','AUTHORS-DejaVu.txt','SOURCE.json',
+                     'NotoSansCJK-Regular.ttc','NotoSansTamil-Regular.ttf',
+                     'LICENSE-NotoCJK.txt','LICENSE-NotoTamil.txt','SOURCE-NOTO.json'):
             sources['packaging/fonts/'+name]='fixture font asset'
         for name,body in sources.items():
             path=self.root/name;path.parent.mkdir(parents=True,exist_ok=True);path.write_bytes(body.encode('utf-8'))
@@ -73,9 +76,13 @@ class ArtifactVerificationTests(unittest.TestCase):
                                    ('CHANGELOG.md','CHANGELOG.md')]:
             self.payload['ratiolab_resources/'+destination]=sources[source]
         for name in ('LICENSE','COPYRIGHT'):self.payload['fixture-1.2.3.dist-info/licenses/'+name]=sources[name]
+        self.sdist_payload={name:body.encode() for name,body in sources.items()}
+        self.write_sdist(self.sdist_payload)
+
+    def write_sdist(self,payload):
         with tarfile.open(self.out/'fixture-1.2.3.tar.gz','w:gz') as archive:
-            for name,body in sources.items():
-                data=body.encode();member=tarfile.TarInfo('fixture-1.2.3/'+name);member.size=len(data)
+            for name,data in payload.items():
+                member=tarfile.TarInfo('fixture-1.2.3/'+name);member.size=len(data)
                 archive.addfile(member,io.BytesIO(data))
 
     def verify(self,payload=None):
@@ -95,6 +102,29 @@ class ArtifactVerificationTests(unittest.TestCase):
         for name in ('ratiolab_resources/surplus.md','ratiolab_resources/updates.json','updates.json'):
             payload=dict(self.payload);payload[name]='{}'
             with self.subTest(name=name),self.assertRaises(AssertionError):self.verify(payload)
+
+    def test_lazy_local_imports_must_be_declared_even_when_wheel_matches_list(self):
+        (self.root/'src/navigation.py').write_text('VALUE=2\n')
+        for statement in ('import navigation', 'from navigation import VALUE'):
+            with self.subTest(statement=statement):
+                (self.root/'src/fixture.py').write_text('def open_panel():\n    '+statement+'\n')
+                with self.assertRaisesRegex(AssertionError,'unpackaged local dependencies.*navigation'):
+                    self.verify()
+
+    def test_sdist_requires_font_collections_licences_and_provenance(self):
+        self.verify()
+        for name in ('NotoSansCJK-Regular.ttc','LICENSE-NotoTamil.txt','SOURCE-NOTO.json'):
+            with self.subTest(name=name):
+                incomplete=dict(self.sdist_payload);incomplete.pop('packaging/fonts/'+name)
+                self.write_sdist(incomplete)
+                with self.assertRaisesRegex(AssertionError,'missing.*'+name):self.verify()
+
+    def test_sdist_font_bytes_must_match_source(self):
+        for name in ('NotoSansCJK-Regular.ttc','NotoSansTamil-Regular.ttf','LICENSE-NotoCJK.txt'):
+            with self.subTest(name=name):
+                changed=dict(self.sdist_payload);changed['packaging/fonts/'+name]=b'corrupted or old payload'
+                self.write_sdist(changed)
+                with self.assertRaisesRegex(AssertionError,'changed font payload.*'+name):self.verify()
 
 
 if __name__=='__main__':unittest.main()

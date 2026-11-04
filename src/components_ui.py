@@ -65,6 +65,7 @@ class Controller:
     def __init__(self,app,container):
         self.app=app;self.window=None;self.snapshot=None;self.revision=None;self.selected=();self.saved_filters=None;self.points=[];self.cache={};self.syncing=False;self.pose=None;self.alive=True
         self.design=None;self.scene=None
+        self.nominal_details={};self.list_state=None
         self.button=Gtk.Button(label='Components / measure…');self.button.connect('clicked',lambda _:self.open())
         self.summary=label('Click a visible surface to select · Ctrl/Shift adds');self.summary.set_hexpand(True)
         self.markers=Gtk.DrawingArea(hexpand=True,vexpand=True);self.markers.set_can_target(False);self.markers.set_draw_func(self.draw);app.preview_overlay.add_overlay(self.markers)
@@ -109,6 +110,7 @@ class Controller:
     def refreshed(self,design):
         app=self.app
         if not hasattr(app,'document'):return
+        if not self.same_components(design):self.nominal_details.clear()
         snapshot=app.project_snapshot()
         changed=self.revision!=app.document.token or (self.snapshot is not None and not equivalent(self.snapshot,snapshot))
         if not (self.same_selection_snapshot(snapshot) and self.same_components(design)
@@ -121,6 +123,7 @@ class Controller:
         self.populate();self.update()
 
     def invalidate(self,message='Document replaced · selection cleared'):
+        self.nominal_details.clear()
         self.restore();self.selected=();self.points=[];self.cache={};self.revision=None;self.snapshot=None
         self.design=None;self.scene=None
         self.app.canvas.selected_indices=();self.app.canvas.queue_render();self.markers.queue_draw()
@@ -133,9 +136,14 @@ class Controller:
 
     def open(self):
         if self.window:self.window.present();return
+        self.list_state=None
         if hasattr(self.app,'document') and self.app.design and self.revision is None:self.refreshed(self.app.design)
         win=self.app.tools.panel('components')
         self.window=win;body=Gtk.Box(orientation=Gtk.Orientation.VERTICAL,spacing=9,margin_start=14,margin_end=14,margin_top=14,margin_bottom=14);win.set_child(body)
+        # The controller retains this label after its previous panel is removed.
+        # Move it from that retired body before adding it to the new inspector.
+        parent=self.summary.get_parent()
+        if parent:parent.remove(self.summary)
         body.append(self.summary)
         self.inspector_stack=Gtk.Stack();self.inspector_stack.set_hhomogeneous(False);self.inspector_stack.set_vhomogeneous(False)
         tabs=Gtk.StackSwitcher(stack=self.inspector_stack);body.append(tabs);body.append(self.inspector_stack)
@@ -181,10 +189,24 @@ class Controller:
 
     def populate(self):
         if not self.window:return
+        visible=self.visible_indices()
+        rows=tuple((p.name,p.role,component_title(p)) for p in self.app.design.parts) if self.app.design and self.revision is not None else ()
+        state=(id(self.app.canvas.scene),visible,rows)
+        if state==self.list_state:
+            # Rate-only revisions retain component identity and the same
+            # visible rows. Synchronize selection without replacing widgets.
+            selected=tuple(row.source_index for row in self.list.get_selected_rows())
+            if selected!=self.selected:
+                self.syncing=True
+                try:
+                    self.list.unselect_all()
+                    for index in self.selected:self.list.select_row(self.list.get_row_at_index(index))
+                finally:self.syncing=False
+            return
+        self.list_state=state
         self.syncing=True
         while (child:=self.list.get_first_child()):self.list.remove(child)
         if self.app.design and self.revision is not None:
-            visible=self.visible_indices()
             for i,p in enumerate(self.app.design.parts):
                 row=Gtk.ListBoxRow();row.source_index=i
                 row.set_child(label(f'{i+1:03d} · {component_title(p)}'+(' · hidden' if i not in visible else '')))
@@ -221,8 +243,13 @@ class Controller:
         if current:
             import bom
             for i in self.selected:
-                p=self.app.design.parts[i];dims=geometry.dimensions(p)
-                descriptions.append(f'{i+1:03d} {component_title(p)}\nSource name: {p.name} · role: {p.role} · BOM code: {bom.part_info(p)["code"]}\nNominal sampled XYZ bounds: '+ ' × '.join(f'{q:.6g}' for q in dims['size_mm'])+' mm'+f' · min {self.xyz(dims["min_mm"])} · max {self.xyz(dims["max_mm"])}')
+                # Bounds/BOM identity describe nominal geometry, not RPM or
+                # display pose. Keep at most one entry per current component;
+                # refreshed()/invalidate() clear it when that geometry changes.
+                if i not in self.nominal_details:
+                    p=self.app.design.parts[i];dims=geometry.dimensions(p)
+                    self.nominal_details[i]=f'{i+1:03d} {component_title(p)}\nSource name: {p.name} · role: {p.role} · BOM code: {bom.part_info(p)["code"]}\nNominal sampled XYZ bounds: '+ ' × '.join(f'{q:.6g}' for q in dims['size_mm'])+' mm'+f' · min {self.xyz(dims["min_mm"])} · max {self.xyz(dims["max_mm"])}'
+                descriptions.append(self.nominal_details[i])
         self.export_text.set_text(f'Export {n} selected components · nominal pose · includes hidden selections')
         self.detail.set_text('\n'.join(descriptions) or 'No current selection')
         if not self.points:self.measure_text.set_text('No measurement · click two visible surface points in Measure mode')
@@ -302,7 +329,7 @@ class Controller:
                 if plan:ts=geometry.posed(ts,plan,index,phase)
                 surfaces.append((index,ts))
             s=canvas.scene
-            origin,direction=geometry.ray(x,y,s.center,s.radius,canvas.zoom,canvas.yaw,canvas.tilt,canvas.get_width(),canvas.get_height())
+            origin,direction=geometry.ray(x,y,canvas.camera_center,s.radius,canvas.zoom,canvas.yaw,canvas.tilt,canvas.get_width(),canvas.get_height())
             hit=geometry.pick(origin,direction,surfaces,s.center[1] if canvas.section else None,max_distance=8*s.radius)
         except (ValueError,ArithmeticError) as error:
             self.summary.set_text(f'Surface inspection unavailable: {error}');return
@@ -328,7 +355,7 @@ class Controller:
     def draw(self,area,cr,width,height):
         c=self.app.canvas
         if not self.points or not c.scene:return
-        coords=[geometry.project(q,c.scene.center,c.scene.radius,c.zoom,c.yaw,c.tilt,width,height) for _,q in self.points]
+        coords=[geometry.project(q,c.camera_center,c.scene.radius,c.zoom,c.yaw,c.tilt,width,height) for _,q in self.points]
         def stroke():
             cr.set_source_rgb(.035,.045,.06);cr.set_line_width(6);cr.stroke_preserve()
             cr.set_source_rgb(1,.92,.22);cr.set_line_width(2);cr.stroke()

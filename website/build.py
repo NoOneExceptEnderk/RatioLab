@@ -18,19 +18,23 @@ from zipfile import ZIP_DEFLATED, ZipFile, ZipInfo
 
 from releases import REPOSITORY, cache_document, fetch_latest, load_cache, validate_release
 from render_docs import DOCUMENTS, build_docs, render_template
-from seo import HOME_DESCRIPTION, HOME_TITLE, directory_links, discovery_files, home_schema, metadata
+from seo import HOME_DESCRIPTION, HOME_TITLE, IMAGE_VERSION, directory_links, discovery_files, home_schema, metadata
 from social_links import load_social_channels, render_discord_ctas, render_social_links
+import webapp_build
 from webapp_build import HEADERS, MAX_FILE_SIZE, allowed_directories, compose_app, public_app_files, validate_bundle
 
 WEBSITE = Path(__file__).resolve().parent
 REPOSITORY_ROOT = WEBSITE.parent
 STATIC_ASSETS = ('ratiolab-icon.png', 'ratiolab-logo-dark.png', 'workspace.png', 'site.css', 'site.js',
                  'docs-search.js', 'planetary.json', 'cycloidal.json', 'worm.json', 'parallel.json',
-                 'harmonic.json', 'worm.bin', 'harmonic.bin', 'os-download.js', 'mechanism.js')
+                 'harmonic.json', 'worm.bin', 'harmonic.bin', 'os-download.js', 'mechanism.js',
+                 'planetary-guide.svg', 'cycloidal-guide.svg')
+EXAMPLE_PROJECTS = ('planetary-browser-guide.config.json', 'cycloidal-browser-guide.config.json')
 
 
 def public_files():
     return ['index.html', 'docs/index.html', *(doc.route for doc in DOCUMENTS), '404.html', 'sitemap.xml', 'robots.txt',
+            *('examples/' + name for name in EXAMPLE_PROJECTS),
             *('assets/' + name for name in STATIC_ASSETS), 'assets/search-index.js', '_headers', *public_app_files()]
 
 
@@ -181,12 +185,13 @@ def safe_output(output, repository_root, website_root):
     return result
 
 
-def build_home(output_root, release):
+def build_home(output_root, release, *, web_version):
     values = {**release.downloads, 'version': release.version, 'repository': REPOSITORY,
+              'workspace_image': 'assets/workspace.png?v=' + IMAGE_VERSION,
               'release': release.url, 'issues': REPOSITORY + '/issues', 'license': REPOSITORY + '/blob/main/LICENSE'}
     escaped = {key: html.escape(value, quote=True) for key, value in values.items()}
     channels = load_social_channels()
-    escaped['seo_head'] = metadata('index.html', HOME_TITLE, HOME_DESCRIPTION, schema=home_schema(release))
+    escaped['seo_head'] = metadata('index.html', HOME_TITLE, HOME_DESCRIPTION, schema=home_schema(release, web_version))
     escaped.update(social_links=render_social_links(channels), **render_discord_ctas(channels))
     template = (WEBSITE / 'index.template.html').read_text(encoding='utf-8')
     (output_root / 'index.html').write_text(render_template(template, escaped), encoding='utf-8')
@@ -217,13 +222,25 @@ def build(*, offline=False, output=None, repository_root=REPOSITORY_ROOT, releas
             if source.is_symlink() or not source.is_file():
                 raise ValueError('Missing or unsafe static asset: ' + name)
             shutil.copyfile(source, stage / 'assets' / name)
-        build_home(stage, release)
+        web_version = json.loads((webapp_build.ROOT / 'src/ratiolab_resources/version.json').read_text(encoding='utf-8'))['release']
+        (stage / 'examples').mkdir()
+        for name in EXAMPLE_PROJECTS:
+            source = repository_root / 'examples' / name
+            if source.is_symlink() or not source.is_file():
+                raise ValueError('Missing or unsafe tutorial project: ' + name)
+            project = json.loads(source.read_text(encoding='utf-8'))
+            if project.get('format') != 'solidcraft-riduttori/1' or not isinstance(project.get('parameters'), dict):
+                raise ValueError('Invalid tutorial project: ' + name)
+            shutil.copyfile(source, stage / 'examples' / name)
+        build_home(stage, release, web_version=web_version)
         sections = build_docs(stage, repository_root, source_ref=source_ref, source_label=source_label)
-        routes = ['index.html', 'docs/index.html', *(doc.route for doc in DOCUMENTS)]
+        routes = ['index.html', 'docs/index.html', *(doc.route for doc in DOCUMENTS), 'app/index.html']
         discovery_files(stage, routes)
         directory_links(stage, routes)
         version_assets(stage)
-        compose_app(stage, offline=offline, runtime_dir=web_runtime_dir)
+        app_manifest = compose_app(stage, offline=offline, runtime_dir=web_runtime_dir)
+        if app_manifest['source_version'] != web_version:
+            raise ValueError('Browser source version differs from website application metadata')
         validate_output(stage)
         if not offline:
             atomic_text(WEBSITE / 'release.json', json.dumps(cache_document(release), indent=2) + '\n')

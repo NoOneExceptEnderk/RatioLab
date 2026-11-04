@@ -26,6 +26,16 @@ class ResultSummaryTests(unittest.TestCase):
             if 'signed_ratio' in d.analysis:
                 self.assertEqual(float(values[0][1]), d.analysis['signed_ratio'])
                 self.assertAlmostEqual(float(values[1][1]), d.analysis['output']['rpm'], places=2)
+            elif family == 'rack':
+                from math import pi
+                travel = 2*pi*d.analysis['rack']['pitch_radius_mm']
+                self.assertEqual([v[0] for v in values],
+                                 ['Travel per revolution','Linear speed','Working stroke'])
+                self.assertEqual([v[2] for v in values], ['mm/rev','mm/s','mm'])
+                self.assertAlmostEqual(float(values[0][1]), travel, places=4)
+                self.assertAlmostEqual(float(values[1][1]), travel*d.values['input_rpm']/60, places=4)
+                self.assertAlmostEqual(float(values[2][1].removeprefix('±')),
+                                       d.analysis['rack']['travel_limits_mm'][1], places=4)
             elif family == 'differential':
                 self.assertEqual(values[0][0], 'Carrier tilt')
                 self.assertEqual(values[1][0], 'Output spin')
@@ -45,8 +55,8 @@ def pump(duration=.1):
     end = time.monotonic()+duration
     context = GLib.MainContext.default()
     while time.monotonic()<end:
-        while context.pending():
-            context.iteration(False)
+        # Dispatch one event per turn so the budget and other threads stay live.
+        context.iteration(False)
         time.sleep(.005)
 
 
@@ -78,14 +88,11 @@ class WorkspaceTests(unittest.TestCase):
 
     def setUp(self):
         a = self.app
-        a.parameter_help.close()
         a.motion_input_invalid = False
         a.load_config_data({'format':'solidcraft-riduttori/1','family':'planetary',
                             'parameters':generate('planetary').values})
         gui_workflow.show_page(a,'geometry')
-        a.workspace_paned.set_position(230)
-        from ratiolab_checks import _wait_for_frame
-        _wait_for_frame(a.canvas,GLib.MainContext.default())
+        pump(.02)
 
     def test_family_roundtrip_keeps_default_and_explicit_sidebar_width(self):
         from test_interference_gui import wait_until
@@ -188,7 +195,7 @@ class WorkspaceTests(unittest.TestCase):
         self.assertTrue(a.geometry_group_boxes['shafts']._section.get_expanded())
         self.assertTrue(a.inputs['bore'].get_mapped())
 
-    def test_compact_inputs_keep_inside_help_units_and_native_stepping(self):
+    def test_compact_inputs_keep_hover_help_units_and_native_stepping(self):
         from gi.repository import Gtk
         a=self.app
         a.load_config_data(dict(format='solidcraft-riduttori/1',family='parallel',parameters=generate('parallel').values))
@@ -199,28 +206,24 @@ class WorkspaceTests(unittest.TestCase):
                 spin=a.inputs[key];binding=a.parameter_help.bindings[key]
                 self.assertEqual(binding.label.get_layout().get_line_count(),1)
                 self.assertEqual(spin.get_alignment(),0)
-                self.assertIsInstance(binding.button.get_child(),Gtk.DrawingArea)
-                self.assertEqual(binding.button.get_child().glyph_name,'help')
-                ok,icon=binding.button.compute_bounds(spin);self.assertTrue(ok)
-                self.assertGreaterEqual(icon.get_x(),0)
-                self.assertLessEqual(icon.get_x()+icon.get_width(),spin.get_width())
+                self.assertFalse(binding.button.get_visible())
+                self.assertFalse(binding.button.get_mapped())
                 child=spin.get_first_child()
                 while child:
                     if isinstance(child,Gtk.Button):self.assertFalse(child.get_visible())
                     child=child.get_next_sibling()
-        spin=a.inputs['pinion'];spin.grab_focus()
-        from ratiolab_checks import _wait_for_frame
-        _wait_for_frame(a.canvas,GLib.MainContext.default())
+        spin=a.inputs['pinion'];spin.grab_focus();pump(.05)
         buttons=[];child=spin.get_first_child()
         while child:
             if isinstance(child,Gtk.Button):buttons.append(child)
             child=child.get_next_sibling()
         self.assertTrue(buttons and all(button.get_visible() for button in buttons))
         binding=a.parameter_help.bindings['pinion']
-        ok,help_bounds=binding.button.compute_bounds(spin);self.assertTrue(ok)
+        self.assertFalse(binding.button.get_mapped())
         for button in buttons:
             ok,step_bounds=button.compute_bounds(spin);self.assertTrue(ok)
-            self.assertLessEqual(help_bounds.get_x()+help_bounds.get_width(),step_bounds.get_x())
+            self.assertGreaterEqual(step_bounds.get_x(),0)
+            self.assertLessEqual(step_bounds.get_x()+step_bounds.get_width(),spin.get_width())
         self.assertEqual(a.parameter_panel.get_width(),230)
         before=spin.get_value()
         spin.spin(Gtk.SpinType.STEP_FORWARD,1)
@@ -282,7 +285,7 @@ class WorkspaceTests(unittest.TestCase):
                                 self.assertEqual(label.get_layout().get_line_count(),1)
                                 self.assertEqual(label.get_ellipsize(),0)
             for button,name in ((a.undo_button,'undo'),(a.redo_button,'redo'),
-                                (a.project_menu,'folder'),(a.cad_action,'plug'),(a.export_menu,'download')):
+                                (a.project_menu,'folder'),(a.cad_action,'cad-link'),(a.export_menu,'download')):
                 self.assertIsInstance(button.workspace_icon,Gtk.DrawingArea)
                 self.assertEqual(button.workspace_icon.glyph_name,name)
                 self.assertEqual(button.workspace_icon.get_sensitive(),button.get_sensitive())
@@ -290,8 +293,17 @@ class WorkspaceTests(unittest.TestCase):
             _wait_for_frame(a.canvas,GLib.MainContext.default())
             ok,chip=a.family_chip.compute_bounds(a.secondary_toolbar);self.assertTrue(ok)
             self.assertEqual(round(chip.get_height()),24)
-            ok,choice=a.selector.compute_bounds(a.parameter_panel);self.assertTrue(ok)
-            self.assertEqual(round(choice.get_height()),22)
+            self.assertFalse(a.selector.get_mapped())
+            self.assertTrue(a.catalog_button.get_mapped())
+            self.assertIsNotNone(a.catalog_picture.get_paintable())
+            ok,choice=a.catalog_button.compute_bounds(a.parameter_panel);self.assertTrue(ok)
+            self.assertEqual(round(choice.get_height()),a.catalog_button.get_child().get_height()+12)
+            thumbnail=a.catalog_picture.get_parent()
+            self.assertEqual((thumbnail.get_width(),thumbnail.get_height()),(50,44))
+            self.assertGreaterEqual(choice.get_x(),0)
+            self.assertLessEqual(choice.get_x()+choice.get_width(),a.parameter_panel.get_width())
+            self.assertEqual(a.catalog_caption.get_text(),'Parallel shaft reducer')
+            self.assertEqual(a.catalog_summary.get_text(),'1 stage · Spur')
             self.assertTrue(a.advanced_expander.has_css_class('geometry-disclosure'))
             self.assertTrue(a.extra_geometry_expander.has_css_class('geometry-disclosure'))
         finally:
@@ -311,7 +323,11 @@ class WorkspaceTests(unittest.TestCase):
     def test_results_precede_motion_and_section_heading_exists(self):
         a=self.app
         self.assertIs(a.metric_cards.get_next_sibling(),a.motion_bar)
-        self.assertEqual(a.model_dimensions_heading.get_text(),'Family')
+        self.assertIs(a.model_dimensions_heading,a.catalog_caption)
+        self.assertTrue(a.catalog_caption.get_mapped())
+        self.assertEqual(a.catalog_caption.get_text(),gui_workflow.CATALOG[a.family][0])
+        self.assertFalse(a.selector.get_mapped())
+        self.assertTrue(a.catalog_button.get_mapped())
         self.assertEqual([a.page_buttons[k].get_label() for k in ('geometry','motion','assembly')],['Dimensions','Motion','Assembly'])
         self.assertIs(a.model_picker.get_next_sibling(),a.section_nav)
 
@@ -341,7 +357,15 @@ class WorkspaceTests(unittest.TestCase):
         self.assertEqual(a.motion_speed_text.get_max_length(),0)
         row=a.motion_bar.get_first_child();rate=row.get_next_sibling()
         self.assertTrue(a.motion_play.is_ancestor(row))
-        self.assertIs(a.motion_speed_text.get_parent(),rate)
+        display=a.motion_rate_display
+        self.assertIs(a.motion_speed_text.get_parent(),display)
+        self.assertIs(display.get_parent(),rate)
+        self.assertIs(display.get_child_by_name('value'),a.motion_speed_text)
+        self.assertIs(display.get_child_by_name('preview'),a.motion_rate_preview)
+        self.assertEqual(display.get_visible_child_name(),'value')
+        self.assertTrue(display.get_hhomogeneous());self.assertTrue(display.get_vhomogeneous())
+        self.assertEqual(a.motion_speed_text.get_accessible_role(),Gtk.AccessibleRole.TEXT_BOX)
+        self.assertEqual(a.motion_speed.get_accessible_role(),Gtk.AccessibleRole.SLIDER)
         self.assertIs(a.motion_phase_label.get_parent(),row)
         self.assertTrue(a.motion_connections.is_ancestor(row))
         self.assertTrue(a.motion_reset.has_css_class('flat'))
@@ -356,17 +380,34 @@ class WorkspaceTests(unittest.TestCase):
         a.motion_reset.emit('clicked')
         children=[];child=rate.get_first_child()
         while child:
-            if child is a.motion_speed_text or isinstance(child,Gtk.Button) and child.get_label() in ('−1','+1'):
+            if child is display or isinstance(child,Gtk.Button) and child.get_label() in ('−1','+1'):
                 children.append(child)
             child=child.get_next_sibling()
         self.assertEqual([w.get_label() if isinstance(w,Gtk.Button) else 'entry' for w in children],['−1','entry','+1'])
         self.assertTrue(children[0].has_css_class('flat'));self.assertTrue(children[2].has_css_class('flat'))
         original=a.motion_speed_text.get_text();raw='12.3456789012345'
         try:
+            from motion_controls import scale_rpm
+            token=a.document.token;rpm=a.motion_rpm
+            ok,normal=display.compute_bounds(a.win);self.assertTrue(ok)
+            a.begin_motion_rate_drag();a.motion_speed.set_value(scale_rpm(137))
+            _wait_for_frame(a.canvas,GLib.MainContext.default())
+            self.assertEqual(display.get_visible_child_name(),'preview')
+            self.assertEqual(a.motion_rate_preview.get_text(),'137')
+            self.assertEqual(a.motion_speed_text.get_text(),original)
+            self.assertEqual(a.motion_rpm,rpm);self.assertEqual(a.document.token,token)
+            ok,preview=display.compute_bounds(a.win);self.assertTrue(ok)
+            self.assertEqual((preview.get_width(),preview.get_height()),(normal.get_width(),normal.get_height()))
+            a.cancel_motion_rate_drag()
+            self.assertEqual(display.get_visible_child_name(),'value')
+            self.assertTrue(a.motion_speed_text.grab_focus())
+            focus=a.win.get_focus()
+            self.assertTrue(focus is a.motion_speed_text or focus.is_ancestor(a.motion_speed_text))
             a.motion_speed_text.set_text(raw);a.motion_speed_text.emit('activate')
             self.assertEqual(a.motion_speed_text.get_text(),raw)
             self.assertEqual(a.motion_rpm,float(raw))
         finally:
+            a.cancel_motion_rate_drag()
             a.motion_speed_text.set_text(original);a.motion_speed_text.emit('activate')
 
     def test_status_tooltip_only_repeats_ellipsized_text(self):
@@ -520,11 +561,15 @@ class WorkspaceTests(unittest.TestCase):
         self.assertNotIn('carrier_bolt_diameter',a.inputs)
 
     def test_differential_spiral_controls_visibility_editing_and_saved_hand(self):
+        from copy import deepcopy
+        from test_interference_gui import wait_until
         a=self.app
         a.load_config_data(dict(format='solidcraft-riduttori/1',family='differential',
                                parameters=generate('differential',dict(variant='spiral',spiral_angle=27.5,spiral_hand=-1)).values))
         self.assertIsNotNone(a.design,a.status.get_text())
-        self.assertTrue(a.variant_box.get_visible())
+        self.assertFalse(a.variant_box.get_mapped())
+        self.assertTrue(a.catalog_button.get_mapped())
+        self.assertIn('Spiral',a.catalog_summary.get_text())
         self.assertIn('spiral_angle',a.inputs)
         self.assertTrue(a.inputs['spiral_angle'].get_sensitive())
         self.assertEqual(a.differential_selectors['spiral_hand'].get_selected(),0)
@@ -537,14 +582,34 @@ class WorkspaceTests(unittest.TestCase):
         a.load_config_data(saved)
         self.assertEqual(a.config(),saved)
         self.assertGreater(len(a.design.parts[0].stations),2)
-        a.variant_selector.set_selected(0)
+        def choose_variant(index):
+            before=deepcopy(a.project_snapshot());token=a.document.token
+            a.catalog_button.emit('clicked');pump()
+            picker=a.model_catalog
+            self.assertTrue(picker.window.get_mapped())
+            self.assertTrue(picker.selectors[0].get_mapped())
+            picker.selectors[0].set_selected(index);pump()
+            self.assertEqual(a.project_snapshot(),before)
+            self.assertEqual(a.document.token,token)
+            picker.commit()
+            self.assertTrue(wait_until(lambda:not a.pending and not a._geometry_waiting))
+        choose_variant(0)
         self.assertIsNotNone(a.design,a.status.get_text())
+        self.assertIn('Straight',a.catalog_summary.get_text())
         self.assertNotIn('spiral_angle',a.inputs)
         self.assertNotIn('spiral_hand',a.differential_selectors)
         self.assertEqual(len(a.design.parts[0].stations),2)
-        a.variant_selector.set_selected(1)
+        choose_variant(1)
+        self.assertIn('Spiral',a.catalog_summary.get_text())
         self.assertEqual(a.design.values['spiral_angle'],12.75)
         self.assertEqual(a.design.values['spiral_hand'],1)
+        spiral=deepcopy(a.project_snapshot())
+        a.undo_project()
+        self.assertTrue(wait_until(lambda:not a.pending and not a._geometry_waiting))
+        self.assertNotIn('spiral_angle',a.inputs)
+        a.redo_project()
+        self.assertTrue(wait_until(lambda:not a.pending and not a._geometry_waiting))
+        self.assertEqual(a.project_snapshot(),spiral)
 
     def test_classic_differential_carrier_boundary_controls_motion_continuity_and_config(self):
         from differential_wrist import CONFIGURATIONS

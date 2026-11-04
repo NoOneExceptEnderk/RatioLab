@@ -264,11 +264,11 @@ FRAGMENT='''#version 330 core
 in vec3 n;
 in vec3 world;
 uniform vec3 center;
-uniform float section;
+uniform float section, sectionY;
 uniform vec3 color;
 uniform float lit;
 out vec4 frag;
-void main(){if(section>0.5 && world.y>center.y)discard;vec3 norm=normalize(n);float light=0.48+0.52*max(dot(norm,normalize(vec3(-0.35,-0.25,1.0))),0.0);frag=vec4(color*mix(1.0,light,lit),1.0);}
+void main(){if(section>0.5 && world.y>sectionY)discard;vec3 norm=normalize(n);float light=0.48+0.52*max(dot(norm,normalize(vec3(-0.35,-0.25,1.0))),0.0);frag=vec4(color*mix(1.0,light,lit),1.0);}
 '''
 
 
@@ -349,14 +349,15 @@ class Preview3D(Gtk.GLArea):
         self.use_es=None
         self.set_has_depth_buffer(True);self.set_has_stencil_buffer(True);self.set_auto_render(False)
         self.set_hexpand(True);self.set_vexpand(True);self.set_size_request(320,280)
-        self.design=None;self.show_support=False;self.show_housing=False;self.exploded=0.;self.section=False;self.scene=None;self.dirty=False;self.gl=None;self.failure=None;self.zoom=1.;self.yaw=radians(-35);self.tilt=radians(-55)
+        self.design=None;self.show_support=False;self.show_housing=False;self.exploded=0.;self.section=False;self.scene=None;self.dirty=False;self.gl=None;self.failure=None;self.zoom=1.;self.pan_offset=(0.,0.,0.);self.pan_mode=False;self.yaw=radians(-35);self.tilt=radians(-55)
         self.inspection_phase=None;self.inspection_indices=();self.inspection_motion_plan=None
         self.selected_indices=();self.isolated_indices=None;self.drag_distance=0.;self.rendered_phase=0.
+        self.render_serial=0;self.render_size=None
         self.motion_plan=None;self.motion_enabled=False;self.motion_playing=False;self.motion_speed=1.;self.motion_phase=0.;self.motion_tick=0;self.motion_last=None;self.motion_valid=True
         self.connect('realize',self.on_realize);self.connect('unrealize',self.on_unrealize);self.connect('render',self.on_render)
-        drag=Gtk.GestureDrag.new();drag.set_button(1);drag.connect('drag-begin',self.drag_begin);drag.connect('drag-update',self.drag_update);self.add_controller(drag)
+        drag=Gtk.GestureDrag.new();drag.set_button(0);drag.connect('drag-begin',self.drag_begin);drag.connect('drag-update',self.drag_update);drag.connect('drag-end',self.drag_end);self.add_controller(drag)
         scroll=Gtk.EventControllerScroll.new(Gtk.EventControllerScrollFlags.VERTICAL);scroll.connect('scroll',self.scroll);self.add_controller(scroll)
-        self.set_tooltip_text('Drag to rotate · scroll to zoom · double click to fit')
+        self.set_tooltip_text('Left drag to orbit · right drag to pan · scroll to zoom · double click to fit')
         click=Gtk.GestureClick.new();click.set_button(1);click.connect('released',self.component_click);self.add_controller(click)
     def set_theme(self, theme):
         self.palette = PREVIEW_PALETTES[theme]
@@ -371,6 +372,7 @@ class Preview3D(Gtk.GLArea):
             return None
     def set_design(self,design,*,reuse_scene=False,prepared_scene=None):
         changed=design is not self.design
+        was_inspecting=self.inspection_phase is not None
         keep_phase=bool(design and same_geometry(self.design,design.family,design.values))
         if reuse_scene and not keep_phase:raise ValueError('Scene reuse requires identical geometry.')
         self.advance_motion(GLib.get_monotonic_time()/1000000)
@@ -385,7 +387,9 @@ class Preview3D(Gtk.GLArea):
             self.motion_valid=True
             if not self.motion_plan or not self.motion_plan.supported:self.set_motion_playing(False)
             self.emit('motion-state')
-        self.queue_render()
+        # A paused rate-only rebuild retains the exact displayed pose and GPU
+        # scene. Updating RPM metadata does not require drawing all teeth again.
+        if not reuse_scene or self.motion_playing or was_inspecting or self.dirty:self.queue_render()
     def show_inspection(self,phase,indices):
         self.set_motion_playing(False)
         if self.design and self.inspection_motion_plan is None:
@@ -395,10 +399,11 @@ class Preview3D(Gtk.GLArea):
         self.queue_render();self.emit('motion-state');self.emit('inspection-state')
     def clear_inspection(self):
         changed=self.inspection_phase is not None
+        restore_plan=self.inspection_motion_plan is not None
         self.inspection_phase=None;self.inspection_indices=()
         if self.inspection_motion_plan is not None:
             self.motion_plan=self.inspection_motion_plan;self.inspection_motion_plan=None
-        self.queue_render()
+        if changed or restore_plan:self.queue_render()
         if changed:self.emit('inspection-state')
     def set_motion_playing(self,playing):
         if playing:
@@ -415,7 +420,7 @@ class Preview3D(Gtk.GLArea):
     def on_motion_tick(self,widget,clock):
         if not self.motion_playing:self.motion_tick=0;return False
         self.advance_motion(clock.get_frame_time()/1000000)
-        self.queue_render();return True
+        self.queue_render();return self.motion_playing
     def advance_motion(self,now):
         """Integrate the old rates up to an event before replacing them.
 
@@ -428,7 +433,11 @@ class Preview3D(Gtk.GLArea):
                 keys=('input_rpm','output_difference_rpm') if self.design.family=='differential' and self.design.values.get('configuration')=='classic' else ('input_rpm','input_b_rpm','secondary_rpm')
                 rpm=self.motion_plan.reference_rpm if any(self.design.values.get(key,0) for key in keys) else 0
             else:rpm=12*self.motion_speed
-            self.motion_phase+=max(0,now-self.motion_last)*2*pi/60*rpm
+            candidate=self.motion_phase+max(0,now-self.motion_last)*2*pi/60*rpm
+            limits=self.motion_plan.phase_limits
+            self.motion_phase=max(limits[0],min(limits[1],candidate)) if limits is not None else candidate
+            if limits is not None and candidate>limits[1]+1e-12:
+                self.set_motion_playing(False);return
         self.motion_last=max(now,self.motion_last) if self.motion_last is not None else now
     def reset_motion(self):
         self.clear_inspection();self.set_motion_playing(False);self.motion_phase=0.;self.motion_enabled=False
@@ -449,23 +458,46 @@ class Preview3D(Gtk.GLArea):
         self.show_support=support;self.show_housing=housing;self.exploded=exploded;self.section=section
         if rebuild:self.set_design(self.design)
         self.queue_render();self.emit('display-state')
+    @property
+    def camera_center(self):
+        center=self.scene.center if self.scene else (0.,0.,0.)
+        return tuple(v+p for v,p in zip(center,self.pan_offset))
+    def orient(self,direction):
+        from view_navigation import orientation,FACES
+        self.yaw,self.tilt=orientation(direction)
+        name=next((label.lower() for label,n,*_ in FACES if tuple(direction)==n),'custom')
+        self.queue_render();self.emit('view-changed',name)
     def view(self,name):
-        if name=='top':self.yaw=0;self.tilt=0
-        elif name=='front':self.yaw=0;self.tilt=-pi/2
+        from view_navigation import FACES, orientation
+        direction=next((n for label,n,*_ in FACES if label.lower()==name),None)
+        if direction is not None:self.yaw,self.tilt=orientation(direction)
         else:self.yaw=radians(-35);self.tilt=radians(-55)
-        self.zoom=1.;self.queue_render();self.emit('view-changed',name)
+        self.zoom=1.;self.pan_offset=(0.,0.,0.);self.queue_render();self.emit('view-changed',name)
     def component_click(self,gesture,n,x,y):
-        if self.drag_distance>4:return
+        if self.drag_distance>4 or self.pan_mode:return
         if n==2:self.view('iso');return
         from gi.repository import Gdk
         modifiers=gesture.get_current_event_state()
         self.emit('component-click',x,y,bool(modifiers & (Gdk.ModifierType.CONTROL_MASK|Gdk.ModifierType.SHIFT_MASK)))
-    def drag_begin(self,g,x,y):self.drag_origin=(self.yaw,self.tilt);self.drag_distance=0.
+    def drag_begin(self,g,x,y):
+        button=g.get_current_button() if g is not None else 1
+        self.drag_kind='pan' if button==3 or button==1 and self.pan_mode else 'orbit' if button==1 else None
+        if self.drag_kind is None:g.set_state(Gtk.EventSequenceState.DENIED)
+        self.drag_origin=(self.yaw,self.tilt);self.drag_pan=self.pan_offset;self.drag_distance=0.
+        if self.drag_kind=='pan':self.set_cursor_from_name('grabbing')
     def drag_update(self,g,x,y):
+        if not self.drag_kind:return
         self.drag_distance=max(self.drag_distance,sqrt(x*x+y*y))
         if self.drag_distance<=4:return
-        speed = .008*getattr(self, 'rotation_speed', 1)
-        self.yaw=self.drag_origin[0]+x*speed;self.tilt=max(-pi,min(pi,self.drag_origin[1]+y*speed));self.queue_render();self.emit('view-changed','custom')
+        if self.drag_kind=='pan':
+            from view_navigation import pan_delta
+            delta=pan_delta(x,y,self.scene.radius if self.scene else 30,self.zoom,self.get_width(),self.get_height(),*self.drag_origin)
+            self.pan_offset=tuple(a+b for a,b in zip(self.drag_pan,delta))
+        else:
+            speed = .008*getattr(self, 'rotation_speed', 1)
+            self.yaw=self.drag_origin[0]+x*speed;self.tilt=max(-pi,min(pi,self.drag_origin[1]+y*speed))
+        self.queue_render();self.emit('view-changed','custom')
+    def drag_end(self,*_):self.set_cursor_from_name('grab' if self.pan_mode else 'default')
     def scroll(self,c,dx,dy):
         direction = -1 if getattr(self, 'invert_zoom', False) else 1
         delta = max(-20., min(20., -dy*direction*getattr(self, 'zoom_speed', 1)))
@@ -481,7 +513,7 @@ class Preview3D(Gtk.GLArea):
             self.program=g.CreateProgram();g.AttachShader(self.program,vs);g.AttachShader(self.program,fs);g.LinkProgram(self.program)
             status=C.c_int();g.GetProgramiv(self.program,0x8B82,C.byref(status));g.DeleteShader(vs);g.DeleteShader(fs)
             if not status.value:raise RuntimeError('Could not initialize the 3D shader')
-            self.locations={k:g.GetUniformLocation(self.program,k.encode()) for k in ['center','orbit','projection','color','lit','edge','section','model','explosion','flexShape','flexBody','arcFirst','arcSecond','ropeShape','ropeEnds','ropeLeft','ropeRight','ropeWheel']}
+            self.locations={k:g.GetUniformLocation(self.program,k.encode()) for k in ['center','orbit','projection','color','lit','edge','section','sectionY','model','explosion','flexShape','flexBody','arcFirst','arcSecond','ropeShape','ropeEnds','ropeLeft','ropeRight','ropeWheel']}
             self.vao=C.c_uint();self.vbo=C.c_uint();g.GenVertexArrays(1,C.byref(self.vao));g.GenBuffers(1,C.byref(self.vbo));g.BindVertexArray(self.vao.value);g.BindBuffer(0x8892,self.vbo.value)
             for index,offset in [(0,0),(1,12)]:g.EnableVertexAttribArray(index);g.VertexAttribPointer(index,3,0x1406,0,24,C.c_void_p(offset))
             self.material_vbo=C.c_uint();g.GenBuffers(1,C.byref(self.material_vbo));g.BindBuffer(0x8892,self.material_vbo.value);g.EnableVertexAttribArray(2);g.VertexAttribPointer(2,3,0x1406,0,12,C.c_void_p(0))
@@ -499,13 +531,21 @@ class Preview3D(Gtk.GLArea):
         """Capture complete bytes on GTK's main thread; callback(data, error).
 
         GLArea.attach_buffers explicitly supports rendering outside its render
-        signal. Capture synchronously so compositor throttling of an occluded
-        window cannot leave an otherwise complete export waiting for a frame.
+        signal. Capture synchronously once allocated so compositor throttling
+        cannot leave a complete export waiting for an unrelated display frame.
+        Before the first allocation, GTK must first create a sized framebuffer.
         """
         if self.failure or self.get_error() or not self.gl or not self.scene:
             raise RuntimeError('3D preview unavailable')
         if getattr(self,'capture_callback',None):
             raise RuntimeError('A preview capture is already pending')
+        if self.get_width() <= 0 or self.get_height() <= 0:
+            # Realize/map precede the first allocation. Attaching zero-sized
+            # buffers here creates an incomplete framebuffer. Let GTK allocate
+            # and deliver its first native render before reading pixels.
+            self.capture_callback=callback
+            self.queue_render()
+            return
         self.make_current()
         if self.get_error():raise RuntimeError('3D preview context unavailable')
         self.attach_buffers()
@@ -541,8 +581,8 @@ class Preview3D(Gtk.GLArea):
             raw=s.vertices.tobytes();buf=C.create_string_buffer(raw);g.BufferData(0x8892,len(raw),buf,0x88E8)
             g.BindBuffer(0x8892,self.material_vbo.value);raw=s.materials.tobytes();buf=C.create_string_buffer(raw);g.BufferData(0x8892,len(raw),buf,0x88E8);g.BindBuffer(0x8892,self.vbo.value);self.dirty=False
         loc=self.locations
-        g.Uniform1f(loc['section'],float(self.section))
-        g.Uniform3f(loc['center'],*s.center);g.Uniform2f(loc['orbit'],self.yaw,self.tilt)
+        g.Uniform1f(loc['section'],float(self.section));g.Uniform1f(loc['sectionY'],s.center[1])
+        g.Uniform3f(loc['center'],*self.camera_center);g.Uniform2f(loc['orbit'],self.yaw,self.tilt)
         scale=.86/s.radius*self.zoom;aspect=max(w,1)/max(h,1)
         g.Uniform3f(loc['projection'],scale/max(aspect,1),scale*min(aspect,1),1/(s.radius*4))
         self.motion_uniforms(None)
@@ -577,4 +617,5 @@ class Preview3D(Gtk.GLArea):
                 if callback:callback(None,error)
                 else:raise
         g.StencilMask(0xFF);g.BindVertexArray(0);g.UseProgram(0)
+        self.render_serial+=1;self.render_size=(w,h)
         return True

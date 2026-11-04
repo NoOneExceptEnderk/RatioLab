@@ -76,6 +76,14 @@ def main():
                 application.set_flags(Gio.ApplicationFlags.NON_UNIQUE)
                 application.register(None)
                 application.activate()
+                from navigation_cube import NavigationCube
+                import view_navigation
+                assert isinstance(application.navigation_cube, NavigationCube)
+                assert len(view_navigation.FACES) == 6
+                if args.forbid_root:
+                    import navigation_cube
+                    for module in (app, navigation_cube, view_navigation):
+                        assert not Path(module.__file__).resolve().is_relative_to(forbidden), module.__file__
                 assert application.get_application_id() == app_paths.APP_ID
                 assert GLib.get_prgname() == app_paths.APP_ID
                 assert application.win.get_icon_name() == app_paths.APP_ID

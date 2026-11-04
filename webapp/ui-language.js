@@ -23,7 +23,7 @@ export function translate(text, language, catalog) {
     if (core.endsWith(suffix)) return translate(core.slice(0,-suffix.length),language,catalog) + suffix;
   const unit = core.match(/^(.+?)( (?:· |\[)(?:mm|°|rpm|N|N.m|N·m|%)(?:\])?)$/u);
   if (unit) return translate(unit[1],language,catalog) + unit[2];
-  for (const delimiter of [' / ',' · ','\u2009·\u2009'])
+  for (const delimiter of [' / ',' → ',' · ','\u2009·\u2009'])
     if (core.includes(delimiter)) return core.split(delimiter).map(part => translate(part,language,catalog)).join(delimiter);
   for (const prefix of ['Connect ','Create in ','Import in '])
     if (core.startsWith(prefix) && ['SolidCraft','Fusion','Autodesk Fusion'].includes(core.slice(prefix.length)))
@@ -50,7 +50,7 @@ export async function initLanguage(language='en', root=document.body) {
     if (node.closest(excluded)) return;
     let records = attributes.get(node);
     if (!records) { records = {}; attributes.set(node,records); }
-    for (const key of ['title','aria-label']) {
+    for (const key of ['title','aria-label','placeholder']) {
       const value = node.getAttribute(key);
       if (value == null) continue;
       let record = records[key];
@@ -81,6 +81,6 @@ export async function initLanguage(language='en', root=document.body) {
       else for (const node of record.addedNodes) visit(node);
     }
   });
-  observer.observe(root,{subtree:true,childList:true,characterData:true,attributes:true,attributeFilter:['title','aria-label']});
+  observer.observe(root,{subtree:true,childList:true,characterData:true,attributes:true,attributeFilter:['title','aria-label','placeholder']});
   return {setLanguage, disconnect:() => observer.disconnect()};
 }

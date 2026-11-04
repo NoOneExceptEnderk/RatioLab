@@ -4,6 +4,7 @@
 Phase is the reference angle in radians; the viewer advances it at the input
 operating RPM. Matrices are column-major, with translation in world millimetres.
 """
+from parallel_multistage import VARIANTS as PARALLEL_MULTISTAGE_VARIANTS
 from dataclasses import dataclass, field
 from math import sin, cos, sqrt, pi, atan2, remainder, isfinite
 from copy import copy, deepcopy
@@ -48,7 +49,10 @@ def update_operating_rates(design, values):
         p.port = dict(p.port)
     f, v, r = d.family, d.values, d.analysis
     rpm = v['input_rpm']
-    if f == 'differential':
+    if f == 'rack':
+        from rack_geometry import operating
+        operating(d)
+    elif f == 'differential':
         from differential_wrist import rates, classic_rates
         classic = v.get('configuration') == 'classic'
         speeds = (classic_rates(rpm, v['output_difference_rpm'], v['side_teeth'], v['output_teeth'])
@@ -74,6 +78,9 @@ def update_operating_rates(design, values):
         return d
     if f == 'wolfrom':
         from wolfrom import apply_kinematics
+        apply_kinematics(d)
+    elif f == 'parallel' and v['variant'] in PARALLEL_MULTISTAGE_VARIANTS:
+        from parallel_multistage import apply_kinematics
         apply_kinematics(d)
     elif f in TRIPLES:
         stages = r['kinematics']['stage_results']
@@ -175,6 +182,7 @@ class MotionPlan:
     angular_offsets: dict = field(default_factory=dict)
     coordinate_rates: dict = field(default_factory=dict)
     coordinate_offsets: dict = field(default_factory=dict)
+    phase_limits: tuple | None = None
     # Full labelled orientation period; geometric tooth symmetry is not assumed.
 
     def matrix(self, index, phase):
@@ -232,7 +240,20 @@ def build_plan(d, previous=None, phase=0):
         if 'rpm' in p.port:
             global_axis = f in ('planetary', 'cycloidal', 'harmonic', 'wolfrom')
             spin(i, p.port['rpm'], (0, 0, 0) if global_axis else None)
-    if f in ('spur', 'helical', 'double'):
+    if f == 'rack':
+        r=d.analysis['rack']['pitch_radius_mm']
+        value=angle((1,'linear'), primary/ref)
+        low,high=d.analysis['rack']['pinion_angle_limits_rad']
+        def position(phase):
+            theta=value(phase)
+            if not low-1e-9<=theta<=high+1e-9:raise ValueError('Rack pose exceeds the finite working stroke.')
+            return translation(r*max(low,min(high,theta)))
+        plan.poses[1]=position
+        # Both angles retain the same offset on an RPM-only rebuild.
+        rate=plan.coordinate_rates[(1,'linear')];offset=plan.coordinate_offsets[(1,'linear')]
+        plan.phase_limits=tuple(sorted(((low-offset)/rate,(high-offset)/rate))) if rate else (phase,phase)
+        plan.message='Pinion rotation drives rack translation along +X. Preview stops at the finite working stroke.'
+    elif f in ('spur', 'helical', 'double'):
         for i, p in enumerate(parts):
             if p.role == 'gear' or p.name.startswith(('Shaft', 'Key')):
                 spin(i, primary)
@@ -290,6 +311,10 @@ def build_plan(d, previous=None, phase=0):
             elif p.name == 'Bearing_wave_envelope':
                 spin(i, rates['wave'])
         plan.message = 'Prescribed strain-wave deformation and rotation of the three members. This is not an elastic analysis.'
+    elif f == 'parallel' and v['variant'] in PARALLEL_MULTISTAGE_VARIANTS:
+        pass  # Every rotating body already has an explicit shaft-indexed RPM port.
+    elif f in ('bevel','hypoid','face'):
+        pass  # Explicit RPM ports rotate about each part's physical shaft frame.
     elif f in ('parallel', 'internal'):
         ratio = (1 if f == 'internal' else -1) * v['wheel'] / v['pinion']
         wa = primary if v['io_scheme'] == 'forward' else primary * ratio

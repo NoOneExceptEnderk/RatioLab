@@ -13,7 +13,7 @@ from geometry import generate, INTEGER, FAMILIES as FAMILY_TITLES
 from project_document import equivalent
 from workspace_tools import actions, details
 from combination_search import FAMILIES, COUNT_KEYS, Settings, variables, parse_grid, search
-from gui_workflow import bind_numeric_entry, numeric_value, numeric_snapshot_text, set_numeric_value
+from gui_workflow import choice_dropdown, bind_numeric_entry, numeric_value, numeric_snapshot_text, set_numeric_value
 
 
 def label(text):
@@ -118,7 +118,7 @@ class Controller:
         self.ratio_hint = label('')
         setup.append(self.ratio_hint)
         setup.append(label('Output direction relative to input'))
-        self.direction = Gtk.DropDown.new_from_strings(['Either direction', 'Same (+)', 'Opposite (−)'])
+        self.direction = choice_dropdown(['Either direction', 'Same (+)', 'Opposite (−)'])
         setup.append(self.direction)
         self.direction.connect('notify::selected', lambda *_: self.request_changed())
         setup.append(label('Direction uses the current input/output members and their displayed axes.'))
@@ -290,7 +290,7 @@ class Controller:
                 row.append(choice)
                 controls = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
                 row.append(controls)
-                mode = Gtk.DropDown.new_from_strings(['Range', 'Custom values (advanced)'])
+                mode = choice_dropdown(['Range', 'Custom values (advanced)'])
                 controls.append(mode)
                 ranges = Gtk.Box(spacing=4, homogeneous=True)
                 controls.append(ranges)

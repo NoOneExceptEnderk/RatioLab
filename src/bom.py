@@ -106,8 +106,13 @@ def as_text(bom):
             if kinematics.get('reference_source'):lines.append('Source: '+kinematics['reference_source'])
             if kinematics.get('reference_section'):lines.append('Source section: '+kinematics['reference_section'])
             lines.append('')
+        for i, rpm in enumerate(kinematics.get('shaft_rates_rpm', []), 1):
+            lines.append(f'  Shaft {i}: {rpm:+.9g} rpm')
         for q in kinematics.get('stage_results',[]):
-            lines.append(f'  Motor: {q["input"]}; output: {q["output"]}; fixed: {q["fixed"]}; ratio {q["signed_ratio"]:+.6g}')
+            if 'input_shaft' in q:
+                lines.append(f'  Stage {q["stage"]}: shaft {q["input_shaft"]+1} → shaft {q["output_shaft"]+1}; forward geometric ratio {q["signed_ratio"]:+.6g}')
+            else:
+                lines.append(f'  Motor: {q["input"]}; output: {q["output"]}; fixed: {q["fixed"]}; ratio {q["signed_ratio"]:+.6g}')
         lines.append('')
     lines+=['TO BE COMPLETED']+['• '+r for r in bom['requirements']]
     return '\n'.join(lines)+'\n'

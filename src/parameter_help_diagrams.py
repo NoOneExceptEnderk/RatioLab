@@ -316,18 +316,24 @@ def _cone(d, family, key, values):
         d.line(*inner,*outer,color=ORANGE,width=2.5)
         d.dimension(inner,outer,'b',offset=17,label_offset=7)
         d.footer('Face width follows the pitch-cone generator')
+    elif key == 'trace_radius':
+        c=d.cr;c.new_path();c.move_to(161,94);c.curve_to(206,70,251,72,290,97)
+        c.set_source_rgb(*ORANGE);c.set_line_width(3);c.stroke()
+        d.line(218,65,218,116,color=BLUE,width=1,dash=(4,3))
+        d.text(65,176,'mean spiral angle = 0°',color=ORANGE,size=13)
+        d.footer('Circular lead radius is measured on the developed cone')
     elif key in ('spiral_angle','spiral_hand'):
         c=d.cr;c.new_path();c.move_to(166,88);c.curve_to(203,63,246,68,290,91)
         c.set_source_rgb(*ORANGE);c.set_line_width(3);c.stroke()
         d.text(176,174,'curved tooth trace',color=ORANGE,size=13)
         d.footer('Angle magnitude and local hand are separate controls')
-    elif key in ('side_teeth','output_teeth'):
+    elif key in ('side_teeth','output_teeth','pinion','wheel'):
         # Emphasise the bevel's tooth-bearing outer rim, not a diameter.
         for angle in (-1.35,-.95,-.55,0.,.55,.95,1.35):
             X,Y=290+13*cos(angle),111+65*sin(angle)
             d.line(X-10,Y,X+5,Y,color=ORANGE,width=3)
         d.text(94,174,'z = teeth on this bevel',color=ORANGE,size=14)
-        d.footer('Each side gear' if key=='side_teeth' else 'Transverse output / spider gear')
+        d.footer('Pinion · world +X' if family=='bevel' and key=='pinion' else 'Wheel · world +Z' if family=='bevel' else 'Each side gear' if key=='side_teeth' else 'Transverse output / spider gear')
     else:
         d.dimension((290,46),(290,176),'do',offset=30)
         d.text(35,161,'apex',size=12,color=MUTED)
@@ -836,9 +842,59 @@ def _wolfrom(d, family, key, values):
     d.footer('+Z signs · ring output; carrier is free')
 
 
+def _face(d, family, key, values):
+    d.caption('Face gear pair · 90° shaft directions')
+    d.ellipse(151,145,86,33,fill=BLUE_FILL)
+    d.ellipse(151,145,40,15)
+    d.axis(151,38,151,187)
+    d.ellipse(220,87,12,29,fill=FILL)
+    d.ellipse(276,87,12,29,fill=FILL)
+    d.line(220,58,276,58);d.line(220,116,276,116)
+    d.axis(190,87,322,87)
+    d.text(284,43,'+X pinion',size=12)
+    d.text(32,53,'+Z wheel',size=12)
+    d.dimension((75,145),(111,145),'Band',offset=20)
+    if key=='offset':
+        d.line(190,65,322,65,dash=(4,3))
+        d.dimension((307,65),(307,87),'Offset',offset=12)
+        d.footer('Signed Y shift · axis distance = |offset|')
+    else:d.footer('Face wheel generated from the matching pinion')
+
+
+def _rack(d, family, key, values):
+    d.caption('Rack and pinion · rotary to linear')
+    d.path(gear_outline(180,82,44,16,phase=0),fill=BLUE_FILL,color=BLUE,width=1.3,close=True)
+    top=[(30,147)]
+    for x in range(36,320,28):top.extend([(x,147),(x+7,132),(x+17,132),(x+24,147)])
+    d.path([(30,177),(330,177),(330,147)]+list(reversed(top)),fill=FILL,color=EDGE,width=1.3,close=True)
+    d.line(25,136,335,136,color=BLUE,dash=(5,3))
+    d.arrow(210,193,298,193)
+    d.text(310,198,'+X',size=12)
+    d.text(234,62,'+Z shaft',size=12)
+    d.footer('x = r θ · normal module shared by both members')
+
+
+def _hypoid(d, family, key, values):
+    d.caption('Hypoid shaft offset · top view')
+    d.ellipse(112,143,43,43,fill=BLUE_FILL)
+    d.ellipse(112,143,5,5,fill=INK)
+    d.ellipse(251,64,8,28,fill=FILL)
+    d.axis(24,64,313,64)
+    d.line(112,64,112,143,color=ORANGE,width=2,dash=(4,3))
+    d.dimension((145,64),(145,143),'E',offset=-15)
+    d.text(36,29,'Pinion axis · +X',size=13)
+    d.text(32,205,'Wheel axis · +Z out of page',size=12)
+    d.footer('Axes do not intersect when offset E is nonzero')
+
+
 def diagram_kind(family, key, help=None):
     """Context-sensitive dispatch, kept public for renderer coverage checks."""
+    if family=='face' and key in ('variant','double_style','module','width','pinion','wheel','offset','radial_setting','helix','gap','base','face_addendum','input_rpm','io_scheme'):return 'face'
+    if family=='rack' and key in ('variant','module','pinion','rack_teeth','base','helix','input_rpm'):return 'rack'
     if family=='wolfrom' and key in ('sun','planet','planet2','output_ring','planets','module','width','width2','layer_gap','plate','rim','assembly_clearance','input_rpm','io_scheme'):return 'wolfrom'
+    if family=='bevel' and key in ('module','width','pinion','wheel','variant','spiral_angle','spiral_hand','trace_radius'):return 'cone'
+    if family=='hypoid' and key in ('offset','pinion','wheel','variant'):return 'hypoid'
+    if family=='hypoid' and key in ('module','width','spiral_angle'):return 'cone'
     if key=='pressure':return 'pressure'
     if key=='backlash':return 'backlash'
     if key in ('addendum','dedendum'):return 'tooth_height'
@@ -879,6 +935,9 @@ def diagram_kind(family, key, help=None):
 
 
 RENDERERS = {
+    'face':_face,
+    'rack':_rack,
+    'hypoid':_hypoid,
     'wolfrom':_wolfrom,
     'module':_module,'teeth':_teeth,'pressure':_pressure,'helix':_helix,
     'double_helix':_double_helix,

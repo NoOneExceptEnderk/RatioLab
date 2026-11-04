@@ -106,18 +106,26 @@ class GuiEventLoopTests(unittest.TestCase):
         callbacks = []
         clock.connect.side_effect = lambda signal, callback: callbacks.append((signal, callback)) or 7
         clock.disconnect.side_effect = lambda handler: callbacks.clear()
-        canvas = unittest.mock.Mock(gl=object(), dirty=False)
+        canvas = unittest.mock.Mock(gl=object(), dirty=False, render_serial=10,
+                                    render_size=(width*2,960))
         canvas.get_frame_clock.return_value = clock
         canvas.get_mapped.return_value = True
         canvas.get_width.return_value = width
         canvas.get_height.return_value = 480
+        canvas.get_scale_factor.return_value = 2
         context = unittest.mock.Mock()
         def dispatch(blocking):
             self.assertFalse(blocking)
             self.assertEqual(callbacks[0][0], 'after-paint')
             canvas.queue_render.assert_called_once()
-            if context.iteration.call_count > 1:
-                frame[0] += 1
+            frame[0] += 1
+            if context.iteration.call_count == 2:
+                canvas.get_mapped.return_value = True
+                canvas.render_serial += 1
+                canvas.render_size = (width,480)  # Previous viewport/scale.
+            elif context.iteration.call_count > 2:
+                canvas.render_serial += 1
+                canvas.render_size = (width*2,960)
             callbacks[0][1](clock)
         context.iteration.side_effect = dispatch
         return canvas, context, clock
@@ -130,10 +138,17 @@ class GuiEventLoopTests(unittest.TestCase):
                 with self.subTest(lifecycle=lifecycle):
                     canvas.queue_render.reset_mock()
                     context.iteration.reset_mock()
+                    canvas.get_mapped.return_value = lifecycle == 'mapped'
                     before=clock.get_frame_counter()
+                    before_render=canvas.render_serial
                     _wait_for_frame(canvas, context)
                     self.assertGreater(clock.get_frame_counter(),before)
-                    self.assertEqual(context.iteration.call_count,2)
+                    self.assertGreater(canvas.render_serial,before_render)
+                    self.assertEqual(canvas.render_size,(1280,960))
+                    self.assertTrue(canvas.get_mapped())
+                    # First: another paint only. Second: this canvas rendered
+                    # at its old size. Only the third is a completed capture.
+                    self.assertEqual(context.iteration.call_count,3)
                     canvas.queue_render.assert_called_once()
         self.assertEqual(clock.disconnect.call_args_list,[unittest.mock.call(7)]*2)
 

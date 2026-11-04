@@ -247,9 +247,50 @@ class AnalysisTests(unittest.TestCase):
                     self.assertEqual(old, old_data)
                     for p,q in zip(self.engine.design.parts, old.parts):
                         self.assertIs(p.outer,q.outer); self.assertIs(p.mesh,q.mesh)
-                    phase += (self.engine.plan.reference_rpm if speed else 0)*.19*2*pi/60
+                    step = (self.engine.plan.reference_rpm if speed else 0)*.19*2*pi/60
+                    if speed and self.engine.plan.phase_limits is not None:
+                        # A finite rack cannot use the rotary models' elapsed
+                        # time at every RPM. Stay inside its remaining stroke.
+                        step = min(step, .5*(self.engine.plan.phase_limits[1]-phase))
+                    phase += step
                 saved = self.call('project')['project']
                 self.assertEqual(saved['parameters'], self.engine.design.values)
+
+    def test_rack_rates_rpc_preserves_finite_stroke_pause_and_reversal(self):
+        for variant in ('spur', 'helical', 'double'):
+            with self.subTest(variant=variant):
+                design = self.source('rack', variant=variant, input_rpm=60)
+                low, high = design.analysis['rack']['pinion_angle_limits_rad']
+                travel_low, travel_high = design.analysis['rack']['travel_limits_mm']
+                radius = design.analysis['rack']['pitch_radius_mm']
+                phase = angle = 0.
+                for speed, target in ((100000, high), (0, high), (-173.125, low), (0, low), (33, 0.)):
+                    with self.subTest(speed=speed, target=target):
+                        previous = self.call('pose', phases=[phase])['frames'][0]['parts']
+                        result = self.call('rates', rpm_patch={'input_rpm': speed}, phase=phase)
+                        self.assertEqual(result['values']['input_rpm'], speed)
+                        current = self.call('pose', phases=[phase])['frames'][0]['parts']
+                        for a, b in zip(current, previous):
+                            for x, y in zip(a['matrix'], b['matrix']):
+                                self.assertAlmostEqual(x, y, places=8)
+                        seconds = (target-angle)*60/(speed*2*pi) if speed else .31
+                        self.assertGreater(seconds, 0.)
+                        phase += (self.engine.plan.reference_rpm if speed else 0)*seconds*2*pi/60
+                        angle = target
+                        frame = self.call('pose', phases=[phase])['frames'][0]
+                        self.assertAlmostEqual(frame['parts'][1]['matrix'][12], radius*target, places=8)
+                        if speed:
+                            bounds = result['motion']['phase_limits']
+                            ends = self.call('pose', phases=list(bounds))['frames']
+                            positions = sorted(f['parts'][1]['matrix'][12] for f in ends)
+                            self.assertAlmostEqual(positions[0], travel_low, places=8)
+                            self.assertAlmostEqual(positions[1], travel_high, places=8)
+                            for outside in (bounds[0]-.01, bounds[1]+.01):
+                                with self.assertRaisesRegex(ValueError, 'finite working stroke'):
+                                    self.call('pose', phases=[outside])
+                        else:
+                            held = self.call('pose', phases=[phase+3])['frames'][0]
+                            self.assertEqual(held['parts'], frame['parts'])
 
     def test_rates_validation_and_query_invalidation_are_atomic(self):
         design = self.source('spur')

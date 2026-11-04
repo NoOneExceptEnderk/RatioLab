@@ -13,7 +13,7 @@ from pathlib import Path
 from urllib.parse import quote, unquote, urlsplit, urlunsplit
 
 from markdown_it import MarkdownIt
-from seo import documentation_schema, metadata
+from seo import IMAGE_VERSION, ORIGIN, documentation_schema, metadata
 from social_links import load_social_channels, render_discord_ctas, render_social_links
 
 ROOT = Path(__file__).resolve().parent
@@ -34,22 +34,35 @@ class Document:
 
 
 DOCUMENTS = (
-    Document("installation.md", "Installation", "Installers, system requirements and first launch.", "GET STARTED"),
-    Document("user-guide.md", "User guide", "Workspace, parameters, gear and reducer families and CAD export.", "GET STARTED"),
-    Document("mcp.md", "MCP and agents", "Local setup, tool contracts and MCP server limits.", "GET STARTED"),
-    Document("updates.md", "Application updates", "Update checks, release downloads and installation.", "GET STARTED"),
-    Document("fusion360.md", "Autodesk Fusion", "Optional Fusion integration, setup and transfer limits.", "GET STARTED"),
-    Document("development.md", "Development and builds", "Source code, dependencies, native installers and verification.", "DEVELOPMENT"),
-    Document("technical/calculations.md", "Calculations and references", "Conventions, nominal formulas and geometric analysis limits.", "TECHNICAL REFERENCE"),
-    Document("technical/hardware.md", "Hardware and assembly", "Bearings, fits, standard hardware and dimensional references.", "TECHNICAL REFERENCE"),
-    Document("technical/io-models.md", "Input and output", "Connections, member roles and mechanical limitations.", "TECHNICAL REFERENCE"),
-    Document("technical/kinematics.md", "Kinematics", "Motion represented in the preview and export behavior.", "TECHNICAL REFERENCE"),
-    Document("technical/printed-shaft.md", "FDM printed shaft", "Experimental eccentric shaft with two axial through bolts.", "TECHNICAL REFERENCE"),
-    Document("technical/variants.md", "Variants and limitations", "Generated variants, documented architectures and model limits.", "TECHNICAL REFERENCE"),
-    Document("technical/worm.md", "Worm reference", "ZA and ZI equations, generated geometry and verification limits.", "TECHNICAL REFERENCE"),
-    Document("technical/strain-wave.md", "Strain-wave reference", "Prescribed deformation, generated ring and numerical checks.", "TECHNICAL REFERENCE"),
-    Document("technical/differential.md", "Bevel differential reference", "Independent inputs, configurations, geometry and kinematic limits.", "TECHNICAL REFERENCE"),
+    Document("installation.md", "Installation", "Install RatioLab on Windows, macOS or Linux: system requirements, signing limits, graphics setup and first launch.", "GET STARTED"),
+    Document("web-app.md", "Browser app", "Use RatioLab in a browser: fifteen model families, 3D tools, STEP/STL downloads, local project recovery and browser requirements.", "GET STARTED"),
+    Document("user-guide.md", "User guide", "Design fifteen gear and reducer families, including Wolfrom: parameters, 3D motion, measurements, projects and CAD export.", "GET STARTED"),
+    Document("mcp.md", "MCP and agents", "Connect local agents to the RatioLab desktop MCP server: setup, tools, workspace files, cancellation and resource limits.", "GET STARTED"),
+    Document("updates.md", "Application updates", "Check for RatioLab desktop updates, choose a public stable release and install verified downloads with documented privacy controls.", "GET STARTED"),
+    Document("fusion360.md", "Autodesk Fusion", "Send RatioLab designs to Autodesk Fusion: optional bridge setup, STEP transfer, Linux/Wine configuration and failure handling.", "GET STARTED"),
+    Document("development.md", "Development and builds", "Build and verify RatioLab from source: Python and GTK dependencies, native installers, development checks and optional CAD bridges.", "DEVELOPMENT"),
+    Document("technical/calculations.md", "Calculations and references", "RatioLab gear calculations: tooth geometry, theoretical metrology, working backlash, kinematics, Wolfrom ratios and analysis limits.", "TECHNICAL REFERENCE"),
+    Document("technical/hardware.md", "Hardware and assembly", "Understand RatioLab bearing seats, fits, shafts and standard hardware: generated dimensions, bills of materials and assembly limits.", "TECHNICAL REFERENCE"),
+    Document("technical/io-models.md", "Input and output", "Configure reducer input and output connections: generated mounts, member roles, Wolfrom topology and mechanical limitations.", "TECHNICAL REFERENCE"),
+    Document("technical/kinematics.md", "Kinematics", "Understand RatioLab kinematics: represented gear and reducer motions, member speed conventions and nominal export coordinates.", "TECHNICAL REFERENCE"),
+    Document("technical/printed-shaft.md", "FDM printed shaft", "Explore the experimental FDM cycloidal eccentric shaft: two-bolt construction, hardware, printed assembly and verification limits.", "TECHNICAL REFERENCE"),
+    Document("technical/variants.md", "Variants and limitations", "Compare double-helical, planetary, ZA/ZI worm and strain-wave constructions: generated variants, kinematic arrangements and model limits.", "TECHNICAL REFERENCE"),
+    Document("technical/worm.md", "Worm reference", "Reference equations for ZA/ZI cylindrical worms and generated wheels: screw profiles, envelope geometry, sampling and supported limits.", "TECHNICAL REFERENCE"),
+    Document("technical/strain-wave.md", "Strain-wave reference", "Understand the strain-wave model: prescribed deformation, generated ring envelope, numerical enclosure and moving-interference checks.", "TECHNICAL REFERENCE"),
+    Document("technical/wolfrom.md", "Wolfrom / 3K reference", "Reference for two-rim spur Wolfrom reducers: fixed topology, speed equations, equal planet spacing, nominal profiles and a numerical example.", "TECHNICAL REFERENCE"),
+    Document("technical/differential.md", "Bevel differential reference", "Reference for wrist and classic bevel differentials: independent inputs, speed equations, spherical involute geometry and spiral traces.", "TECHNICAL REFERENCE"),
 )
+DOCUMENTS = DOCUMENTS + (
+    Document("tutorials/planetary-gear-generator.md", "Planetary gear generator", "Generate a 4:1 planetary gear set with RatioLab: download a working JSON project, inspect the motion and export STEP or STL.", "WORKED EXAMPLES"),
+    Document("tutorials/cycloidal-drive-generator.md", "Cycloidal drive generator", "Generate a 15:1 cycloidal reducer with RatioLab: a real 16-roller project, explained parameters, motion and STEP/STL export.", "WORKED EXAMPLES"),
+    Document("technical/parallel.md", "Multistage parallel reducers", "Single-, two- and three-stage parallel-shaft reducers, tooth types, shaft layout and ideal motion conventions.", "TECHNICAL REFERENCE"),
+    Document("technical/bevel-pair.md", "Bevel gear pairs", "Straight, spiral and zerol bevel gear pairs: nominal geometry, parameters and model limits.", "TECHNICAL REFERENCE"),
+    Document("technical/hypoid.md", "Hypoid gear pairs", "Generated offset hypoid gear pairs: shaft offset, spiral geometry and verification scope.", "TECHNICAL REFERENCE"),
+    Document("technical/rack.md", "Rack and pinion", "Spur, helical and double-helical rack and pinion geometry, dimensions and ideal motion.", "TECHNICAL REFERENCE"),
+    Document("technical/face-gears.md", "Face gear pairs", "Orthogonal and offset face gear pairs, tooth types, herringbone construction and documented limits.", "TECHNICAL REFERENCE"),
+)
+TUTORIAL_PROJECTS = {'examples/planetary-browser-guide.config.json', 'examples/cycloidal-browser-guide.config.json'}
+TUTORIAL_IMAGES = {'assets/planetary-guide.svg', 'assets/cycloidal-guide.svg'}
 BY_SOURCE = {document.source: document for document in DOCUMENTS}
 
 
@@ -77,6 +90,8 @@ def rewrite_url(value: str, source: str, route: str, source_ref: str = "main") -
         return "#"
     parsed = urlsplit(value)
     path = unquote(parsed.path)
+    if parsed.netloc == urlsplit(ORIGIN).netloc and parsed.scheme == 'https' and path in ('/app/', '/app/index.html'):
+        return urlunsplit(('', '', relative_url('app/index.html', route), parsed.query, parsed.fragment))
     canonical_prefix = urlsplit(REPOSITORY).path + "/blob/"
     if parsed.netloc == "github.com" and path.startswith(canonical_prefix):
         suffix = path[len(canonical_prefix):]
@@ -91,12 +106,15 @@ def rewrite_url(value: str, source: str, route: str, source_ref: str = "main") -
         return value
     else:
         candidate = posixpath.normpath(posixpath.join("docs", posixpath.dirname(source), path))
-    if candidate.startswith("docs/") and candidate[5:] in BY_SOURCE:
+    if candidate in TUTORIAL_PROJECTS or candidate in TUTORIAL_IMAGES:
+        localized = relative_url(candidate, route)
+    elif candidate.startswith("docs/") and candidate[5:] in BY_SOURCE:
         localized = relative_url(BY_SOURCE[candidate[5:]].route, route)
     elif candidate == "index.html":
         localized = relative_url("index.html", route)
     elif candidate == "assets/screenshots/workspace.png":
         localized = relative_url("assets/workspace.png", route)
+        parsed = parsed._replace(query="v=" + IMAGE_VERSION)
     else:
         # The website deliberately does not publish source trees or project examples.
         if candidate.startswith("../") or candidate.startswith("/"):
@@ -173,6 +191,8 @@ def render_markdown(markdown: str, source: str, route: str, source_ref: str = "m
             if child.type in ("link_open", "image"):
                 attr = "href" if child.type == "link_open" else "src"
                 child.attrSet(attr, rewrite_url(child.attrGet(attr) or "", source, route, source_ref))
+                if child.type == "link_open" and any(child.attrGet("href").endswith("/" + Path(project).name) for project in TUTORIAL_PROJECTS):
+                    child.attrSet("download", Path(child.attrGet("href")).name)
             if child.type == "image":
                 child.attrSet("loading", "lazy")
                 child.attrSet("decoding", "async")
@@ -220,10 +240,10 @@ def sidebar(route: str) -> str:
 
 
 def landing_body():
-    lines = ["# RatioLab documentation", "", "Read the canonical RatioLab guides: installation, the desktop workflow, optional CAD integrations, local MCP and technical references.", "", "## First launch", "", "1. [Download RatioLab](../index.html#download) for your desktop platform.", "2. Follow the [installation guide](installation.md) for system requirements, signing limitations and first launch.", "3. Choose a model, set dimensions, inspect the 3D preview and export your design.", "", "## Explore the guides", "", "These English pages are built directly from the documentation in the same source checkout. Every build also refreshes the local full-content search index.", ""]
+    lines = ["# RatioLab documentation", "", "Read the canonical RatioLab guides: the browser and desktop workflows, installation, optional CAD integrations, local MCP and technical references.", "", "## First launch", "", "1. [Open the browser app](https://ratiolab.dev/app/) or [download RatioLab](../index.html#download) for your desktop platform.", "2. Follow the [installation guide](installation.md) for system requirements, signing limitations and first launch.", "3. Choose a model, set dimensions, inspect the 3D preview and export your design.", "", "## Explore the guides", "", "These English pages are built directly from the documentation in the same source checkout. Every build also refreshes the local full-content search index.", ""]
     for document in DOCUMENTS:
         lines.extend([f"### [{document.title}]({document.source})", "", document.description, ""])
-    lines.extend(["## Understanding the models", "", "RatioLab includes eleven gear and transmission families, including bevel differentials and two-rim spur Wolfrom reducers. The five interactive models on the homepage are illustrations of selected mechanisms. Refer to the user guide and technical references for supported configurations, equations and limitations. Nominal geometry and ideal motion do not certify strength, service life or manufacturing readiness.", "", "SolidCraft, Autodesk Fusion and the local MCP server are optional integrations. The website and its documentation are static; searches run locally in your browser."])
+    lines.extend(["## Understanding the models", "", "RatioLab includes fifteen gear and transmission families, including planetary, cycloidal, Wolfrom and multistage reducers, bevel/hypoid and face gear pairs, rack and pinion, and bevel differentials. The five interactive models on the homepage are illustrations of selected mechanisms. Refer to the user guide and technical references for supported configurations, equations and limitations. Nominal geometry and ideal motion do not certify strength, service life or manufacturing readiness.", "", "SolidCraft, Autodesk Fusion and the local MCP server are optional integrations. The website and its documentation are static; searches run locally in your browser."])
     return "\n".join(lines)
 
 
@@ -232,7 +252,7 @@ def build_docs(output_root: Path, repository_root: Path, *, source_ref="main", s
     channels = load_social_channels()
     social_links = render_social_links(channels)
     discord_ctas = render_discord_ctas(channels)
-    landing = Document("", "Documentation", "Canonical RatioLab guides and technical references.", "DOCUMENTATION")
+    landing = Document("", "Documentation", "RatioLab guides for browser and desktop: installation, fifteen gear and reducer families, STEP/STL export, CAD integrations and technical references.", "DOCUMENTATION")
     index = []
     for document in (landing, *DOCUMENTS):
         route = document.route if document.source else "docs/index.html"

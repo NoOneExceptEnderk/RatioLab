@@ -14,7 +14,8 @@ MAX_FILE_SIZE = 25 * 1024 * 1024
 # Independent publication boundary: adding a canonical bundle file requires review.
 APP_FILES = (
     'index.html', 'app.css', 'app.js', 'tools.css', 'tools.js', 'document.js', 'preferences.js',
-    'ui-language.js', 'ui-translations.json',
+    'ui-language.js', 'ui-translations.json', 'model-catalog.js', 'choice-menu.js',
+    'model-catalog/spur.png', 'model-catalog/helical.png', 'model-catalog/double.png', 'model-catalog/planetary.png', 'model-catalog/cycloidal.png', 'model-catalog/harmonic.png', 'model-catalog/worm.png', 'model-catalog/parallel.png', 'model-catalog/internal.png', 'model-catalog/differential.png', 'model-catalog/wolfrom.png', 'model-catalog/bevel.png', 'model-catalog/hypoid.png', 'model-catalog/rack.png', 'model-catalog/face.png',
     'fonts/NotoSansCJK-Regular.ttc', 'fonts/NotoSansTamil-Regular.ttf',
     'fonts/LICENSE-NotoCJK.txt', 'fonts/LICENSE-NotoTamil.txt', 'fonts/SOURCE-NOTO.json',
     'viewer.js', 'engine-client.js', 'worker.js', 'engine.zip', 'runtime.json',

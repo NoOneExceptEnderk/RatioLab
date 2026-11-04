@@ -176,6 +176,9 @@ def attach_report(d):
     if ratio is not None:
         r['output'] = dict(rpm=rpm / ratio, torque_magnitude_Nm=torque * abs(ratio) * eta, power_W=r['input']['power_W'] * eta)
         d.metrics.append(f"Nominal output {rpm / ratio:.2f} rpm · estimated torque {r['output']['torque_magnitude_Nm']:.3f} N·m (assumed η {eta * 100:g}%)")
+    if d.family=='rack':
+        from rack_geometry import operating
+        operating(d)
     if r.get('differential'):
         r['input']['scope'] = 'primary port only; no combined power balance'
         d.notes.append('Operating speed and power refer only to the primary input; total power balance and differential output torques cannot be calculated without loads and power for the other members.')
@@ -206,6 +209,10 @@ def report_text(d):
         lines.append(f"Input: {load['rpm']:g} rpm · {load['torque_Nm']:g} N·m · {load['power_W']:.3f} W")
     if 'signed_ratio' in r:
         lines.append(f"Ratio i = input speed / output speed = {r['signed_ratio']:.6g}; negative = opposite rotation.")
+    if d.family=='rack':
+        q=r['rack'];out=r['linear_output']
+        lines.append(f"Rack output: {out['velocity_mm_s']:+.6f} mm/s along world +X; nominal force magnitude {out['nominal_force_magnitude_N']:.6f} N using assumed efficiency.")
+        lines.append(f"x = {q['pitch_radius_mm']:.9g} mm * pinion angle [rad]; no dimensionless rotary ratio.")
     for i, q in enumerate(r.get('meshes', []), 1):
         lines.append(f"Mesh {i}: Z {q['z1']}/{q['z2']} · centre distance {q['center_distance_mm']:.6f} mm · αw {q['working_pressure_deg']:.6f}°")
         lines.append(f"  εα {q['contact_transverse']:.6f} · εβ {q['contact_overlap']:.6f} · ε total {q['contact_total']:.6f}")

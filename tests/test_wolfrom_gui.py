@@ -116,6 +116,25 @@ class WolfromGuiTests(unittest.TestCase):
         self.assertEqual(len(a.document.states), 1)
         self.assertFalse(a.document.dirty)
 
+    def test_nominal_readout_recovers_after_invalid_geometry(self):
+        a = self.app
+        def readout():
+            return next(w for _, w in a.io_results if w.has_css_class('drive-result-value'))
+        original = a.inputs['planet2'].get_text()
+        a.inputs['planet2'].set_text('60'); a.inputs['planet2'].emit('activate')
+        pump_until(lambda: not a.pending and not a._geometry_waiting)
+        self.assertFalse(a.canvas.motion_valid)
+        self.assertEqual(readout().get_text(), '—')
+        self.assertIn('out of date', readout().get_tooltip_text())
+        a.inputs['planet2'].set_text(original); a.inputs['planet2'].emit('activate')
+        pump_until(lambda: not a.pending and not a._geometry_waiting and a.canvas.motion_valid)
+        self.assertEqual(float(readout().get_text()), a.design.analysis['kinematics']['rates_rpm']['output'])
+        self.assertNotIn('out of date', readout().get_tooltip_text() or '')
+        self.commit_rpm('-7.500000000123')
+        self.assertEqual(a.design.values['input_rpm'], -7.500000000123)
+        self.assertAlmostEqual(float(readout().get_text()),
+                               a.design.analysis['kinematics']['rates_rpm']['output'], delta=.005)
+
     def test_reverse_and_zero_rates_reuse_scene_and_gpu_preserving_continuity(self):
         a, c = self.app, self.app.canvas
         scene, parts = c.scene, a.design.parts

@@ -2,7 +2,7 @@
 
 The browser app uses RatioLab's unchanged Python generation, motion, analysis
 and export modules through Pyodide in a Web Worker. It provides the desktop
-workspace and eleven model families with browser downloads and local project
+workspace and fifteen model families with browser downloads and local project
 recovery. CAD connection bridges and the desktop MCP companion are excluded.
 Calculations happen in the browser; there is no calculation backend.
 
@@ -65,12 +65,23 @@ an already hosted static app.
 
 ## Use the workspace
 
+Motion keeps Input, Output and Fixed to frame roles distinct. Multi-member
+selectors use the full sidebar width, and each planetary stage remains
+independent. Wolfrom's fixed-member speeds remain available in **Motion details**.
+
 Choose a family/construction, edit Dimensions, Motion and Assembly, and inspect
 the live model. Precise numeric fields accept decimal points or commas;
 incomplete entries remain visible and block exports until valid. Orbit, zoom,
 Fit, animation, exploded/section views and component selection are available.
+Right mouse drag pans; left drag orbits. The upper-right orientation cube supports
+face, edge and corner snaps and dragging. Its Home, Fit, Pan and Display controls
+replace the old View panel, retaining all display options in the sliders menu.
 
 **View** and **Tools** share a translucent panel over the right of the model, with no reduction in preview width. The results band sits above the motion controls, with the progressive RPM slider, playback speed and preview phase available directly. Scrubbing phase pauses the preview without editing the project. Hover over parameters or **Model & dimensions** for adjacent help; the information button and F1 also open it. The pointer can enter the guide, and leaving both the guide and parameter dismisses it. Original schematics can be expanded for readability. CAD connections and native updates remain desktop features.
+
+While dragging the RPM slider, the number previews your choice and the model
+keeps its applied speed. Releasing the pointer or adjustment key applies the
+final RPM once, as one Undo step. Save/Export confirms a pending slider choice.
 
 Save/Open use desktop-compatible JSON; Save As and exports prepare browser
 downloads instead of native destination dialogs. Full and selected components

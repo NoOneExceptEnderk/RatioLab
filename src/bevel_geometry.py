@@ -32,6 +32,14 @@ class SphericalProfile:
     backlash: float
     k: float
 
+    def trace(self, distance):
+        """Local shaft azimuth of the pitch trace at actual apex distance."""
+        return self.k * log(distance / self.outer_distance)
+
+    def section_trace(self, z, theta):
+        # Preserve the existing logarithmic arc evaluation and its rounding.
+        return self.k * log(z / (cos(theta) * self.outer_distance))
+
     def half_angle(self, theta):
         # The constant-angle continuation is deliberately nonworking relief.
         working = max(theta, self.base)
@@ -42,7 +50,7 @@ class SphericalProfile:
 
     def point(self, theta, distance, side=1, phase=0):
         """Analytic flank point on a sphere of radius ``distance``."""
-        azimuth = phase + self.k * log(distance / self.outer_distance) + side * self.half_angle(theta)
+        azimuth = phase + self.trace(distance) + side * self.half_angle(theta)
         r = distance * sin(theta)
         return r * cos(azimuth), r * sin(azimuth), distance * cos(theta)
 
@@ -163,8 +171,8 @@ def section(q, z, phase=0, tolerance=PROFILE_TOLERANCE):
     points = []
     for tooth in range(q.teeth):
         centre = phase+tooth*pitch
-        root_phase = centre+q.k*log(z/(cos(q.root)*q.outer_distance))
-        tip_phase = centre+q.k*log(z/(cos(q.tip)*q.outer_distance))
+        root_phase = centre+q.section_trace(z, q.root)
+        tip_phase = centre+q.section_trace(z, q.tip)
         def arc(theta, start, end):
             radius = z*tan(theta)
             return _sample(lambda a:(radius*cos(a), radius*sin(a)), start, end, tolerance)

@@ -92,6 +92,22 @@ class ToolWorkspaceTests(unittest.TestCase):
         self.assertIsNone(a.components.window);self.assertFalse(a.tools.box.get_visible())
         self.assertEqual(a.canvas.get_width(),width)
 
+    def test_components_reopen_keeps_summary_in_the_current_panel(self):
+        a=self.app;c=a.components
+        snapshot=a.project_snapshot();token=a.document.token;design=a.design
+        summary=c.summary
+        for _ in range(3):
+            c.open();self.next_frame()
+            self.assertIs(c.summary,summary)
+            self.assertIs(summary.get_parent(),c.window.body)
+            self.assertTrue(summary.get_mapped())
+            self.assertTrue(summary.get_text())
+            c.window.close();pump(.05)
+            self.assertIsNone(c.window)
+        self.assertEqual(a.project_snapshot(),snapshot)
+        self.assertEqual(a.document.token,token)
+        self.assertIs(a.design,design)
+
     def test_new_scroll_position_wins_over_an_older_pending_rebuild(self):
         import gui_workflow
         a=self.app
@@ -291,44 +307,69 @@ class ToolWorkspaceTests(unittest.TestCase):
         a.text_size.set_selected(0)
 
     def test_reference_controls_use_local_vectors_and_separate_buttons(self):
+        from copy import deepcopy
+        from navigation_cube import NavigationCube
         a=self.app
         self.assertFalse(hasattr(a,'help_button'))
         self.assertFalse(hasattr(a,'app_guide'))
-        buttons=(a.view_menu,a.tools.menu,a.language_menu)
-        for button,name in zip(buttons,('sliders','wrench','globe')):
+        self.assertIsInstance(a.navigation_cube,NavigationCube)
+        self.assertTrue(a.navigation_cube.get_mapped())
+        self.assertEqual((a.navigation_cube.get_width(),a.navigation_cube.get_height()),(116,116))
+        buttons=(a.view_menu,a.pan_button,a.tools.menu)
+        for button,name in zip(buttons,('sliders','pan','wrench')):
             with self.subTest(glyph=name):
+                icon=button.workspace_icon if button is a.tools.menu else button.get_child()
                 self.assertTrue(button.get_mapped())
-                self.assertIsInstance(button.workspace_icon,Gtk.DrawingArea)
-                self.assertEqual(button.workspace_icon.glyph_name,name)
-                self.assertEqual(button.workspace_icon.get_width(),16)
-                self.assertEqual(button.workspace_icon.get_height(),16)
-                self.assertTrue(button.workspace_icon.is_ancestor(button.get_parent()))
-        self.assertEqual([button.get_label() for button in buttons],['View','Tools','Language'])
-        self.assertIsInstance(a.theme_switch,Gtk.Switch)
-        self.assertTrue(a.theme_switch.get_mapped())
-        self.assertFalse(hasattr(a,'settings'))
+                self.assertIsInstance(icon,Gtk.DrawingArea)
+                self.assertEqual(icon.glyph_name,name)
+                size=16 if button is a.tools.menu else 19
+                self.assertEqual((icon.get_width(),icon.get_height()),(size,size))
+                self.assertTrue(icon.is_ancestor(button.get_parent()))
+                wrapper=button.get_parent()
+                ok,glyph=icon.compute_bounds(wrapper);self.assertTrue(ok)
+                ok,action=button.compute_bounds(wrapper);self.assertTrue(ok)
+                self.assertGreaterEqual(glyph.get_x(),action.get_x())
+                self.assertLessEqual(glyph.get_x()+glyph.get_width(),action.get_x()+action.get_width())
+        self.assertEqual(a.tools.menu.get_label(),'Tools')
+        self.assertEqual(a.view_menu.get_tooltip_text(),'Display options')
         self.assertEqual(a.preview_toolbar.get_spacing(),6)
-        ok,view=a.view_menu.compute_bounds(a.preview_toolbar);self.assertTrue(ok)
-        ok,tools=a.tools.menu.compute_bounds(a.preview_toolbar);self.assertTrue(ok)
-        self.assertEqual(round(tools.get_x()-view.get_x()-view.get_width()),6)
-        self.assertEqual(round(view.get_height()),34)
+        ok,view=a.view_menu.compute_bounds(a.navigation_controls);self.assertTrue(ok)
+        ok,pan=a.pan_button.compute_bounds(a.navigation_controls);self.assertTrue(ok)
+        self.assertEqual(round(view.get_x()-pan.get_x()-pan.get_width()),2)
+        self.assertEqual(round(view.get_height()),29)
+        self.assertEqual(round(pan.get_y()),round(view.get_y()))
+        ok,tools=a.tools.menu.compute_bounds(a.win);self.assertTrue(ok)
+        ok,cube=a.navigation_cube.compute_bounds(a.win);self.assertTrue(ok)
+        self.assertLessEqual(tools.get_y()+tools.get_height(),cube.get_y())
         self.assertEqual(round(tools.get_height()),34)
         self.assertEqual(round(a.preview_toolbar.get_height()),34)
-        for button in buttons:
-            # GTK button coordinates start inside padding/borders. Compare
-            # both real allocations in their shared wrapper instead.
-            wrapper=button.get_parent()
-            ok,icon=button.workspace_icon.compute_bounds(wrapper);self.assertTrue(ok)
-            ok,action=button.compute_bounds(wrapper);self.assertTrue(ok)
-            self.assertGreaterEqual(icon.get_x(),action.get_x())
-            self.assertLessEqual(icon.get_x()+icon.get_width(),action.get_x()+action.get_width())
-        # Both original toggle actions still control their real overlays.
+        snapshot=deepcopy(a.project_snapshot());token=a.document.token
+        self.assertIsInstance(a.theme_switch,Gtk.Switch)
+        self.assertIs(a.appearance_button,a.theme_switch)
+        self.assertTrue(a.theme_switch.get_mapped())
+        theme=a.theme_switch.get_active();design=a.design
+        try:
+            a.theme_switch.set_active(not theme);pump(.05)
+            self.assertEqual(a.workspace_theme,'light' if not theme else 'dark')
+            self.assertIs(a.design,design)
+        finally:a.theme_switch.set_active(theme)
+        a.pan_button.set_active(True);self.assertTrue(a.canvas.pan_mode)
+        a.pan_button.set_active(False);self.assertFalse(a.canvas.pan_mode)
+        keys=next(c for c in a.navigation_cube.observe_controllers()
+                  if isinstance(c,Gtk.EventControllerKey))
+        self.assertTrue(keys.emit('key-pressed',Gdk.KEY_5,0,Gdk.ModifierType(0)))
+        self.assertEqual((a.canvas.yaw,a.canvas.tilt),(0,0))
+        self.assertTrue(keys.emit('key-pressed',Gdk.KEY_Home,0,Gdk.ModifierType(0)))
+        # Display and Tools still control their actual mutually exclusive overlays.
         a.view_menu.emit('clicked');pump(.05)
         self.assertTrue(a.view_panel.get_visible());self.assertTrue(a.view_menu.get_active())
+        self.assertIsInstance(a.view_panel,Gtk.Popover)
+        self.assertTrue(a.pick_mode.get_mapped());self.assertTrue(a.explode_slider.get_mapped())
         a.tools.menu.emit('clicked');pump(.05)
         self.assertTrue(a.tools.box.get_visible());self.assertTrue(a.tools.menu.get_active())
         self.assertFalse(a.view_menu.get_active());self.assertFalse(a.view_panel.get_visible())
         a.tools.close_current()
+        self.assertEqual(a.project_snapshot(),snapshot);self.assertEqual(a.document.token,token)
 
     def test_reference_tool_chooser_uses_local_vectors_and_compact_rows(self):
         a=self.app

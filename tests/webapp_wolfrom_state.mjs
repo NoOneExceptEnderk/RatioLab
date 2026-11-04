@@ -10,8 +10,11 @@ const fixture=JSON.parse(fs.readFileSync(0,'utf8'));
 class Custom extends Event {constructor(type,{detail}={}){super(type);this.detail=detail;}}
 globalThis.CustomEvent=Custom;
 class Element extends EventTarget {
-  constructor(tag='div'){super();this.tagName=tag.toUpperCase();this.children=[];this.dataset={};this.attributes={};this.value='';this.hidden=false;this.disabled=false;this.open=false;this.className='';this.scrollTop=0;this.parent=null;this.connected=false;this.style={};this.classList={contains:value=>this.className.split(' ').includes(value),remove:value=>{this.className=this.className.split(' ').filter(c=>c!==value).join(' ');},toggle:value=>{const had=this.classList.contains(value);if(had)this.classList.remove(value);else this.className+=' '+value;return !had;}};}
+  constructor(tag='div'){super();this.tagName=tag.toUpperCase();this.children=[];this.dataset={};this.attributes={};this.value='';this.hidden=false;this.disabled=false;this.open=false;this.className='';this.scrollTop=0;this.parent=null;this.connected=false;this.style={};this.classList={add:(...values)=>{this.className=[...new Set([...this.className.split(' ').filter(Boolean),...values])].join(' ');},contains:value=>this.className.split(' ').includes(value),remove:value=>{this.className=this.className.split(' ').filter(c=>c!==value).join(' ');},toggle:value=>{const had=this.classList.contains(value);if(had)this.classList.remove(value);else this.className+=' '+value;return !had;}};}
   get isConnected(){return this.connected || !!this.parent?.isConnected;}
+  // The actual UI now adds presentation classes to fixed/three-member drives.
+  // Keep the DOM double's className and classList views in sync.
+  get parentElement(){return this.parent;}
   append(...children){for(const child of children){if(child.parent){const i=child.parent.children.indexOf(child);if(i>=0)child.parent.children.splice(i,1);}child.parent=this;this.children.push(child);}}
   replaceChildren(...children){for(const child of this.children)child.parent=null;this.children=[];this.append(...children);}
   insertBefore(child,before){const i=this.children.indexOf(before);child.parent=this;this.children.splice(i<0?this.children.length:i,0,child);}
@@ -19,6 +22,7 @@ class Element extends EventTarget {
   getAttribute(k){return this.attributes[k]??null;}
   querySelector(selector){const matches=n=>selector.startsWith('.')?n.classList.contains(selector.slice(1)):n.tagName===selector.toUpperCase();return descendants(this).slice(1).find(matches)??null;}
   querySelectorAll(selector){return descendants(this).slice(1).filter(n=>n.tagName===selector.toUpperCase());}
+  closest(selector){for(let n=this;n;n=n.parent){if(selector.startsWith('.')?n.classList.contains(selector.slice(1)):n.tagName===selector.toUpperCase())return n;}return null;}
   contains(other){return descendants(this).includes(other);}
   getBoundingClientRect(){return {left:20,right:320,top:80,width:300,height:250};}
   focus(){document.activeElement=this;}
@@ -29,6 +33,9 @@ class Element extends EventTarget {
 }
 const nodes=new Map();const el=id=>{if(!nodes.has(id)){const n=new Element();n.connected=true;nodes.set(id,n);}return nodes.get(id);};
 globalThis.document={getElementById:el,createElement:tag=>new Element(tag),querySelectorAll:()=>[],activeElement:null,body:el('body'),documentElement:{clientWidth:1280}};
+// Match the real motion bar's help anchor around the precise RPM input.
+const motionControls=new Element();motionControls.className='motion-bar input-controls';
+motionControls.append(el('motion-rpm'));document.body.append(motionControls);
 globalThis.window={innerHeight:800};
 globalThis.fetch=async path=>{assert.equal(path,'./help-illustrations.json');return {ok:true,json:async()=>JSON.parse(fs.readFileSync(root+'webapp/help-illustrations.json','utf8'))};};
 globalThis.requestAnimationFrame=()=>0;globalThis.cancelAnimationFrame=()=>{};
@@ -45,13 +52,18 @@ const languageModule = new vm.SourceTextModule('export const LANGUAGES={}; expor
 await languageModule.link(()=>{}); await languageModule.evaluate();
 deps['./ui-language.js']=languageModule;
 
+deps['./model-catalog.js']=new vm.SyntheticModule(['initModelCatalog','selectionSummary'],function(){
+  this.setExport('initModelCatalog',()=>{});this.setExport('selectionSummary',()=>'');
+});
+deps['./choice-menu.js']=dependency('initChoiceMenus',()=>({close(){}}));
+
 let source=fs.readFileSync(root+'webapp/app.js','utf8').replace(/setup\(\);\s*$/,'');
 source+=`\nexport {doc,renderFields,makeDriveConnections,syncMotionControl,currentValid,generateCurrent,openProject,scrubPreviewPhase};
 export function initialize(testSchema,testDesign,transport) {
   startup=true; schema=structuredClone(testSchema); catalog={project_format:'solidcraft-riduttori/1',families:[{key:'wolfrom',...schema}]};
   doc.replace('wolfrom',schema,testDesign.values); engine=transport; design=structuredClone(testDesign); design.parts=[];
   viewer={render(){},clear(){},selected:new Set()}; fatal=false; busy=false; schemaPending=false; generationRunning=false; actionConfirmation=false;
-  analysisActive=false; validToken=doc.token(); previousRevision=doc.revision; phase=1.25; sourceParameters=structuredClone(testDesign.values); startup=false;
+  analysisActive=false; validToken=doc.token(); previousRevision=doc.revision; phase=1.25; rememberSourceParameters(); startup=false;
 }
 export function previewDimensions(family,nextSchema){startup=true; schema=structuredClone(nextSchema);catalog={families:[{key:family,label:family,...schema}]};doc.replace(family,schema,{});design=null;validToken=null;startup=false;renderFields();}
 let previewCalls=[]; export function phaseCalls(){return previewCalls;}
@@ -69,14 +81,19 @@ const descendants=e=>[e,...e.children.flatMap(descendants)];
 const texts=e=>descendants(e).map(n=>n.textContent??'').join(' ');
 const settle=()=>new Promise(resolve=>setImmediate(resolve));
 function openMotionHelp(expectedTitle){
-  const trigger=el('motion-help').querySelector('button');assert.ok(trigger,'Motion guide has an explicit accessible trigger');
-  assert.equal(trigger.getAttribute('aria-label'),'Help: '+expectedTitle);
-  // A pointer click opens actual pane content without moving the numeric
-  // field's focus as a keyboard activation intentionally would.
-  const event=new Event('click');event.detail=1;trigger.dispatchEvent(event);
+  const trigger=el('motion-rpm');
+  assert.equal(trigger.getAttribute('aria-keyshortcuts'),'F1');
+  assert.equal(trigger.getAttribute('aria-controls'),'parameter-help-pane');
+  const event=new Event('keydown',{cancelable:true});event.key='F1';motionControls.dispatchEvent(event);
+  assert.equal(event.defaultPrevented,true);
   const pane=document.body.children.find(n=>n.id==='parameter-help-pane');
   assert.ok(pane && !pane.hidden,'The actual shared guide is visible');
-  assert.equal(trigger.getAttribute('aria-expanded'),'true');return pane;
+  assert.ok(texts(pane).includes(expectedTitle));
+  assert.equal(trigger.getAttribute('aria-expanded'),'true');
+  const close=pane.querySelector('button');assert.equal(document.activeElement,close);
+  close.click();assert.equal(trigger.getAttribute('aria-expanded'),'false');
+  assert.equal(document.activeElement,trigger,'Closing keyboard help restores the precise RPM field');
+  return pane;
 }
 let calls=[];const transport={failure:null,async request(method){calls.push(method);if(method==='project')return {};throw Error('Rejected Wolfrom '+method);}};
 a.initialize(fixture.schema,fixture.design,transport);
@@ -99,12 +116,23 @@ document.activeElement=null;a.initialize(fixture.schema,fixture.design,transport
 const io=fixture.schema.options.find(f=>f.key==='io_scheme');
 assert.deepEqual(io.choices.map(c=>c.value),['sun_output_ring']);assert.ok(io.help.meaning);
 const connections=a.makeDriveConnections(io);const labels=texts(connections);
+const nominal=connections.children.find(n=>n.className==='drive-result');
+assert.ok(nominal,'The nominal output stays outside the collapsed motion details');
+assert.equal(nominal.children[0].textContent,'Nominal output');
+assert.equal(Number(nominal.children[1].textContent),fixture.design.analysis.kinematics.stage_results[0].rates_rpm.output);
+const motionDetails=connections.children.find(n=>n.tagName==='DETAILS');assert.ok(motionDetails);
+assert.equal(motionDetails.open,false);assert.equal(motionDetails.children[0].textContent,'Motion details');
+for(const expected of ['sun 600 rpm','carrier 60 rpm','compound spin -75 rpm','output ring 1 rpm','fixed first ring 0 rpm'])assert.ok(texts(motionDetails).includes(expected),expected+' remains in the motion details');
 for(const expected of ['Sun','First ring','Second ring · exposed annulus','carrier 60 rpm','compound spin -75 rpm','output ring 1 rpm','fixed first ring 0 rpm','+Z'])assert.ok(labels.includes(expected),expected);
 assert.equal(descendants(connections).filter(n=>['SELECT','INPUT'].includes(n.tagName)).length,0,'The fixed Wolfrom arrangement has no editable controls');
 const connectionButtons=descendants(connections).filter(n=>n.tagName==='BUTTON');
-assert.equal(connectionButtons.length,1,'Only the explicit information trigger accompanies the fixed arrangement');
-assert.equal(connectionButtons[0].getAttribute('aria-label'),'Help: '+io.help.title);
-assert.ok(connectionButtons[0].classList.contains('help-trigger'));
+assert.equal(connectionButtons.length,0,'The fixed arrangement uses contextual help on its body');
+assert.equal(connections.getAttribute('aria-keyshortcuts'),'F1');
+document.body.append(connections);
+const connectionHelp=new Event('keydown',{cancelable:true});connectionHelp.key='F1';connections.dispatchEvent(connectionHelp);
+const connectionPane=document.body.children.find(n=>n.id==='parameter-help-pane');
+assert.ok(!connectionPane.hidden && texts(connectionPane).includes(io.help.title));
+assert.equal(connections.getAttribute('aria-expanded'),'true');connectionPane.querySelector('button').click();
 a.renderFields();const rows=descendants(el('parameters'));
 const keys=rows.filter(n=>n.dataset.field).map(n=>n.dataset.field);
 assert.ok(keys.indexOf('planet')<keys.indexOf('planet2'));assert.ok(keys.indexOf('planet2')<keys.indexOf('output_ring'));
@@ -149,7 +177,13 @@ for(const [key,caption]of [['module','Module · mm'],['width','Face width · mm'
   const row=descendants(primary).find(n=>n.dataset.field===key);
   assert.ok(descendants(row).some(n=>n.tagName==='LABEL' && n.textContent===caption),caption);
   const inputBox=descendants(row).find(n=>n.className==='field-input');
-  assert.ok(descendants(inputBox).some(n=>n.className==='field-help'),'Help is anchored to the input box');
+  const input=descendants(inputBox).find(n=>n.tagName==='INPUT');
+  assert.equal(input.getAttribute('aria-keyshortcuts'),'F1','Contextual help is accessible from the precise input');
+  assert.equal(input.getAttribute('aria-controls'),'parameter-help-pane');
+  const help=new Event('keydown',{cancelable:true});help.key='F1';row.dispatchEvent(help);
+  const pane=document.body.children.find(n=>n.id==='parameter-help-pane');
+  assert.ok(!pane.hidden && texts(pane).includes(fixture.previous_schema.fields.find(f=>f.key===key).help.meaning));
+  pane.querySelector('button').click();assert.equal(document.activeElement,input);
   assert.equal(descendants(inputBox).some(n=>n.className==='unit'),false,'Units stay in the label, outside the precise input');
 }
 
@@ -171,7 +205,7 @@ assert.equal(a.doc.entries.center_extra.text,'0,1234567890123');assert.deepEqual
 // Preview phase uses only the existing pose RPC: no regeneration, document
 // history entry, or normalization of the currently typed geometry spelling.
 const phaseDesign=a.snapshot().design,phaseDraft=structuredClone(a.doc.state),phaseHistory=structuredClone(a.doc.past),phaseCallCount=a.phaseCalls().length;
-el('phase-range').value='1.234';assert.equal(await a.scrubPreviewPhase(),true);
+el('phase-range').value='1.234';await a.scrubPreviewPhase();
 assert.equal(a.snapshot().phase,1.234);assert.equal(a.snapshot().design,phaseDesign);
 assert.deepEqual(a.phaseCalls().slice(phaseCallCount),['pose']);assert.deepEqual(a.doc.state,phaseDraft);assert.deepEqual(a.doc.past,phaseHistory);
 assert.equal(el('motion-phase').textContent,'1.23 rad');

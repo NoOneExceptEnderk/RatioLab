@@ -267,7 +267,7 @@ export function initTools(api) {
   s.context=el('p',null,'tool-note');s.axesBox=el('div');s.form.append(s.context,s.axesBox);
   for(const [key,label,v,integer]of [['max_candidates','Maximum candidates','50000',true],['max_seconds','Time limit (s)','30',false],['max_results','Retained results (max 100)','100',true]])s.form.append(field(s,key,label,v,{integer}));
   s.apply=button('Apply selected combination',()=>apply(s));s.apply.id='search-apply';s.apply.disabled=true;s.root.append(s.apply);
-  const i=panel('interference','Check every component, including hidden supports and housing, over discrete poses of the labelled kinematic period. Boundary contact remains unresolved. Samples can miss collisions between poses.');
+  const i=panel('interference','Check every component, including hidden supports and housing, over discrete poses of the labelled kinematic period or finite working stroke. Boundary contact remains unresolved. Samples can miss collisions between poses.');
   const b=panel('backlash','Parallel external spur, helical and double helix pairs. Target transverse tangential working backlash by adjusting centre spacing. The candidate stays separate until Apply.');
   b.form.append(field(b,'desired_backlash_mm','Desired working backlash (mm)','0.1'));
   for(const p of [i,b])for(const [key,label,v,integer]of checkFields)p.form.append(field(p,key,label,p===b && key==='max_seconds'?'60':v,{integer}));

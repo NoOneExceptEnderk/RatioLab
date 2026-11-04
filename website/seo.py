@@ -1,6 +1,7 @@
 """Deterministic public search metadata; no network or application dependencies."""
 from __future__ import annotations
 
+import hashlib
 import html
 import json
 import re
@@ -12,10 +13,13 @@ from xml.etree import ElementTree as ET
 from releases import REPOSITORY
 
 ORIGIN = 'https://ratiolab.dev'
-HOME_TITLE = 'RatioLab — Open-source gear and reducer design software'
-HOME_DESCRIPTION = 'Open-source desktop software for parametric gears and reducers. Set dimensions, inspect 3D geometry and motion, and export designs for CAD or 3D printing.'
-IMAGE = ORIGIN + '/assets/workspace.png'
-IMAGE_ALT = 'RatioLab desktop workspace with model parameters, a planetary reducer preview and geometric results.'
+HOME_TITLE = 'RatioLab — Free open-source gear and reducer generator'
+HOME_DESCRIPTION = 'Generate parametric gears and reducers in your browser or on desktop. Free, open-source 3D tools with STEP/STL export for CAD and 3D printing.'
+APP_TITLE = 'RatioLab web app — Gear and reducer generator in your browser'
+APP_DESCRIPTION = 'Create parametric gears and reducers in your browser. Set dimensions, inspect 3D motion and download STEP/STL models or JSON projects with free, open-source RatioLab.'
+IMAGE_VERSION = hashlib.sha256((Path(__file__).resolve().parent / 'assets/workspace.png').read_bytes()).hexdigest()[:16]
+IMAGE = ORIGIN + '/assets/workspace.png?v=' + IMAGE_VERSION
+IMAGE_ALT = 'RatioLab desktop workspace showing a two-stage planetary reducer, motion inputs and outputs, and a 3D preview.'
 
 
 def canonical(route):
@@ -31,17 +35,24 @@ def json_script(data):
     return '<script type="application/ld+json">' + serialized + '</script>'
 
 
-def home_schema(release):
+def home_schema(release, web_version):
     return {'@context': 'https://schema.org', '@graph': [
         {'@type': 'WebSite', '@id': ORIGIN + '/#website', 'url': ORIGIN + '/',
-         'name': 'RatioLab', 'description': HOME_DESCRIPTION, 'inLanguage': 'en'},
+         'name': 'RatioLab', 'description': HOME_DESCRIPTION, 'inLanguage': 'en',
+         'hasPart': [{'@id': ORIGIN + '/#software'}, {'@id': ORIGIN + '/app/#software'}]},
         {'@type': 'SoftwareApplication', '@id': ORIGIN + '/#software', 'name': 'RatioLab',
-         'url': ORIGIN + '/', 'description': HOME_DESCRIPTION, 'applicationCategory': 'DesignApplication',
+         'url': ORIGIN + '/#download', 'description': 'Open-source desktop software for parametric gears and reducers with 3D inspection and geometry export.', 'applicationCategory': 'DesignApplication',
          'operatingSystem': ['Windows 11', 'macOS 15 or later', 'Linux with glibc 2.39 or later'],
          'license': REPOSITORY + '/blob/main/LICENSE', 'isAccessibleForFree': True,
          'offers': {'@type': 'Offer', 'price': '0'}, 'softwareVersion': release.version,
          'downloadUrl': [url for key, url in release.downloads.items() if key != 'checksums'],
-         'screenshot': IMAGE, 'softwareHelp': ORIGIN + '/docs/'}]}
+         'screenshot': IMAGE, 'softwareHelp': ORIGIN + '/docs/'},
+        {'@type': 'WebApplication', '@id': ORIGIN + '/app/#software', 'name': 'RatioLab web app',
+         'url': ORIGIN + '/app/', 'description': APP_DESCRIPTION, 'applicationCategory': 'DesignApplication',
+         'browserRequirements': 'Requires JavaScript, WebAssembly, Web Workers, WebGL and a secure context (HTTPS or localhost).',
+         'license': REPOSITORY + '/blob/main/LICENSE', 'isAccessibleForFree': True,
+         'offers': {'@type': 'Offer', 'price': '0'}, 'softwareVersion': web_version,
+         'image': IMAGE, 'softwareHelp': ORIGIN + '/docs/web-app/'}]}
 
 
 def documentation_schema(route, title):
@@ -69,8 +80,8 @@ def metadata(route, title, description, *, schema=None, noindex=False):
         for prefix, attr in (('og:', 'property'), ('twitter:', 'name')):
             for key, value in (('title', title), ('description', description), ('image', IMAGE), ('image:alt', IMAGE_ALT)):
                 lines.append(f'<meta {attr}="{prefix}{key}" content="{escape(value)}">')
-        lines.extend(['<meta property="og:image:width" content="1366">',
-                      '<meta property="og:image:height" content="736">',
+        lines.extend(['<meta property="og:image:width" content="1221">',
+                      '<meta property="og:image:height" content="657">',
                       '<meta name="twitter:card" content="summary_large_image">'])
     if schema is not None:
         lines.append(json_script(schema))

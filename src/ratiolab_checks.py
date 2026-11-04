@@ -166,17 +166,23 @@ def _wait_for_frame(canvas, context, timeout=30):
     clock = canvas.get_frame_clock()
     if clock is None:
         raise RuntimeError('The installed preview has no frame clock')
-    initial_frame = clock.get_frame_counter()
+    initial_render = canvas.render_serial
     painted = False
     def after_paint(current):
         nonlocal painted
-        painted = current.get_frame_counter() > initial_frame
+        # Observe completion after the request, including a frame already in
+        # progress. The renderer serial below proves this canvas was drawn;
+        # the shared frame-clock counter is not a canvas completion token.
+        painted = True
     handler = clock.connect('after-paint', after_paint)
     try:
         canvas.queue_render()
         _wait_for_context(context,
                           lambda: painted and canvas.get_mapped()
                           and canvas.get_width() > 0 and canvas.get_height() > 0
+                          and canvas.render_serial > initial_render
+                          and canvas.render_size == (canvas.get_width()*canvas.get_scale_factor(),
+                                                     canvas.get_height()*canvas.get_scale_factor())
                           and canvas.gl and not canvas.dirty,
                           timeout=timeout)
     finally:

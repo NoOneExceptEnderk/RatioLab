@@ -38,7 +38,7 @@ LIMITATIONS = [
     'Strain-wave motion is prescribed deformation, not an elastic solution.',
 ]
 # This controls the compact editor only; every canonical numeric field is exposed.
-ADVANCED = {'pressure', 'backlash', 'profile_shift', 'addendum', 'dedendum',
+ADVANCED = {'pressure', 'backlash', 'face_addendum', 'profile_shift', 'addendum', 'dedendum',
             'clearance', 'assembly_clearance', 'output_clearance', 'profile_tolerance',
             'wave_clearance', 'wave_factor'}
 
@@ -61,7 +61,7 @@ def help_diagram_context(family, key, values):
     renderer starts using another context value. No Cairo enters the worker.
     """
     variant = values.get('variant')
-    double = family == 'double' or variant in ('double', 'two_stage_double')
+    double = geometry.is_double(family,variant)
     joined = values.get('double_style') == 'joined' or family == 'double' and variant == 'joined'
     za = family == 'worm' and values.get('variant', 'za') == 'za'
     left = family == 'worm' and values.get('worm_hand', 1) == -1
@@ -96,7 +96,7 @@ def option_definitions(family):
     if family in geometry.VARIANTS:
         choices('variant', geometry.VARIANTS[family], next(iter(geometry.VARIANTS[family])))
     if geometry.is_double(family) or any(geometry.is_double(family, v) for v in geometry.VARIANTS.get(family, {})):
-        choices('double_style', geometry.DOUBLE_STYLES, 'joined' if family == 'double' else 'separated')
+        choices('double_style', geometry.DOUBLE_STYLES, 'joined' if family in ('double','face') else 'separated')
     if kinematics.options(family):
         choices('io_scheme', kinematics.options(family), kinematics.default(family))
         if family == 'planetary':
@@ -121,11 +121,25 @@ def family_check(family):
     return family
 
 
+def numeric_parameter_keys(family):
+    """Recognize canonical fields across every variant and double-helix style.
+
+    A hidden editor field can still be present in saved projects (Joined gap=0)
+    or determine a legacy construction (positive gap implies Separated).
+    """
+    keys = set()
+    for variant in geometry.VARIANTS.get(family, {None: None}):
+        styles = geometry.DOUBLE_STYLES if geometry.is_double(family, variant) else (None,)
+        for style in styles:
+            keys.update(spec[0] for spec in geometry.get_specs(family, variant, style))
+    return keys
+
+
 def parameters_check(family, values):
     family_check(family)
     if not isinstance(values, dict) or not all(isinstance(key, str) for key in values):
         raise BridgeError('invalid_parameters', 'Parameters must be an object with string keys.')
-    numeric = {spec[0] for variant in geometry.VARIANTS.get(family, {None: None}) for spec in geometry.get_specs(family, variant)}
+    numeric = numeric_parameter_keys(family)
     options = option_definitions(family)
     for key, value in values.items():
         field = options.get(key)
@@ -154,6 +168,8 @@ def schema(family, parameters=None):
     supplied = dict(parameters or {})
     # Schema does not generate geometry, but rejects invalid option names.
     variant = supplied.get('variant')
+    if family=='face' and variant=='double_helical' and 'double_style' not in supplied:
+        supplied['double_style']='joined' if supplied.get('gap',0)==0 else 'separated'
     specs = geometry.get_specs(family, variant, supplied.get('double_style'))
     if family == 'differential':
         from differential_wrist import labelled_specs, inactive_fields
@@ -168,10 +184,26 @@ def schema(family, parameters=None):
                            minimum=low, maximum=high, step=step, advanced=key in advanced,
                            inactive=key in inactive, help=help_for(family, key, supplied)))
     options = option_definitions(family)
+    multistage = family == 'parallel' and supplied.get('variant') in geometry.PARALLEL_MULTISTAGE_VARIANTS
+    if multistage:
+        from parallel_multistage import count
+        n = count(supplied)
+        for choice in options['io_scheme']['choices']:
+            choice['label'] = f'Shaft 1 → shaft {n+1}' if choice['value'] == 'forward' else f'Shaft {n+1} → shaft 1'
     for key, field in options.items():
         field.update(help=help_for(family, key, supplied))
-    return dict(family=family, fields=fields, options=list(options.values()), defaults=geometry.defaults(family, variant),
-                bearing_supported=family in bearings.SUPPORTED, hardware_supported=family in hardware.SUPPORTED)
+    presentation = {}
+    if family == 'parallel':
+        from parallel_multistage import selectors, SELECTOR_NOTICE
+        presentation = dict(parallel_selectors=selectors(variant or 'spur'), parallel_selector_notice=SELECTOR_NOTICE)
+        for control in presentation['parallel_selectors']:
+            control['help'] = help_for(family, 'variant', supplied)
+    defaults=geometry.defaults(family,variant)
+    if family=='face' and variant=='double_helical':
+        style=supplied.get('double_style','joined' if supplied.get('gap',0)==0 else 'separated')
+        defaults.update(double_style=style,gap=4 if style=='separated' else 0)
+    return dict(family=family, fields=fields, options=list(options.values()), defaults=defaults, **presentation,
+                bearing_supported=family in bearings.SUPPORTED and not multistage, hardware_supported=family in hardware.SUPPORTED and not multistage)
 
 
 def catalog():
@@ -283,14 +315,15 @@ class Engine:
     def generate(self, family, parameters):
         # Wolfrom edits are transactional; browser document tokens still block
         # exports for an invalid draft. Other families keep their invalidation.
-        if family != 'wolfrom':
+        transactional = family == 'wolfrom' or family == 'parallel' and isinstance(parameters, dict) and parameters.get('variant') in geometry.PARALLEL_MULTISTAGE_VARIANTS
+        if not transactional:
             self.design = self.plan = None
             self.invalidate_queries()
             self.design_id += 1
         values = parameters_check(family, parameters)
         design = geometry.generate(family, values)
         plan = motion.build_plan(design)
-        if family == 'wolfrom':
+        if transactional:
             self.invalidate_queries()
             self.design_id += 1
         result = self.pack_design(design, plan)
@@ -358,6 +391,7 @@ class Engine:
     def motion_metadata(self, design=None, plan=None):
         design, plan = design or self.design, plan or self.plan
         result = dict(supported=plan.supported, message=plan.message, reference_rpm=plan.reference_rpm,
+                      phase_limits=plan.phase_limits,
                       phase_units='radians', phase_radians_per_second=plan.reference_rpm*2*__import__('math').pi/60,
                       matrix_layout='column-major', rates=plan.rates,
                       angular_rates=plan.angular_rates, angular_offsets=plan.angular_offsets,
@@ -686,8 +720,12 @@ class Engine:
         project = args.get('project') if isinstance(args, dict) else None
         if method == 'import_project' and isinstance(project, dict):
             target = project.get('family')
-        transactional = method in ('generate', 'import_project') and (target == 'wolfrom' or
-            method == 'import_project' and self.design is not None and self.design.family == 'wolfrom')
+        parameters = project.get('parameters') if method == 'import_project' and isinstance(project, dict) else args.get('parameters') if isinstance(args, dict) else None
+        multi_target = target == 'parallel' and isinstance(parameters, dict) and parameters.get('variant') in geometry.PARALLEL_MULTISTAGE_VARIANTS
+        retained_source = self.design is not None and (self.design.family == 'wolfrom' or
+            self.design.family == 'parallel' and self.design.values.get('variant') in geometry.PARALLEL_MULTISTAGE_VARIANTS)
+        transactional = method in ('generate', 'import_project') and (target == 'wolfrom' or multi_target or
+            method == 'import_project' and retained_source)
         if not transactional:
             return self._call(method, args)
         retained = dict(self.__dict__, buffers=list(self.buffers), surfaces=dict(self.surfaces))
@@ -722,8 +760,7 @@ class Engine:
                 unsupported = set(parameters) & {'helix', 'double_style', 'profile_shift', 'module2', 'fixed_ring', 'one_rim'}
                 if unsupported:
                     raise BridgeError('invalid_parameters', 'Unsupported Wolfrom parameter(s): '+', '.join(sorted(unsupported)))
-            known = {spec[0] for variant in geometry.VARIANTS.get(family, {None: None})
-                     for spec in geometry.get_specs(family, variant)} | option_definitions(family).keys()
+            known = numeric_parameter_keys(family) | option_definitions(family).keys()
             result = self.generate(family, {key: value for key, value in parameters.items() if key in known})
             result['ignored_parameters'] = sorted(parameters.keys() - known)
             return result

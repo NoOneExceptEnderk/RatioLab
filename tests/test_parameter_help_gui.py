@@ -46,12 +46,15 @@ class ParameterHelpGuiTests(unittest.TestCase):
                 raise RuntimeError('The required real GTK display is unavailable')
             raise unittest.SkipTest('A working local GTK display is required')
         cls.temp=TemporaryDirectory(prefix='ratiolab-help-gui-')
+        cls.addClassCleanup(cls.temp.cleanup)
         cls.env=patch.dict(os.environ, {'XDG_CONFIG_HOME': cls.temp.name, 'XDG_DATA_HOME': cls.temp.name, 'APPDATA': cls.temp.name, 'LOCALAPPDATA': cls.temp.name})
         cls.env.start()
+        cls.addClassCleanup(cls.env.stop)
         # Keep mapped allocation/rendering real, but make synthetic motion
         # transitions independent of the user's stationary physical pointer.
         # Otherwise a popup resize can generate an unrelated native re-entry.
         motion_type=Gtk.EventControllerMotion
+        cls.motion_type=motion_type
         cls.motions=[]
         def controlled_motion(*args, **kwargs):
             motion=motion_type(*args, **kwargs)
@@ -67,6 +70,9 @@ class ParameterHelpGuiTests(unittest.TestCase):
             cls.motions.append((motion,motion.get_propagation_phase()))
             motion.set_propagation_phase(Gtk.PropagationPhase.NONE)
             return motion
+        # Help uses the Python constructor; the cube uses GTK's .new() factory.
+        # Both must retain real mapped controllers and the same manual filtering.
+        controlled_motion.new=controlled_motion
         cls.motion_patch=patch.object(Gtk,'EventControllerMotion',controlled_motion)
         cls.motion_patch.start();cls.addClassCleanup(cls.motion_patch.stop)
         from app import ReducerApp
@@ -82,13 +88,57 @@ class ParameterHelpGuiTests(unittest.TestCase):
         cls.app.parameter_help.close()
         for motion,phase in cls.motions:motion.set_propagation_phase(phase)
         for window in cls.app.get_windows():window.destroy()
-        cls.env.stop();cls.temp.cleanup()
 
     def tearDown(self):
         self.app.parameter_help.close()
         self.app.parameter_help.suppressed = None
         self.app.text_size.set_selected(0)
         pump()
+
+    def test_motion_constructor_and_new_share_manual_enter_leave_filtering(self):
+        controllers=(Gtk.EventControllerMotion(),Gtk.EventControllerMotion.new())
+        for motion in controllers:
+            self.assertIsInstance(motion,self.motion_type)
+            self.assertEqual(motion.get_propagation_phase(),Gtk.PropagationPhase.NONE)
+            received=[]
+            motion.connect('enter',lambda *_:received.append('enter'))
+            motion.connect('leave',lambda *_:received.append('leave'))
+            motion.emit('enter',1.,1.);motion.emit('leave')
+            self.assertEqual(received,[])
+            emit_motion(motion,'enter',1.,1.);emit_motion(motion,'leave')
+            self.assertEqual(received,['enter','leave'])
+
+    def test_visible_choice_hover_f1_escape_and_focus_preserve_selection(self):
+        from geometry import generate
+        from gui_workflow import show_page
+        a=self.app
+        a.load_config_data(dict(format='solidcraft-riduttori/1',family='parallel',
+                               parameters=generate('parallel').values))
+        show_page(a,'assembly');a.sections['bearings'][0].set_expanded(True);pump()
+        owner=a.parameter_help;b=owner.bindings['bearing_mode']
+        self.assertIsInstance(b.control,Gtk.DropDown)
+        self.assertTrue(b.control.get_mapped());self.assertFalse(b.button.get_mapped())
+        self.assertTrue(b.control.grab_focus());focus=a.win.get_focus()
+        selected=b.control.get_selected()
+        before=copy.deepcopy((a.project_snapshot(),a.document.states,a.document.index))
+        emit_motion(b.motion,'enter',1.,1.)
+        self.assertTrue(wait_for(lambda:owner.popover is not None and owner.popover.get_mapped()))
+        self.assertIs(owner.active,b);self.assertIs(a.win.get_focus(),focus)
+        emit_motion(b.motion,'leave');emit_motion(owner.popup_motion,'enter',1.,1.)
+        pump(LEAVE_DELAY_MS/1000+.05)
+        self.assertIs(owner.active,b)
+        emit_motion(owner.popup_motion,'leave')
+        self.assertTrue(wait_for(lambda:owner.popover is None))
+        self.assertTrue(b.key_controllers[0].emit('key-pressed',Gdk.KEY_F1,0,Gdk.ModifierType(0)))
+        self.assertTrue(wait_for(lambda:owner.popover is not None and owner.popover.get_mapped()))
+        self.assertEqual(owner.activation,'explicit');self.assertIs(a.win.get_focus(),focus)
+        owner.close_button.grab_focus();pump()
+        keys=next(c for c in owner.popover.observe_controllers()
+                  if isinstance(c,Gtk.EventControllerKey))
+        self.assertTrue(keys.emit('key-pressed',Gdk.KEY_Escape,0,Gdk.ModifierType(0)))
+        self.assertIsNone(owner.popover);self.assertIs(a.win.get_focus(),focus)
+        self.assertEqual(b.control.get_selected(),selected)
+        self.assertEqual((a.project_snapshot(),a.document.states,a.document.index),before)
 
     def test_delayed_hover_preserves_pending_input_and_focus(self):
         a=self.app;owner=a.parameter_help;b=owner.bindings['module']
@@ -110,10 +160,14 @@ class ParameterHelpGuiTests(unittest.TestCase):
 
     def test_keyboard_clickable_info_escape_and_rebuild(self):
         a=self.app;owner=a.parameter_help;b=owner.bindings['module']
-        b.button.grab_focus();focus=a.win.get_focus()
-        b.button.emit('clicked');pump()
+        self.assertFalse(b.button.get_mapped())
+        self.assertTrue(b.control.get_mapped());self.assertTrue(b.control.grab_focus())
+        focus=a.win.get_focus()
+        self.assertTrue(b.key_controllers[0].emit('key-pressed',Gdk.KEY_F1,0,Gdk.ModifierType(0)))
+        pump()
         self.assertTrue(owner.popover.get_mapped())
         self.assertEqual(owner.activation,'explicit')
+        self.assertIs(a.win.get_focus(),focus)
         owner.close_button.grab_focus()
         self.assertTrue(b.key_pressed(None,Gdk.KEY_Escape,0,0))
         self.assertIsNone(owner.popover)
@@ -138,7 +192,9 @@ class ParameterHelpGuiTests(unittest.TestCase):
         self.assertFalse(owner.drawing.get_visible())
         a.rebuild_options({'variant':'helical'});pump()
         self.assertIsNone(owner.popover)
-        self.assertIn('variant', owner.bindings)
+        self.assertNotIn('variant', owner.bindings)  # Variants now live in the illustrated catalog.
+        self.assertIs(owner.section_binding.control,a.catalog_button)
+        self.assertIs(owner.bindings['helix'].control,a.inputs['helix'])
         self.assertIn('input_rpm', owner.bindings)
         self.assertTrue(set(a.inputs) <= set(owner.bindings))
 
@@ -353,72 +409,33 @@ class ParameterHelpIconGuiTests(unittest.TestCase):
     def tearDown(self):
         ParameterHelpGuiTests.tearDown(self)
 
-    def test_information_vectors_are_centered_in_headings_choices_and_numeric_fields(self):
-        import cairo
-        from pathlib import Path
+    def test_parameter_icons_are_absent_without_losing_f1_or_native_stepping(self):
         from geometry import generate
         from gui_workflow import show_page
         from ratiolab_checks import _wait_for_frame
         a=self.app
-        a.load_config_data(dict(format='solidcraft-riduttori/1',family='parallel',
-                                parameters=generate('parallel').values))
-        show_page(a,'geometry')
-        # Earlier tests exercise transient invalid numeric drafts; select the
-        # default splitter width explicitly, then keep it strict through focus
-        # and all text scales below.
-        a.workspace_paned.set_position(230)
+        a.load_config_data(dict(format='solidcraft-riduttori/1',family='parallel',parameters=generate('parallel').values))
+        show_page(a,'geometry');a.workspace_paned.set_position(230)
         self.assertTrue(wait_for(lambda:a.parameter_panel.get_width()==230))
         before=copy.deepcopy(a.project_snapshot())
         for scale in (0,1,2):
-            with self.subTest(scale=scale):
-                a.appearance_button.grab_focus()
-                _wait_for_frame(a.canvas,GLib.MainContext.default())
-                a.text_size.set_selected(scale)
-                _wait_for_frame(a.canvas,GLib.MainContext.default())
-                self.assertEqual(a.parameter_panel.get_width(),230)
-                owner=a.parameter_help
-                for binding in (owner.section_binding,owner.bindings['variant'],
-                                owner.bindings['module'],owner.bindings['width']):
-                    button,glyph=binding.button,binding.glyph
-                    self.assertIs(button.get_child(),glyph)
-                    self.assertIsInstance(glyph,Gtk.DrawingArea)
-                    self.assertEqual(glyph.glyph_name,'help')
-                    self.assertTrue(Gtk.test_accessible_has_property(button,Gtk.AccessibleProperty.LABEL))
-                    self.assertTrue(glyph.get_mapped())
-                    self.assertEqual((glyph.get_width(),glyph.get_height()),(14,14))
-                    ok,area=glyph.compute_bounds(button);self.assertTrue(ok)
-                    self.assertAlmostEqual(area.get_x()+area.get_width()/2,button.get_width()/2,delta=.5)
-                    self.assertAlmostEqual(area.get_y()+area.get_height()/2,button.get_height()/2,delta=.5)
-                    border=button.get_style_context().get_border()
-                    self.assertEqual((border.left,border.right,border.top,border.bottom),(0,0,0,0))
-                    # Inspect actual raster ink, including the circle: its bounds
-                    # must have the same optical center as the14px surface.
-                    paint=Gtk.WidgetPaintable.new(glyph);snapshot=Gtk.Snapshot()
-                    paint.snapshot(snapshot,14,14);node=snapshot.to_node()
-                    self.assertIsNotNone(node)
-                    path=Path(self.temp.name)/'information-vector.png'
-                    a.win.get_renderer().render_texture(node,None).save_to_png(str(path))
-                    surface=cairo.ImageSurface.create_from_png(str(path))
-                    pixels=bytes(surface.get_data());stride=surface.get_stride()
-                    ink=[(x,y) for y in range(14) for x in range(14) if pixels[y*stride+x*4+3]>32]
-                    self.assertTrue(ink)
-                    self.assertAlmostEqual((min(x for x,y in ink)+max(x for x,y in ink))/2,6.5,delta=.5)
-                    self.assertAlmostEqual((min(y for x,y in ink)+max(y for x,y in ink))/2,6.5,delta=.5)
-        control=owner.bindings['pinion'].control
-        control.grab_focus();_wait_for_frame(a.canvas,GLib.MainContext.default())
-        for scale in (0,1,2):
-            with self.subTest(focused_scale=scale):
-                a.text_size.set_selected(scale)
-                _wait_for_frame(a.canvas,GLib.MainContext.default())
-                self.assertEqual(a.parameter_panel.get_width(),230)
-                ok,help_bounds=owner.bindings['pinion'].button.compute_bounds(control);self.assertTrue(ok)
-                child=control.get_first_child()
-                while child:
-                    if isinstance(child,Gtk.Button):
-                        self.assertTrue(child.get_visible())
-                        ok,step=child.compute_bounds(control);self.assertTrue(ok)
-                        self.assertLessEqual(help_bounds.get_x()+help_bounds.get_width(),step.get_x())
-                    child=child.get_next_sibling()
+            a.text_size.set_selected(scale);_wait_for_frame(a.canvas,GLib.MainContext.default())
+            owner=a.parameter_help
+            for binding in owner.all_bindings:
+                self.assertFalse(binding.button.get_visible())
+                self.assertFalse(binding.glyph.get_mapped())
+            b=owner.bindings['module'];b.control.grab_focus()
+            self.assertTrue(b.key_controllers[0].emit('key-pressed',Gdk.KEY_F1,0,0));pump()
+            self.assertTrue(owner.popover.get_mapped())
+            self.assertIs(owner.active,b)
+            owner.close();_wait_for_frame(a.canvas,GLib.MainContext.default())
+            self.assertEqual(a.parameter_panel.get_width(),230)
+            control=owner.bindings['pinion'].control;control.grab_focus();pump()
+            child=control.get_first_child();steps=[]
+            while child:
+                if isinstance(child,Gtk.Button):steps.append(child)
+                child=child.get_next_sibling()
+            self.assertTrue(steps and all(button.get_visible() for button in steps))
         self.assertEqual(a.project_snapshot(),before)
 
 

@@ -51,6 +51,9 @@ for(const name of ['document','viewer','preferences']){
 function dependency(name,value){return new vm.SyntheticModule([name],function(){this.setExport(name,value);});}
 modules['./engine-client.js']=dependency('EngineClient',class{});
 modules['./tools.js']=dependency('initTools',()=>{});
+
+modules['./model-catalog.js']=new vm.SyntheticModule(['initModelCatalog','selectionSummary'],function(){this.setExport('initModelCatalog',()=>{});this.setExport('selectionSummary',()=> '');});
+modules['./choice-menu.js']=dependency('initChoiceMenus',()=>({close(){}}));
 // Keep the actual setup, camera listeners and all renderer handlers. Suppress
 // only worker boot: camera commands do not depend on a calculation result.
 const source=fs.readFileSync(root+'webapp/app.js','utf8').replace(/setup\(\);\s*$/,'boot=()=>{}; setup();');
@@ -85,7 +88,7 @@ function custom(){
   for(const [id]of names)assert.equal(el(id).getAttribute('aria-pressed'),'false');
 }
 function key(key){const event=new Event('keydown',{cancelable:true});event.key=key;canvas.dispatchEvent(event);return event;}
-function pointer(type,x,y){const event=new Event(type);Object.assign(event,{button:0,pointerId:1,clientX:x,clientY:y});canvas.dispatchEvent(event);}
+function pointer(type,x,y,button=0){const event=new Event(type);Object.assign(event,{button,pointerId:1,clientX:x,clientY:y});canvas.dispatchEvent(event);}
 function fitted(){assert.equal(viewer.zoom,1);assert.equal(viewer.yaw,-35*Math.PI/180);assert.equal(viewer.pitch,-55*Math.PI/180);named('isometric');}
 
 // Named buttons retain zoom, while Fit resets both zoom and orientation.
@@ -111,14 +114,30 @@ el('fit-view').click();fitted();
 el('top-view').click();key('=');named('top');key('-');assert.equal(viewer.zoom,1);named('top');
 viewer.captureBusy=true;key('f');key('ArrowLeft');assert.equal(viewer.yaw,0);assert.equal(viewer.pitch,0);named('top');viewer.captureBusy=false;
 // The same panel switches content without touching camera, phase, or selection.
-el('tool-dock').hidden=true;viewer.selected=new Set([2]);el('top-view').click();key('+');
+el('tool-dock').hidden=true;el('view-panel').hidden=true;viewer.selected=new Set([2]);el('top-view').click();key('+');
 const camera={yaw:viewer.yaw,pitch:viewer.pitch,zoom:viewer.zoom};
-el('open-view-panel').click();assert.equal(el('view-panel').hidden,false);assert.equal(el('tools-menu-extension').hidden,true);
+el('open-view-panel').click();assert.equal(el('view-panel').hidden,false);assert.equal(el('tool-dock').hidden,true);
 assert.equal(el('open-view-panel').getAttribute('aria-expanded'),'true');
-el('expand-tool-dock').click();assert.equal(el('expand-tool-dock').getAttribute('aria-pressed'),'true');
 el('open-tools-panel').click();assert.equal(el('view-panel').hidden,true);assert.equal(el('tools-menu-extension').hidden,false);
+el('expand-tool-dock').click();assert.equal(el('expand-tool-dock').getAttribute('aria-pressed'),'true');
 el('close-tool-dock').click();assert.equal(el('tool-dock').hidden,true);assert.equal(el('open-tools-panel').getAttribute('aria-expanded'),'false');
 assert.deepEqual({yaw:viewer.yaw,pitch:viewer.pitch,zoom:viewer.zoom},camera);assert.deepEqual([...viewer.selected],[2]);
+
+// Right drag is pan, never orbit or surface selection. Fit restores framing;
+// camera target changes must feed the same inverse projection used for picking.
+const nav=modules['./viewer.js'].namespace;
+const allDirections=[];
+for(let x=-1;x<=1;x++)for(let y=-1;y<=1;y++)for(let z=-1;z<=1;z++)if(x||y||z)allDirections.push([x,y,z]);
+for(const d of allDirections){viewer.orient(d);const q=viewer.projectVector(d);assert.ok(Math.abs(q[0])<1e-12&&Math.abs(q[1])<1e-12&&q[2]>0);}
+el('cube-home').click();const beforePan={yaw:viewer.yaw,pitch:viewer.pitch};let picks=0;viewer.addEventListener('surfaceclick',()=>picks++);
+pointer('pointerdown',100,100,2);pointer('pointermove',145,125,2);pointer('pointerup',145,125,2);
+assert.deepEqual({yaw:viewer.yaw,pitch:viewer.pitch},beforePan);assert.ok(viewer.panOffset.some(v=>v!==0));assert.equal(picks,0);
+const target=viewer.cameraCenter,ray=nav.cameraRay({yaw:viewer.yaw,pitch:viewer.pitch,center:target,radius:viewer.radius,zoom:viewer.zoom,width:300,height:260},0,0);
+assert.deepEqual(ray.ray_origin.map((v,i)=>Math.round((v+ray.ray_direction[i]*viewer.radius*4-target[i])*1e8)||0),[0,0,0]);
+el('cube-fit').click();assert.deepEqual(viewer.panOffset,[0,0,0]);assert.deepEqual({yaw:viewer.yaw,pitch:viewer.pitch},beforePan);
+const contextMenu=new Event('contextmenu',{cancelable:true});canvas.dispatchEvent(contextMenu);assert.equal(contextMenu.defaultPrevented,true);
+el('pan-view').click();assert.equal(viewer.panMode,true);pointer('pointerdown',10,10);pointer('pointermove',30,20);pointer('pointerup',30,20);assert.equal(picks,0);
+el('pan-view').click();el('cube-home').click();assert.deepEqual(viewer.panOffset,[0,0,0]);
 
 // Hover intent, crossing to the pane, expansion, and pointer departure use
 // real controller handlers with a deterministic clock (not timing sleeps).
@@ -127,7 +146,7 @@ globalThis.setTimeout=(fn,delay)=>{timers.set(++timerId,{fn,delay});return timer
 globalThis.clearTimeout=id=>timers.delete(id);
 function advance(delay){for(const [id,t]of [...timers])if(t.delay<=delay){timers.delete(id);t.fn();}}
 const anchor=new Element(),trigger=new Element('button');anchor.append(trigger);trigger.closest=()=>anchor;
-app.namespace.bindParameterHelp(anchor,{help:{title:'Module',meaning:'Tooth size.',effect:'Sets pitch dimensions.',diagram_url:'diagram.svg'}},trigger);
+app.namespace.bindParameterHelp(anchor,{help:{title:'Module',meaning:'Tooth size.',effect:'Sets pitch dimensions.',diagram_url:'diagram.svg'}},trigger,{clickToOpen:true});
 anchor.dispatchEvent(new Event('pointerenter'));assert.equal(document.body.children.length,0);advance(249);assert.equal(document.body.children.length,0);advance(250);
 const pane=document.body.children[0];assert.equal(pane.hidden,false);assert.equal(trigger.getAttribute('aria-expanded'),'true');
 anchor.dispatchEvent(new Event('pointerleave'));pane.dispatchEvent(new Event('pointerenter'));advance(220);assert.equal(pane.hidden,false);
@@ -157,15 +176,15 @@ anchor.dispatchEvent(new Event('pointerleave'));advance(250);assert.equal(pane.h
 
 // Promotion to the whole parameter removes the icon wrapper's old listeners.
 const wrapper=new Element(),promoted=new Element(),promotedTrigger=new Element('button');wrapper.append(promotedTrigger);promoted.append(wrapper);
-app.namespace.bindParameterHelp(wrapper,{help:{title:'Old'}},promotedTrigger);
-app.namespace.bindParameterHelp(promoted,{help:{title:'Promoted'}},promotedTrigger);
+app.namespace.bindParameterHelp(wrapper,{help:{title:'Old'}},promotedTrigger,{clickToOpen:true});
+app.namespace.bindParameterHelp(promoted,{help:{title:'Promoted'}},promotedTrigger,{clickToOpen:true});
 wrapper.dispatchEvent(new Event('pointerenter'));advance(250);assert.equal(pane.hidden,true);
 promotedTrigger.click();assert.equal(pane.hidden,false);assert.equal(pane.children[0].children[0].textContent,'Promoted');
 app.namespace.closeParameterHelp();
 // A late illustration response cannot append content to another parameter.
 let resolveAsset;globalThis.fetch=()=>new Promise(resolve=>{resolveAsset=resolve;});
 const late=new Element(),lateTrigger=new Element('button');late.append(lateTrigger);
-app.namespace.bindParameterHelp(late,{help:{title:'Late',diagram_context:'test/context'}},lateTrigger);lateTrigger.click();
+app.namespace.bindParameterHelp(late,{help:{title:'Late',diagram_context:'test/context'}},lateTrigger,{clickToOpen:true});lateTrigger.click();
 trigger.click();const latestBody=pane.children[1],initialCount=latestBody.children.length;
 resolveAsset({ok:true,json:async()=>({format:'ratiolab-help-illustrations/1',entries:{'test/context':'hash'},images:{hash:'data:image/png;base64,cHJvYmU='}})});
 await new Promise(resolve=>setImmediate(resolve));assert.equal(latestBody.children.length,initialCount);

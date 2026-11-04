@@ -16,10 +16,10 @@ SECTION_KEY = "__model_dimensions__"
 class Binding:
     def __init__(self, owner, label, control, key, row):
         self.owner, self.label, self.control, self.key, self.row = owner, label, control, key, row
-        # A single centered outline avoids font-dependent question-mark
-        # baselines inside a separately painted CSS circle.
+        # Keep the existing private activation handle for binding consumers,
+        # but expose help through the parameter hover target and F1 only.
         from workspace_ui import workspace_glyph
-        self.button = Gtk.Button()
+        self.button = Gtk.Button(visible=False)
         self.button.set_valign(Gtk.Align.CENTER)
         self.glyph = workspace_glyph('help', self.button)
         self.glyph.set_content_width(14)
@@ -167,7 +167,7 @@ class HelpController:
         self.style.load_from_data(('''
 .parameter-help { background: transparent; }
 .parameter-help > contents { background: alpha(@rl_surface, 0.89); background-image: none; border: 1px solid @rl_line;
- border-radius: 10px; padding: 0; box-shadow: 0 10px 30px alpha(#11161d, 0.33); }
+ border-radius: 10px; padding: 0; box-shadow: inset 0 0 0 1px @rl_line, 0 10px 30px alpha(#11161d, 0.33); }
 .parameter-help .help-header { padding: 12px; border-bottom: 1px solid @rl_line; }
 .parameter-help .help-family { color: @rl_muted; font-size: %gpx; }
 .parameter-help .help-title { color: @rl_text; font-weight: 700; font-size: %gpx; }
@@ -241,9 +241,9 @@ class HelpController:
         if self.section_binding:
             self.all_bindings.append(self.section_binding)
 
-    def bind_section(self, label, row=None):
+    def bind_section(self, label, row=None, *, control=None):
         """Attach the same guide to the model-and-dimensions heading."""
-        self.section_binding = self.bind(label, label, SECTION_KEY, row)
+        self.section_binding = self.bind(label, control or label, SECTION_KEY, row)
         return self.section_binding
 
     def bind(self, label, control, key, row=None):
@@ -631,11 +631,7 @@ def bind_options(app):
     caption = app.motion_caption
     owner.bind(caption, app.motion_speed_text, 'input_rpm')
     if app.variant_box.get_visible():
-        label = app.variant_box.get_first_child()
-        if isinstance(label, Gtk.Box):
-            label = label.get_first_child()
-        if isinstance(label, Gtk.Label):
-            owner.bind(label, app.variant_selector, 'variant')
+        owner.bind(app.variant_caption, app.variant_selector, 'variant')
     # Each triple-member stage has two captions plus a derived fixed member.
     for key, roles in getattr(app, 'io_role_selectors', {}).items():
         for role in ('input', 'output'):

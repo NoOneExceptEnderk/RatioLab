@@ -19,7 +19,7 @@ from threading import Event, RLock
 from time import monotonic
 import uuid
 
-from geometry import FAMILIES, VARIANTS, DOUBLE_STYLES, HARMONIC_OUTPUTS, INTEGER, get_specs, generate, validate
+from geometry import FAMILIES, VARIANTS, DOUBLE_STYLES, HARMONIC_OUTPUTS, INTEGER, get_specs, generate, validate, is_double
 from project_document import Document
 
 CONFIG_FORMAT = 'solidcraft-riduttori/1'
@@ -103,7 +103,9 @@ def _family(value):
 def _spec_keys(family):
     keys = set()
     for variant in VARIANTS.get(family, {None: None}):
-        keys.update(field[0] for field in get_specs(family, variant))
+        styles = ('joined', 'separated') if is_double(family, variant) else (None,)
+        for style in styles:
+            keys.update(field[0] for field in get_specs(family, variant, style))
     return keys
 
 
@@ -125,7 +127,7 @@ def _option_fields(family):
         fields['hardware_'+key] = dict(type='boolean')
     if family in VARIANTS:
         fields['variant'] = dict(type='string', enum=list(VARIANTS[family]))
-    if family == 'double' or any(variant in ('double', 'two_stage_double') for variant in VARIANTS.get(family, {})):
+    if family == 'double' or any(is_double(family, variant) for variant in VARIANTS.get(family, {})):
         fields['double_style'] = dict(type='string', enum=list(DOUBLE_STYLES))
     if kinematics.options(family):
         fields['io_scheme'] = dict(type='string', enum=list(kinematics.options(family)))

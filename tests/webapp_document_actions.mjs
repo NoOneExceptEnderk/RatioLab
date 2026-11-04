@@ -39,15 +39,19 @@ const languageModule = new vm.SourceTextModule('export const LANGUAGES={}; expor
 await languageModule.link(()=>{}); await languageModule.evaluate();
 dependencies['./ui-language.js']=languageModule;
 
+dependencies['./model-catalog.js']=new vm.SyntheticModule(['initModelCatalog','selectionSummary'],function(){this.setExport('initModelCatalog',()=>{});this.setExport('selectionSummary',()=> '');});
+dependencies['./choice-menu.js']=dependency('initChoiceMenus',()=>({close(){}}));
+
 let source=fs.readFileSync(root+'webapp/app.js','utf8').replace(/setup\(\);\s*$/,'');
 // Avoid renderer/startup work while retaining the actual document action,
 // precision/normalization, lease checks, dialogs, and keyboard handlers.
 source+=`\nrenderFields=()=>{}; renderMetrics=()=>{}; renderInspection=()=>{}; updateFamilyHeader=()=>{}; applyFieldErrors=()=>{}; syncMotionControl=()=>{};
-export {doc,saveProject,runExport,exportDialog,newDocument,openProject,protectChanges,documentShortcut,commitRates,currentValid,documentActionReady};
+export {doc,saveProject,runExport,exportDialog,newDocument,openProject,protectChanges,documentShortcut,commitRates,currentValid,documentActionReady,previewSpeed};
 export function initialize(testSchema,values,transport) {
   startup=true; schema=structuredClone(testSchema); catalog={project_format:'solidcraft-riduttori/1',families:[{key:'parallel',...schema}]};
   doc.replace('parallel',schema,values); engine=transport; fatal=false; busy=false; actionConfirmation=false; analysisActive=false;
   generationRunning=false; schemaPending=false; rateEditing=false; rateSource=null; ratePending=false; rateCompletion=null;
+  speedSliderPreview=null; speedSliderActive=false; speedSliderKeyActive=false;
   poseCompletion=Promise.resolve(); phase=1.234; operationSerial=10; previousRevision=doc.revision;
   design={family:'parallel',design_id:7,values:structuredClone(values),motion:{supported:true},parts:[{index:0}],buffers:[new ArrayBuffer(12)]};
   viewer={design,selected:new Set([0]),frame:{parts:[]},render(){},clear(){},setDesign(next){this.design=next;},captureNominal:async()=>new Uint8Array([1])};
@@ -153,4 +157,9 @@ const opening=a.openProject({format:'solidcraft-riduttori/1',family:'parallel',p
 assert.equal(el('dialog-title').textContent,'Project could not be opened');choose('Close');assert.equal(await opening,false);
 assert.equal(a.doc.identity,beforeOpen.identity);assert.deepEqual(a.doc.state,beforeOpen.state);assert.deepEqual(a.doc.past,beforeOpen.past);
 assert.deepEqual(a.scheduledGenerations(),[0]);
+// Explicit Save confirms a pending graphical slider value before choosing the
+// export snapshot, even if the pointer has not been released yet.
+reset();const previewRevision=a.doc.revision;a.previewSpeed(321);
+assert.equal(a.doc.revision,previewRevision);assert.equal(a.testState().design.values.input_rpm,fixture.values.input_rpm);
+assert.equal(await a.saveProject(),true);assert.equal((await downloaded()).parameters.input_rpm,321);
 console.log('document action checks passed');

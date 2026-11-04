@@ -51,9 +51,24 @@ class AgentTests(unittest.TestCase):
                     self.assertEqual(unchanged['revision'],0)
                     self.assertEqual(details['defaults'],project['parameters'])
                     self.assertIn('bearing_mode',details['options'])
-                    if family not in ('spur','helical','double','differential'):
+                    if family not in ('spur','helical','double','differential','rack'):
                         self.assertTrue(details['io_schemes'])
                     self.service.project_close(**self.ref(unchanged))
+
+    def test_face_double_styles_accept_saved_canonical_grooves_and_roundtrip(self):
+        # A saved Joined face project contains canonical gap=0 even though its
+        # editor hides that field. Both styles must survive the agent boundary.
+        for style,gap in (('joined',0),('separated',2.1234567890123)):
+            with self.subTest(style=style):
+                project=self.create('face',variant='double_helical',double_style=style,gap=gap)
+                discovered=self.service.discover('face',parameters=project['parameters'])
+                self.assertEqual(discovered['defaults'],project['parameters'])
+                self.assertIn('double_style',discovered['options'])
+                self.assertEqual('gap' in {f['name'] for f in discovered['fields']},style=='separated')
+                saved=self.service.project_save(**self.ref(project),path=style+'.json')
+                opened=self.service.project_open(saved['path'])
+                self.assertEqual(opened['parameters'],project['parameters'])
+                self.assertEqual(opened['parameters']['gap'],gap)
 
     def test_unknown_nonfinite_wrong_types_and_bad_geometry_are_atomic(self):
         project = self.create()

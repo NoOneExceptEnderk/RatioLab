@@ -80,7 +80,7 @@ class BuildTests(unittest.TestCase):
             self.assertEqual(runtime['indexURL'], 'https://cdn.jsdelivr.net/pyodide/v314.0.7/full/')
             self.assertNotIn('runtime/pyodide.mjs', manifest['files'])
             self.assertTrue({'LICENSE', 'COPYRIGHT', 'source.zip', 'engine.zip'} <= set(first))
-            self.assertEqual(set(builder.ASSETS), {'engine-client.js', 'worker.js', 'index.html', 'app.css', 'app.js', 'ui-language.js', 'viewer.js', 'document.js', 'preferences.js', 'tools.js', 'tools.css', 'help-illustrations.json'})
+            self.assertEqual(set(builder.ASSETS), {'engine-client.js', 'worker.js', 'index.html', 'app.css', 'app.js', 'model-catalog.js', 'choice-menu.js', 'ui-language.js', 'viewer.js', 'document.js', 'preferences.js', 'tools.js', 'tools.css', 'help-illustrations.json'})
             self.assertEqual(set(builder.BRANDING), {'ratiolab-icon.png', 'ratiolab-logo-dark.png'})
             for name in builder.ASSETS:
                 self.assertEqual(first[name], (ROOT/'webapp'/name).read_bytes())
@@ -112,7 +112,7 @@ class BuildTests(unittest.TestCase):
                         data = archive.read(name).decode()
                         self.assertNotIn('from gi.repository', data)
                         self.assertNotIn('import gi\n', data)
-                self.assertEqual(len(json.loads(archive.read('ratiolab_resources/web-catalog.json'))['catalog']), 11)
+                self.assertEqual(len(json.loads(archive.read('ratiolab_resources/web-catalog.json'))['catalog']), 15)
             # Import the extracted engine from a neutral directory, no checkout on
             # sys.path. This catches missing closure entries and resource files.
             extracted = Path(temporary)/'engine'

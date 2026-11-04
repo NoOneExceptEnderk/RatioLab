@@ -8,7 +8,7 @@ gi.require_version('Gtk', '4.0')
 from gi.repository import Gtk
 from gear_measurement import default_gauge, measurement_query, measurement_query_text, export_measurement
 from project_document import equivalent
-from gui_workflow import bind_numeric_entry, numeric_value, set_numeric_value
+from gui_workflow import choice_dropdown, bind_numeric_entry, numeric_value, set_numeric_value
 
 
 class Controller:
@@ -78,7 +78,7 @@ class Controller:
         self.window.set_child(box)
         box.append(Gtk.Label(label='Select a generated cylindrical gear and a gauge diameter. This query does not change the project.',
                              wrap=True, xalign=0))
-        self.parts = Gtk.DropDown.new_from_strings([])
+        self.parts = choice_dropdown([])
         box.append(self.parts)
         self.parts.connect('notify::selected', lambda *_: self.part_changed())
         row = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
@@ -87,7 +87,7 @@ class Controller:
         bind_numeric_entry(self.diameter, low=0)
         self.diameter.connect('changed', lambda *_: self.request_changed())
         row.append(self.diameter)
-        self.gauge = Gtk.DropDown.new_from_strings(['Balls', 'Axial rollers'])
+        self.gauge = choice_dropdown(['Balls', 'Axial rollers'])
         self.gauge.connect('notify::selected', lambda *_: self.request_changed())
         row.append(self.gauge)
         box.append(row)

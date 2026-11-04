@@ -6,6 +6,10 @@ from geometry import gear_part, Part, circle
 from engineering import mesh
 
 def build_train(d):
+    if d.family == 'parallel':
+        from parallel_multistage import count, build
+        if count(d.values) > 1:
+            return build(d)
     v = d.values
     variant = v['variant']
     double = variant == 'double'

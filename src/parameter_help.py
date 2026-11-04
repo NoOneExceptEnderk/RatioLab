@@ -7,6 +7,7 @@ calculations, worm, strain-wave, differential, io-models and printed-shaft.
 Drawings are original schematics rendered by parameter_help_ui, not CAD views.
 Keep this registry independent of GTK so coverage can be checked headlessly.
 """
+from parallel_multistage import VARIANTS as PARALLEL_MULTISTAGE_VARIANTS
 from dataclasses import dataclass, replace
 
 
@@ -90,6 +91,8 @@ COMMON = {
     'passage_diameter': H('Output passage diameter · mm', 'Diameter of the internal passage through the hollow output.', 'Must fit within the outside output shaft. Active with the hollow output connection.', 'bore', 'Ø hollow passage'),
     'carrier_bolt_diameter': H('Carrier joining hole diameter · mm', 'Diameter of holes joining or mounting the differential carrier.', 'Changes the split-carrier / classic-carrier connection holes. It is distinct from the wrist output flange hole diameter.', 'bore', 'Ø carrier hole'),
     'spiral_angle': H('Unsigned spiral angle · °', 'Magnitude of tooth-trace inclination on the bevel pitch cone.', 'Hand is selected separately. Zero produces a straight trace; increasing the angle curves the trace across the cone face.', 'bevel', 'β = cone spiral angle'),
+    'trace_radius': H('Developed trace curvature radius · mm', 'Radius of the circular tooth trace on the developed pitch cone.', 'For the custom Zerol-style construction, the trace is tangent to a generator at mean face distance: mean spiral angle is zero while the tooth stays curved. Larger radii flatten the curve; very tight or unresolved arcs are refused.', 'bevel', 'ρ = developed circle radius'),
+    'offset': H('Signed shaft offset · mm', 'Shortest signed separation along world Y between the wheel +Z shaft and pinion +X shaft.', 'Moves the pinion axis and regenerates its conjugate envelope. Local trace hands are derived from the offset side. Supported magnitude is at most 6% of reference distance; invalid branches, undercut and incomplete contact tracks are refused.', 'hypoid', 'Op = (0, E, 0)'),
     'spiral_hand': H('Local side spiral hand · −1 / +1', 'Hand of the side-gear spiral in its own local shaft frame.', 'The opposing side frames face opposite directions. The mating transverse hand is derived; this sign is not a global spin direction.', 'bevel', 'h = local spiral hand'),
     'spider_pin_diameter': H('Spider pin diameter · mm', 'Diameter of the cross pin carrying the classic differential’s spider bevels.', 'Changes the pin and the matching spider support geometry. It is independent of the side output shaft diameter.', 'bore', 'Ø spider pin'),
     'spider_clearance': H('Spider pin radial clearance · mm', 'Radial running space between the spider pin and its bore.', 'A radial clearance c adds 2c to the bore diameter relative to the pin. It is separate from bevel tooth backlash.', 'bore', 'Ø bore = Ø pin + 2c'),
@@ -107,6 +110,18 @@ COMMON = {
     'print_journal_allowance': H('6804 journal diametral clearance · mm', 'Amount subtracted from the 6804 bearing’s 20 mm bore diameter.', 'Printed eccentric journal diameter = 20 mm − clearance. Positive values make the journal smaller; calibrate on the actual print.', 'bore', 'Ø journal = 20 mm − c'),
     'print_min_wall': H('Minimum printed wall · mm', 'Geometric wall criterion around holes and pockets in the printed eccentric pieces.', 'Rejects layouts leaving less material than this criterion. It does not predict strength, print quality or service life.', 'bore', 'tmin = remaining wall'),
 }
+
+# Multistage controls reuse the same cylindrical definitions per active pair.
+for _stage in (2, 3):
+    for _key in ('pinion', 'wheel', 'module', 'width', 'helix', 'gap', 'pressure', 'backlash', 'profile_shift', 'center_extra'):
+        COMMON[f'{_key}{_stage}'] = replace(COMMON[_key], title=COMMON[_key].title+f' · stage {_stage}', diagram='text')
+    COMMON[f'layout_angle{_stage}'] = H(f'Centre-line turn · stage {_stage}',
+        'Signed angle in the XY plane from the preceding centre line to the next. All shaft axes remain parallel to +Z.',
+        '0° continues straight; +90° folds left and −90° folds right when viewed from +Z. Interaxes remain derived from the teeth. A folded layout is refused if nonmating swept envelopes lack clearance.', 'text', 'Signed planar turn, not shaft inclination')
+    COMMON[f'intermediate_bore{_stage-1}'] = H(f'Intermediate shaft {_stage-1} diameter · mm',
+        'Common bore and nominal shaft diameter for the preceding wheel, connecting hub and following pinion.',
+        'All three share one rigid shaft speed. The connecting hub must remain below both tooth-root radii; fits and torque transfer are defined in CAD.', 'text')
+COMMON['hub_wall'] = H('Connecting hub wall · mm', 'Radial material around the intermediate compound bore.', 'Hub outside radius = shaft radius + wall. The hub bridges the axial gap and must fit below both adjacent gear roots.', 'text')
 
 OPTIONS = {
     'variant': H('Construction variant', 'Selects the current family’s geometric construction.', 'Available variants change the applicable controls. Dimensions remain subject to the selected construction’s checks.', 'section'),
@@ -130,6 +145,11 @@ OPTIONS = {
     'io_scheme2': H('Drive connections · stage 2', 'Select stage 2 input and output, with the third member fixed.', 'Stage 1 output drives stage 2 input. The total signed ratio combines both selected stage arrangements.', 'motion'),
 }
 
+COMMON['rack_teeth'] = H('Rack teeth','Number of complete teeth along the finite rack.','Sets nominal toothed length; untoothed end lands also accommodate helical sweep. Short racks without a complete safe stroke are refused.','rack','Lteeth = N π mn / cos β')
+COMMON['base'] = H('Rack base below roots · mm','Material thickness between the rack tooth roots and the flat base bottom.','Teeth add 2.25 normal modules above the roots. This field does not add a guide, mounting holes or supports.','rack','Htotal = base + 2.25 mn')
+COMMON['radial_setting'] = H('Face-band setting · mm','Distance from the reference wheel radius to the beginning of the pinion tooth band.','Positions the generated face teeth radially. Inner settings can reach singularity/undercut; outer settings can point the teeth. Unsupported combinations are refused.','face','Xstart = Rref + setting')
+COMMON['face_addendum'] = H('Face addendum coefficient','Height of the face crest above the pinion reference contact plane, in normal modules.','The default is a custom stub crest. Increasing height can improve ideal engagement but must stay above the usable pinion involute and within the regular generating branch.','face','ha = coefficient × mn')
+
 # Only exact labels emitted by app.choice are used by the late binding pass.
 OPTION_LABELS = {
     'Differential configuration': 'configuration', 'Side / transverse tooth ratio': 'ratio_mode',
@@ -148,7 +168,40 @@ def lookup(family, key, values=None):
     """Resolve a known control without silently inventing a generic fallback."""
     values = values or {}
     result = COMMON[key] if key in COMMON else OPTIONS[key]
-    if family == 'wolfrom':
+    if family == 'face':
+        changes={
+            'variant': H('Face-gear tooth type','A face wheel generated from a spur, helical or double-helical pinion with 90° shaft directions.','Zero offset gives intersecting axes; nonzero offset gives skew axes. Double helices can join into one continuous tooth band or use a central groove.','face'),
+            'double_style': H('Face double-helix construction','Joined gives continuous teeth through the centre; Separated adds a central groove.','Joined generates the convex cusp transition and trims overlapping concave envelopes. Its tooth band is a common circular annulus inside the supported pinion span. Separated exposes the central band relief field.','face'),
+            'offset': H('Signed face shaft offset · mm','Signed translation of the pinion shaft along world Y, perpendicular to both shaft directions.','Zero gives intersecting axes; the shortest distance is the absolute offset. The face teeth are regenerated for this layout. Supported magnitude is below half the reference wheel radius; geometry checks can impose tighter limits. This differs from radial band setting along the pinion shaft.','face','Axis distance = |offset|'),
+            'module': H('Normal pinion module · mm','Normal tooth size of the cylindrical pinion.','Together with pinion teeth and helix defines its pitch radius; face wheel reference radius follows the tooth ratio. Actual tooth bands are limited by undercutting and pointing.','face','rp = mn zp / (2 cos β)'),
+            'pinion': H('Pinion teeth','Tooth count of the cylindrical member about world +X.','The face wheel is generated from this pinion geometry. Tooth count also affects the usable involute and allowed face crest.','face'),
+            'wheel': H('Face wheel teeth','Number of teeth on each generated face-wheel working band.','Together with pinion teeth sets the ideal ratio. Double helical bands belong to the same wheel and have the same count.','face','i = zw / zp'),
+            'width': H('Band width along pinion axis · mm','Total toothed span along the cylindrical pinion shaft.','For separated double helix it includes the central relief. Joined uses a common circular annulus inside the supported span; its radial tooth width can be smaller. Other generated band ends can curve slightly. Wide bands may exceed undercut or pointing limits.','face'),
+            'base': H('Face wheel backing thickness · mm','Thickness of the flat circular supporting web below the face-tooth roots.','Independent of tooth height. The blank has an independent central bore; shafts, supports and retention are completed in CAD.','face'),
+            'pressure': H('Normal pinion pressure angle · °','Normal pressure angle of the cylindrical generating pinion.','The corresponding transverse pressure follows its helix. Face flanks are generated as a conjugate envelope, rather than copied cylindrical teeth.','pressure'),
+            'helix': H('Pinion helix angle · °','Signed helix of the cylindrical pinion.','The mating face trace is derived. Double helical reverses the slope between two relieved bands; equal loading and net axial cancellation are not established.','face'),
+            'gap': H('Central band relief · mm','Axial groove in the separated double-helical pinion.','The face wheel has matching separated working bands. Relief must be at least one normal module, with more than 1 mm per pinion half. Choose Joined to remove the groove and generate continuous teeth.','face'),
+            'backlash': H('Pinion reference pair backlash · mm','Total tangential tooth-thickness allowance at the reference pinion radius.','The pinion is thinned and the virtual generating pinion is thickened, sharing the pair allowance. This is not shaft or bearing clearance.','backlash'),
+            'bore': H('Pinion bore · mm','Cylindrical hole along the pinion +X shaft.','The circular face wheel has an independent bore along +Z. Bore walls and the continuous double-helix core must retain material.','bore'),
+            'output_bore': H('Face wheel bore · mm','Central hole along the face wheel +Z axis.','The bore must remain inside the inner tooth band with nominal supporting material. It stays on this physical wheel when ports are swapped.','bore'),
+            'input_rpm': H('Input speed · rpm','Signed speed of the selected driving member about its own right-hand shaft axis.','Pinion +X passes through (0,offset,2rp); face wheel +Z passes through the origin. Positive pinion input gives positive face speed in these frames. Reverse speed changes both signs; zero stops both.','face'),
+            'io_scheme': H('Face-gear drive connections','Choose pinion input or face-wheel input.','Swapping roles preserves both physical blanks and bores. Signs use pinion world +X and face wheel world +Z; no load-based backdrivability result is implied.','face'),
+        }
+        result=changes.get(key,result)
+    elif family == 'rack':
+        changes = {
+            'variant': H('Rack tooth type','Spur, helical or double-helical rack with its matching pinion.','The pinion drives linear motion. Double helices may join centrally or be separated by a relieved groove.','rack'),
+            'pinion': H('Pinion teeth','Tooth count on the rotary +Z input.','Together with normal module and helix sets pitch radius, travel per revolution and linear speed.','rack','l = π mn z / cos β'),
+            'module': H('Normal module · mm','Normal tooth size shared by rack and pinion.','Transverse pitch is π mn / cos β; helical teeth change the linear travel per revolution.','rack','pt = π mn / cos β'),
+            'pressure': H('Normal pressure angle · °','Angle of the rack flank normal in the normal section.','The transverse angle is atan(tan αn / cos β). Unsupported rack-tip contact below the usable pinion involute is refused.','pressure'),
+            'helix': H('Pinion helix angle · °','Signed pinion tooth inclination about +Z.','The matching rack trace is derived. Double helices reverse this slope in the second half; zero gives the spur limit.','rack','dx/dz = tan β'),
+            'backlash': H('Transverse pair backlash · mm','Total tooth-thickness allowance along rack travel at the reference pitch line.','Half thins the pinion reference arc and half thins the rack reference tooth thickness. This is not linear guide clearance.','backlash'),
+            'input_rpm': H('Pinion speed · rpm','Signed input speed about world +Z.','Positive input moves the rack along world +X. Zero stops both members. Preview stops at the finite stroke; reverse speed or reset to move back.','rack','v = π mn z n / (60 cos β)'),
+            'bore': H('Pinion bore · mm','Cylindrical through hole along the rotary input shaft.','The rack base has no invented mounting holes; complete guide and supports in CAD.','bore'),
+            'gap': H('Central groove · mm','Relieved axial separation of the two opposing helical tooth halves.','Both blanks retain a continuous base/core. Joined helices use zero gap.','double_helix'),
+        }
+        result=changes.get(key,result)
+    elif family == 'wolfrom':
         changes = {
             'module': H('First layer module · mm', 'Transverse module m1 shared by the sun, first planet rims and fixed first ring.', 'Only m1 is editable. The second module is derived as m2 = m1 (S + P1) / (Ro − P2), so both layers share the same planet centre distance.', 'wolfrom', 'a = m1 (S + P1) / 2'),
             'sun': H('Sun teeth · input', 'Tooth count S of the central input sun in the first layer.', 'The fixed first ring has Rf = S + 2 P1 teeth. Both layers and all identical compound phases must be compatible.', 'wolfrom', 'S = input sun teeth'),
@@ -174,6 +227,36 @@ def lookup(family, key, values=None):
             'bore': H('Worm bore diameter · mm', 'Central through hole along the worm shaft axis.', 'Independent of the wheel bore. End journals must remain outside this bore and inside the worm root.', 'bore', 'Ø worm bore'),
             'teeth': replace(COMMON['wheel'], title='Worm wheel teeth', effect='With worm input, ideal ratio magnitude is wheel teeth / starts. Increasing teeth at fixed axial module enlarges the wheel pitch diameter.'),
             'width': replace(COMMON['width'], meaning='Axial face width of the wheel along its own shaft.', effect='The wheel shaft is perpendicular to the worm shaft. This width is independent of the worm threaded length.'),
+        }
+        result = changes.get(key, result)
+    elif family == 'hypoid':
+        changes = {
+            'variant': H('Hypoid construction', 'A pinion envelope generated from a custom spherical spiral master wheel on 90° shaft directions.', 'The axes are offset; translating a bevel pinion would not generate this surface. Master and pinion tooth shapes are linked. No commercial cutter setup, standard hypoid tooth system or load rating is implied.', 'hypoid', 'n · relative velocity = 0'),
+            'module': H('Wheel reference module · mm', 'Sets the master-wheel reference diameter: module × wheel teeth.', 'Sizes a custom spherical master blank; this is not a standardized hypoid normal module or a rolling pitch-cone definition.', 'bevel', 'dref = m zw'),
+            'width': H('Wheel reference face width · mm', 'Width along the master reference cone generator.', 'Also derives the pinion axial caps. The complete mean-radius contact track must fit within both members; narrower or singular configurations are refused.', 'bevel', 'b ≤ Rref / 3'),
+            'pressure': H('Master transverse pressure angle · °', 'Defines spherical involute flanks of the chosen master wheel.', 'The pinion is generated from the master with offset included. This is not a complete hypoid load/force calculation.', 'pressure', 'αt'),
+            'backlash': H('Wheel reference tangential backlash · mm', 'Reference allowance j at the outer master-wheel radius.', 'Actual wheel teeth are thinned; the virtual generating wheel is thickened to thin the pinion. The nominal angular lost-motion interval is j divided by wheel reference radius; loaded contact is not solved.', 'bevel', 'Δφw = j / rw'),
+            'spiral_angle': replace(COMMON['spiral_angle'], title='Master-wheel spiral angle · °', meaning='Logarithmic tooth-trace angle of the master wheel.', effect='The pinion trace is generated, not independently chosen. Hand follows offset side. Supported angles are 25–45°; invalid envelopes or contact tracks are refused.'),
+            'pinion': H('Generated pinion teeth', 'Tooth count on the offset +X shaft.', 'Defines the generating roll ratio and repeated pinion teeth. The pinion surface changes when offset or master geometry changes.', 'hypoid', 'i = −zw / zp'),
+            'wheel': H('Master-wheel teeth', 'Tooth count on the +Z shaft through the origin.', 'Defines reference wheel diameter and generating ratio. Input and output can be swapped without moving either shaft.', 'hypoid', 'i = −zw / zp'),
+            'bore': replace(COMMON['bore'], title='Offset pinion bore · mm', meaning='Cylindrical bore along +X through (0, offset, 0).', effect='A numerical interval check guards the nominal root wall over the axial face. Shafts and bearings are completed in CAD.'),
+            'input_rpm': replace(COMMON['input_rpm'], meaning='Signed speed about the selected member’s own shaft axis.', effect='Pinion uses offset +X and wheel uses +Z through origin. Speed reversal and input/output swap are independent of offset side.'),
+        }
+        result = changes.get(key, result)
+    elif family == 'bevel':
+        changes = {
+            'module': H('Outer bevel module · mm', 'Tooth size at the outer pitch cone: reference diameter = module × tooth count.', 'The sections taper toward the common apex. These are custom planar blanks with spherical involute working flanks, not a standard full-depth cutter design.', 'bevel', 'do = mo z'),
+            'width': H('Pitch-cone face width · mm', 'Distance inward along the pitch cone generator.', 'Limited to one third of cone distance and ten outer modules. Both planar caps must leave more than one tooth pitch of ideal engagement.', 'bevel', 'b = along cone generator'),
+            'pressure': H('Transverse pressure angle · °', 'Pressure angle defining the spherical involute working flank.', 'Changes the base cones and available tooth engagement; invalid below-base or incomplete contact is rejected.', 'pressure', 'sin δb = sin δ cos αt'),
+            'backlash': H('Outer tangential backlash · mm', 'Total mating tooth-thickness allowance at the outer pitch radius.', 'Each gear receives half the allowance; it scales inward with cone distance. This is not bearing clearance or a manufacturing fit.', 'bevel', 'jo = outer allowance'),
+            'pinion': H('Pinion bevel teeth', 'Tooth count on the bevel whose positive axis is world +X.', 'Together with wheel teeth determines the speed ratio and both pitch cone angles at the fixed 90° shaft angle.', 'bevel', 'i = −zw / zp'),
+            'wheel': H('Wheel bevel teeth', 'Tooth count on the bevel whose positive axis is world +Z.', 'Larger wheel counts increase forward reduction; swapping input/output reverses that ratio without moving either shaft.', 'bevel', 'δp + δw = 90°'),
+            'bore': replace(COMMON['bore'], title='Pinion bore diameter · mm', meaning='Through hole along the pinion shaft, world +X.', effect='Check remaining material at the small-end root; zero produces a solid blank. Shafts and retention are designed separately.'),
+            'output_bore': replace(COMMON['output_bore'], title='Wheel bore diameter · mm', meaning='Through hole along the wheel shaft, world +Z.', effect='Check remaining material at the small-end root; zero produces a solid blank. Input/output swapping preserves these physical bore assignments.'),
+            'input_rpm': replace(COMMON['input_rpm'], meaning='Signed speed of the selected input member about its own right-hand shaft axis.', effect='Pinion uses world +X; wheel uses world +Z. Reversing input changes both physical speeds; zero stops the complete pair.'),
+            'variant': H('Bevel tooth type', 'Straight, logarithmic spiral or circular Zerol-style trace on 90° shafts.', 'All use custom spherical involute working flanks and planar blanks. Zerol-style has zero mean spiral angle but a curved developed trace; it is not the industrial Gleason octoidal cutter geometry. Hypoid offset is not supported.', 'bevel', 'Σ = 90°'),
+            'spiral_angle': replace(COMMON['spiral_angle'], effect='Sets a constant pitch-cone trace inclination for the logarithmic spiral. Zero exactly recovers the straight surfaces. Mate hand is derived opposite to the pinion hand.'),
+            'spiral_hand': H('Pinion local trace hand · −1 / +1', 'Mirrors the pinion tooth trace about its own +X shaft frame.', 'The mating wheel uses the opposite local hand about +Z. This controls tooth geometry, independently of input/output roles or the sign of operating speed.', 'bevel', 'hp = −hw'),
         }
         result = changes.get(key, result)
     elif family == 'differential':
@@ -218,7 +301,7 @@ def lookup(family, key, values=None):
         members = {'planetary': 'sun, carrier and ring', 'cycloidal': 'eccentric shaft, pin flange and ring / housing', 'harmonic': 'wave generator, flexible gear and rigid ring'}
         if family in members:
             result = replace(result, meaning='Assign input and output among the '+members[family]+'. The remaining member is fixed to the frame.')
-        elif family in ('worm', 'parallel', 'internal'):
+        elif family in ('worm', 'parallel', 'internal', 'bevel', 'hypoid'):
             result = replace(result, meaning='Choose which of the two meshing members is the input and which is the output.', effect='Reversing the roles changes the speed ratio and driving interface. There is no third fixed member; worm reversal does not establish backdrivability.')
     if family == 'parallel' and key == 'profile_shift':
         result = replace(result, effect='Applies x to the pinion and −x to the wheel. This balanced pair keeps the reference centre distance; a separate control adds working centre distance.')
@@ -233,12 +316,23 @@ def lookup(family, key, values=None):
             'cycloidal': 'Single uses one orbiting disc; dual uses two equal discs on opposing eccentric phases with a separate axial spacing.',
             'harmonic': 'Cup and flat cup have an end diaphragm; hat has an external flange. Body length and the generated flexible/ring geometry remain explicit controls.',
             'worm': 'ZA uses straight axial screw flanks. ZI uses a transverse involute screw profile. The wheel is generated from the matching selected screw.',
-            'parallel': 'Spur teeth are straight, helical teeth have one hand, and double helices use opposing hands with a selectable join/groove.',
+            'parallel': 'One, two or three stages with spur, helical or double-helical teeth. Compound pairs occupy separate axial levels with adjustable planar centre-line turns and independent stage dimensions.',
             'internal': 'Spur, helical or double-helical pinion inside a ring with fixed parallel axes. The ring tooth count must exceed the pinion count.',
             'differential': 'Straight bevel uses straight cone traces; spiral bevel uses a curved trace with separate angle and local hand controls.',
         }
         if family in descriptions:
             result = replace(result, meaning=descriptions[family])
+    if family == 'parallel' and values.get('variant') in PARALLEL_MULTISTAGE_VARIANTS:
+        if key.rstrip('23') == 'helix':
+            result = replace(result, meaning='Signed pinion helix angle for this stage; the mating wheel uses the opposite hand.', effect='Uses normal module and normal pressure angle. Magnitude changes transverse pitch diameter and stage centre distance. Other stage pinions have independent helix settings.')
+        elif key.rstrip('23') == 'gap':
+            result = replace(result, effect='Applies equally to both gears of this stage. Each active half has width (stage width − groove) / 2. Joined sets every stage groove to zero; Separated exposes an independent positive groove per stage.')
+        elif key == 'stage_gap':
+            result = H('Axial stage gap · mm', 'Separation between successive gear-pair face bands.', 'The intermediate compound hub bridges this gap. Increasing it increases stack length and changes shaft/envelope clearances.', 'text')
+        elif key == 'assembly_clearance':
+            result = H('Nonmating envelope clearance · mm', 'Minimum separation required between conservative swept cylinders of unrelated components.', 'This is a layout exclusion margin, separate from tooth backlash and nominal bore fits. Mating meshes retain their existing contact checks.', 'text')
+        elif key == 'io_scheme':
+            result = H('End-shaft input / output', 'Choose the first or last shaft as the driving port.', 'All intermediate shaft speeds are derived through the same rigid compound train. Swapping ends inverts the total signed ratio.', 'text')
     return result
 
 
@@ -254,11 +348,11 @@ def coverage_rows():
             if family in SUPPORTED:
                 keys.update(('shoulder', 'seat_allowance', 'shaft_allowance'))
                 options.update(('bearing_mode', 'bearing', 'fit', 'hardware_mode', 'hardware_screw', 'hardware_shim', 'hardware_retaining', 'hardware_keys', 'hardware_bolts', 'hardware_shims'))
-            if family in ('planetary', 'cycloidal', 'harmonic', 'worm', 'parallel', 'internal', 'wolfrom'):
+            if family in ('planetary', 'cycloidal', 'harmonic', 'worm', 'parallel', 'internal', 'wolfrom', 'bevel', 'hypoid', 'face'):
                 options.add('io_scheme')
             if family == 'planetary' and variant in ('two_stage', 'two_stage_double'):
                 options.add('io_scheme2')
-            if variant in ('double', 'two_stage_double') and family != 'double':
+            if variant in ('double', 'two_stage_double', 'three_stage_double') and family != 'double' or family=='face' and variant=='double_helical':
                 options.add('double_style')
             if family == 'cycloidal':
                 options.add('eccentric_design')

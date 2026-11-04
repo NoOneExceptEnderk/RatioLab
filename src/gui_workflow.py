@@ -1,27 +1,94 @@
 # SPDX-FileCopyrightText: 2026 NoOneExceptEnderk
 # SPDX-License-Identifier: GPL-3.0-only
 """GUI navigation and actions; geometry and kinematics remain in their modules."""
+from parallel_multistage import VARIANTS as PARALLEL_MULTISTAGE_VARIANTS
 from pathlib import Path
 import json
+import weakref
 import gi
 gi.require_version('Gtk', '4.0')
-from gi.repository import Gtk, Gio, Gdk, Pango
-CATALOG = {'spur': ('Spur gear', 'A single gear: choose the tooth count, module and bore.'), 'helical': ('Helical gear', 'A single gear with an adjustable helix angle.'), 'double': ('Double helical gear', 'Two opposing helices, joined or separated by a groove.'), 'planetary': ('Planetary gearbox', 'Sun, planets and ring gear. One or two reduction stages.'), 'cycloidal': ('Cycloidal reducer', 'Eccentric discs and rollers, with one or two discs.'), 'harmonic': ('Strain wave reducer', 'A flexible gear with prescribed wave deformation and a generated matching ring.'), 'worm': ('Worm and wheel', 'Perpendicular axes with a wheel generated from the selected ZA or ZI screw.'), 'parallel': ('Parallel shaft reducer', 'A gear pair with input and output shafts.'), 'internal': ('Internal gear reducer', 'A pinion inside an internal gear, with fixed axes.')}
-ADVANCED = {'pressure', 'backlash', 'profile_shift', 'addendum', 'dedendum', 'clearance', 'assembly_clearance', 'output_clearance', 'profile_tolerance', 'wave_clearance', 'wave_factor'}
+from gi.repository import Gtk, Gio, Gdk, Pango, GLib
+CATALOG = {'spur': ('Spur gear', 'A single gear: choose the tooth count, module and bore.'), 'helical': ('Helical gear', 'A single gear with an adjustable helix angle.'), 'double': ('Double helical gear', 'Two opposing helices, joined or separated by a groove.'), 'planetary': ('Planetary gearbox', 'Sun, planets and ring gear. One or two reduction stages.'), 'cycloidal': ('Cycloidal reducer', 'Eccentric discs and rollers, with one or two discs.'), 'harmonic': ('Strain wave reducer', 'A flexible gear with prescribed wave deformation and a generated matching ring.'), 'worm': ('Worm and wheel', 'Perpendicular axes with a wheel generated from the selected ZA or ZI screw.'), 'parallel': ('Parallel shaft reducer', 'One, two or three reduction stages with parallel shafts.'), 'internal': ('Internal gear reducer', 'A pinion inside an internal gear, with fixed axes.')}
+ADVANCED = {'pressure', 'backlash', 'profile_shift', 'addendum', 'dedendum', 'clearance', 'assembly_clearance', 'face_addendum', 'output_clearance', 'profile_tolerance', 'wave_clearance', 'wave_factor'}
 CATALOG['differential'] = ('Bevel differential', 'Spherical involute gears: wrist with two inputs or classic carrier input with two side outputs.')
 CATALOG['wolfrom'] = ('Wolfrom / 3K reducer', 'Sun input, first ring fixed, second ring output. Two rigidly joined planet rims.')
+CATALOG['bevel'] = ('Bevel gear pair', 'Straight, spiral or circular Zerol-style tooth traces on 90° shafts. Custom spherical involute flanks, independent bores and reversible ports.')
+CATALOG['rack'] = ('Rack and pinion','Finite linear rack with spur, helical or double-helical teeth and a matching pinion. Shared motion and export geometry.')
+CATALOG['face'] = ('Face gear pair','Generated face wheel with 90° shaft directions and adjustable offset. Spur, helical or joined/separated double-helical pinion.')
+CATALOG['hypoid'] = ('Hypoid gear pair', 'Offset 90° shafts with a pinion generated from a custom spiral master wheel. Supported offset up to 6% of reference cone distance; geometry limits are checked.')
 
 def searchable_dropdown(labels):
     """Filter displayed names while keeping selection indices in the full model."""
-    dropdown = Gtk.DropDown.new_from_strings(labels)
+    dropdown = choice_dropdown(labels)
     dropdown.set_expression(Gtk.PropertyExpression.new(Gtk.StringObject, None, 'string'))
     dropdown.set_search_match_mode(Gtk.StringFilterMatchMode.SUBSTRING)
     dropdown.set_enable_search(True)
-    compact_dropdown(dropdown)
     return dropdown
+
+def choice_dropdown(labels):
+    """Create a native selection control with the shared plain-list presentation."""
+    return compact_dropdown(Gtk.DropDown.new_from_strings(labels))
+
+def _descendants(widget):
+    child = widget.get_first_child()
+    while child:
+        yield child
+        yield from _descendants(child)
+        child = child.get_next_sibling()
+
+def _place_choice_popup(dropdown, popup):
+    if not dropdown or not popup or not popup.get_mapped():
+        return False
+    root = dropdown.get_root()
+    if root is None:
+        return False
+    ok, bounds = dropdown.compute_bounds(root)
+    if not ok:
+        return False
+    # Keep GTK's model, search and keyboard navigation. Only constrain the
+    # native list and its anchor, instead of replacing it with a second model.
+    available = max(32, int(root.get_height() - bounds.get_y() - bounds.get_height() - 18))
+    for child in _descendants(popup):
+        if isinstance(child, Gtk.ScrolledWindow):
+            child.set_min_content_height(0)
+            child.set_max_content_height(max(32, min(320, available - (42 if dropdown.get_enable_search() else 0))))
+            child.set_propagate_natural_height(True)
+    popup.set_position(Gtk.PositionType.BOTTOM)
+    popup.set_has_arrow(False)
+    popup.set_offset(0, 5)
+    rect = Gdk.Rectangle()
+    rect.width, rect.height = dropdown.get_width(), dropdown.get_height()
+    popup.set_pointing_to(rect)
+    popup.present()
+    return False
+
+def _install_choice_popup(dropdown):
+    control = weakref.ref(dropdown)
+    for popup in _descendants(dropdown):
+        if not isinstance(popup, Gtk.Popover):
+            continue
+        popup.add_css_class('choice-popover')
+        popup.set_position(Gtk.PositionType.BOTTOM)
+        popup.set_has_arrow(False)
+        popup._choice_idle = 0
+        def place(popover):
+            popover._choice_idle = 0
+            return _place_choice_popup(control(), popover)
+        def mapped(popover, place=place):
+            if not popover._choice_idle:
+                popover._choice_idle = GLib.idle_add(place, popover)
+        def unmapped(popover):
+            if popover._choice_idle:
+                GLib.source_remove(popover._choice_idle)
+                popover._choice_idle = 0
+        popup.connect('map', mapped)
+        popup.connect('unmap', unmapped)
 
 def compact_dropdown(dropdown):
     """Keep full choices in the popup while fitting the selected sidebar value."""
+    if getattr(dropdown, '_plain_choice', False):
+        return dropdown
+    dropdown._plain_choice = True
     factory = Gtk.SignalListItemFactory()
     def setup(_, item):
         item.set_child(Gtk.Label(xalign=0, ellipsize=Pango.EllipsizeMode.END,
@@ -30,10 +97,18 @@ def compact_dropdown(dropdown):
     factory.connect('bind', lambda _, item: item.get_child().set_text(item.get_item().get_string()))
     dropdown.set_factory(factory)
     listing = Gtk.SignalListItemFactory()
-    listing.connect('setup', lambda _, item: item.set_child(Gtk.Label(xalign=0, wrap=True, max_width_chars=35)))
-    listing.connect('bind', lambda _, item: item.get_child().set_text(item.get_item().get_string()))
+    def setup_choice(_, item):
+        row = Gtk.Box(spacing=8, css_classes=['choice-row'])
+        label = Gtk.Label(xalign=0, wrap=True, wrap_mode=Pango.WrapMode.WORD_CHAR,
+                          max_width_chars=32, width_chars=1, hexpand=True)
+        tick = Gtk.Label(label='✓', width_chars=1, css_classes=['choice-tick'])
+        row.append(label); row.append(tick)
+        item.set_child(row)
+    listing.connect('setup', setup_choice)
+    listing.connect('bind', lambda _, item: item.get_child().get_first_child().set_text(item.get_item().get_string()))
     dropdown.set_list_factory(listing)
     dropdown.set_hexpand(True)
+    _install_choice_popup(dropdown)
     return dropdown
 
 
@@ -239,7 +314,7 @@ def install_sections(app, left):
         button.get_child().set_wrap_mode(Pango.WrapMode.WORD_CHAR)
         button.get_child().set_width_chars(1)
         app.page_buttons[key] = button
-        body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12, css_classes=['parameter-scroll'])
+        body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12, css_classes=['parameter-scroll']+(['motion-sidebar'] if key=='motion' else []))
         scroll = Gtk.ScrolledWindow(vexpand=True)
         scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
         scroll.set_child(body)
@@ -284,6 +359,7 @@ def install_sections(app, left):
         else:
             section.set_child(body)
             section.get_label_widget().set_wrap(True)
+            if page=='motion':section.get_label_widget().add_css_class('motion-section-title')
         app.pages[page].append(section)
         app.sections[key] = (section, body)
     app.eccentric_design_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
@@ -589,8 +665,22 @@ def geometry_groups(app, specs):
     # Render groups in a useful order, independent of the generator's spec order.
     main_order = ('teeth','side_teeth','output_teeth','sun','planet','planets','sun2','planet2','output_ring','pinion','wheel',
                   'pins','radius','pin_radius','eccentric','module','width','spiral_angle','width2','layer_gap','disc_gap','helix','gap')
+    if app.family == 'bevel':
+        main_order = ('pinion','wheel','module','width','spiral_angle','trace_radius','spiral_hand')
+    if app.family == 'face':
+        main_order = ('pinion','wheel','module','width','offset','helix','radial_setting','gap')
+    if app.family == 'rack':
+        main_order = ('pinion','rack_teeth','module','width','helix','gap','base')
+    if app.family == 'hypoid':
+        main_order = ('pinion','wheel','module','offset','width','spiral_angle')
+    multistage = app.family == 'parallel' and app.field_values.get('variant') in PARALLEL_MULTISTAGE_VARIANTS
+    if multistage:
+        main_order = tuple((key if stage == 1 else f'{key}{stage}')
+                           for stage in (1,2,3)
+                           for key in ('pinion','wheel','module','width','helix','gap','pressure','backlash','profile_shift','center_extra'))
     order = {key: i for i, key in enumerate(main_order)}
     specs = sorted(specs, key=lambda s: order.get(s[0], len(order)))
+    app.sections['housing'][0].set_label('Shaft layout' if multistage else 'Housing & flanges')
     app.field_feedback, app.linked_notes, app.field_containers = {}, {}, {}
     app.input_geometry_groups = {}
     app.geometry_derived = {}
@@ -612,10 +702,17 @@ def geometry_groups(app, specs):
             target, page = load_box, 'motion'
         elif key in ('shoulder','seat_allowance','shaft_allowance'):
             target, page = app.sections['bearings'][1], 'assembly'
+        elif multistage and (key.startswith('layout_angle') or key in ('stage_gap','hub_wall','assembly_clearance')):
+            target, page = app.sections['housing'][1], 'assembly'
+        elif multistage and re.fullmatch(r'(pinion|wheel|module|width|helix|gap|pressure|backlash|profile_shift|center_extra)([23]?)', key):
+            stage = key[-1] if key[-1] in '23' else '1'
+            target = group('stage'+stage, 'Stage '+stage)
         elif key in ('plate','housing_wall','rim','stage_gap','carrier_bolt_diameter','spider_pin_diameter','spider_clearance') or key.startswith('print_'):
             target, page = app.sections['housing'][1], 'assembly'
         elif key in ADVANCED or key=='center_extra':
             target = app.advanced_fields
+        elif key.startswith('intermediate_bore'):
+            target = group('shafts', 'Shafts & bores')
         elif key in ('bore','output_bore','wheel_bore','input_shaft','output_shaft','shaft_extension','journal_length','journal_diameter','output_extension','passage_diameter'):
             target = group('shafts', 'Shafts & bores')
         elif key in ('output_count','output_radius','output_pin','flange_radius','bolt_count','bolt_diameter'):
@@ -758,6 +855,12 @@ def geometry_groups(app, specs):
         restore.connect('clicked',app.reset_defaults)
         app.advanced_fields.append(restore)
         app.sections['geometry'][1].append(app.advanced_expander)
+    if multistage and app.advanced_fields.get_first_child() is None:
+        restore=Gtk.Button(label='Restore model defaults',css_classes=['flat','model-restore'])
+        restore.get_child().set_wrap(True)
+        restore.set_tooltip_text('Restore defaults. Use Undo in the toolbar to restore your edits.')
+        restore.connect('clicked',app.reset_defaults)
+        extra_fields.append(restore)
     if extra_fields.get_first_child():
         app.sections['geometry'][1].append(app.extra_geometry_expander)
     app.sections['housing'][0].set_visible(app.sections['housing'][1].get_first_child() is not None)
@@ -839,8 +942,13 @@ def update_family(app):
     bind_options(app)
     description = CATALOG[app.family][1]
     variant=app.variant_selector.get_selected_item()
-    app.family_chip.set_text(CATALOG[app.family][0]+(' / '+variant.get_string() if variant else ''))
-    app.variant_caption.set_text('Tooth type' if app.family in ('parallel','internal','planetary') else 'Variant')
+    suffix=variant.get_string() if variant else ''
+    if app.family=='parallel':
+        from parallel_multistage import count
+        stages=count(app.field_values)
+        suffix=f'{stages} stage'+('s' if stages!=1 else '')+' / '+suffix
+    app.family_chip.set_text(CATALOG[app.family][0]+(' / '+suffix if suffix else ''))
+    app.variant_caption.set_text('Tooth type' if app.family in ('parallel','internal','planetary','bevel','rack','face') else 'Variant')
     app.selector.set_tooltip_text(description)
     # Construction notices are decided from the generated model below.
     app.family_hint.set_text('')
@@ -856,8 +964,19 @@ def update_family(app):
         app.motion_help.set_text('Direct carrier input drives two side outputs. B−A is a prescribed speed boundary, not a second motor or load-based speed split.' if app.option_values.get('configuration')=='classic' else 'External belts, pulleys and motors are added later in your CAD. The output has two motions; no single reduction ratio or output torque is calculated.')
     elif not app.io_frame.get_visible():
         app.motion_help.set_text('This is a single gear. Use Start motion in the motion bar to see it rotate and set speed and torque.')
+    elif any(b.has_css_class('drive-member-card') for b in app.io_mode_buttons.values()):
+        app.motion_help.set_text('Motor → input · Load → output')
     else:
         app.motion_help.set_text('Connect the motor to the input and the load to the output.')
+    paired=any(b.has_css_class('drive-member-card') for b in app.io_mode_buttons.values())
+    app.pages['motion'].set_spacing(0 if paired else 12)
+    app.motion_help.set_margin_top(10 if paired else 0)
+    if paired:
+        app.motion_help.add_css_class('drive-footer')
+        app.sections['loads'][0].add_css_class('direct-drive-loads')
+    else:
+        app.motion_help.remove_css_class('drive-footer')
+        app.sections['loads'][0].remove_css_class('direct-drive-loads')
 
 
 def construction_notice(design):
@@ -917,7 +1036,7 @@ def install_exports(app):
     scroll.set_child(body)
     app.export_menu.set_popover(popup)
     body.append(text('Export scope', 'step-title'))
-    app.export_scope = Gtk.DropDown.new_from_strings(['Complete assembly', 'Selected components'])
+    app.export_scope = choice_dropdown(['Complete assembly', 'Selected components'])
     body.append(app.export_scope)
     app.export_count = text('')
     body.append(app.export_count)

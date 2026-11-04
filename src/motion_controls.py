@@ -20,11 +20,11 @@ def unscale_rpm(value):
 def install(app, container):
     app.motion_bar=container
     container.set_spacing(6)
-    transport = Gtk.Box(spacing=7)
+    transport = Gtk.Box(spacing=7,css_classes=['motion-transport-row'])
     container.append(transport)
-    row = Gtk.Box(spacing=7)
+    row = Gtk.Box(spacing=7,css_classes=['motion-input-row'])
     container.append(row)
-    play = Gtk.Button(label='Play')
+    play = Gtk.Button(label='Play',css_classes=['motion-play'])
     app.motion_play = app.quick_play = play
     transport.append(play)
     def toggle(_):
@@ -43,12 +43,18 @@ def install(app, container):
     entry.set_alignment(1)
     entry.set_input_purpose(Gtk.InputPurpose.NUMBER)
     entry.set_tooltip_text('Precise input speed. Press Enter or leave the field to apply; decimals and decimal commas are accepted.')
-    row.append(entry)
+    rate_display = Gtk.Stack(hhomogeneous=True, vhomogeneous=True)
+    rate_display.add_named(entry, 'value')
+    rate_preview = Gtk.Label(xalign=1, margin_end=9, width_chars=7)
+    rate_display.add_named(rate_preview, 'preview')
+    row.append(rate_display)
+    app.motion_rate_preview = rate_preview
+    app.motion_rate_display = rate_display
     app.motion_speed_text = entry
     unit = Gtk.Label(label='rpm', css_classes=['muted'])
     app.motion_unit = unit
     row.append(unit)
-    button = Gtk.MenuButton(label='Rate info')
+    button = Gtk.MenuButton(label='Rate info',css_classes=['motion-details-button'])
     app.motion_button = button
     popup = Gtk.Popover(css_classes=['motion-palette'])
     button.set_popover(popup)
@@ -63,6 +69,7 @@ def install(app, container):
     slider.set_valign(Gtk.Align.CENTER)
     slider.set_hexpand(True)
     app.motion_speed = slider
+    slider.add_css_class('motion-scale')
     info = Gtk.Label(xalign=0, wrap=True, css_classes=['muted'])
     info.set_max_width_chars(34)
     content.append(info)
@@ -76,7 +83,7 @@ def install(app, container):
     transport.append(status)
     transport.append(button)
     app.playback_hint = status
-    app.motion_phase_label = Gtk.Label(xalign=0, css_classes=['muted'])
+    app.motion_phase_label = Gtk.Label(xalign=0, css_classes=['muted','motion-phase'])
     transport.insert_child_after(app.motion_phase_label,reset)
     connections = Gtk.Button(label='I/O', css_classes=['flat','motion-connections'])
     connections.set_tooltip_text('I/O connections')
@@ -99,13 +106,21 @@ def install(app, container):
         container.set_spacing(4 if scale==2 else 6)
     app.text_size.connect('notify::selected',adaptive_spacing)
     adaptive_spacing()
+    phase_text_time = [0]
     def show_phase(*_):
+        now = GLib.get_monotonic_time()
+        # Text layout need not run at the model's frame rate. Keep the model
+        # on every display tick and refresh its readout at most ten times/s.
+        if app.canvas.motion_playing and now-phase_text_time[0] < 100000:return True
+        phase_text_time[0] = now
         from math import degrees
-        text=f'Reference phase · {degrees(app.canvas.motion_phase)%360:.1f}°'
+        text=(f"Rack travel · {app.canvas.motion_plan.matrix(1,app.canvas.motion_phase)[12]:+.3f} mm"
+              if app.canvas.design and app.canvas.design.family=='rack' else f'Reference phase · {degrees(app.canvas.motion_phase)%360:.1f}°')
         if app.motion_phase_label.get_text()!=text:app.motion_phase_label.set_text(text)
         return True
     phase_tick=[0]
     def phase_watch(*_):
+        phase_text_time[0] = 0
         if app.canvas.motion_playing and not phase_tick[0]:
             phase_tick[0]=app.motion_phase_label.add_tick_callback(show_phase)
         elif not app.canvas.motion_playing and phase_tick[0]:
@@ -122,11 +137,15 @@ def install(app, container):
     app.motion_input_invalid = False
     drag_time = None
     drag_group = None
+    drag_source = None
+    preview_value = None
+    finish_source = 0
+    finish_commit = True
     def show_value(value):
         app.motion_syncing = True
         set_numeric_value(entry, value)
         app.motion_syncing = False
-    def apply_rate(value):
+    def apply_rate(value, *, sync_slider=True):
         low, high = getattr(app, 'motion_rate_limits', (0, 100000))
         if not isfinite(value) or not low <= value <= high:
             raise ValueError(f'Enter a value between {low:g} and {high:g} {unit.get_text()}.')
@@ -134,9 +153,10 @@ def install(app, container):
         app.motion_input_invalid = False
         entry.remove_css_class('field-error')
         error.set_visible(False)
-        app.motion_syncing = True
-        slider.set_value(scale_rpm(value))
-        app.motion_syncing = False
+        if sync_slider:
+            app.motion_syncing = True
+            slider.set_value(scale_rpm(value))
+            app.motion_syncing = False
         show_value(value)
         if hasattr(app, 'motion_rpm'):
             app.motion_rpm = value
@@ -174,21 +194,69 @@ def install(app, container):
     focus = Gtk.EventControllerFocus()
     focus.connect('leave', commit)
     entry.add_controller(focus)
-    slider.connect('value-changed', lambda w: apply_rate(round(unscale_rpm(w.get_value())))
-                   if not getattr(app, 'motion_syncing', False) else None)
+    def slider_changed(widget):
+        if getattr(app, 'motion_syncing', False):return
+        nonlocal preview_value, drag_source
+        value = round(unscale_rpm(widget.get_value()))
+        if drag_group is not None:
+            if preview_value is None:
+                drag_source = (app.family, app.document.token if hasattr(app, 'document') else None)
+            preview_value = value
+            rate_preview.set_text(str(value))
+            rate_display.set_visible_child_name('preview')
+            slider.update_property([Gtk.AccessibleProperty.VALUE_TEXT], [f'{value} rpm'])
+            return
+        # Keep the pointer's continuous position on the progressive scale.
+        # Reapplying the rounded RPM here makes its thumb jump at low speeds.
+        if (value != getattr(app, 'motion_rpm', None)
+                or app.motion_rate_editing or app.motion_input_invalid):
+            apply_rate(value, sync_slider=False)
+    slider.connect('value-changed', slider_changed)
     def begin_drag(*args):
         nonlocal drag_time, drag_group
+        if finish_source:end_drag(commit=finish_commit)
+        if drag_group is not None:return
+        if app.motion_rate_editing:commit()
         drag_time = GLib.get_monotonic_time()/1000000
         drag_group = (app.family, 'input_rpm', object())
         if hasattr(app,'document'):app.document.barrier()
-    def end_drag(*args):
-        nonlocal drag_time, drag_group
+    def end_drag(*args, commit=True):
+        nonlocal drag_time, drag_group, drag_source, preview_value, finish_source
+        if finish_source:
+            GLib.source_remove(finish_source);finish_source=0
         active=drag_group is not None
-        drag_time = drag_group = None
         if not active:return
+        source=(app.family,app.document.token if hasattr(app,'document') else None)
+        value=preview_value
+        accepted=False
+        try:
+            if (commit and value is not None and source==drag_source
+                    and not app.building and not getattr(app,'project_restoring',False)):
+                if value!=getattr(app,'motion_rpm',None) or app.motion_rate_editing or app.motion_input_invalid:
+                    apply_rate(value,sync_slider=False)
+                accepted=True
+        finally:
+            drag_time=drag_group=drag_source=preview_value=None
+            rate_display.set_visible_child_name('value')
+            if not accepted:
+                app.motion_syncing=True
+                try:slider.set_value(scale_rpm(app.motion_rpm if hasattr(app,'motion_rpm') else 12*app.canvas.motion_speed))
+                finally:app.motion_syncing=False
+            slider.update_property([Gtk.AccessibleProperty.VALUE_TEXT],
+                                   [f'{app.motion_rpm if hasattr(app,"motion_rpm") else 12*app.canvas.motion_speed} rpm'])
         if hasattr(app,'document'):app.document.barrier()
         if hasattr(app,'flush_motion_document'):app.flush_motion_document()
-    popup.connect('closed',end_drag)
+    def cancel_drag(*args):end_drag(commit=False)
+    def schedule_finish(commit=True):
+        nonlocal finish_source, finish_commit
+        finish_commit = commit and (finish_commit if finish_source else True)
+        if finish_source:return
+        def finish():
+            nonlocal finish_source
+            finish_source=0;end_drag(commit=finish_commit)
+            return False
+        # Let GtkScale process its final release value before confirming it.
+        finish_source=GLib.idle_add(finish,priority=GLib.PRIORITY_DEFAULT)
     # Observe the sequence without competing with the scale's own drag gesture.
     # A GestureClick can be cancelled as soon as that gesture claims the drag.
     events = Gtk.EventControllerLegacy()
@@ -198,27 +266,38 @@ def install(app, container):
         if event is None:return False
         kind=event.get_event_type()
         if kind in (Gdk.EventType.BUTTON_PRESS,Gdk.EventType.TOUCH_BEGIN):begin_drag()
-        elif kind in (Gdk.EventType.BUTTON_RELEASE,Gdk.EventType.TOUCH_END,Gdk.EventType.TOUCH_CANCEL,Gdk.EventType.GRAB_BROKEN):end_drag()
+        elif kind in (Gdk.EventType.BUTTON_RELEASE,Gdk.EventType.TOUCH_END):schedule_finish()
+        elif kind in (Gdk.EventType.TOUCH_CANCEL,Gdk.EventType.GRAB_BROKEN):schedule_finish(False)
+        elif kind in (Gdk.EventType.KEY_PRESS,Gdk.EventType.KEY_RELEASE):
+            key=event.get_keyval()
+            if key in (Gdk.KEY_Left,Gdk.KEY_Right,Gdk.KEY_Up,Gdk.KEY_Down,Gdk.KEY_Home,Gdk.KEY_End,Gdk.KEY_Page_Up,Gdk.KEY_Page_Down):
+                if kind==Gdk.EventType.KEY_PRESS:begin_drag()
+                else:schedule_finish()
+            elif key==Gdk.KEY_Escape and kind==Gdk.EventType.KEY_PRESS:schedule_finish(False)
         return False
     events.connect('event',slider_event)
     slider.add_controller(events)
+    slider_focus=Gtk.EventControllerFocus()
+    slider_focus.connect('leave',lambda *_:schedule_finish())
+    slider.add_controller(slider_focus)
+    app.motion_rate_slider_focus=slider_focus
     app.begin_motion_rate_drag = begin_drag
     app.end_motion_rate_drag = end_drag
+    app.cancel_motion_rate_drag = cancel_drag
     def dispose(*args):
-        nonlocal drag_time, drag_group
-        drag_time = drag_group = None
+        cancel_drag()
         if getattr(app,'motion_document_pending',0):
             GLib.source_remove(app.motion_document_pending)
             app.motion_document_pending=0
     container.connect('unrealize',dispose)
     for title, delta in [('−1', -1), ('+1', 1)]:
-        step = Gtk.Button(label=title,css_classes=["flat"])
+        step = Gtk.Button(label=title,css_classes=["flat","motion-step"])
         step.set_valign(Gtk.Align.CENTER)
         step.set_tooltip_text(f'Change input speed by {delta:+d} rpm')
         step.connect('clicked', lambda _, d=delta: apply_rate(max(app.motion_rate_limits[0],
             min(app.motion_rate_limits[1], (app.motion_rpm if hasattr(app, 'motion_rpm')
                 else 12*app.canvas.motion_speed) + d))))
-        row.insert_child_after(step,caption if delta<0 else entry)
+        row.insert_child_after(step,caption if delta<0 else rate_display)
         if delta < 0:
             slider_row.append(slider)
     def update(*args):
@@ -230,6 +309,8 @@ def install(app, container):
         entry.set_sensitive(not app.busy)
         slider.set_sensitive(not app.busy)
         play.set_label('Pause' if c.motion_playing else 'Play')
+        if c.motion_playing:play.add_css_class('playing')
+        else:play.remove_css_class('playing')
         status.set_text('Playing' if c.motion_playing else '' if available else 'Animation unavailable')
         if not app.motion_rate_editing:
             show_value(app.motion_rpm if hasattr(app, 'motion_rpm') else 12*c.motion_speed)
@@ -242,7 +323,7 @@ def install(app, container):
 
 def configure(app,values,specs):
  """Bind the single RPM control to the saved input, including loaded configs."""
- if hasattr(app,'end_motion_rate_drag'):app.end_motion_rate_drag()
+ if hasattr(app,'cancel_motion_rate_drag'):app.cancel_motion_rate_drag()
  app.motion_syncing=True;app.motion_rate_editing=False;app.motion_input_invalid=False;app.motion_speed_text.remove_css_class('field-error');app.motion_rate_error.set_visible(False)
  rpm_spec=next((s for s in specs if s[0]=='input_rpm'),None)
  speed=app.motion_speed;speed.clear_marks()
@@ -251,6 +332,7 @@ def configure(app,values,specs):
   app.motion_speed_text._numeric_typed_text=None
   set_numeric_value(app.motion_speed_text,app.motion_rpm)
   speed.set_range(scale_rpm(low),scale_rpm(high));speed.set_value(scale_rpm(app.motion_rpm))
+  speed.update_property([Gtk.AccessibleProperty.VALUE_TEXT],[f'{app.motion_rpm} rpm'])
   classic=app.family=='differential' and values.get('configuration')=='classic'
   app.motion_caption.set_text('Carrier input speed' if classic else 'Input A speed' if app.family=='differential' else 'Input speed · stage 1' if app.family=='planetary' and values.get('variant') in ('two_stage','two_stage_double') else 'Sun input speed' if app.family=='wolfrom' else 'Input speed')
   speed.set_tooltip_text('Signed carrier RPM; prescribe the side-speed difference independently in Motion.' if classic else 'Signed input A RPM; set input B independently in Motion.' if app.family=='differential' else 'Signed sun input RPM · −100,000 to +100,000. Positive is counterclockwise viewed from +Z toward XY; reversing input reverses all moving members. Zero stops every member.' if app.family=='wolfrom' else 'Actual input RPM · progressive scale 0–100,000. Also updates calculations and configuration. Use the arrows to adjust.')

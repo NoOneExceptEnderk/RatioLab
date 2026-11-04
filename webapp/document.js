@@ -40,6 +40,7 @@ export class BrowserDocument extends EventTarget {
   get dirty() { return fingerprint(this.state) !== this.saved; }
   token() { return {identity: this.identity, revision: this.revision}; }
   matches(token) { return token.identity === this.identity && token.revision === this.revision; }
+  barrier() { this.coalesce = null; }
   get draft() { return this.state.families[this.family]; }
   get entries() { return this.draft.contexts[contextKey(this.draft.options)]; }
   checkpoint(key = null) {
@@ -63,6 +64,15 @@ export class BrowserDocument extends EventTarget {
       if (!Object.hasOwn(entries, f.key)) entries[f.key] = automatic(initial[f.key] ?? schema.defaults[f.key] ?? f.default);
     }
     return draft;
+  }
+  selectModel(family, schema, options = {}, prepareEntries = () => {}) {
+    if (family === this.family && Object.entries(options).every(([key,value])=>this.draft.options[key]===value)) return;
+    this.checkpoint(); this.state.family = family; this.ensure(schema);
+    const old = clone(this.entries); Object.assign(this.draft.options,options);
+    const next = contextKey(this.draft.options);
+    if (!this.draft.contexts[next]) this.draft.contexts[next] = old;
+    prepareEntries(this.entries);
+    this.changed();
   }
   selectFamily(family, schema) {
     this.checkpoint(); this.state.family = family; this.ensure(schema); this.changed();

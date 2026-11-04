@@ -29,7 +29,8 @@ class WolfromSubprocessTests(unittest.TestCase):
         self.assertEqual([row['protocol'] for row in result['protocols']], [verifier.MODERN, verifier.LEGACY])
         for proof in result['protocols']:
             with self.subTest(protocol=proof['protocol']):
-                self.assertEqual(proof['families'], 11)
+                from geometry import FAMILIES
+                self.assertEqual(proof['families'], len(FAMILIES))
                 self.assertEqual(proof['wolfrom']['components'], 18)
                 self.assertEqual(proof['wolfrom']['signed_ratio'], 600)
                 self.assertEqual(proof['wolfrom']['singular_preservation'], 'passed')

@@ -9,6 +9,7 @@ Checks use the shared sampled surfaces over labelled orientation periods, not
 continuous swept volumes. Expected interfaces only annotate findings; unknown
 poses, unsupported deformation and unfinished coverage remain explicit.
 """
+from parallel_multistage import VARIANTS as PARALLEL_MULTISTAGE_VARIANTS
 from dataclasses import dataclass, field, asdict
 from fractions import Fraction
 from math import pi, ceil, lcm, gcd, isfinite
@@ -63,7 +64,7 @@ class Analysis:
             'Complete sampled coverage' if self.coverage_complete else 'INCOMPLETE / unsupported coverage',
             f'Completed poses: {self.completed_poses}/{self.planned_poses}; pair checks: {self.completed_pairs}',
             f'Last fully completed phase: {self.sampled_end_degrees:.9g} deg; attempted phase: {self.attempted_phase_degrees:.9g} deg; requested end: {self.requested_end_degrees} deg',
-            f'Full labelled kinematic period: {self.period_turns} reference turns. {self.period_basis}.',
+            (self.period_basis+'.' if self.period_basis.startswith('Finite') else f'Full labelled kinematic period: {self.period_turns} reference turns. {self.period_basis}.'),
             f'Angular step ≤ {self.settings["step_degrees"]:g} deg; boundary tolerance {self.settings["tolerance_mm"]:g} mm.',
             'Euclidean distances on shared preview/STL triangles in mm. Analytic STEP cylinders may differ from these facets.',
             'Boundary contact / unresolved includes the tolerance band and inconclusive overlap probes; review it.',
@@ -89,6 +90,7 @@ def period(plan):
     Rational reconstruction is bounded and verified; unknown custom transforms
     require explicit rates. A float estimate that fails verification is rejected.
     """
+    if plan.phase_limits is not None:return None
     moving=set(plan.poses)|set(plan.warps)|set(plan.flex)
     if moving-set(plan.rates):return None
     values=[r for i in moving for r in plan.rates[i] if r]
@@ -110,6 +112,13 @@ def period(plan):
 def expected_interface(d,i,j):
     """Constructor identities/port membership annotate, NEVER suppress a pair."""
     a,b=d.parts[i],d.parts[j];names=(a.name.lower(),b.name.lower());f=d.family
+    if f=='parallel' and d.values.get('variant') in PARALLEL_MULTISTAGE_VARIANTS:
+        if a.port.get('rigid_group') == b.port.get('rigid_group'):
+            return 'Same rigid parallel-shaft compound · interface candidate (overlap still requires review)'
+        if all(p.profile_metadata.get('tooth_profile') for p in (a,b)):
+            return ('Constructed gear mesh · boundary contact expected, intersection is suspect'
+                    if a.port.get('stage') == b.port.get('stage') else '')
+        return ''
     if f=='wolfrom' and a.port.get('rigid_group') and a.port.get('rigid_group')==b.port.get('rigid_group'):
         return 'Same rigid Wolfrom body · interface candidate (overlap still requires review)'
     if f!='wolfrom' and a.port.get('member') and a.port.get('member')==b.port.get('member') and a.port.get('stage')==b.port.get('stage'):
@@ -119,6 +128,13 @@ def expected_interface(d,i,j):
         if a.name in members and b.name in members:return 'Constructed mounting interface candidate (overlap still requires review)'
     if f in ('parallel','internal') and all(p.profile_metadata.get('tooth_profile') for p in (a,b)):
         return 'Constructed gear mesh · boundary contact expected, intersection is suspect'
+    if f=='bevel' and all(p.profile_metadata.get('bevel_profile') for p in (a,b)):
+        return 'Constructed bevel mesh · boundary contact expected, intersection is suspect'
+    if f=='face' and all(p.profile_metadata.get('face_profile') for p in (a,b)):
+        return 'Generated face-gear mesh · sampled contact; intersections require review'
+    if f=='rack':return 'Constructed rack/pinion mesh · finite stroke; intersection is suspect'
+    if f=='hypoid' and all(p.profile_metadata.get('hypoid_profile') for p in (a,b)):
+        return 'Generated hypoid mesh · boundary contact expected, intersection is suspect'
     if f=='wolfrom' and all(p.profile_metadata.get('tooth_profile') for p in (a,b)):
         layers = (a.port.get('layer', 1), b.port.get('layer', 1))
         members = {a.port.get('member'), b.port.get('member')}
@@ -151,10 +167,15 @@ def analyze(design,settings=None,cancel=None,progress=lambda message,fraction:No
         if not plan.supported:
             result.issues.append(plan.message);return result
         result.period_turns=period(plan)
-        if result.period_turns is None:
+        finite=plan.phase_limits
+        phase_start=finite[0] if finite is not None else 0.
+        if finite is not None:
+            result.period_basis='Finite nonperiodic working stroke; no rotational repetition claimed'
+        if result.period_turns is None and finite is None:
             result.issues.append('Kinematic period cannot be established from the motion plan; checking only the initial pose')
-        turns=result.period_turns or 0.
+        turns=(finite[1]-finite[0])/(2*pi) if finite is not None else result.period_turns or 0.
         result.requested_end_degrees=360*turns if result.period_turns is not None else None
+        if finite is not None:result.requested_end_degrees=finite[1]*180/pi
         required=max(1,ceil(360*turns/settings.step_degrees)+1)
         result.planned_poses=min(required,settings.max_poses)
         if required>settings.max_poses:result.issues.append(f'Pose limit: {required} poses required for the full period; only a prefix is checked')
@@ -201,7 +222,7 @@ def analyze(design,settings=None,cancel=None,progress=lambda message,fraction:No
         step=settings.step_degrees*pi/180
         interval=2*pi*turns
         for sample in range(result.planned_poses):
-            check();phase=min(sample*step,interval);result.attempted_phase_degrees=phase*180/pi
+            check();phase=phase_start+min(sample*step,interval);result.attempted_phase_degrees=phase*180/pi
             progress(f'Pose {sample+1}/{result.planned_poses} · {phase*180/pi:.3f}°',sample/result.planned_poses)
             surfaces={}
             for i in indices:

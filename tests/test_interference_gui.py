@@ -18,7 +18,8 @@ from interference import Settings
 def pump(duration=.04):
     until=time.monotonic()+duration;context=GLib.MainContext.default()
     while time.monotonic()<until:
-        while context.pending():context.iteration(False)
+        # Dispatch one event per turn so the budget and other threads stay live.
+        context.iteration(False)
         time.sleep(.002)
 
 

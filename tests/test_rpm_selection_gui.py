@@ -11,6 +11,7 @@ import gi
 gi.require_version('Gtk','4.0')
 from gi.repository import Gtk,Gdk,Gio,GLib
 import app as module
+import component_geometry
 import preview3d
 from geometry import generate
 from motion_controls import scale_rpm
@@ -101,6 +102,44 @@ class RpmSelectionGuiTests(unittest.TestCase):
         self.assertEqual(a.canvas.isolated_indices,(0,));self.assertIsNotNone(c.saved_filters)
         self.assertTrue(a.canvas.motion_playing);self.assertEqual(a.design.values['input_rpm'],120)
         a.canvas.set_motion_playing(False)
+
+    def test_paused_wolfrom_rates_reuse_selected_details_and_rows(self):
+        a=self.app;c=self.c
+        a.load_config_data(dict(format='solidcraft-riduttori/1',family='wolfrom',
+                               parameters=generate('wolfrom',dict(input_rpm=60)).values))
+        c.select((1,));pump(.08)
+        a.canvas.set_motion_playing(True)
+        a.canvas.advance_motion(a.canvas.motion_last+.125)
+        a.canvas.set_motion_playing(False);pump(.04)
+        detail=c.detail.get_text();scene=a.canvas.scene;phase=a.canvas.motion_phase
+        self.assertGreater(phase,0)
+        poses=[a.canvas.motion_plan.matrix(i,phase) for i in range(len(a.design.parts))]
+        rows=tuple(c.list.get_row_at_index(i) for i in range(len(a.design.parts)))
+        with patch('components_ui.geometry.dimensions',side_effect=AssertionError('rate edit rescanned bounds')), \
+             patch('bom.part_info',side_effect=AssertionError('rate edit rescanned BOM identity')), \
+             patch.object(a.canvas,'queue_render',wraps=a.canvas.queue_render) as redraw:
+            for rpm in (-3800,0,1500,-30):
+                a.motion_speed.set_value(scale_rpm(rpm))
+                self.assert_selected((1,))
+                self.assertEqual(c.detail.get_text(),detail)
+                self.assertEqual(a.design.values['input_rpm'],rpm)
+                self.assertFalse(a.canvas.motion_playing)
+                self.assertEqual(a.canvas.motion_phase,phase)
+                for index,pose in enumerate(poses):
+                    for actual,expected in zip(a.canvas.motion_plan.matrix(index,phase),pose):
+                        self.assertAlmostEqual(actual,expected,places=8)
+            self.assertEqual(redraw.call_count,0)
+        self.assertIs(a.canvas.scene,scene)
+        self.assertEqual(tuple(c.list.get_row_at_index(i) for i in range(len(rows))),rows)
+        # A construction edit must discard the retained nominal bounds/code.
+        previous=dict(c.nominal_details)
+        a.load_config_data(dict(format='solidcraft-riduttori/1',family='wolfrom',
+                               parameters=generate('wolfrom',dict(module=.6)).values))
+        with patch('components_ui.geometry.dimensions',wraps=component_geometry.dimensions) as bounds:
+            c.select((1,))
+            self.assertEqual(bounds.call_count,1)
+        self.assertNotEqual(c.nominal_details[1],previous[1])
+        self.assert_selected((1,))
 
     def test_geometry_edit_and_family_change_clear_selection(self):
         a=self.app;c=self.c;self.select_rows(0);previous=a.design;scene=a.canvas.scene

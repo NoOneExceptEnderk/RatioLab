@@ -74,7 +74,7 @@ class ProjectActions:
             except ValueError:
                 pass
         if self.family in VARIANTS:
-            variants = list(VARIANTS[self.family])
+            variants = self.parallel_tooth_keys if self.family == 'parallel' else list(VARIANTS[self.family])
             index = self.variant_selector.get_selected()
             if index < len(variants):
                 values['variant'] = variants[index]

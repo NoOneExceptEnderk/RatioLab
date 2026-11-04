@@ -2,10 +2,30 @@
 # SPDX-License-Identifier: GPL-3.0-only
 """Reject private/generated files and require every runtime payload in artifacts."""
 import argparse
+import ast
 from pathlib import Path, PurePosixPath
 import tarfile
 import tomllib
 import zipfile
+
+
+def runtime_modules(root, project):
+    """Check local dependencies independently of the distribution's module list.
+
+    Walk function bodies too: GUI dependencies are often imported only when a
+    workspace panel is opened. Packaging an incomplete list is not sufficient.
+    """
+    declared = set(project['tool']['setuptools']['py-modules'])
+    local = {path.stem: path for path in (root/'src').glob('*.py')}
+    assert declared <= local.keys(), f'Missing module sources: {sorted(declared-local.keys())}'
+    for name in sorted(declared):
+        tree = ast.parse(local[name].read_text(encoding='utf-8'), filename=str(local[name]))
+        for node in ast.walk(tree):
+            dependencies = ([alias.name.split('.')[0] for alias in node.names] if isinstance(node, ast.Import)
+                            else [node.module.split('.')[0]] if isinstance(node, ast.ImportFrom) and node.module else [])
+            missing = (set(dependencies) & local.keys())-declared
+            assert not missing, f'{name}:{node.lineno}: unpackaged local dependencies {sorted(missing)}'
+    return {name+'.py' for name in declared}
 
 
 def verify(folder):
@@ -14,7 +34,7 @@ def verify(folder):
     assert wheels and archives, 'Build both a wheel and an sdist first'
     root = Path(__file__).resolve().parents[1]
     project = tomllib.loads((root/'pyproject.toml').read_text(encoding='utf-8'))
-    modules = {name+'.py' for name in project['tool']['setuptools']['py-modules']}
+    modules = runtime_modules(root, project)
     resources = {'ratiolab_resources/'+path.relative_to(root/'src/ratiolab_resources').as_posix()
                  for path in (root/'src/ratiolab_resources').rglob('*')
                  if path.is_file() and '__pycache__' not in path.parts and path.suffix != '.pyc'}
@@ -62,10 +82,15 @@ def verify(folder):
                         'packaging/mcp_entrypoint.py', 'scripts/check-installed-mcp.py'}
             required |= {'src/'+name for name in modules | resources}
             required |= {'tests/'+path.name for path in (root/'tests').glob('test_*.py')}
-            required |= {'packaging/fonts/'+name for name in
-                         ('DejaVuSans.ttf', 'DejaVuSansMono.ttf', 'DejaVuSans-Bold.ttf',
-                          'LICENSE-DejaVu.txt', 'AUTHORS-DejaVu.txt', 'SOURCE.json')}
+            # Include every font payload, licence and provenance record, rather
+            # than maintaining a second list that can omit a newly added font.
+            fonts = {'packaging/fonts/'+path.relative_to(root/'packaging/fonts').as_posix()
+                     for path in (root/'packaging/fonts').rglob('*') if path.is_file()}
+            required |= fonts
             assert required <= files, f'{artifact}: missing {required-files}'
+            prefix = PurePosixPath(names[0]).parts[0]+'/'
+            for name in fonts:
+                assert payloads[prefix+name] == (root/name).read_bytes(), f'{artifact}: changed font payload {name}'
             assert not modules & files, f'{artifact}: application modules outside src/'
             assert not {'bearing-catalog.json', 'hardware-catalog.json'} & files, artifact
             assert not any(name.startswith('assets/branding/') for name in files), artifact

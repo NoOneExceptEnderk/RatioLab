@@ -15,6 +15,9 @@ COMMON = [('module', 'Normal module [mm]', 2.0, 0.1, 10, 0.1), ('width', 'Face w
 SPECS = {'spur': COMMON + [('teeth', 'Tooth count', 24, 8, 160, 1)], 'helical': COMMON + [('teeth', 'Tooth count', 24, 8, 160, 1), ('helix', 'Helix angle [°] (sign = handedness)', 20, -45, 45, 1)], 'double': COMMON + [('teeth', 'Tooth count', 24, 8, 160, 1), ('helix', 'Helix angle [°]', 25, -45, 45, 1), ('gap', 'Central groove [mm]', 1, 0, 10, 0.1)], 'planetary': COMMON + [('sun', 'Sun teeth', 18, 8, 80, 1), ('planet', 'Planet teeth', 18, 8, 60, 1), ('planets', 'Planet count', 3, 2, 6, 1), ('rim', 'Ring thickness [mm]', 5, 1, 30, 0.5)], 'cycloidal': [('pins', 'Ring roller count', 16, 6, 60, 1), ('radius', 'Roller pitch radius [mm]', 40, 10, 150, 1), ('pin_radius', 'Roller radius [mm]', 3, 1, 10, 0.1), ('eccentric', 'Eccentricity [mm]', 1.2, 0.1, 5, 0.1), ('width', 'Disc thickness [mm]', 8, 1, 40, 1), ('bore', 'Eccentric seat diameter [mm]', 12, 2, 60, 1), ('output_count', 'Output pin count', 6, 3, 10, 1), ('output_radius', 'Output pin pitch radius [mm]', 22, 5, 100, 1), ('output_pin', 'Output pin radius [mm]', 2, 1, 10, 0.1), ('clearance', 'Radial clearance [mm]', 0.1, 0, 0.8, 0.01)], 'harmonic': COMMON + [('teeth', 'Flexspline teeth', 60, 30, 160, 2), ('wall', 'Flexible wall thickness [mm]', 1, 0.3, 4, 0.1), ('rim', 'Ring thickness [mm]', 5, 1, 30, 0.5)], 'worm': COMMON + [('teeth', 'Wheel teeth', 30, 12, 100, 1), ('starts', 'Worm starts', 1, 1, 4, 1), ('diameter', 'Worm pitch diameter [mm]', 20, 8, 80, 1), ('length', 'Worm length [mm]', 24, 5, 80, 1)]}
 VARIANTS = {'double': {'joined': 'Joined helices · no groove', 'separated': 'Separate helices · with groove'}, 'worm': {'za': 'Cylindrical ZA · straight axial flanks', 'zi': 'Cylindrical ZI · transverse involute'}, 'harmonic': {'cup': 'Cup', 'flat_cup': 'Flat cup', 'hat': 'External flange · silk hat'}, 'planetary': {'spur': 'Single stage · spur', 'helical': 'Single stage · helical', 'double': 'Single stage · double helical', 'two_stage': 'Two stages in cascade', 'two_stage_double': 'Two stages · double helical'}, 'cycloidal': {'single': 'Complete single disc', 'dual': 'Dual disc · opposing eccentrics'}, 'parallel': {'spur': 'Spur teeth', 'helical': 'Helical', 'double': 'Double helix'}, 'internal': {'spur': 'Internal gear · spur', 'helical': 'Internal gear · helical', 'double': 'Internal gear · double helical'}}
 DOUBLE_STYLES = {'joined': 'Joined helices · no groove', 'separated': 'Separate helices · with groove'}
+from parallel_multistage import VARIANTS as PARALLEL_MULTISTAGE_VARIANTS
+VARIANTS['parallel'].update(PARALLEL_MULTISTAGE_VARIANTS)
+FAMILIES['parallel'] = 'Parallel shaft reducer'
 from wolfrom import SPECS as WOLFROM_SPECS
 HARMONIC_OUTPUTS = {'flex': 'Fixed ring → flexspline output', 'circular': 'Fixed flexspline → ring output'}
 FAMILIES['differential'] = 'Bevel differential'
@@ -47,9 +50,25 @@ SPECS['differential'] = [
 FAMILIES['wolfrom'] = 'Wolfrom reducer · two-rim spur'
 VARIANTS['wolfrom'] = {'spur': 'Two-rim spur · sun input / ring output'}
 SPECS['wolfrom'] = WOLFROM_SPECS
+from bevel_pair import SPECS as BEVEL_PAIR_SPECS, VARIANTS as BEVEL_VARIANTS
+FAMILIES['bevel'] = 'Bevel gear pair'
+VARIANTS['bevel'] = BEVEL_VARIANTS
+SPECS['bevel'] = BEVEL_PAIR_SPECS
+from hypoid_geometry import SPECS as HYPOID_SPECS
+FAMILIES['hypoid'] = 'Hypoid gear pair'
+VARIANTS['hypoid'] = {'generated': 'Generated spiral pinion'}
+SPECS['hypoid'] = HYPOID_SPECS
+from rack_geometry import SPECS as RACK_SPECS, VARIANTS as RACK_VARIANTS
+FAMILIES['rack'] = 'Rack and pinion'
+VARIANTS['rack'] = RACK_VARIANTS
+SPECS['rack'] = RACK_SPECS
+from face_geometry import SPECS as FACE_SPECS, VARIANTS as FACE_VARIANTS
+FAMILIES['face'] = 'Face gear pair'
+VARIANTS['face'] = FACE_VARIANTS
+SPECS['face'] = FACE_SPECS
 
 def is_double(family, variant=None):
-    return family == 'double' or variant in ('double', 'two_stage_double')
+    return family == 'double' or variant in ('double', 'two_stage_double', 'three_stage_double') or family=='face' and variant=='double_helical'
 PAIR_FIELDS = COMMON + [('pinion', 'Input pinion teeth', 20, 12, 100, 1), ('wheel', 'Driven wheel teeth', 60, 22, 200, 1), ('output_bore', 'Output bore [mm]', 8, 0, 100, 0.5)]
 SPECS['parallel'] = PAIR_FIELDS
 SPECS['internal'] = [(k, label, 22 if k == 'pinion' else 66 if k == 'wheel' else default, lo, hi, step) for k, label, default, lo, hi, step in PAIR_FIELDS if k != 'output_bore'] + [('rim', 'Ring thickness [mm]', 5, 2, 30, 0.5)]
@@ -59,6 +78,16 @@ def get_specs(family, variant=None, double_style=None):
     if family not in FAMILIES:
         raise ValueError('Unknown family')
     specs = list(SPECS[family])
+    if family == 'face':
+        if variant=='double_helical' and double_style is None:double_style='joined'
+        if variant in ('helical','double_helical'):specs += [('helix','Pinion helix angle [°]',15,-25,25,1)]
+        if variant == 'double_helical' and double_style!='joined':specs += [('gap','Central band relief [mm]',4,1,12,.5)]
+    if family == 'rack':
+        if variant in ('helical','double'):specs += [('helix','Pinion helix angle [°]',20,-35,35,1)]
+        if variant == 'double':specs += [('gap','Central groove [mm]',1,0,10,.1)]
+    if family == 'bevel':
+        from bevel_pair import trace_specs
+        specs += trace_specs(variant or 'straight')
     if family in VARIANTS:
         variant = variant or next(iter(VARIANTS[family]))
         if variant not in VARIANTS[family]:
@@ -75,14 +104,19 @@ def get_specs(family, variant=None, double_style=None):
         elif family == 'cycloidal':
             specs += [('input_shaft', 'Input shaft diameter [mm]', 4, 2, 30, 0.5), ('output_shaft', 'Output shaft diameter [mm]', 8, 3, 40, 0.5), ('housing_wall', 'Housing thickness [mm]', 4, 2, 15, 0.5)]
         elif family in ('parallel', 'internal'):
-            if variant in ('helical', 'double'):
+            from parallel_multistage import tooth_type
+            teeth_type = tooth_type(variant)
+            if teeth_type in ('helical', 'double'):
                 specs += [('helix', 'Input helix angle [°]', 20, -35, 35, 1)]
-            if variant == 'double':
+            if teeth_type == 'double':
                 specs += [('gap', 'Central groove [mm]', 1, 0, 10, 0.1)]
             if family != 'internal':
                 specs += [('profile_shift', 'Pinion profile shift x (wheel = −x)', 0, -0.5, 0.7, 0.05)]
             if family == 'parallel':
                 specs += [('center_extra', 'Centre distance increase [mm]', 0, 0, 5, 0.05)]
+                if variant in PARALLEL_MULTISTAGE_VARIANTS:
+                    from parallel_multistage import specs as train_specs
+                    specs += train_specs(variant)
     if family in ('spur', 'helical', 'double'):
         specs += [('profile_shift', 'Profile shift coefficient x', 0, -0.5, 1, 0.05), ('addendum', 'Addendum coefficient ha*', 1, 0.7, 1.25, 0.05), ('dedendum', 'Dedendum coefficient hf*', 1.25, 1.1, 1.6, 0.05)]
     if family == 'planetary':
@@ -110,7 +144,7 @@ def get_specs(family, variant=None, double_style=None):
     if is_double(family, variant):
         style = variant if family == 'double' else double_style
         if style == 'joined':
-            specs = [s for s in specs if s[0] != 'gap']
+            specs = [s for s in specs if s[0] not in ('gap', 'gap2', 'gap3')]
     from engineering import LOAD_FIELDS
     if family == 'differential':
         specs += [('input_rpm', 'Input A speed [rpm]', 12, -100000, 100000, 1),
@@ -119,9 +153,13 @@ def get_specs(family, variant=None, double_style=None):
         specs += [('input_rpm', 'Sun input speed [rpm]', 600, -100000, 100000, 50)] + LOAD_FIELDS[1:]
     else:
         specs += LOAD_FIELDS[:2] if family in ('spur', 'helical', 'double') else LOAD_FIELDS
+    if family in ('bevel','hypoid','rack','face') or family == 'parallel' and variant in PARALLEL_MULTISTAGE_VARIANTS:
+        specs = [(k, label, d, -100000 if k == 'input_rpm' else lo, hi, st) for k, label, d, lo, hi, st in specs]
+    if family == 'rack':specs=[(k,label,12 if k=='input_rpm' else d,lo,hi,st) for k,label,d,lo,hi,st in specs]
     return specs
 INTEGER = {'teeth', 'sun', 'planet', 'planets', 'pins', 'output_count', 'starts', 'sun2', 'planet2', 'pinion', 'wheel', 'pinion2', 'wheel2', 'worm_hand', 'rollers', 'crown_teeth', 'segments', 'planet_teeth', 'pairs', 'friction_faces', 'crank_teeth', 'cranks', 'spring_count', 'coils', 'bolt_count', 'bevel_pinion'}
 INTEGER.update(('side_teeth', 'output_teeth', 'spiral_hand', 'output_ring'))
+INTEGER.update(('pinion3', 'wheel3', 'rack_teeth'))
 
 def defaults(family, variant=None):
     v = {s[0]: s[2] for s in get_specs(family, variant)}
@@ -130,6 +168,7 @@ def defaults(family, variant=None):
     if family == 'differential':
         from differential_wrist import OPTION_DEFAULTS
         v.update(OPTION_DEFAULTS)
+    if family=='face' and variant=='double_helical':v.update(double_style='joined',gap=0)
     return v
 
 def validate(family, supplied):
@@ -141,6 +180,9 @@ def validate(family, supplied):
     """
     if family not in FAMILIES:
         raise ValueError('Unknown family')
+    if family == 'parallel':
+        from parallel_multistage import prepare as prepare_parallel
+        supplied = prepare_parallel(dict(supplied))
     if family == 'wolfrom':
         from wolfrom import prepare as prepare_wolfrom
         supplied = prepare_wolfrom(supplied)
@@ -157,6 +199,7 @@ def validate(family, supplied):
     variant = supplied.get('variant', next(iter(VARIANTS.get(family, {'': None}))))
     double = is_double(family, variant)
     style = supplied.get('double_style', 'joined' if supplied.get('gap', 1) == 0 else 'separated') if double else None
+    if family=='face' and variant=='double_helical' and 'double_style' not in supplied and 'gap' not in supplied:style='joined'
     if family == 'double':
         style = variant
     if double:
@@ -190,7 +233,7 @@ def validate(family, supplied):
                 raise ValueError(f'{label}: an integer is required')
             v = int(v)
         values[key] = v
-    if family == 'differential' and values['spiral_hand'] not in (-1,1):
+    if family in ('differential', 'bevel') and 'spiral_hand' in values and values['spiral_hand'] not in (-1,1):
         raise ValueError('Spiral handedness must be −1 or +1.')
     if double:
         values['double_style'] = style
@@ -198,6 +241,14 @@ def validate(family, supplied):
             values['gap'] = 0
         elif values['gap'] <= 0:
             raise ValueError('Separate helices require a groove greater than zero.')
+        if family == 'parallel' and variant in PARALLEL_MULTISTAGE_VARIANTS:
+            from parallel_multistage import count, stage_key
+            for stage in range(2, count(values)+1):
+                key = stage_key('gap', stage)
+                if style == 'joined':
+                    values[key] = 0
+                elif values[key] <= 0:
+                    raise ValueError(f'Stage {stage}: separate helices require a groove greater than zero.')
     if family == 'harmonic':
         output = supplied.get('harmonic_output', 'flex')
         if output not in HARMONIC_OUTPUTS:
@@ -256,6 +307,18 @@ def validate(family, supplied):
     if family == 'wolfrom':
         from wolfrom import validate as validate_wolfrom
         validate_wolfrom(values)
+    if family == 'bevel':
+        from bevel_pair import dimensions
+        dimensions(values)
+    if family == 'face':
+        from face_geometry import Generator
+        Generator(values)
+    if family == 'rack':
+        from rack_geometry import dimensions
+        dimensions(values)
+    if family == 'hypoid':
+        from hypoid_geometry import Generator
+        Generator(values)
     return values
 
 def polar(r, a):
@@ -672,6 +735,18 @@ def generate(family, supplied=None):
     elif family == 'wolfrom':
         from wolfrom import build
         build(d)
+    elif family == 'bevel':
+        from bevel_pair import build
+        build(d)
+    elif family == 'face':
+        from face_geometry import build
+        build(d)
+    elif family == 'rack':
+        from rack_geometry import build
+        build(d)
+    elif family == 'hypoid':
+        from hypoid_geometry import build
+        build(d)
     from standard_parts import apply_catalog
     apply_catalog(d)
     from hardware import apply_hardware
@@ -687,6 +762,6 @@ def generate(family, supplied=None):
     if any((p.mesh or p.frame or p.stations or p.double or (abs(p.twist) > 1e-08) for p in d.parts)):
         d.notes.append('Faithful preview export: faceted STEP BRep solids for parts with shared surfaces. Extruded profile circles are sampled with a maximum radial deviation of 0.002 mm; tubes and freeform surfaces use the sampling specified in the guide. Edit dimensions in the generator and regenerate the group. This is not a smooth parametric loft.')
     d.analysis['tooth_profiles'] = [dict(part=p.name, **p.profile_metadata['tooth_profile']) for p in d.parts if 'tooth_profile' in p.profile_metadata]
-    if family != 'differential':
+    if family not in ('differential', 'bevel', 'hypoid', 'rack', 'face'):
         d.notes.append('External cylindrical roots use a rounded normal rack envelope with undercut trimming; internal roots use a tangent circular construction, not a shaping cutter envelope. Adaptive chord threshold 0.015 mm; tool geometry and domain are in the calculation JSON. Strength, lubrication and manufacturing tolerances are not verified.')
     return d

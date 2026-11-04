@@ -43,10 +43,11 @@ class EngineeringTests(unittest.TestCase):
             for variant in VARIANTS[family]:
                 with self.subTest(f=family, v=variant):
                     d = generate(family, {'variant': variant})
-                    gears = [p for p in d.parts if p.role == 'gear']
+                    gears = [p for p in d.parts if p.profile_metadata.get('tooth_profile')]
                     for k, (a, b) in enumerate(zip(gears[::2], gears[1::2])):
-                        z1 = d.values['pinion' if k == 0 else 'pinion2']
-                        z2 = d.values['wheel' if k == 0 else 'wheel2']
+                        suffix = str(k+1) if k else ''
+                        z1 = d.values['pinion'+suffix]
+                        z2 = d.values['wheel'+suffix]
                         for height in (0, 0.2, 0.8, 1):
                             aa = a.twist * (min(height, 1 - height) if a.double else height)
                             ab = b.twist * (min(height, 1 - height) if b.double else height)

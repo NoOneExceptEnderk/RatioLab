@@ -49,6 +49,8 @@ class MotionRateTests(unittest.TestCase):
                     self.assertEqual(original.analysis, original_analysis)
 
     def test_single_input_angles_orbits_and_flex_integrate_speed_ramp(self):
+        ramp = ((60, .13), (173.125, .07), (0, .31), (7.5, .19), (100000, .001), (0, .17), (33, .21))
+        total_angle = sum(speed*seconds*2*pi/60 for speed, seconds in ramp)
         for family in FAMILIES:
             if family == 'differential':
                 continue
@@ -56,8 +58,13 @@ class MotionRateTests(unittest.TestCase):
                 d = generate(family, {'input_rpm': 60})
                 oracle = build_plan(d)
                 plan = build_plan(d)
+                # Finite travel needs shorter durations, not reduced RPM or
+                # relaxed limits. Leave room before the positive stroke end.
+                time_scale = (min(1., .8*oracle.phase_limits[1]/total_angle)
+                              if oracle.phase_limits is not None else 1.)
                 phase = angle = 0
-                for speed, seconds in ((60, .13), (173.125, .07), (0, .31), (7.5, .19), (100000, .001), (0, .17), (33, .21)):
+                for speed, seconds in ramp:
+                    seconds *= time_scale
                     before = plan
                     new = update_operating_rates(d, dict(d.values, input_rpm=speed))
                     plan = build_plan(new, plan, phase)
@@ -66,6 +73,39 @@ class MotionRateTests(unittest.TestCase):
                     angle += speed*seconds*2*pi/60
                     self.assert_pose(plan, oracle, len(d.parts), phase, angle)
                     d = new
+
+    def test_finite_rack_speed_changes_preserve_both_stroke_ends(self):
+        for variant in ('spur', 'helical', 'double'):
+            with self.subTest(variant=variant):
+                d = generate('rack', dict(variant=variant, input_rpm=60))
+                oracle = plan = build_plan(d)
+                low, high = d.analysis['rack']['pinion_angle_limits_rad']
+                travel_low, travel_high = d.analysis['rack']['travel_limits_mm']
+                phase = angle = 0.
+                for speed, target in ((100000, high), (0, high), (-173.125, low), (0, low), (33, 0.)):
+                    with self.subTest(speed=speed, target=target):
+                        new = update_operating_rates(d, dict(d.values, input_rpm=speed))
+                        previous = plan
+                        plan = build_plan(new, previous, phase)
+                        self.assert_pose(plan, previous, len(d.parts), phase, phase)
+                        seconds = (target-angle)*60/(speed*2*pi) if speed else .31
+                        self.assertGreater(seconds, 0.)
+                        phase += (plan.reference_rpm if speed else 0)*seconds*2*pi/60
+                        angle += speed*seconds*2*pi/60
+                        self.assertAlmostEqual(angle, target, places=12)
+                        self.assert_pose(plan, oracle, len(d.parts), phase, angle)
+                        if speed:
+                            # A reversed plan traverses the same physical
+                            # stroke with its endpoints in the opposite order.
+                            ends = sorted(plan.matrix(1, bound)[12] for bound in plan.phase_limits)
+                            self.assertAlmostEqual(ends[0], travel_low, places=10)
+                            self.assertAlmostEqual(ends[1], travel_high, places=10)
+                            for outside in (plan.phase_limits[0]-.01, plan.phase_limits[1]+.01):
+                                with self.assertRaisesRegex(ValueError, 'finite working stroke'):
+                                    plan.matrix(1, outside)
+                        else:
+                            self.assertEqual(plan.matrix(1, phase), plan.matrix(1, phase+3))
+                        d = new
 
     def test_differential_independent_inputs_reversal_and_stationary_members(self):
         for configuration, second in (('wrist', 'input_b_rpm'), ('classic', 'output_difference_rpm')):
