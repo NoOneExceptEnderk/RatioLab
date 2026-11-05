@@ -34,7 +34,7 @@ firma ad-hoc e non è notarizzata da Apple. Il sistema può mostrare un avviso o
 
 ## Cosa puoi fare
 
-- Generare quindici famiglie di ingranaggi e trasmissioni, inclusi differenziali conici in configurazione polso o classica, riduttori Wolfrom a due dentature diritte e coppie coniche autonome con tracce diritte, spirali o circolari tipo Zerol su assi a 90°, e coppie ipoidi generate con offset firmato tra gli assi, oltre a cremagliere con pignone a denti diritti, elicoidali e a doppia elica, e face gears generati da pignoni diritti, elicoidali o a doppia elica unita o separata, con direzioni degli assi a 90° e offset regolabile.
+- Generare quindici famiglie di ingranaggi e trasmissioni, inclusi differenziali conici in configurazione polso o classica, riduttori Wolfrom a due corone con denti diritti, elicoidali o a doppia elica e coppie coniche autonome con tracce diritte, spirali o circolari tipo Zerol su assi a 90°, e coppie ipoidi generate con offset firmato tra gli assi, oltre a cremagliere con pignone a denti diritti, elicoidali e a doppia elica, e face gears generati da pignoni diritti, elicoidali o a doppia elica unita o separata, con direzioni degli assi a 90° e offset regolabile.
 - Modificare i parametri, osservare l’anteprima 3D animata e selezionare i componenti.
 - Salvare progetti, annullare modifiche, cercare combinazioni e controllare le interferenze con campionamento discreto.
 - Esportare STEP, STL, SVG/DXF, distinte, relazioni di calcolo e pacchetti completi.

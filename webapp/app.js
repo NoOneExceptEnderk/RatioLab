@@ -135,6 +135,7 @@ function classify(spec) {
   if (motionKeys.has(key)) return ['motion', ['input_torque','efficiency','pull_force'].includes(key) ? 'Nominal operating loads' : 'Drive connections'];
   if (key.startsWith('hardware_')) return ['assembly','Standard hardware'];
   if (key.startsWith('bearing') || key === 'fit' || ['seat_allowance','shaft_allowance','shoulder'].includes(key)) return ['assembly','Bearings & fits'];
+  if (key.startsWith('eccentric_')) return ['assembly','Eccentric shaft construction'];
   if (assemblyKeys.has(key) || key.startsWith('print_')) return ['assembly', key === 'eccentric_design' ? 'Eccentric shaft construction' : 'Housing & flanges'];
   if (spec.advanced) return ['dimensions','Advanced · profile & clearances'];
   if (shaftKeys.has(key)) return ['dimensions','Shafts & bores'];

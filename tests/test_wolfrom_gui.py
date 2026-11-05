@@ -112,9 +112,56 @@ class WolfromGuiTests(unittest.TestCase):
         self.assertIn('+Z', a.motion_speed.get_tooltip_text())
         self.assertTrue(a.export_menu.get_sensitive())
         self.assertTrue(a.canvas.motion_valid)
+
         self.assertTrue(a.motion_play.get_sensitive())
         self.assertEqual(len(a.document.states), 1)
         self.assertFalse(a.document.dirty)
+
+    def test_helical_and_double_options_roundtrip_and_real_gl_capture(self):
+        a = self.app
+        from model_catalog_ui import Catalog
+        catalog = Catalog(a)
+        catalog.choose('wolfrom','double')
+        self.assertEqual(len(catalog.selectors),2)
+        catalog.commit()
+        pump_until(lambda:not a.pending and not a._geometry_waiting)
+        self.assertEqual(a.design.values['double_style'],'joined')
+        self.assertEqual(a.design.values['gap'],0)
+        for variant, style in (('helical',None),('double','joined'),('double','separated')):
+            with self.subTest(variant=variant,style=style):
+                options = dict(variant=variant)
+                if style: options['double_style'] = style
+                a.rebuild_options(options)
+                pump_until(lambda:not a.pending and not a._geometry_waiting)
+                self.assertEqual(a.design.values['variant'],variant)
+                self.assertIn('helix',a.inputs)
+                self.assertEqual('gap' in a.inputs,style=='separated')
+                a.inputs['helix'].set_text('-020.123456789')
+                self.assertTrue(a.refresh())
+                self.assertEqual(a.design.values['helix'],-20.123456789)
+                saved = a.config(); a.load_config_data(saved)
+                self.assertEqual(a.config(),saved)
+                self.assertTrue(a.export_menu.get_sensitive())
+                result = []
+                a.canvas.capture_png(lambda data,error:result.append((data,error)))
+                pump_until(lambda:bool(result))
+                self.assertIsNone(result[0][1])
+                self.assertTrue(result[0][0].startswith(b'\x89PNG'))
+                evidence = os.environ.get('RATIOLAB_WOLFROM_EVIDENCE')
+                if evidence:
+                    target = Path(evidence); target.mkdir(parents=True,exist_ok=True)
+                    (target/f'native-{variant}-{style or "single"}.png').write_bytes(result[0][0])
+        # Also switch a reopened joined project through the actual model catalog.
+        a.load_config_data(dict(format='solidcraft-riduttori/1',family='wolfrom',
+                                parameters=generate('wolfrom',dict(variant='double',double_style='joined')).values))
+        catalog = Catalog(a)
+        catalog.choose('wolfrom','double')
+        catalog.selectors[1].set_selected(1)
+        catalog.commit()
+        pump_until(lambda:not a.pending and not a._geometry_waiting)
+        self.assertEqual(a.design.values['double_style'],'separated')
+        self.assertGreater(a.design.values['gap'],0)
+        self.assertTrue(a.export_menu.get_sensitive())
 
     def test_nominal_readout_recovers_after_invalid_geometry(self):
         a = self.app

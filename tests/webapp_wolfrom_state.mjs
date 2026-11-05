@@ -162,7 +162,7 @@ assert.equal(el('app-dialog').open,true);const close=el('dialog-actions').childr
 assert.equal(await opening,false);assert.equal(a.currentValid(),true);assert.equal(a.snapshot().phase,saved.phase);assert.deepEqual(a.scheduledGenerations(),[]);assert.deepEqual(a.doc.state,before);assert.deepEqual(a.doc.past,past);assert.equal(a.snapshot().design,saved.design);assert.deepEqual(a.snapshot().sourceParameters,saved.sourceParameters);
 // A previously invalid draft cannot become valid after rejecting a project.
 a.doc.editNumber('planet2','60');await a.generateCurrent();const invalid=structuredClone(a.doc.state),invalidHistory=structuredClone(a.doc.past);assert.equal(a.currentValid(),false);
-const failed=a.openProject({format:'solidcraft-riduttori/1',family:'wolfrom',parameters:{helix:0}},'unsupported.json');await settle();
+const failed=a.openProject({format:'solidcraft-riduttori/1',family:'wolfrom',parameters:{profile_shift:0}},'unsupported.json');await settle();
 el('dialog-actions').children.find(b=>b.textContent==='Discard changes').click();await settle();
 el('dialog-actions').children.find(b=>b.textContent==='Close').click();assert.equal(await failed,false);
 assert.equal(a.currentValid(),false);assert.equal(el('stale-banner').hidden,false);assert.deepEqual(a.doc.state,invalid);assert.deepEqual(a.doc.past,invalidHistory);assert.deepEqual(a.scheduledGenerations(),[]);

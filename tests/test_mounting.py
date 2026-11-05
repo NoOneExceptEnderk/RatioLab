@@ -60,7 +60,8 @@ class MountingTests(unittest.TestCase):
                 self.assertLess(bridge.z + bridge.width, min((p.z for p in gears2)))
 
     def test_reverse_axes_and_differential_ports(self):
-        for f in [f for f in PAIRS if f not in TRIPLES] + []:
+        # These families generate adapters; bevel/face/hypoid expose CAD ports.
+        for f in ('parallel', 'internal', 'worm'):
             scheme = next((s for s in options(f) if s != default(f)))
             d = generate(f, {'io_scheme': scheme})
             records = d.analysis['mount_interfaces']
@@ -78,6 +79,26 @@ class MountingTests(unittest.TestCase):
         b = next((r for r in d.analysis['mount_interfaces'] if r['member'] == 'B'))
         self.assertEqual(a['axis'], (1, 0, 0))
         self.assertEqual(b['axis'], (0, 0, 1))
+
+    def test_reverse_cad_ports_do_not_invent_mounting_flanges(self):
+        for family in sorted(set(PAIRS) - {'parallel', 'internal', 'worm'}):
+            with self.subTest(family=family):
+                forward = generate(family, {'io_scheme': 'forward'})
+                reverse = generate(family, {'io_scheme': 'reverse'})
+                self.assertNotIn('mount_interfaces', reverse.analysis)
+                self.assertEqual(reverse.analysis['kinematics']['scheme'], 'reverse')
+                self.assertAlmostEqual(reverse.analysis['signed_ratio'],
+                                       1 / forward.analysis['signed_ratio'])
+                ports = [p.port for p in reverse.parts if p.port.get('member') in ('A', 'B')]
+                self.assertEqual({p['member'] for p in ports}, {'A', 'B'})
+                for port in ports:
+                    self.assertEqual(port['role'], 'input' if port['member'] == 'B' else 'output')
+                    expected = reverse.values['input_rpm']
+                    if port['member'] == 'A':
+                        expected /= reverse.analysis['signed_ratio']
+                    self.assertAlmostEqual(port['rpm'], expected)
+                self.assertEqual(generate(family, json.loads(json.dumps(reverse.values))).parts,
+                                 reverse.parts)
 
     def test_harmonic_flex_attachment_is_at_base(self):
         for variant in VARIANTS['harmonic']:

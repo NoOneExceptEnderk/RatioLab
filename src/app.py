@@ -223,6 +223,10 @@ class ReducerApp(ProjectActions, Gtk.Application):
     def rebuild_options(self, changes):
         self.remember()
         self.values[self.family].update(changes)
+        if self.family=='wolfrom' and changes.get('double_style')=='separated' and self.values[self.family].get('gap')==0:
+            # A joined project has canonical gap=0 but no editable groove.
+            # Seed the newly exposed field; restore_raw_fields retains any draft.
+            self.values[self.family].pop('gap')
         for key in changes:self.raw_edits.get(self.family,{}).pop(key,None)
         self.make_fields()
     def project_changed(self,group=None):
@@ -316,7 +320,19 @@ class ReducerApp(ProjectActions, Gtk.Application):
         self.eccentric_design_box.set_visible(self.family=='cycloidal')
         if self.family=='cycloidal':
             from printed_shaft import DESIGNS
-            self.eccentric_design_selector=choice('eccentric_design','Eccentric shaft construction',DESIGNS,'standard',self.eccentric_design_box)
+            self.eccentric_design_selector=choice('eccentric_design','Eccentric shaft construction',DESIGNS,'integral',self.eccentric_design_box)
+            if self.option_values.get('eccentric_design')=='standard':
+                self.eccentric_design_box.append(gui_workflow.text('Bored cams require an anti-rotation connection and axial retention completed in CAD.'))
+            if self.option_values.get('eccentric_design') in ('d_shaft','keyed_shaft'):
+                self.eccentric_design_box.append(gui_workflow.text('The shaft fits directly into matching cam bores. Complete axial retention in CAD.'))
+            if self.option_values.get('eccentric_design')=='keyed_shaft':
+                preset=Gtk.Button(label='Apply compatible keyed dimensions')
+                preset.set_tooltip_text('Sets input shaft Ø6 mm, eccentric seat Ø18 mm and disc thickness 10 mm; bearing catalog becomes manual. Other parameters are preserved.')
+                def apply_keyed_preset(*args):
+                    from printed_shaft import KEYED_PRESET
+                    self.rebuild_options(KEYED_PRESET)
+                preset.connect('clicked',apply_keyed_preset);self.eccentric_design_box.append(preset)
+                self.keyed_preset_button=preset
         printed=self.family=='cycloidal' and self.option_values.get('eccentric_design')=='fdm_bolted'
         if printed:
             self.eccentric_design_box.append(gui_workflow.text('6804 seat: Ø32 mm + allowance; disc ≥14.7 mm. Apply the preset only to replace shaft/disc dimensions.'))

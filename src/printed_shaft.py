@@ -6,11 +6,14 @@ The asymmetric bolt pattern provides a positive rotational constraint and
 indexes opposing cams. Bearing dimensions are from NSK 6804; this construction
 is an original adaptation, not a reproduction or a rated mechanical design.
 """
-from math import hypot, pi, cos, sin
-from geometry import Part, circle
-from hardware_catalog import FASTENERS, LENGTHS, SCREW_SOURCE, NUT_SOURCE, WASHER_SOURCE
+from math import hypot, pi, cos, sin, sqrt, acos, radians
+from geometry import Part, circle, transformed
+from hardware_catalog import FASTENERS, LENGTHS, SCREW_SOURCE, NUT_SOURCE, WASHER_SOURCE, KEYS, KEY_LENGTHS, KEY_SOURCE, KEY_PRODUCT
 
-DESIGNS = {'standard': 'Standard · separate shaft and cams',
+DESIGNS = {'integral': 'Integral shaft · solid eccentrics',
+           'd_shaft': 'Direct D-shaft · matching cam bores',
+           'keyed_shaft': 'Direct keyed shaft · matching keyways',
+           'standard': 'Separate bored cams · CAD fixing required',
            'fdm_bolted': 'FDM · printed shaft + 2 through bolts'}
 SUPPORTED_SCHEMES = ('eccentric_output_ring', 'eccentric_ring_output')
 BEARING_URL = 'https://www.nsk.com/in-en/engineering/products/bearings/ball-bearings/deep-groove-ball-bearings/single-row-deep-groove-ball-bearings/6804-apn.html?___store=in'
@@ -22,11 +25,21 @@ FIELDS = [('print_bolt_pitch', 'Through bolt spacing [mm]', 8.6, 5, 20, .1),
           ('print_seat_allowance', '6804 seat diametral allowance [mm]', .2, 0, .6, .05),
           ('print_journal_allowance', '6804 journal diametral clearance [mm]', .15, 0, .5, .05),
           ('print_min_wall', 'Minimum printed wall [mm]', 1.2, 1, 3, .2)]
+DIRECT_FIELDS = [('eccentric_flat_depth', 'D-shaft flat depth [mm]', .5, .05, 14, .05),
+                 ('eccentric_bore_allowance', 'Cam bore diametral allowance [mm]', 0, 0, .5, .01),
+                 ('eccentric_connection_angle', 'Shaft connection clocking [°]', 0, -180, 180, 1)]
+KEYED_PRESET = dict(input_shaft=6., bore=18., width=10., bearing_mode='manual')
+
+
+def direct_field_active(key, construction):
+    if key == 'eccentric_flat_depth':
+        return construction == 'd_shaft'
+    return construction in ('d_shaft', 'keyed_shaft')
 
 
 def prepare(supplied):
     s = dict(supplied)
-    design = s.get('eccentric_design', 'standard')
+    design = s.get('eccentric_design', 'integral')
     if design not in DESIGNS:
         raise ValueError('Unknown eccentric shaft design.')
     if design != 'fdm_bolted':
@@ -56,8 +69,165 @@ def _buy(p, code, description, dimensions, standard, source, manufacturer='To be
     return p
 
 
+def _integral(d):
+    """Replace the plain shaft and bored cams with one stepped, solid blank.
+
+    Equal-Z nested sections form the radial shoulders without a loft or an
+    overlapping shaft. Catalog journal radii have already been resolved.
+    """
+    shaft = next(p for p in d.parts if p.name == 'Shaft_input')
+    cams = [p for p in d.parts if p.name.startswith('Eccentric_')]
+    rin = d.values['input_shaft']/2
+    z0 = shaft.z
+    levels = [(z0, rin, (0, 0))]
+    for index, cam in enumerate(cams):
+        radius = hypot(*cam.outer[0])
+        if index == 0 or cam.z > cams[index-1].z + cams[index-1].width:
+            levels.append((cam.z, rin, (0, 0)))
+        levels.extend([(cam.z, radius, cam.center),
+                       (cam.z+cam.width, radius, cam.center)])
+        if index < len(cams)-1:
+            levels.append((cam.z+cam.width, rin, (0, 0)))
+    shaft.stations = [dict(z=z-z0, outer=circle(r,192,center), holes=[])
+                      for z,r,center in levels]
+    shaft.width = levels[-1][0]-z0
+    shaft.holes = []
+    shaft.role = 'gear'
+    d.parts[:] = [p for p in d.parts if p not in cams]
+    d.analysis['eccentric_connection'] = dict(construction='integral',
+        part=shaft.name, cam_count=len(cams), shaft_bore=False,
+        status='one solid CAD blank; external coupling and axial retention to be defined')
+    d.requirements[:] = [r.replace('Eccentric cams, pins and output flange connection:',
+                                  'Pins and output flange connection:') for r in d.requirements]
+    d.notes.append('Integral eccentric shaft: one solid stepped body, without a shaft bore or separate cam fasteners. Disc profiles, eccentric offsets and bearing seats retain their nominal dimensions.')
+    d.requirements.append('Complete the integral shaft external coupling, axial bearing retention and any manufacturing details in CAD.')
+
+
+def _d_profile(radius, flat_x, *, round_section=False):
+    """Circle clipped at +X; corresponding round section for axial shoulders.
+
+    Flat endpoints: y=±sqrt(r²-x²), arc angles ±acos(x/r). The fixed
+    correspondence gives a planar shoulder when the flat starts at one Z.
+    """
+    theta = acos(flat_x/radius)
+    y = sqrt(radius*radius-flat_x*flat_x)
+    points = [(radius*cos(theta+(2*pi-2*theta)*j/256),
+               radius*sin(theta+(2*pi-2*theta)*j/256)) for j in range(257)]
+    points[0], points[-1] = (flat_x,y), (flat_x,-y)
+    for j in range(1,32):
+        yy = -y+2*y*j/32
+        points.append((sqrt(max(0,radius*radius-yy*yy)) if round_section else flat_x, yy))
+    return points
+
+
+def _direct(d):
+    """Direct shaft engagement; no intermediate insert or invented fixing.
+
+    Local part XY is translated from the common world input axis, then the
+    unchanged member motion rotates the complete connection. Key dimensions
+    use the existing Ganter DIN 6885-1 extract (d,b,h,t4,t2), not fit classes.
+    """
+    from hardware import shaped_circle
+    v = d.values
+    construction = v['eccentric_design']
+    shaft = next(p for p in d.parts if p.name == 'Shaft_input')
+    cams = [p for p in d.parts if p.name in ('Eccentric_1','Eccentric_2')]
+    r = v['input_shaft']/2
+    allowance = v['eccentric_bore_allowance']/2
+    angle = radians(v['eccentric_connection_angle'])
+    rotate = lambda points: transformed(points, angle=angle)
+    engagements = []
+    if construction == 'd_shaft':
+        depth = v['eccentric_flat_depth']
+        if not 0 < depth < r:
+            raise ValueError('D-shaft flat depth must be positive and smaller than the shaft radius.')
+        if allowance >= depth:
+            raise ValueError('Cam bore allowance removes the D-flat engagement: reduce the allowance or increase flat depth.')
+        round_profile = _d_profile(r,r-depth,round_section=True)
+        engaged_profile = _d_profile(r,r-depth)
+        bore_profile = rotate(_d_profile(r+allowance,r-depth+allowance))
+        engagements = [(cams[0].z,cams[-1].z+cams[-1].width)]
+        record = dict(flat_depth_mm=depth)
+    else:
+        diameter = v['input_shaft']
+        nominal = round(diameter)
+        if abs(diameter-nominal)>1e-8 or nominal not in KEYS:
+            raise ValueError('Keyed eccentric shaft requires a nominal diameter of 6, 8, 10 or 12 mm. Apply the compatible keyed dimensions or set the shaft and seat explicitly.')
+        b,h,ts,th = KEYS[nominal]
+        lengths = [length for length in KEY_LENGTHS if length <= v['width']-1]
+        if not lengths:
+            raise ValueError('Keyed eccentric cams require disc thickness of at least 9 mm for the supported 8 mm key. Apply the compatible keyed dimensions or increase thickness.')
+        if allowance >= h-ts:
+            raise ValueError('Cam bore allowance removes key engagement: reduce the allowance.')
+        length = max(lengths)
+        key_spec = dict(b=b,depth=ts)
+        round_profile = shaped_circle(r,key_spec,False)
+        engaged_profile = shaped_circle(r,key_spec,True)
+        bore_profile = rotate(shaped_circle(r+allowance,dict(b=b,depth=th),True,True))
+        for cam in cams:
+            start = cam.z+(cam.width-length)/2
+            engagements.append((start,start+length))
+        record = dict(key_width_mm=b,key_height_mm=h,key_length_mm=length,
+                      shaft_keyway_depth_mm=ts,hub_keyway_depth_mm=th,source=KEY_SOURCE)
+    # A construction margin in the sampled cam, not a strength/tolerance check.
+    for cam in cams:
+        hole = transformed(bore_profile,(-cam.center[0],-cam.center[1]))
+        outer_apothem = min(abs(a[0]*b[1]-a[1]*b[0])/hypot(b[0]-a[0],b[1]-a[1])
+                            for a,b in zip(cam.outer,cam.outer[1:]+cam.outer[:1]))
+        if max(hypot(x,y) for x,y in hole)+.5 >= outer_apothem:
+            raise ValueError('Eccentric connection leaves less than 0.5 mm nominal cam wall: enlarge the eccentric bearing seat or reduce shaft/connection dimensions.')
+        cam.holes[0] = hole
+        cam.machining.append(dict(type=construction+'_bore',shaft_diameter_mm=2*r,
+            diametral_allowance_mm=2*allowance,clocking_deg=v['eccentric_connection_angle'],**record))
+    # Keep round journals below the cams and between finite key pockets.
+    round_profile, engaged_profile = rotate(round_profile), rotate(engaged_profile)
+    levels = [(shaft.z,round_profile)]
+    for start,end in engagements:
+        levels.extend([(start,round_profile),(start,engaged_profile),(end,engaged_profile)])
+        if end < shaft.z+shaft.width:
+            levels.append((end,round_profile))
+    if levels[-1][0] < shaft.z+shaft.width:
+        levels.append((shaft.z+shaft.width,round_profile))
+    shaft.outer = round_profile
+    shaft.stations = [dict(z=z-shaft.z,outer=profile,holes=[]) for z,profile in levels]
+    shaft.role = 'gear'
+    shaft.machining.append(dict(type=construction,engagements_z_mm=engagements,**record))
+    if construction == 'keyed_shaft':
+        for i,(start,end) in enumerate(engagements,1):
+            bottom = r-ts
+            outline = rotate([(bottom,-b/2),(bottom+h,-b/2),(bottom+h,b/2),(bottom,b/2)])
+            key = Part(f'Eccentric_key_{i}',outline,[],end-start,start,role='gear',color=(.94,.72,.33))
+            _buy(key,f'DIN 6885-1 B {b:g}x{h:g}x{length:g}','Square ended parallel key',
+                 f'{b:g} × {h:g} × {length:g} mm','DIN 6885-1 B',KEY_PRODUCT)
+            d.parts.append(key)
+        d.notes[:] = [q.replace('keys, threads and seals are not generated.',
+            'cam keys and keyways are generated; threads, seals and remaining connections require CAD design.') for q in d.notes]
+    d.analysis['eccentric_connection'] = dict(construction=construction,part=shaft.name,
+        cam_parts=[p.name for p in cams],shaft_bore=True,intermediate_insert=False,
+        diametral_allowance_mm=2*allowance,clocking_deg=v['eccentric_connection_angle'],
+        status='matched nominal shaft/cam connection; axial retention and fits to be defined',**record)
+    d.requirements[:] = [q.replace('Eccentric cams, pins and output flange connection:',
+                                  'Pins and output flange connection:') for q in d.requirements]
+    d.requirements.append('Direct eccentric shaft connection: complete axial retention, external coupling and actual fits in CAD. The matched profile does not retain the cam axially.')
+    d.notes.append('Direct shaft connection: matching shaft and cam bores share one input-axis datum. No intermediate insert. The input bearing journal stays round; disc profiles and eccentric offsets are unchanged.')
+
+
 def apply(d):
-    if d.family != 'cycloidal' or d.values.get('eccentric_design') != 'fdm_bolted':
+    if d.family != 'cycloidal':
+        return
+    construction = d.values.get('eccentric_design')
+    if construction == 'integral':
+        _integral(d)
+        return
+    if construction in ('d_shaft','keyed_shaft'):
+        _direct(d)
+        return
+    if construction == 'standard':
+        d.analysis['eccentric_connection'] = dict(construction='standard',
+            shaft_bore=True, status='CAD fixing required; no cam-to-shaft fastener generated')
+        d.requirements.append('Separate bored eccentric cams: define the cam-to-shaft anti-rotation connection and axial retention in CAD. The circular bore alone is not a fixing.')
+        return
+    if construction != 'fdm_bolted':
         return
     v=d.values;e=v['eccentric'];w=v['width'];count=2 if v['variant']=='dual' else 1
     gap=v.get('disc_gap',v['assembly_clearance']);span=count*w+(count-1)*gap

@@ -19,8 +19,9 @@ INPUT_SCHEMES = ('eccentric_output_ring', 'eccentric_ring_output')
 
 
 def cams(design):
+    integral = design.analysis.get('eccentric_connection', {}).get('part')
     return [(i, part) for i, part in enumerate(design.parts)
-            if part.name in ('Eccentric_1', 'Eccentric_2')]
+            if part.name in ('Eccentric_1', 'Eccentric_2', integral)]
 
 
 class CycloidalEccentricVisibilityTests(unittest.TestCase):
@@ -30,7 +31,7 @@ class CycloidalEccentricVisibilityTests(unittest.TestCase):
                 with self.subTest(variant=variant, scheme=scheme):
                     design = generate('cycloidal', dict(variant=variant, io_scheme=scheme))
                     found = cams(design)
-                    self.assertEqual(len(found), 1 if variant == 'single' else 2)
+                    self.assertEqual(len(found), 1)
                     rates = design.analysis['kinematics']['stage_results'][0]['rates_rpm']
                     source, target, fixed = scheme.split('_')
                     expected_role = 'input' if source == 'eccentric' else 'output' if target == 'eccentric' else 'fixed'
@@ -46,7 +47,7 @@ class CycloidalEccentricVisibilityTests(unittest.TestCase):
                             self.assertAlmostEqual(y, part.center[0])
                             self.assertAlmostEqual(z, part.z)
                     supports = [part for part in design.parts if part.name.startswith('Bearing_eccentric_')]
-                    self.assertEqual(len(supports), len(found))
+                    self.assertEqual(len(supports), 1 if variant == 'single' else 2)
                     self.assertTrue(all(part.role == 'support' for part in supports))
 
     def test_solidcraft_hides_optional_parts_but_keeps_the_input_cams(self):
@@ -87,7 +88,7 @@ class CycloidalEccentricVisibilityTests(unittest.TestCase):
                 self.assertEqual(scope['source_indices'], [index+1])
                 self.assertEqual(scope['components'], [dict(source_index=index+1, name=part.name)])
                 self.assertEqual(len(list((target/'step-parts').glob('*.step'))), 1)
-                self.assertEqual((target/'assembly.step').read_text().count('MANIFOLD_SOLID_BREP('), 1)
+                self.assertEqual((target/'assembly.step').read_text().count('CLOSED_SHELL('), 1)
                 exported = json.loads((target/'selected.bom.json').read_text())
                 self.assertEqual(sum(row['quantity'] for row in exported['rows']), 1)
                 self.assertEqual([part.name for part in design.parts], names)

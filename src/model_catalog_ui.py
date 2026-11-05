@@ -19,6 +19,8 @@ def apply_selection(app, family, variant, options=None):
         values['variant'] = variant
     if family == 'double':
         values['double_style'] = variant
+    if family == 'wolfrom' and variant == 'double' and values.get('double_style') == 'separated' and values.get('gap') == 0:
+        values.pop('gap')
     if family == 'face' and variant == 'double_helical' and values.get('double_style') == 'separated' and values.get('gap', 0) <= 0:
         values['gap'] = max(values.get('module', 2), getattr(app, 'face_groove_draft', 4.))
         app.raw_edits.get(family, {}).pop('gap', None)
@@ -141,6 +143,8 @@ class Catalog:
             specs.append(dict(key='configuration',label='Configuration',value=self.extra.get('configuration','wrist'),choices=[dict(value=k,label=v) for k,v in CONFIGURATIONS.items()]))
         if family!='double' and self.variant in ('double','two_stage_double','three_stage_double','double_helical'):
             from geometry import DOUBLE_STYLES
+            if family=='wolfrom':
+                self.extra.setdefault('double_style','joined')
             specs.append(dict(key='double_style',label='Double helix construction',value=self.extra.get('double_style','joined'),choices=[dict(value=k,label=v) for k,v in DOUBLE_STYLES.items()]))
         for spec in specs:
             self.detail.append(Gtk.Label(label=spec['label'],xalign=0,css_classes=['field-label']))

@@ -172,11 +172,19 @@ def coaxial(d, record):
         out = old['Shaft_output']
         body = old['Housing_tubular']
         flange = old['Flange_output']
-        d.parts = [p for p in d.parts if p.name not in ('Shaft_input', 'Shaft_output', 'Cover_input', 'Cover_output', 'Bearing_input_envelope')]
+        integral = v.get('eccentric_design') in ('integral','d_shaft','keyed_shaft')
+        removed = {'Shaft_output', 'Cover_input', 'Cover_output', 'Bearing_input_envelope'}
+        if not integral:
+            removed.add('Shaft_input')
+        d.parts = [p for p in d.parts if p.name not in removed]
         lower = body.z - t - g
         upper = max(body.z + body.width, flange.z + flange.width) + t + g
-        anchor = next((p for p in d.parts if p.name == 'Eccentric_1'))
-        add('eccentric', anchor, anchor.z + anchor.width / 2, lower - ext - 2 * (t + g), radius(shaft.outer), 0)
+        anchor = shaft if integral else next(p for p in d.parts if p.name == 'Eccentric_1')
+        contact = shaft.z if integral else anchor.z + anchor.width / 2
+        add('eccentric', anchor, contact, lower - ext - 2 * (t + g), radius(shaft.outer), 0)
+        if integral:
+            # The final I/O pass renames this shaft; keep report identity aligned.
+            d.analysis['eccentric_connection']['part'] = 'Shaft_eccentric'
         add('output', flange, flange.z + flange.width / 2, upper + ext + t + g, radius(out.outer), 0)
         add('ring', body, body.z + body.width, upper + ext, radius(body.outer), bore(body) + 0.02)
         d.notes.append('With a moving ring, the housing and roller seats belong to the same member. Previous fixed covers crossed by interfaces are removed; the new mounting ring follows the ring role. Discs retain rotation and orbit; they are not hubs rigidly fixed to the flange.')

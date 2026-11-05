@@ -6,6 +6,27 @@ published packages and their verification results.
 
 ## Unreleased
 
+## 0.2.1 — 2026-11-05
+
+### Added
+
+- Add single-helical and joined/separated double-helical teeth to two-rim
+  Wolfrom / 3K reducers, with signed helix control, normal-module dimensions,
+  axial phase checks and shared desktop/browser/export geometry. Preserve
+  rigid compound clocking, derived modules and the existing ideal ratios.
+
+- Add direct D-shaft and keyed-shaft cycloidal connections with matching cam
+  bores, configurable clocking and nominal bore allowance. Generate the keyed
+  shaft pockets and cam keys from supported catalog dimensions; keep the solid
+  integral shaft as default and leave axial retention to CAD.
+
+### Changed
+
+- Default cycloidal eccentric construction to one solid stepped shaft without
+  a cam bore. Keep separate bored cams as an explicit option requiring CAD
+  fixing, and preserve the existing FDM through-bolt construction. Disc profiles
+  and eccentric offsets are unchanged.
+
 ## 0.2.0 — 2026-11-04
 
 ### Added

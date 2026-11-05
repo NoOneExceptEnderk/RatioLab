@@ -1,23 +1,23 @@
 # SPDX-FileCopyrightText: 2026 NoOneExceptEnderk
 # SPDX-License-Identifier: GPL-3.0-only
-"""Nominal zero-shift two-rim spur Wolfrom, axes +Z, positive CCW.
+"""Nominal zero-shift two-rim cylindrical Wolfrom, axes +Z, positive CCW.
 
-S/P1/Rf use module m1; P2/Ro use the derived m2. The sun is input,
+S/P1/Rf use normal module m1; P2/Ro use the derived m2. The sun is input,
 Rf is fixed and Ro is output. Compound portions have one common body clocking.
 Reference: COMPAct, arXiv:2510.07197v1, II-D (7-8), III-B (12).
 The gcd assembly test is derived from the three tooth-phase congruences.
 This is nominal geometry, not a load, efficiency or backdrivability model.
 """
-from math import gcd, pi, sin, hypot
+from math import gcd, pi, sin, cos, radians, hypot
 
 SPECS = [
-    ('module', 'First layer module [mm]', .5, .25, 10, .05),
+    ('module', 'First layer normal module [mm]', .5, .25, 10, .05),
     ('sun', 'Sun teeth · input', 18, 8, 160, 1),
     ('planet', 'First planet teeth', 72, 12, 200, 1),
     ('planet2', 'Second planet teeth', 59, 12, 200, 1),
     ('output_ring', 'Output ring teeth', 135, 22, 400, 1),
     ('planets', 'Compound planet count', 3, 1, 8, 1),
-    ('pressure', 'Pressure angle [°]', 20, 14.5, 30, .5),
+    ('pressure', 'Normal pressure angle [°]', 20, 14.5, 30, .5),
     ('backlash', 'Transverse pair backlash [mm]', .05, 0, 1, .01),
     ('width', 'First layer face width [mm]', 6, 1, 100, .5),
     ('width2', 'Second layer face width [mm]', 6, 1, 100, .5),
@@ -42,14 +42,14 @@ def prepare(supplied):
     supplied = {key: value for key, value in supplied.items()
                 if key != 'material' and not key.startswith(('stress_', 'manufacturing_'))}
     allowed = {q[0] for q in SPECS + LOAD_FIELDS}
-    allowed.update(('variant', 'io_scheme'))
+    allowed.update(('variant', 'io_scheme', 'double_style', 'helix', 'gap'))
     allowed.update(catalog_options('wolfrom', {}))
     allowed.update(hardware_options('wolfrom', {}))
     unknown = set(supplied) - allowed
     if unknown:
-        raise ValueError('Unsupported Wolfrom parameter(s): ' + ', '.join(sorted(unknown)) + '. Only zero-shift two-rim spur geometry is supported; fixed_ring and module2 are derived.')
-    if supplied.get('variant', 'spur') != 'spur':
-        raise ValueError('Wolfrom supports only the two-rim spur variant.')
+        raise ValueError('Unsupported Wolfrom parameter(s): ' + ', '.join(sorted(unknown)) + '. Only zero-shift two-rim geometry is supported; fixed_ring and module2 are derived.')
+    if supplied.get('variant', 'spur') not in ('spur', 'helical', 'double'):
+        raise ValueError('Wolfrom supports two-rim spur, helical or double-helical teeth.')
     return dict(supplied)
 
 
@@ -90,8 +90,9 @@ def dimensions(v):
     if determinant == 0:
         raise ValueError('Wolfrom determinant P1*Ro−Rf*P2 is zero: the output is stationary; no finite reducer ratio exists.')
     m1 = v['module']
+    beta = v.get('helix', 0)
     return dict(fixed_ring_teeth=rf, module2_mm=m1*(s+p1)/(ro-p2),
-                center_distance_mm=m1*(s+p1)/2, determinant=determinant,
+                center_distance_mm=m1*(s+p1)/(2*cos(radians(beta))), determinant=determinant,
                 signed_ratio=(s+rf)*p1*ro/(s*determinant))
 
 
@@ -116,18 +117,21 @@ def validate(v):
     c, rb = v['assembly_clearance'], v['bore']/2
     if v['backlash'] >= .7*min(m1,m2):
         raise ValueError('Wolfrom backlash too large for one of the derived modules.')
-    roots = (m1*(v['sun']/2-1.25), m1*(v['planet']/2-1.25), m2*(v['planet2']/2-1.25))
+    cb = cos(radians(v.get('helix', 0)))
+    if v['variant'] == 'double' and v['gap'] >= min(v['width'], v['width2'])-1:
+        raise ValueError('Wolfrom groove must leave at least 1 mm of teeth in each layer.')
+    roots = (m1*(v['sun']/(2*cb)-1.25), m1*(v['planet']/(2*cb)-1.25), m2*(v['planet2']/(2*cb)-1.25))
     if rb >= min(roots)-.5:
         raise ValueError('Wolfrom bore leaves insufficient material at the sun or compound roots.')
     if rb <= c:
         raise ValueError('Wolfrom bore must exceed twice the assembly clearance to leave a positive carrier pin.')
-    tips = (m1*(v['planet']/2+1), m2*(v['planet2']/2+1))
+    tips = (m1*(v['planet']/(2*cb)+1), m2*(v['planet2']/(2*cb)+1))
     separation = 2*a*sin(pi/v['planets']) if v['planets'] > 1 else None
     if separation is not None and separation <= 2*max(tips)+c:
         raise ValueError('Adjacent Wolfrom compound addendum circles overlap or lack assembly clearance; reduce planet count or dimensions.')
     # Shafts/pins traverse the layers; plates and hubs are axially separate.
     pin = rb-c
-    if a <= m1*(v['sun']/2+1)+pin+c:
+    if a <= m1*(v['sun']/(2*cb)+1)+pin+c:
         raise ValueError('Wolfrom carrier pins intersect the sun addendum envelope.')
     hub = min(roots[1:])*.7
     if hub <= rb+.25:
@@ -155,7 +159,7 @@ def apply_kinematics(d):
 
 def build(d):
     from geometry import gear_part, Part, circle, polar
-    from internal_mesh import plan_planetary_internal_pair
+    from internal_mesh import plan_planetary_internal_pair, validate_axial_pair
     from engineering import mesh
     v = d.values
     envelope = validate(v)
@@ -163,16 +167,20 @@ def build(d):
     m1, m2 = v['module'], envelope['module2_mm']
     s, p1, p2, ro, rf = v['sun'], v['planet'], v['planet2'], v['output_ring'], envelope['fixed_ring_teeth']
     pa, b, w1, w2 = (v[k] for k in ('pressure', 'backlash', 'width', 'width2'))
+    beta = v.get('helix', 0)
+    double = v['variant'] == 'double'
+    gap = v.get('gap', 0)
     z2 = w1+v['layer_gap']
     top = z2+w2
-    plans = [plan_planetary_internal_pair(p1,rf,m1,pa,0,b),
-             plan_planetary_internal_pair(p2,ro,m2,pa,0,b)]
+    plans = [plan_planetary_internal_pair(p1,rf,m1,pa,beta,b),
+             plan_planetary_internal_pair(p2,ro,m2,pa,beta,b)]
     for index, plan in enumerate(plans, 1):
         if plan['verification']['status'] != 'clear':
             raise ValueError(f"Wolfrom layer {index}: paired internal polygon clearance must be clear; {plan['verification']['status']}: {plan['verification'].get('failure_reason', '')}")
-    meshes = [mesh(s,p1,m1,pa,width=w1,backlash=b),
-              mesh(p1,rf,m1,pa,width=w1,internal=True,backlash=b,internal_plan=plans[0]),
-              mesh(p2,ro,m2,pa,width=w2,internal=True,backlash=b,internal_plan=plans[1])]
+    active1, active2 = ((w1-gap)/2, (w2-gap)/2) if double else (w1, w2)
+    meshes = [mesh(s,p1,m1,pa,beta,width=active1,backlash=b),
+              mesh(p1,rf,m1,pa,beta,width=active1,internal=True,backlash=b,internal_plan=plans[0]),
+              mesh(p2,ro,m2,pa,beta,width=active2,internal=True,backlash=b,internal_plan=plans[1])]
     for index, pair in enumerate(meshes, 1):
         if pair['profile_contact_total'] < 1 or pair['contact_total'] < 1:
             raise ValueError(f'Wolfrom mesh {index}: usable and nominal involute contact ratios must both be at least 1.')
@@ -192,9 +200,16 @@ def build(d):
         return p
     def gear(name, teeth, module, width, z, member, role, group, body_phase=0, center=(0,0), plan=None, **metadata):
         p = gear_part(name,teeth,module,pa,b,width,v['bore'],center,body_phase,
+                      helix=beta if member=='sun' else -beta,
                       internal=plan is not None,rim=v['rim'],zoff=z,
                       ha=plan['ring_addendum_coefficient'] if plan else 1,
                       minimum_join_radius_mm=plan['minimum_join_radius_mm'] if plan else None)
+        if double:
+            p.double = True
+            p.gap = gap
+            p.core_radius = min(hypot(x,y) for x,y in p.outer)*.96
+            if not p.internal and v['bore']/2 >= p.core_radius-.25:
+                raise ValueError('Wolfrom bore too large for the continuous double helix hub.')
         p.profile_metadata['wolfrom'] = dict(rigid_group=group, body_phase_rad=body_phase,
                                             common_clocking_rad=phase['common_clocking_rad'], **metadata)
         if plan:
@@ -204,8 +219,8 @@ def build(d):
             p.profile_metadata['wolfrom']['internal_pair_construction'] = plan
         return add(p,member,role,group,**metadata)
     gear('Sun_input',s,m1,w1,0,'sun','input','wolfrom_sun')
-    gear('Ring_fixed',rf,m1,w1,0,'ring','fixed','wolfrom_fixed',phase['fixed_ring_phase_rad'],plan=plans[0],layer=1)
-    gear('Ring_output',ro,m2,w2,z2,'output','output','wolfrom_output',phase['output_ring_phase_rad'],plan=plans[1],layer=2)
+    rings = [gear('Ring_fixed',rf,m1,w1,0,'ring','fixed','wolfrom_fixed',phase['fixed_ring_phase_rad'],plan=plans[0],layer=1),
+             gear('Ring_output',ro,m2,w2,z2,'output','output','wolfrom_output',phase['output_ring_phase_rad'],plan=plans[1],layer=2)]
     centers = []
     for item in phase['compounds']:
         j = item['index']; center = polar(a,item['theta_rad']); centers.append(center)
@@ -213,8 +228,11 @@ def build(d):
         for name, teeth, module, width, z, angle, layer in (
             (f'Compound_{j}_rim1',p1,m1,w1,0,item['planet_phase_rad'],1),
             (f'Compound_{j}_rim2',p2,m2,w2,z2,item['planet2_phase_rad'],2)):
-            gear(name,teeth,module,width,z,'planet','internal',group,angle,center,
-                 compound=j,layer=layer)
+            planet = gear(name,teeth,module,width,z,'planet','internal',group,angle,center,
+                          compound=j,layer=layer)
+            failure = validate_axial_pair(planet, rings[layer-1], teeth, (rf,ro)[layer-1])
+            if failure:
+                raise ValueError(f'Wolfrom layer {layer}: {failure}')
         p = Part(f'Compound_{j}_hub',circle(hub),[circle(rb)],v['layer_gap'],w1,center,role='gear')
         p.profile_metadata['wolfrom'] = dict(rigid_group=group, body_phase_rad=item['planet_phase_rad'],
                                             common_clocking_rad=phase['common_clocking_rad'], compound=j)
@@ -235,19 +253,26 @@ def build(d):
     for p in d.parts:
         if 'tooth_profile' in p.profile_metadata and not p.internal and rb >= min(hypot(x,y) for x,y in p.outer)-.25:
             raise ValueError('Wolfrom bore intersects a generated external root envelope.')
+    for plan in plans:
+        plan['verification']['axial_scope'] = 'Ideal spur/twisted transverse sections; common phase ratio and groove material subsets; excludes exported surface interpolation.'
     d.analysis.update(signed_ratio=envelope['signed_ratio'], meshes=meshes,
-        wolfrom=dict(topology='two_rim_spur', **envelope, assembly=phase,
+        wolfrom=dict(topology='two_rim_'+v['variant'], **envelope, assembly=phase,
                      internal_pair_plans=plans, layer_intervals_mm=[[0,w1],[z2,top]],
                      hub_interval_mm=[w1,z2], carrier_intervals_mm=[[-c-t,-c],[top+c,top+c+t]],
                      radial_envelope_basis='addendum circles, actual paired ring tips, bore/root bounds; axially disjoint layers and supports'))
-    d.metrics = [f"Two-rim spur Wolfrom · reduction {envelope['signed_ratio']:+.6g}:1",
+    tooth_label = {'spur':'spur', 'helical':'helical', 'double':'double helical'}[v['variant']]
+    d.metrics = [f"Two-rim {tooth_label} Wolfrom · reduction {envelope['signed_ratio']:+.6g}:1",
         f'Z sun / first planet / fixed ring: {s}/{p1}/{rf} · second planet / output ring: {p2}/{ro}',
         f"Derived second module {m2:.9g} mm · common centre distance {a:.6g} mm · {v['planets']} identical compounds",
         'Accessible output annulus; first ring fixed; open carrier with nominal pins']
     d.notes.extend([
-        'Two-rim, zero-shift spur Wolfrom: sun input, first ring fixed, second ring output. Both planet rims and their connecting hub are rigidly associated with one common compound clocking. No independent rim clocking or CAD motion joints.',
+        'Two-rim, zero-shift Wolfrom: sun input, first ring fixed, second ring output. Both planet rims and their connecting hub are rigidly associated with one common compound clocking at their lower layer faces. No independent rim clocking or CAD motion joints.',
         'Both paired internal profiles require clear bounded neutral-backlash transverse polygon certificates; usable and nominal contact ratios are at least 1 for all three meshes. Certificates exclude analytic chord error, loaded contact, exported interpolation, cutter envelopes and manufacturing checks.',
         'Open nominal assembly: separated toothed layers, face-touching compound hubs, common carrier plates/pins and a sun shaft. Output is the exposed second annulus. Ring fixing, output mounting, bearings, keys, retention, drive hardware and fits must be designed externally; no housing is generated.',
         'Compound pin bores include radial assembly clearance. Gear hubs and the sun shaft use nominal touching interfaces; these do not establish torque transmission or bearing capacity.',
         'No forces per planet are inferred: elastic load sharing and circulating power losses are not solved. Overall efficiency is a user assumption, not a Wolfrom efficiency prediction. No physical reversibility, self-locking, strength, life or conformity claim is made.',
     ])
+    if beta:
+        d.notes.append('Normal modules and pressure angle; transverse module mn/cos(beta). Sun uses the selected helix hand; both compound rims and both rings use the opposite hand. Each layer restarts its sweep at its lower face. Axial thrust and bearing sizing require external design.')
+    if double:
+        d.notes.append('Opposing helices in each toothed layer, with a common groove width or a joined centre. Overlap contact ratio uses one active half, excluding the groove. Axial thrust cancellation assumes symmetric load sharing and is not verified.')

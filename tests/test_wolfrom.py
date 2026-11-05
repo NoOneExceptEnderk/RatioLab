@@ -45,8 +45,7 @@ class WolfromTests(unittest.TestCase):
         return assembly
 
     def test_catalogue_order_derived_fields_and_project_roundtrip(self):
-        self.assertEqual(list(FAMILIES)[-1],'wolfrom')
-        self.assertEqual(list(FAMILIES)[:-1],['spur','helical','double','planetary','cycloidal','harmonic','worm','parallel','internal','differential'])
+        self.assertEqual(list(FAMILIES)[:11],['spur','helical','double','planetary','cycloidal','harmonic','worm','parallel','internal','differential','wolfrom'])
         fields = {q[0] for q in get_specs('wolfrom')}
         self.assertNotIn('module2',fields)
         self.assertNotIn('fixed_ring',fields)
@@ -126,7 +125,7 @@ class WolfromTests(unittest.TestCase):
                dict(output_ring=float('inf')),dict(planet=True),dict(module=.2),
                dict(pressure=0),dict(bore=40),dict(bore=1,assembly_clearance=.6),
                dict(layer_gap=0),dict(width2=0),dict(plate=0),dict(backlash=.4),
-               dict(variant='helical'),dict(helix=0),dict(profile_shift=0),
+               dict(variant='one_rim'),dict(variant='helical',helix=36),dict(profile_shift=0),
                dict(module2=45/76),dict(fixed_ring=162),dict(one_rim=True),
                dict(io_scheme='ring_sun_output'),dict(bearing_mode='shaft'),
                dict(hardware_mode='standard'),dict(input_rpm=float('nan')),
@@ -150,7 +149,7 @@ class WolfromTests(unittest.TestCase):
         self.assertEqual(restored.metrics, self.design.metrics)
         self.assertEqual(restored.notes, self.design.notes)
         self.assertEqual(supplied, before)
-        for change in (dict(helix=0), dict(profile_shift=0), dict(module2=45/76),
+        for change in (dict(one_rim=0), dict(profile_shift=0), dict(module2=45/76),
                        dict(material_density=1), dict(stress=1), dict(manufacturing=1)):
             with self.subTest(change=change), self.assertRaisesRegex(ValueError, 'Unsupported Wolfrom'):
                 generate('wolfrom', dict(supplied, **change))

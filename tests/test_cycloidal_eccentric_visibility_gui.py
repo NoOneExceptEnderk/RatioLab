@@ -113,6 +113,55 @@ class CycloidalEccentricVisibilityGuiTests(unittest.TestCase):
                     self.capture(f'{variant}-{scheme}-cam-supports-off.png')
                     a.canvas.isolated_indices = None
 
+    def test_construction_selector_switches_between_solid_and_explicit_bore(self):
+        from printed_shaft import DESIGNS
+        a = self.app
+        self.load('dual', INPUT_SCHEMES[0])
+        for construction in ('standard', 'integral'):
+            a.eccentric_design_selector.set_selected(list(DESIGNS).index(construction))
+            pump(.1)
+            self.assertEqual(a.design.values['eccentric_design'], construction)
+            selected = cams(a.design)
+            self.assertEqual(len(selected), 1 if construction == 'integral' else 2)
+            if construction == 'integral':
+                self.assertTrue(all(not s['holes'] for s in selected[0][1].stations))
+                a.canvas.isolated_indices = (selected[0][0],)
+                a.canvas.view('iso')
+                a.canvas.zoom = 3
+                a.canvas.queue_render()
+                pump(.1)
+                self.capture('integral-dual-closeup.png')
+                a.canvas.isolated_indices = None
+                a.canvas.view('iso')
+            else:
+                self.assertTrue(all(len(p.holes) == 1 for _,p in selected))
+
+    def test_direct_shaft_fields_keyed_preset_and_cam_bores_really_render(self):
+        from printed_shaft import DESIGNS
+        a=self.app
+        self.load('dual',INPUT_SCHEMES[0])
+        for construction in ('d_shaft','keyed_shaft'):
+            a.eccentric_design_selector.set_selected(list(DESIGNS).index(construction))
+            pump(.1)
+            if construction=='keyed_shaft':
+                a.keyed_preset_button.emit('clicked')
+                pump(.1)
+                self.assertEqual(a.design.values['input_shaft'],6)
+                self.assertNotIn('eccentric_flat_depth',a.inputs)
+            else:
+                self.assertIn('eccentric_flat_depth',a.inputs)
+            self.assertEqual(a.design.values['eccentric_design'],construction)
+            self.assertIn('eccentric_bore_allowance',a.inputs)
+            self.assertIn('eccentric_connection_angle',a.inputs)
+            shaft=next(p for p in a.design.parts if p.name=='Shaft_input')
+            self.assertEqual(shaft.role,'gear')
+            cam=next(i for i,p in enumerate(a.design.parts) if p.name=='Eccentric_1')
+            a.canvas.isolated_indices=(cam,)
+            a.canvas.view('top');a.canvas.zoom=4;a.canvas.queue_render();pump(.1)
+            self.capture(construction+'-cam-bore.png')
+            a.canvas.isolated_indices=None
+            a.canvas.view('iso')
+
     def test_full_fusion_manifest_matches_filtered_preview_without_dropping_supports(self):
         a = self.app
         for variant, scheme in (('single', INPUT_SCHEMES[0]), ('dual', INPUT_SCHEMES[1])):

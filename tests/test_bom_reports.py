@@ -60,8 +60,12 @@ class BomReportTests(unittest.TestCase):
             self.assertIn('Source section: '+kinematics['reference_section'], text)
             self.assertIn(f'Prescribed side speed difference B−A: {kinematics["prescribed_difference_rpm"]:+.6g} rpm', text)
 
-    def test_all_eleven_families_serialize_without_changing_analysis(self):
-        self.assertEqual(len(self.designs), 11)
+    def test_all_fifteen_families_serialize_without_changing_analysis(self):
+        self.assertEqual(set(self.designs), {
+            'spur', 'helical', 'double', 'planetary', 'cycloidal', 'harmonic',
+            'worm', 'parallel', 'internal', 'differential', 'wolfrom', 'bevel',
+            'hypoid', 'rack', 'face',
+        })
         for family, design in self.designs.items():
             with self.subTest(family=family):
                 analysis = deepcopy(design.analysis)
@@ -71,6 +75,14 @@ class BomReportTests(unittest.TestCase):
                 self.assertEqual(design.analysis, analysis)
                 if family == 'differential':
                     self.assert_differential_text(design, text)
+                elif family == 'rack':
+                    # This member has linear speed, not a rotary-port label.
+                    self.assertEqual(analysis['kinematics']['type'], 'rotary_to_linear')
+                    self.assertIn('INPUTS / OUTPUTS\n', text)
+                    self.assertNotIn('Motor:', text)
+                    velocity = analysis['linear_output']['velocity_mm_s']
+                    self.assertIn(f'Rack output: {velocity:+.6f} mm/s',
+                                  engineering.report_text(design))
                 elif 'kinematics' in analysis:
                     self.assertIn('INPUTS / OUTPUTS\n'+analysis['kinematics']['label']+'\n\n', text)
 

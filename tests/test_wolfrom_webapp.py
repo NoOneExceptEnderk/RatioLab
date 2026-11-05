@@ -37,6 +37,31 @@ class WolfromWebTests(unittest.TestCase):
         result = self.engine.call('export', dict(design_id=self.engine.design_id, kind=kind, **extra))
         return self.engine.buffers[result['buffer']]
 
+    def test_helical_double_schema_import_and_packed_surfaces(self):
+        for variant,style in (('helical',None),('double','joined'),('double','separated')):
+            parameters = dict(variant=variant,helix=-21.123456789,width2=8)
+            if style:parameters['double_style']=style
+            with self.subTest(variant=variant,style=style):
+                schema = web.schema('wolfrom',parameters)
+                fields = {s['key'] for s in schema['fields']}
+                self.assertIn('helix',fields)
+                self.assertEqual('gap' in fields,style=='separated')
+                self.assertIn('double_style',{s['key'] for s in schema['options']})
+                result = self.source(**parameters)
+                native = geometry.generate('wolfrom',parameters)
+                self.assertEqual(result['values'],native.values)
+                self.assertEqual(result['analysis'],native.analysis)
+                for index in (0,1,2,3,4):
+                    record,part = result['parts'][index],native.parts[index]
+                    expected = array('f',(x for t in stl_export.triangles(part) for v in t for x in v))
+                    packed = array('f');packed.frombytes(self.engine.buffers[record['mesh']['positions']])
+                    self.assertEqual(packed,expected)
+                project = self.engine.call('project',dict(design_id=self.engine.design_id))['project']
+                reopened = self.engine.call('import_project',dict(project=project))
+                self.assertEqual(reopened['values'],result['values'])
+                self.assertEqual(reopened['ignored_parameters'],[])
+                self.assertEqual(self.engine.design.parts,native.parts)
+
     def test_signed_native_mesh_motion_and_all_eighteen_part_metadata(self):
         for p2, ratio in [(59, 600), (61, -600)]:
             with self.subTest(planet2=p2):
@@ -85,8 +110,9 @@ class WolfromWebTests(unittest.TestCase):
         query = self.engine.remember('fixture', {'exact': .5921052631578947}, 'accepted query')
         self.engine.surfaces[0] = ('retained facet cache',)
         state = dict(self.engine.__dict__, buffers=list(self.engine.buffers), surfaces=dict(self.engine.surfaces))
-        bad = [dict(planet2=60), dict(planets=4), dict(module=-1), dict(variant='helical')]
-        bad += [{key: 0} for key in ('helix', 'double_style', 'profile_shift', 'module2', 'fixed_ring', 'one_rim')]
+        bad = [dict(planet2=60), dict(planets=4), dict(module=-1), dict(variant='one_rim'),
+               dict(variant='helical',helix=36), dict(variant='double',double_style='invalid')]
+        bad += [{key: 0} for key in ('profile_shift', 'module2', 'fixed_ring', 'one_rim')]
         for values in bad:
             for method in ('generate', 'import_project'):
                 with self.subTest(method=method, values=values):

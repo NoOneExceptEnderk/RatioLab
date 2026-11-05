@@ -52,7 +52,7 @@ Fixed flanges require an external frame; moving housings require suitable suppor
 
 ## Wolfrom fixed topology
 
-The two-rim spur Wolfrom has one supported connection: sun input, first ring
+The two-rim Wolfrom (spur, helical or double helical) has one supported connection: sun input, first ring
 fixed, second ring output. The carrier and compound planets are internal moving
 members. Its exposed second annulus is the output interface; the model does not
 add the alternative-arrangement mounting flanges described above. Reversing input

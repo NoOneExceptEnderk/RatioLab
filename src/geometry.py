@@ -47,8 +47,10 @@ SPECS['differential'] = [
     ('spider_clearance', 'Spider pin radial running clearance [mm]', .15, .05, 1, .05),
 ]
 
-FAMILIES['wolfrom'] = 'Wolfrom reducer · two-rim spur'
-VARIANTS['wolfrom'] = {'spur': 'Two-rim spur · sun input / ring output'}
+FAMILIES['wolfrom'] = 'Wolfrom reducer · two-rim'
+VARIANTS['wolfrom'] = {'spur': 'Two-rim spur · sun input / ring output',
+                       'helical': 'Two-rim helical · sun input / ring output',
+                       'double': 'Two-rim double helical · sun input / ring output'}
 SPECS['wolfrom'] = WOLFROM_SPECS
 from bevel_pair import SPECS as BEVEL_PAIR_SPECS, VARIANTS as BEVEL_VARIANTS
 FAMILIES['bevel'] = 'Bevel gear pair'
@@ -101,6 +103,11 @@ def get_specs(family, variant=None, double_style=None):
                 specs += [('gap', 'Central groove [mm]', 1, 0, 10, 0.1)]
             if variant in ('two_stage', 'two_stage_double'):
                 specs += [('sun2', 'Sun teeth · stage 2', 18, 8, 80, 1), ('planet2', 'Planet teeth · stage 2', 18, 8, 60, 1), ('width2', 'Width · stage 2 [mm]', 10, 2, 60, 1)]
+        elif family == 'wolfrom':
+            if variant in ('helical', 'double'):
+                specs += [('helix', 'Sun helix angle [°] (sign = handedness)', 20, -35, 35, 1)]
+            if variant == 'double':
+                specs += [('gap', 'Central groove in each layer [mm]', 1, 0, 10, .1)]
         elif family == 'cycloidal':
             specs += [('input_shaft', 'Input shaft diameter [mm]', 4, 2, 30, 0.5), ('output_shaft', 'Output shaft diameter [mm]', 8, 3, 40, 0.5), ('housing_wall', 'Housing thickness [mm]', 4, 2, 15, 0.5)]
         elif family in ('parallel', 'internal'):
@@ -127,8 +134,8 @@ def get_specs(family, variant=None, double_style=None):
         specs += [('output_clearance', 'Output pin radial clearance [mm]', 0.1, 0, 0.8, 0.01), ('profile_tolerance', 'Profile sampling tolerance [mm]', 0.01, 0.002, 0.05, 0.002)]
         if variant == 'dual':
             specs += [('disc_gap', 'Disc spacing [mm]', 0.2, 0.05, 10, 0.05)]
-        from printed_shaft import FIELDS
-        specs += FIELDS
+        from printed_shaft import FIELDS, DIRECT_FIELDS
+        specs += FIELDS + DIRECT_FIELDS
     if family == 'harmonic':
         specs += [('wave_factor', 'Wave amplitude factor', 1, 0.5, 1.5, 0.05)]
     if family == 'harmonic':
@@ -168,6 +175,8 @@ def defaults(family, variant=None):
     if family == 'differential':
         from differential_wrist import OPTION_DEFAULTS
         v.update(OPTION_DEFAULTS)
+    if family == 'cycloidal':
+        v['eccentric_design'] = 'integral'
     if family=='face' and variant=='double_helical':v.update(double_style='joined',gap=0)
     return v
 
@@ -220,7 +229,7 @@ def validate(family, supplied):
         from differential_wrist import options as wrist_options
         values.update(wrist_options(supplied))
     if family == 'cycloidal':
-        values['eccentric_design'] = supplied.get('eccentric_design', 'standard')
+        values['eccentric_design'] = supplied.get('eccentric_design', 'integral')
     for key, label, default, low, high, step in get_specs(family, variant, style):
         v = supplied.get(key, default)
         if isinstance(v, bool):

@@ -107,7 +107,7 @@ def option_definitions(family):
         fields['worm_static_friction'] = dict(key='worm_static_friction', type='number', default=None, minimum=0, optional=True)
     if family == 'cycloidal':
         from printed_shaft import DESIGNS
-        choices('eccentric_design', DESIGNS, 'standard')
+        choices('eccentric_design', DESIGNS, 'integral')
     if family == 'differential':
         import differential_wrist as wrist
         for key, source in [('configuration', wrist.CONFIGURATIONS), ('output_interface', wrist.OUTPUT_INTERFACES), ('carrier_style', wrist.CARRIER_STYLES), ('ratio_mode', wrist.RATIO_MODES)]:
@@ -177,6 +177,10 @@ def schema(family, parameters=None):
         inactive = inactive_fields(supplied)
     else:
         inactive = set()
+    if family == 'cycloidal':
+        from printed_shaft import DIRECT_FIELDS, direct_field_active
+        inactive.update(key for key,*_ in DIRECT_FIELDS
+                        if not direct_field_active(key,supplied.get('eccentric_design','integral')))
     fields = []
     advanced = set(editor_metadata().get('advanced', ADVANCED))
     for key, label, default, low, high, step in specs:
@@ -757,7 +761,7 @@ class Engine:
             # Desktop project loading ignores retired and unknown settings. Keep
             # this compatibility at the import boundary; live RPCs stay strict.
             if family == 'wolfrom':
-                unsupported = set(parameters) & {'helix', 'double_style', 'profile_shift', 'module2', 'fixed_ring', 'one_rim'}
+                unsupported = set(parameters) & {'profile_shift', 'module2', 'fixed_ring', 'one_rim'}
                 if unsupported:
                     raise BridgeError('invalid_parameters', 'Unsupported Wolfrom parameter(s): '+', '.join(sorted(unsupported)))
             known = numeric_parameter_keys(family) | option_definitions(family).keys()

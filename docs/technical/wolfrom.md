@@ -1,6 +1,7 @@
 # Wolfrom / 3K reducer
 
-The supported construction uses straight cylindrical teeth, two rigidly connected
+The supported construction uses spur, single-helical or double-helical cylindrical
+teeth, two rigidly connected
 planet rims on each pin, one carrier, an input sun, a fixed first ring and an
 output second ring. It is different from a carrier-output planetary gearbox.
 The external motor and its drive hardware are outside this model.
@@ -12,7 +13,7 @@ give the compound Wolfrom ratio; §III-B equation 12 gives the pitch-centre
 constraints. [Karaivanov et al., Torque Method Investigation of Wolfrom Gear
 Trains, §2, figures 2–4](https://hrcak.srce.hr/en/file/434707) distinguish one-rim
 and two-rim arrangements. This implementation uses the two-rim arrangement.
-One-rim triple engagement, helical teeth and modified profiles require separate
+One-rim triple engagement and modified profiles require separate
 geometry and assembly models.
 
 Let S, P1, Rf, P2 and Ro be the positive integer tooth counts of the sun, first
@@ -23,7 +24,7 @@ in radians. Input/output ratio i is signed.
 ```
 Rf = S + 2 P1
 m2 = m1 (S + P1) / (Ro - P2)
-a = m1 (S + P1)/2 = m2 (Ro - P2)/2
+a = m1 (S + P1)/(2 cos β) = m2 (Ro - P2)/(2 cos β)
 
 wc = ws S/(S + Rf)
 wp = wc - (ws - wc) S/P1
@@ -32,6 +33,9 @@ i  = (1 + Rf/S)/(1 - Rf P2/(P1 Ro))
 ```
 
 The second module is derived, rather than independently rounded or adjusted.
+Both modules and the entered pressure angle are normal quantities. Spur uses
+β = 0. Both layers share the same helix magnitude, so the cosine cancels from
+the derived module ratio and all speed equations remain unchanged.
 Both planet rims have the same absolute spin wp and orbit at wc. A negative
 ratio reverses output rotation. Rf P2 = P1 Ro gives a stationary output for any
 input and is rejected as a singular reducer. Zero input stops every moving
@@ -61,6 +65,36 @@ first-rim tooth pitch does not generally preserve engagement of its second rim;
 the congruence selects a compatible turn before generating geometry.
 
 ## Nominal profile scope
+
+### Helix and axial phase conventions
+
+The [TBK manufacturer's manual, §§5.2.3–5.2.4](https://www.tbksoft.com/fileadmin/dokumente/tbk/etc/HTMLHandbuch/en/HTMLHandbuchch5.html)
+requires opposite hands for external parallel-axis meshes and the same hand for
+internal meshes. The normal/transverse conversion follows the shared
+[cylindrical equations](calculations.md#cylindrical-teeth-normal-and-transverse-geometry):
+mt = mn/cos β, αt = atan(tan αn/cos β), pitch radius r = mt Z/2.
+The centre-distance equation above follows by equating the external S/P1 sum
+and each internal ring/planet radius difference. At β = 20°, m1 = 0.5 mm and
+18/72/162, 59/135 teeth, m2 = 45/76 mm, a = 23.943999880708 mm and i = +600.
+As β approaches zero this becomes the original a = 22.5 mm spur design.
+
+The sun has selected signed β; both compound rims and rings have −β. Each layer
+has its own lower-face datum. With local axial position u in mm, the section
+rotation is δ(u) = u tan β/r radians (with the member's signed β).
+Thus S δs + P1 δp1 = 0, P1 δp1 − Rf δf = 0 and
+P2 δp2 − Ro δo = 0 at every corresponding section. These identities preserve
+the transverse assembly congruences throughout each layer. The common compound
+clocking is between the two lower-face datums; the two sweeps need not form one
+continuous helix across the hub. Independent face widths remain supported.
+
+Double helices use the existing symmetric section construction within **each**
+layer. Choose joined helices (zero groove) or separated helices (a common positive
+groove g). Each layer's active half-width is (b − g)/2; the overlap contact ratio
+uses one half. The inter-layer gap is a separate parameter. The opposing section
+phases preserve the same identities, and both internal pairs must pass the common
+axial-phase and groove-material-subset checks as well as transverse clearance.
+Single-helical axial thrust requires external bearing design. Double-helical
+thrust cancellation assumes symmetric loading; this model does not verify it.
 
 Both internal meshes reuse the paired planetary involute construction described
 in [calculations](calculations.md). Ring tips are shortened as needed to keep

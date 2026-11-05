@@ -81,7 +81,7 @@ These fifteen families are available, in this order:
 | Parallel shaft reducer | One, two or three stages; spur, helical or double helical teeth |
 | Internal gear reducer | Fixed axes; spur, helical, double helical |
 | Bevel differential | Wrist or classic configuration; straight or spiral bevel gears |
-| Wolfrom / 3K reducer | Two-rim spur; sun input, fixed first ring, second ring output |
+| Wolfrom / 3K reducer | Two-rim spur, helical or double helical; sun input, fixed first ring, second ring output |
 | Bevel gear pair | Straight, spiral or circular Zerol-style traces; 90° shafts; reversible ports |
 | Hypoid gear pair | Generated spiral pinion; signed shaft offset; reversible ports |
 | Rack and pinion | Finite spur, helical or double-helical rack; rotary input and linear output |
@@ -98,16 +98,23 @@ an internal moving member. This arrangement differs from the carrier-output
 planetary model above.
 
 Set the sun, first-planet, second-planet and output-ring tooth counts and first
-module. The fixed-ring count and second module are derived to preserve pitch
+normal module. The fixed-ring count and second normal module are derived to preserve pitch
 centres. Face widths and the axial gap describe the two separate tooth layers.
 Invalid tooth phases, singular stationary-output sets and incompatible profiles
 are rejected. Input RPM accepts both signs and zero; a negative signed ratio
 means that the output reverses relative to the sun.
 
+Choose **Spur**, **Helical** or **Double helical** teeth. Helical variants expose
+a signed sun helix angle; both compound rims and rings use the opposite hand.
+Double helices can be joined or separated by a central groove in each layer.
+That groove is separate from the axial gap between the two compound rims.
+The angle changes the transverse pitch size and interaxis distance; the same
+tooth counts retain the same ideal ratio.
+
 The [default nominal example](../examples/wolfrom-spur.config.json) is 600:1. This is an equation result, not a measured
 ratio, efficiency or allowable load. Both paired ring profiles and their contact
 checks are recorded in the calculation report. Automatic bearing/hardware
-selection, helical and one-rim variants are outside this construction. See the
+selection and one-rim variants are outside this construction. See the
 [Wolfrom equations, clocking and limits](technical/wolfrom.md).
 
 ### Bevel differential

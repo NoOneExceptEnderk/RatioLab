@@ -104,7 +104,7 @@ class PrintedShaftTests(unittest.TestCase):
                     generate('cycloidal', args)
 
     def test_legacy_and_json_roundtrip_preserves_fixed_hardware(self):
-        legacy = generate('cycloidal', {'variant': 'dual'})
+        legacy = generate('cycloidal', {'variant': 'dual', 'eccentric_design': 'standard'})
         self.assertEqual(legacy.values['eccentric_design'], 'standard')
         self.assertTrue(any((p.name == 'Shaft_input' for p in legacy.parts)))
         self.assertFalse(any((p.name.startswith('Eccentric_printed_') for p in legacy.parts)))

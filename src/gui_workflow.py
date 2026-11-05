@@ -693,6 +693,9 @@ def geometry_groups(app, specs):
         from differential_wrist import inactive_fields
         inactive=inactive_fields(dict(app.field_values,**app.option_values))
     for key, label, default, low, high, step in specs:
+        if app.family=='cycloidal' and key.startswith('eccentric_'):
+            from printed_shaft import direct_field_active
+            if not direct_field_active(key, app.option_values.get('eccentric_design')):continue
         if key in inactive or key=='input_rpm' or app.family=='differential' and key=='spiral_hand' or (key.startswith('print_') and app.option_values.get('eccentric_design')!='fdm_bolted'):
             continue
         page = 'geometry'
@@ -702,6 +705,8 @@ def geometry_groups(app, specs):
             target, page = load_box, 'motion'
         elif key in ('shoulder','seat_allowance','shaft_allowance'):
             target, page = app.sections['bearings'][1], 'assembly'
+        elif app.family=='cycloidal' and key.startswith('eccentric_'):
+            target, page = app.eccentric_design_box, 'assembly'
         elif multistage and (key.startswith('layout_angle') or key in ('stage_gap','hub_wall','assembly_clearance')):
             target, page = app.sections['housing'][1], 'assembly'
         elif multistage and re.fullmatch(r'(pinion|wheel|module|width|helix|gap|pressure|backlash|profile_shift|center_extra)([23]?)', key):
