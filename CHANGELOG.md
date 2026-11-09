@@ -65,6 +65,7 @@ published packages and their verification results.
 
 ### Fixed
 
+- Release **STL stream resources safely on cancellation** across supported Python versions.
 - Build the shared **WebAssembly kernel before composing the website**.
 - Prepare the pinned **Rust toolchain and native verification builds** in CI.
 - Split browser source and font archives to fit **hosting download limits**.

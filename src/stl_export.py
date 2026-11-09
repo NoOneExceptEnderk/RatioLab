@@ -50,10 +50,18 @@ def triangulate(face, check=lambda:None):
 
 def triangles(part,check=None):
     from rust_surfaces import surface
-    for rows in surface(part,check).records('solid_triangles_chunk',72,check):
-        for i,row in enumerate(struct.iter_unpack('<9d',rows)):
-            if check and i%1024==0:check()
-            yield (row[:3],row[3:6],row[6:])
+    pages=surface(part,check).records('solid_triangles_chunk',72,check)
+    record=struct.Struct('<9d')
+    try:
+        for rows in pages:
+            if len(rows)%record.size:raise RuntimeError('Misaligned triangle records.')
+            # Do not retain a struct buffer export across yield/cancellation.
+            # CPython 3.12 can collect that export before its memoryview owner.
+            for i in range(len(rows)//record.size):
+                if check and i%1024==0:check()
+                row=record.unpack_from(rows,i*record.size)
+                yield (row[:3],row[3:6],row[6:])
+    finally:pages.close()
 
 
 def write_stl(path, parts,check=None):
@@ -68,10 +76,13 @@ def write_stl(path, parts,check=None):
             out.write(b'SolidCraft Riduttori | millimetri | posizione di montaggio'.ljust(80,b' '))
             out.write(struct.pack('<I',0))
             for part in parts:
-                for records in surface(part,check).records('solid_stl_chunk',50,check):
-                    if check:check()
-                    out.write(records)
-                    count+=len(records)//50
+                pages=surface(part,check).records('solid_stl_chunk',50,check)
+                try:
+                    for records in pages:
+                        if check:check()
+                        out.write(records)
+                        count+=len(records)//50
+                finally:pages.close()
             out.seek(80);out.write(struct.pack('<I',count))
         if check:check()
         temporary.replace(path)

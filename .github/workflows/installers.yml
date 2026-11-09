@@ -192,6 +192,33 @@ jobs:
           $installer = (Get-ChildItem dist/installers/*-setup.exe | Select-Object -First 1).FullName
           & $env:RATIOLAB_NATIVE_PYTHON scripts/check-installed-update.py --new-installer $installer --baseline 0.2.1 --work-dir "$env:RUNNER_TEMP\native-update-check"
           if ($LASTEXITCODE -ne 0) { throw 'Native installed update verification failed' }
+      - name: Diagnose runtime provenance after a Windows packaging failure
+        if: failure()
+        shell: pwsh
+        run: |
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $roots = & $vswhere -all -products '*' -property installationPath
+          foreach ($root in $roots) {
+            Write-Output "Visual Studio installation: $root"
+            Get-ChildItem "$root\VC\Redist\MSVC" -Filter vcruntime140.dll -Recurse -ErrorAction SilentlyContinue | ForEach-Object {
+              $_.FullName
+              $_.VersionInfo | Select-Object FileVersion,ProductVersion,CompanyName,OriginalFilename
+              Get-FileHash $_.FullName -Algorithm SHA256
+            }
+            Get-ChildItem "$root\Licenses" -Recurse -File -ErrorAction SilentlyContinue | Select-Object FullName,Length
+          }
+          $runtime = "$env:WINDIR\System32\vcruntime140.dll"
+          if (Test-Path $runtime) {
+            (Get-Item $runtime).VersionInfo | Select-Object FileVersion,ProductVersion,CompanyName,OriginalFilename
+            Get-FileHash $runtime -Algorithm SHA256
+            Get-AuthenticodeSignature $runtime | Select-Object Status,SignerCertificate
+          }
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: ratiolab-windows-notices-diagnostics
+          path: work/bundle-build/windows-x86_64/notices
+          if-no-files-found: ignore
       - uses: actions/upload-artifact@v4
         if: always()
         with:

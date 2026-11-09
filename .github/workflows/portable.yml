@@ -84,9 +84,20 @@ jobs:
           "$RUNNER_TEMP/ratiolab-env/bin/python" check-installed-mcp.py "$RUNNER_TEMP/ratiolab-env/bin/python" --module
           xvfb-run -a "$RUNNER_TEMP/ratiolab-env/bin/python" -m unittest test_portability test_connection test_preview3d test_stl_export test_agent test_mcp -v
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: ratiolab-linux-python-distribution
           path: dist/*
+      - name: Preserve native packaging diagnostics on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ratiolab-linux-native-packaging-diagnostics
+          path: |
+            target/release/libratiolab_geometry.*
+            target/release/ratiolab_geometry.dll
+            target/ratiolab-rust-notices
+          if-no-files-found: ignore
 
   windows:
     runs-on: windows-2025
@@ -147,9 +158,20 @@ jobs:
           cd "$check_root"
           "$check_root/env/bin/python.exe" installed_smoke.py --gui --forbid-root "$GITHUB_WORKSPACE"
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: ratiolab-windows-python-distribution
           path: dist/*
+      - name: Preserve native packaging diagnostics on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ratiolab-windows-native-packaging-diagnostics
+          path: |
+            target/release/libratiolab_geometry.*
+            target/release/ratiolab_geometry.dll
+            target/ratiolab-rust-notices
+          if-no-files-found: ignore
 
   macos:
     runs-on: macos-15
@@ -194,6 +216,17 @@ jobs:
           cd "$RUNNER_TEMP/ratiolab-checks"
           "$RUNNER_TEMP/ratiolab-env/bin/python" installed_smoke.py --gui --forbid-root "$GITHUB_WORKSPACE"
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: ratiolab-macos-python-distribution
           path: dist/*
+      - name: Preserve native packaging diagnostics on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ratiolab-macos-native-packaging-diagnostics
+          path: |
+            target/release/libratiolab_geometry.*
+            target/release/ratiolab_geometry.dll
+            target/ratiolab-rust-notices
+          if-no-files-found: ignore
