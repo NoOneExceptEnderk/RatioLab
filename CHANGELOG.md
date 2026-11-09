@@ -66,6 +66,7 @@ published packages and their verification results.
 ### Fixed
 
 - Build the shared **WebAssembly kernel before composing the website**.
+- Prepare the pinned **Rust toolchain and native verification builds** in CI.
 - Split browser source and font archives to fit **hosting download limits**.
 - Prevent **stale pixels above Linux text** after label changes and partial redraws.
 - Clear **stale browser field errors** when undo/redo restores a valid representation.

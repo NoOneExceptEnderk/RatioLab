@@ -8,6 +8,7 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
@@ -66,6 +67,7 @@ class SelfTestProfileTests(unittest.TestCase):
             native_getenv.restype = ctypes.c_char_p
         native_before = ({name: native_getenv(name.encode()) for name in PROFILE_KEYS}
                          if native_getenv else None)
+        native_platform = sys.platform
         for system in ('linux', 'win32', 'darwin'):
             with self.subTest(path_policy=system), tempfile.TemporaryDirectory() as temporary:
                 user = Path(temporary)/'existing user'
@@ -73,9 +75,11 @@ class SelfTestProfileTests(unittest.TestCase):
                 user_environment = dict(os.environ, **{
                     key: str(user/key.lower()) for key in PROFILE_KEYS})
                 observed = []
+                # Simulate path policies without changing the Rust library's host ABI.
                 with (patch.object(os, 'environ', user_environment),
                       patch.object(Path, 'home', return_value=user),
-                      patch.object(sys, 'platform', system)):
+                      patch.object(app_paths, 'sys', SimpleNamespace(**{**vars(sys), 'platform': system}))):
+                    self.assertEqual(sys.platform, native_platform)
                     preferences = app_paths.config_dir()/app_paths.PREFERENCES_FILENAME
                     preferences.parent.mkdir(parents=True)
                     preferences.write_text('{"theme":"light","output_dir":"user choice"}\n')

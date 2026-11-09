@@ -120,6 +120,7 @@ jobs:
             mingw-w64-ucrt-x86_64-angleproject
       - name: Build through sdist with UCRT64 Python
         run: |
+          /ucrt64/bin/python.exe scripts/build-rust-engine.py --target native
           /ucrt64/bin/python.exe -m build --no-isolation
           /ucrt64/bin/python.exe scripts/verify-artifacts.py dist
           PYTHONPATH=src /ucrt64/bin/python.exe -m unittest discover -s tests -p 'test_release_verification.py' -v
@@ -169,6 +170,7 @@ jobs:
           "$RUNNER_TEMP/ratiolab-env/bin/python" -m pip install build 'setuptools>=77' wheel
       - name: Build sdist and wheel from sdist
         run: |
+          "$RUNNER_TEMP/ratiolab-env/bin/python" scripts/build-rust-engine.py --target native
           "$RUNNER_TEMP/ratiolab-env/bin/python" -m build
           "$RUNNER_TEMP/ratiolab-env/bin/python" scripts/verify-artifacts.py dist
           PYTHONPATH=src "$RUNNER_TEMP/ratiolab-env/bin/python" -m unittest discover -s tests -p 'test_release_verification.py' -v

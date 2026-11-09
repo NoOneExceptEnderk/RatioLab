@@ -31,7 +31,7 @@ def environment():
     # can live inside this checkout: let its more specific mapping win, so a
     # rebuild from extracted source retains identical dependency panic paths.
     mappings = ((str(Path.home()), '/ratiolab-build-home'),
-                (env.get('CARGO_HOME'), '/cargo-cache'),
+                (env.get('CARGO_HOME') or str(Path.home()/'.cargo'), '/cargo-cache'),
                 (str(ROOT), '/ratiolab-source'))
     for source, replacement in sorted(mappings, key=lambda pair: len(pair[0] or '')):
         if source:
