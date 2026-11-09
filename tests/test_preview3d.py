@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-only
 """Controlli della geometria 3D relative to quote, twist e assi del CAD."""
 import unittest
+from types import SimpleNamespace
 from unittest.mock import Mock, patch
 from math import hypot, isfinite
 from geometry import generate, Part
@@ -75,6 +76,7 @@ class ContextNegotiationTests(unittest.TestCase):
         for api,version,use_es in ((Gdk.GLAPI.GL,(4,6),False),(Gdk.GLAPI.GLES,(3,0),True)):
             with self.subTest(api=api):
                 canvas=Mock(use_es=not use_es)
+                canvas.get_display.return_value=SimpleNamespace(__gtype__=SimpleNamespace(name='GdkX11Display'))
                 canvas.get_error.return_value=None
                 canvas.get_context.return_value=self.context(api,version)
                 gl=Mock()
@@ -89,6 +91,7 @@ class ContextNegotiationTests(unittest.TestCase):
 
     def test_below_minimum_context_never_initializes_shaders(self):
         canvas=Mock()
+        canvas.get_display.return_value=SimpleNamespace(__gtype__=SimpleNamespace(name='GdkX11Display'))
         canvas.get_error.return_value=None
         canvas.get_context.return_value=self.context(version=(3,2))
         with patch('preview3d.GL') as gl, patch('traceback.print_exc'):

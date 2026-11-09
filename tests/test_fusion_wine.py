@@ -8,6 +8,8 @@ from pathlib import Path, PureWindowsPath
 import socket
 import tempfile
 import threading
+from types import SimpleNamespace
+import sys
 import unittest
 from unittest.mock import Mock, patch
 
@@ -26,7 +28,11 @@ class WineFixtureTests(unittest.TestCase):
         self.home=self.root/'home';self.home.mkdir()
         environment=patch.dict(os.environ,{},clear=False);environment.start();self.addCleanup(environment.stop)
         for key in ('RATIOLAB_FUSION_WINEPREFIX','WINEPREFIX','RATIOLAB_FUSION_WINEUSER'):os.environ.pop(key,None)
-        platform=patch.object(fusion.sys,'platform','linux');platform.start();self.addCleanup(platform.stop)
+        # Exercise Wine path policy without changing the host ABI seen by Rust.
+        host_platform=sys.platform
+        platform=patch.object(fusion,'sys',SimpleNamespace(**(vars(sys)|{'platform':'linux'})))
+        platform.start();self.addCleanup(platform.stop)
+        self.assertEqual(sys.platform,host_platform)
         home=patch.object(fusion.Path,'home',return_value=self.home);home.start();self.addCleanup(home.stop)
 
     def profile(self,prefix=None,user='Maker',marker=True):
