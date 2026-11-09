@@ -68,6 +68,7 @@ published packages and their verification results.
 - Release **STL stream resources safely on cancellation** across supported Python versions.
 - Build the shared **WebAssembly kernel before composing the website**.
 - Prepare the pinned **Rust toolchain and native verification builds** in CI.
+- Stabilize **native build paths** and refresh the Windows dependency notices.
 - Split browser source and font archives to fit **hosting download limits**.
 - Prevent **stale pixels above Linux text** after label changes and partial redraws.
 - Clear **stale browser field errors** when undo/redo restores a valid representation.

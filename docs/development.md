@@ -128,7 +128,10 @@ On Windows, use the **MSYS2 UCRT64 build environment** and its native PyInstalle
 package (not python.org Python or a PyPI PyInstaller wheel):
 
 ```sh
-pacman -S --needed mingw-w64-ucrt-x86_64-python mingw-w64-ucrt-x86_64-pyinstaller mingw-w64-ucrt-x86_64-gtk4 mingw-w64-ucrt-x86_64-python-gobject mingw-w64-ucrt-x86_64-python-cairo mingw-w64-ucrt-x86_64-libepoxy mingw-w64-ucrt-x86_64-angleproject
+pacman -S --needed mingw-w64-ucrt-x86_64-gcc mingw-w64-ucrt-x86_64-python mingw-w64-ucrt-x86_64-pyinstaller mingw-w64-ucrt-x86_64-gtk4 mingw-w64-ucrt-x86_64-python-gobject mingw-w64-ucrt-x86_64-python-cairo mingw-w64-ucrt-x86_64-libepoxy mingw-w64-ucrt-x86_64-angleproject
+# Use the MinGW Rust host toolchain with the MSYS2 native build.
+rustup toolchain install 1.99.1-x86_64-pc-windows-gnu --profile minimal
+export RUSTUP_TOOLCHAIN=1.99.1-x86_64-pc-windows-gnu
 export PYGI_DLL_PATH="$(cygpath -w /ucrt64/bin)"
 /ucrt64/bin/python.exe scripts/build-bundle.py
 ```
@@ -141,6 +144,10 @@ compiling `scripts/package-windows.iss`. Setup installs under
 An optional `-CertificateThumbprint` selects an existing code-signing
 certificate in the maintainer's CurrentUser/My certificate store to sign the
 **installer**; by default it remains unsigned.
+
+Official Windows builds use the pinned MinGW Rust host toolchain and MSYS2
+GCC. The kernel exposes the Windows C ABI and keeps ownership of its allocations;
+no Visual C++ runtime DLL is added to the application bundle by this build.
 
 MSYS2 file ownership is read once from its installed-file inventory. For the
 specific package versions that omit license texts, verified upstream notices
@@ -280,7 +287,7 @@ UCRT64** from the Start menu, run `pacman -Syu`, and follow any request to close
 reopen and update the terminal again. Then install one coherent native runtime:
 
 ```sh
-pacman -S --needed mingw-w64-ucrt-x86_64-python mingw-w64-ucrt-x86_64-python-pip mingw-w64-ucrt-x86_64-python-setuptools mingw-w64-ucrt-x86_64-python-wheel mingw-w64-ucrt-x86_64-gtk4 mingw-w64-ucrt-x86_64-python-gobject mingw-w64-ucrt-x86_64-python-cairo mingw-w64-ucrt-x86_64-libepoxy mingw-w64-ucrt-x86_64-angleproject
+pacman -S --needed mingw-w64-ucrt-x86_64-gcc mingw-w64-ucrt-x86_64-python mingw-w64-ucrt-x86_64-python-pip mingw-w64-ucrt-x86_64-python-setuptools mingw-w64-ucrt-x86_64-python-wheel mingw-w64-ucrt-x86_64-gtk4 mingw-w64-ucrt-x86_64-python-gobject mingw-w64-ucrt-x86_64-python-cairo mingw-w64-ucrt-x86_64-libepoxy mingw-w64-ucrt-x86_64-angleproject
 ```
 
 Unpack the RatioLab source archive in a folder you own, navigate there in that

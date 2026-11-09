@@ -36,66 +36,69 @@
     },
     {
       "name": "mingw-w64-ucrt-x86_64-gst-plugins-bad-libs",
-      "version": "1.28.8-3",
+      "version": "1.28.9-1",
       "license_declarations": [
         "spdx:LGPL-2.1-or-later"
       ],
-      "source": "https://gstreamer.freedesktop.org/src/gst-plugins-bad/gst-plugins-bad-1.28.8.tar.xz",
-      "source_sha256": "670d888bde8242579b0d8e91f60cf337aa7be20ca7c315ebfbdd6e5a9218d104",
-      "source_recipe": "https://mirror.msys2.org/mingw/sources/mingw-w64-gst-plugins-bad-1.28.8-3.src.tar.zst",
-      "source_recipe_sha256": "bff63c41cb435ebbb2a8dad5f81a7c2d45c56bb2bdb6f53ca5730a90ff25688e",
-      "source_info": "gst-plugins-bad-1.28.8-3/SRCINFO.txt",
-      "source_info_sha256": "89ee182bddf7315fe6bc49802ff462c1fbef86626e770a6b4ced4c48175a2287",
+      "source": "https://gstreamer.freedesktop.org/src/gst-plugins-bad/gst-plugins-bad-1.28.9.tar.xz",
+      "source_sha256": "4a4e0b7bf84f868378c48f143a7ac3a98923b488a5b74f1a35ba46bc3c43f6b1",
+      "source_recipe": "https://mirror.msys2.org/mingw/sources/mingw-w64-gst-plugins-bad-1.28.9-1.src.tar.zst",
+      "source_recipe_sha256": "9d1d6393f754b79af319a8f1b6875d9a3f143f83395d4648f94e466c1c82799e",
+      "source_info": "gst-plugins-bad-1.28.9-1/SRCINFO.txt",
+      "source_info_sha256": "c0d3e15f1246aeee7b56aacbda9be155152abb8ade76328b85dee294e3ffeb54",
       "license_files": [
         {
-          "path": "gst-plugins-bad-1.28.8-3/00-COPYING.txt",
+          "path": "gst-plugins-bad-1.28.9-1/00-COPYING.txt",
           "sha256": "dc626520dcd53a22f727af3ee42c770e56c97a64fe3adb063799d8ab032fe551",
-          "original_path": "gst-plugins-bad-1.28.8/COPYING"
+          "original_path": "gst-plugins-bad-1.28.9/COPYING"
         }
       ],
-      "selection": "Root COPYING for the shipped library package; test fixtures and notices for unbundled platform plugins are excluded."
+      "selection": "Root COPYING for the shipped library package; test fixtures and notices for unbundled platform plugins are excluded.",
+      "source_recipe_file": "gst-plugins-bad-1.28.9-1/PKGBUILD.txt"
     },
     {
       "name": "mingw-w64-ucrt-x86_64-gst-plugins-base",
-      "version": "1.28.8-1",
+      "version": "1.28.9-1",
       "license_declarations": [
         "spdx:LGPL-2.1-or-later"
       ],
-      "source": "https://gstreamer.freedesktop.org//src/gst-plugins-base/gst-plugins-base-1.28.8.tar.xz",
-      "source_sha256": "ade70e3381fcbb024f1f20aa9ede9b5654aeed39d5bd70b1a98f53015e501117",
-      "source_recipe": "https://mirror.msys2.org/mingw/sources/mingw-w64-gst-plugins-base-1.28.8-1.src.tar.zst",
-      "source_recipe_sha256": "ffb5dbea35ff2e41018c519c84194f0ff7f9c63dd85e7fba6a2ce94dbeaad07a",
-      "source_info": "gst-plugins-base-1.28.8-1/SRCINFO.txt",
-      "source_info_sha256": "a1f6bcae08cea778f908e85d51c1b9053be47f1a15687b7c28624020a7f76b3e",
+      "source": "https://gstreamer.freedesktop.org//src/gst-plugins-base/gst-plugins-base-1.28.9.tar.xz",
+      "source_sha256": "c1fda668b520e6aef763c0eb962c032c9fe52bce322e8b00c69b4e9e847bddc1",
+      "source_recipe": "https://mirror.msys2.org/mingw/sources/mingw-w64-gst-plugins-base-1.28.9-1.src.tar.zst",
+      "source_recipe_sha256": "ec8f2f718adea7b097332a50a4e7b7081933c8929552b347d4c5468342b6257e",
+      "source_info": "gst-plugins-base-1.28.9-1/SRCINFO.txt",
+      "source_info_sha256": "8f5139da8b596284e6fe7dd4a89be62e421fa3a9cd3dba1afecc4787600ad60e",
       "license_files": [
         {
-          "path": "gst-plugins-base-1.28.8-1/00-COPYING.txt",
+          "path": "gst-plugins-base-1.28.9-1/00-COPYING.txt",
           "sha256": "ad2eec519ebd4b5df86ea84dff24ae3bfa2edea846a703b58902dd221ae375db",
-          "original_path": "gst-plugins-base-1.28.8/COPYING"
+          "original_path": "gst-plugins-base-1.28.9/COPYING"
         }
       ],
-      "selection": "Root COPYING for the shipped library package; test fixtures and notices for unbundled platform plugins are excluded."
+      "selection": "Root COPYING for the shipped library package; test fixtures and notices for unbundled platform plugins are excluded.",
+      "source_recipe_file": "gst-plugins-base-1.28.9-1/PKGBUILD.txt"
     },
     {
       "name": "mingw-w64-ucrt-x86_64-gstreamer",
-      "version": "1.28.8-1",
+      "version": "1.28.9-1",
       "license_declarations": [
         "spdx:LGPL-2.1-or-later"
       ],
-      "source": "https://gstreamer.freedesktop.org//src/gstreamer/gstreamer-1.28.8.tar.xz",
-      "source_sha256": "baa8e86985ad6417cc0ad6e7b79ff2884c6779c8b1c7a6240e7121822c86e524",
-      "source_recipe": "https://mirror.msys2.org/mingw/sources/mingw-w64-gstreamer-1.28.8-1.src.tar.zst",
-      "source_recipe_sha256": "c5331bd61a2e5b4cb11d83fb82e9c5dae8748b902722c86cfffd364ecca56313",
-      "source_info": "gstreamer-1.28.8-1/SRCINFO.txt",
-      "source_info_sha256": "b28b7ce8341de54f2ec2e94f3c6338a07cca67b917523fa4999e2751e1702c7a",
+      "source": "https://gstreamer.freedesktop.org//src/gstreamer/gstreamer-1.28.9.tar.xz",
+      "source_sha256": "6dbf744f583131a34845cc641e803843766a9ba80ce00378a9043fd6d8d5fb38",
+      "source_recipe": "https://mirror.msys2.org/mingw/sources/mingw-w64-gstreamer-1.28.9-1.src.tar.zst",
+      "source_recipe_sha256": "d406876e95a88c85a6a8e20bd25bd987a28721a0d0979cc0e58c268c3e9e775a",
+      "source_info": "gstreamer-1.28.9-1/SRCINFO.txt",
+      "source_info_sha256": "79be63cf1a1c9b59a32a6d36ff208cc9e341162ed8bc38fd3f29d3f7ced64717",
       "license_files": [
         {
-          "path": "gstreamer-1.28.8-1/00-COPYING.txt",
+          "path": "gstreamer-1.28.9-1/00-COPYING.txt",
           "sha256": "ad2eec519ebd4b5df86ea84dff24ae3bfa2edea846a703b58902dd221ae375db",
-          "original_path": "gstreamer-1.28.8/COPYING"
+          "original_path": "gstreamer-1.28.9/COPYING"
         }
       ],
-      "selection": "Root COPYING for the shipped library package; test fixtures and notices for unbundled platform plugins are excluded."
+      "selection": "Root COPYING for the shipped library package; test fixtures and notices for unbundled platform plugins are excluded.",
+      "source_recipe_file": "gstreamer-1.28.9-1/PKGBUILD.txt"
     },
     {
       "name": "mingw-w64-ucrt-x86_64-python-gobject",

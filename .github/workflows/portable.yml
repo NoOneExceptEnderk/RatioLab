@@ -108,17 +108,19 @@ jobs:
       - uses: actions/checkout@v4
       - name: Install the pinned Rust toolchain
         shell: bash
-        run: rustup toolchain install 1.99.1 --profile minimal --target wasm32-unknown-unknown --component rustfmt,clippy
+        run: rustup toolchain install 1.99.1-x86_64-pc-windows-gnu --profile minimal --target wasm32-unknown-unknown --component rustfmt,clippy
       - name: Expose native Rust tools to MSYS2 Python
         shell: pwsh
         run: |
           "RATIOLAB_CARGO=$env:USERPROFILE\.cargo\bin\cargo.exe" >> $env:GITHUB_ENV
           "RUSTC=$env:USERPROFILE\.cargo\bin\rustc.exe" >> $env:GITHUB_ENV
+          "RUSTUP_TOOLCHAIN=1.99.1-x86_64-pc-windows-gnu" >> $env:GITHUB_ENV
       - uses: msys2/setup-msys2@v2
         with:
           msystem: UCRT64
           update: true
           install: >-
+            mingw-w64-ucrt-x86_64-gcc
             mingw-w64-ucrt-x86_64-python
             mingw-w64-ucrt-x86_64-python-pip
             mingw-w64-ucrt-x86_64-python-build

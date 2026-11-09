@@ -5,6 +5,7 @@
 from contextlib import contextmanager
 import argparse
 import hashlib
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -22,7 +23,12 @@ def native_name():
             'libratiolab_geometry.so')
 
 
-def environment():
+def compiler_host(env):
+    details = subprocess.check_output([env.get('RUSTC', 'rustc'), '-vV'], env=env, text=True)
+    return next(line.removeprefix('host: ') for line in details.splitlines() if line.startswith('host: '))
+
+
+def environment(target='native'):
     env = dict(os.environ)
     flags = (env.get('CARGO_ENCODED_RUSTFLAGS', '').split('\x1f')
              if env.get('CARGO_ENCODED_RUSTFLAGS') else shlex.split(env.get('RUSTFLAGS', '')))
@@ -35,9 +41,48 @@ def environment():
                 (str(ROOT), '/ratiolab-source'))
     for source, replacement in sorted(mappings, key=lambda pair: len(pair[0] or '')):
         if source:
-            flags.append('--remap-path-prefix='+source+'='+replacement)
+            # Windows tools use both native and forward-slash path spellings.
+            for spelling in dict.fromkeys((source, source.replace('\\', '/'))):
+                flags.append('--remap-path-prefix='+spelling+'='+replacement)
+    # Mach-O otherwise records Cargo's absolute output path in LC_ID_DYLIB.
+    # A stable install name also keeps wheel-from-sdist builds relocatable.
+    if target == 'native' and sys.platform == 'darwin':
+        flags += ['-C', 'link-arg=-Wl,-install_name,@rpath/libratiolab_geometry.dylib']
+    if target == 'native' and sys.platform == 'win32' and compiler_host(env).endswith('-windows-gnu'):
+        flags += ['-C', 'link-arg=-Wl,--no-insert-timestamp']
     env['CARGO_ENCODED_RUSTFLAGS'] = '\x1f'.join(flags)
     return env
+
+
+def collect_mingw_notices(env, staging):
+    """Attribute the installed C runtime support used by the Windows GNU linker."""
+    if sys.platform != 'win32' or not compiler_host(env).endswith('-windows-gnu'):
+        return []
+    spec = importlib.util.spec_from_file_location('ratiolab_native_provenance', ROOT/'packaging/bundle_support.py')
+    support = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(support)
+    components = {}
+    for arguments in (['-print-libgcc-file-name'], ['-print-file-name=crt2.o'],
+                      ['-print-file-name=libmingwex.a'], ['-print-file-name=libpthread.a']):
+        path = Path(subprocess.check_output(['gcc', *arguments], env=env, text=True).strip()).resolve()
+        if not path.is_file():
+            raise RuntimeError('Missing MinGW runtime support: '+str(arguments))
+        component = support.windows_component(path)
+        if component is None or not component['_licenses']:
+            raise RuntimeError('Missing installed MinGW runtime provenance/notices: '+path.name)
+        components[component['name']] = component
+    records = []
+    for name, component in sorted(components.items()):
+        component = dict(component)
+        paths = component.pop('_licenses')
+        copied = []
+        for index, path in enumerate(paths):
+            destination = staging/'mingw-toolchain'/name/f'{index:02d}-{path.name}'
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(path, destination)
+            copied.append(destination.relative_to(staging).as_posix())
+        records.append(dict(component, notice_files=copied))
+    return records
 
 
 @contextmanager
@@ -132,6 +177,9 @@ def _collect_notices(cargo, env, offline):
                   rustc=subprocess.check_output([rustc, '--version'], env=env, text=True).strip(),
                   cargo_lock_sha256=hashlib.sha256((ROOT/'Cargo.lock').read_bytes()).hexdigest(),
                   scope='Rust standard library and all locked runtime/build dependencies', packages=records)
+    mingw = collect_mingw_notices(env, staging)
+    if mingw:
+        report['native_toolchain_components'] = mingw
     (staging/'components.json').write_text(json.dumps(report, indent=2, sort_keys=True)+'\n', encoding='utf-8')
     if target.exists():
         shutil.rmtree(target)
@@ -146,7 +194,7 @@ def build(target='native', cargo=None, offline=False):
         command.append('--offline')
     if target == 'wasm':
         command += ['--target', 'wasm32-unknown-unknown']
-    env = environment()
+    env = environment(target)
     subprocess.run(command, cwd=ROOT, env=env, check=True)
     collect_notices(cargo, env, offline)
     return (ROOT/'target/wasm32-unknown-unknown/release/ratiolab_geometry.wasm'
