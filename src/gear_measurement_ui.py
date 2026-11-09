@@ -96,6 +96,7 @@ class Controller:
         box.append(reset)
         box.append(Gtk.Label(label='External/internal spur only. Balls touch at points; rollers touch along axial lines. Helical and double-helical measurements are unsupported.', wrap=True, xalign=0))
         self.report = Gtk.TextView(editable=False, monospace=True, wrap_mode=Gtk.WrapMode.WORD_CHAR)
+        self.report._ratiolab_localize_report = True
         scroll = Gtk.ScrolledWindow(vexpand=True, hexpand=True, min_content_height=170)
         scroll.set_child(self.report)
         box.append(scroll)

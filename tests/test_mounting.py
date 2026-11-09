@@ -23,12 +23,16 @@ class MountingTests(unittest.TestCase):
                     byname = {p.name: p for p in d.parts}
                     for r in records:
                         self.assertIn(r['anchor'], set(byname))
+                        if not r['parts']:
+                            self.assertEqual(f,'cycloidal')
+                            self.assertFalse(r['generated_geometry'])
+                            self.assertEqual(byname[r['anchor']].port['role'],r['role'])
                         for n in r['parts']:
                             p = byname[n]
                             self.assertGreater(signature(p)['volume_mm3'], 0)
                             self.assertEqual(p.port['role'], r['role'])
                             self.assertEqual(p.port['rpm'], d.analysis['kinematics']['stage_results'][0]['rates_rpm'][r['member']])
-                        if r['role'] == 'fixed':
+                        if r['role'] == 'fixed' and r['parts']:
                             self.assertEqual(byname[r['parts'][-1]].port['rpm'], 0)
 
     def test_swap_changes_real_mounting_patterns_and_bom(self):

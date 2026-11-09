@@ -2,7 +2,14 @@
 
 # Nominal calculations and technical references
 
-Revision of 31 October 2026. The formulas were implemented in the project without copying code or tables from the references. `engineering.py`, `gear_measurement.py` and `backlash_solver.py` contain the calculations; `geometry.py`, `assemblies.py` and `geartrains.py` produce the geometry. `internal_mesh.py` plans and verifies paired planetary internal geometry.
+Documentation revised 8 November 2026. The formulas were implemented without
+copying code or tables from the references. The shared Rust kernel evaluates
+geometric and nominal numerical operations. Python modules such as
+`engineering.py`, `gear_measurement.py`, `backlash_solver.py` and
+`internal_mesh.py` adapt those operations and manage queries/reports;
+`geometry.py`, `assemblies.py` and `geartrains.py` orchestrate validated designs.
+See [execution ownership](engine-integration.md#execution-ownership) and the
+[precision contract](rust-kernel.md#numerical-precision-and-sampled-geometry).
 
 <a id="convenzioni"></a>
 
@@ -223,10 +230,36 @@ g2 = sqrt(ra2² − rb2²)
 εβ = b active |sin β| / (π mn)
 ε total = εα + εβ
 Δj = 2a [inv(αw) − inv(αt)], where inv(α) = tan α − α
-j working = j nominal × a/a0 + Δj
+j working = j nominal × a/a0 + Δj  (external pair)
 ```
 
-For an internal pair, a0 = (d2 − d1)/2 and the numerator of εα becomes g1 − g2 + a sin αw; ra2 is the internal tip radius. The contact_transverse/contact_total fields use the nominal tip/base calculation; paired planetary rings use their actual derived shortened tip here, while standalone internal pairs retain their former nominal tip. profile_contact_transverse/profile_contact_total instead intersect the two actual involute intervals after trimming/blend; the report exposes both and warns if the second total is less than one. The corrected calculation excludes contact on fillets and does not check 3D collisions or chamfers. These are not loaded-contact analyses. Source: [Drivetrain Hub, Geometry / Helical Gears, Gear Mesh and Contact Ratio sections](https://drivetrainhub.com/notebooks/gears/geometry/Chapter%203%20-%20Helical%20Gears.html).
+For an internal pair, a0 = (d2 − d1)/2 and the numerator of εα becomes
+g1 − g2 + a sin αw; ra2 is the internal tip radius. Its working backlash is
+**j nominal × a/a0 − 2a[inv(αw) − inv(αt)]**: increased distance closes this mesh.
+Negative internal working backlash and unsupported internal profile shift are rejected.
+
+`contact_transverse` / `contact_total` use the nominal tip/base calculation with
+the actual finished radii, including any derived paired-ring shortening and
+topping. `profile_contact_transverse` / `profile_contact_total` instead intersect
+the actual primary-involute intervals after root trimming/blending and enabled
+head treatments. The report exposes both quantities; semitopping and fillet
+contact are excluded from useful coverage. A semitopped finished tip can still
+have reported generated widths while `on_usable_involute` is false: those widths
+describe the secondary head profile, not a metrology contact on the primary flank.
+
+The report warns about additional root restrictions on the nominal contact path,
+even if usable coverage exceeds one. Intentional semitopping shortening alone
+does not invent a root-interference warning. Modified pairs require effective
+total contact greater than one; the finite rack retains its transverse
+engagement requirement. Reference/working backlash is not redefined by trimming
+the head. See the [tooth-tip guide](../tooth-tips.md) and
+[construction equations](variants.md#cylindrical-topping-and-semitopping).
+
+These are not loaded-contact or 3D collision analyses. The opt-in
+[cylindrical pair qualification](cylindrical-mesh-validation.md) has separate
+domains, counterexamples and unresolved cases, including unsupported semitopping.
+Source for the nominal pair relations:
+[Drivetrain Hub, Geometry / Helical Gears, Gear Mesh and Contact Ratio sections](https://drivetrainhub.com/notebooks/gears/geometry/Chapter%203%20-%20Helical%20Gears.html).
 
 The generator rejects total contact ratio < 1 and involute interference in the new pairs. For double-helical gears, b active is **(width − gap)/2**, even when the gap is zero: the two halves are not treated as one continuous helix. Δj is additional to the backlash already configured.
 
@@ -396,7 +429,16 @@ polylines. It does not cover the whole backlash range, loaded contact, or the
 unsampled analytic curves: the adaptive chord sampler is not a proven global
 Hausdorff bound. Matching internal helices satisfy
 `thetaR(z)=(zp/zr)*thetaP(z)`; double helices share the same triangular axial
-function on both halves. Groove cores are bounded by the planet's inscribed origin-centred disc; ring groove voids contain a disc enclosing the base void. Common radial vertex directions and the origin/edge triangle fans preserve the subset relation across ideal shoulders. Unsupported bounds remain unresolved.
+function on both halves. Common positive radial vertex directions and verified
+origin/edge triangle fans preserve the subset relation across ideal shoulders:
+each planet vertex stays no farther out than its corresponding base vertex,
+and each ring-void vertex stays no farther in. Each new fan triangle is then
+contained in its base material triangle, or contains its base void triangle.
+This also covers partially interpolated shoulders without requiring the whole
+contour to fit inside an inscribed disc. Rotated rays, reversed radial changes
+and unsupported fans remain unresolved. Exported side interpolation is a
+separate [surface sampling bound](surface-accuracy.md), not an extension of
+the transverse contact certificate.
 Thus supported ideal twisted transverse sections inherit the 2D phase result.
 CAD/STL interpolation between axial stations and its triangles are excluded.
 Cutter-envelope, radial assembly, tooling, manufacturing, strength, wear and

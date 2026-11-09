@@ -5,7 +5,7 @@
 Shafts are parallel to +Z; turns change XY centre lines, not shaft axes.
 Nonmating swept cylinders are a conservative full-rotation exclusion test.
 """
-from math import cos, sin, pi, radians, hypot, prod
+from math import hypot
 
 # Legacy spur keys remain unchanged in saved projects.
 VARIANTS = {
@@ -93,19 +93,14 @@ def prepare(values):
 
 
 def forward_ratio(values):
-    return prod(-values[stage_key('wheel', s)] / values[stage_key('pinion', s)]
-                for s in range(1, count(values) + 1))
+    from rust_geometry import call
+    return call('parallel_rates',values)['forward_ratio']
 
 
 def rates(values):
     """Shaft-indexed rates, stable for forward/reverse ports and zero RPM."""
-    n = count(values)
-    ratio = forward_ratio(values)
-    first = values['input_rpm'] if values['io_scheme'] == 'forward' else values['input_rpm'] * ratio
-    result = [first]
-    for s in range(1, n + 1):
-        result.append(-result[-1] * values[stage_key('pinion', s)] / values[stage_key('wheel', s)])
-    return result
+    from rust_geometry import call
+    return call('parallel_rates',values)['shaft_rates_rpm']
 
 
 def apply_kinematics(design):
@@ -130,118 +125,36 @@ def apply_kinematics(design):
         part.port.update(member=f'shaft_{shaft}', role=role, rpm=speed[shaft])
 
 
-def _envelope_check(items, clearance):
-    tested = 0
-    for i, a in enumerate(items):
-        for b in items[i+1:]:
-            if a['shaft'] == b['shaft']:
-                continue  # Nominal bore/shaft fits and joined compound faces.
-            if a['kind'] == b['kind'] == 'gear' and a['stage'] == b['stage']:
-                continue  # Intentional tooth engagement; canonical mesh checks apply.
-            axial = max(a['z0'], b['z0']) - min(a['z1'], b['z1'])
-            if axial >= clearance - 1e-9:
-                continue
-            tested += 1
-            radial = hypot(a['center'][0]-b['center'][0], a['center'][1]-b['center'][1]) - a['radius'] - b['radius']
-            if radial < clearance - 1e-9:
-                raise ValueError(f"Multistage layout: {a['name']} and {b['name']} lack swept-envelope clearance. "
-                                 'Change centre-line turns, shaft/hub diameters, stage widths or spacing.')
-    return dict(status='clear', tested_pairs=tested, clearance_mm=clearance,
-                scope='Conservative swept cylinders of nonmating gears, shafts and hubs; intended meshes and same-shaft interfaces excluded. No tooth-contact, load or tolerance certification.')
-
-
 def build(design):
+    """Assemble the shared Rust nominal plan; presentation adds no gear formula."""
     from geometry import gear_part, Part, circle
-    from engineering import mesh
-    v = design.values
-    n = count(v)
-    teeth_type = tooth_type(v['variant'])
-    double = teeth_type == 'double'
-    prepare(v)
-    if min(v['bore'], v['output_bore']) <= 0:
-        raise ValueError('Multistage trains require positive input and output shaft diameters.')
-    bores = [v['bore']] + [v[f'intermediate_bore{s}'] for s in range(1, n)] + [v['output_bore']]
-    centers = [(0., 0.)]
-    levels, angles, meshes, gears, items = [], [], [], {}, []
-    angle, level = 0., 0.
-    for stage in range(1, n + 1):
-        get = lambda key: v[stage_key(key, stage)]
-        zp, zw, m, width = (get(k) for k in ('pinion', 'wheel', 'module', 'width'))
-        if zw <= zp:
-            raise ValueError(f'Stage {stage}: wheel teeth must exceed pinion teeth for a reduction stage.')
-        if get('backlash') >= .7*m:
-            raise ValueError(f'Stage {stage}: backlash too large for the module.')
-        beta = get('helix') if teeth_type != 'spur' else 0
-        gap = get('gap') if double else 0
-        if double and gap >= width - 1:
-            raise ValueError(f'Stage {stage}: the groove must leave at least 1 mm of teeth.')
-        # Report contact overlap on one active half, including Joined (gap=0).
-        active_width = (width-gap)/2 if double else width
-        q = mesh(zp, zw, m, get('pressure'), beta, active_width,
-                 get('profile_shift'), get('center_extra'), backlash=get('backlash'))
-        if teeth_type != 'spur':
-            q['gear2']['beta'] = -beta
-            q.update(pinion_helix_deg=beta, wheel_helix_deg=-beta, active_face_width_mm=active_width)
-        # Overall efficiency is not a per-stage loss law; avoid invented mesh loads.
-        q.update(stage=stage, torque_factor=None)
-        meshes.append(q)
-        if stage > 1:
-            angle += radians(get('layout_angle'))
-        a = q['center_distance_mm']
-        previous = centers[-1]
-        centers.append((previous[0]+a*cos(angle), previous[1]+a*sin(angle)))
-        angles.append(angle)
-        levels.append((level, level+width))
-        phase_wheel = (zp+zw)*angle/zw + pi + pi/zw
-        for kind, teeth, shaft, phase, shift in (
-            ('Pinion', zp, stage-1, 0., get('profile_shift')),
-            ('Wheel', zw, stage, phase_wheel, -get('profile_shift')),
-        ):
-            part = gear_part(f'S{stage}_{kind}', teeth, m, get('pressure'), get('backlash'), width,
-                             bores[shaft], centers[shaft], phase, helix=beta if kind == 'Pinion' else -beta, zoff=level, shift=shift)
+    from rust_geometry import call
+    v=design.values;n=count(v);teeth_type=tooth_type(v['variant']);double=teeth_type=='double'
+    plan=call('nominal_parallel_plan',v)
+    for component in plan['components']:
+        p=dict(component['parameters']);place=component['placement'];shaft=component['port']['shaft']
+        if component['kind']=='cylindrical_gear':
+            p.pop('double');gap=p.pop('gap');p['z']=int(p['z'])
+            # Exact sources are retained in the recipe through both boundaries.
+            from precise_numbers import restore
+            p=restore(p)
+            part=gear_part(component['name'],center=tuple(place['center_mm']),phase=place['phase_rad'],zoff=place['z_mm'],**p)
             if double:
-                part.double = True
-                part.gap = gap
-                part.core_radius = min(hypot(x, y) for x, y in part.outer) * .96
-                if bores[shaft]/2 >= part.core_radius-.25:
-                    raise ValueError(f'Stage {stage} {kind.lower()}: bore too large for the continuous double-helix hub.')
-            root = q['gear1' if kind == 'Pinion' else 'gear2']['root_radius']
-            if bores[shaft]/2 >= root-.5:
-                raise ValueError(f'Stage {stage} {kind.lower()}: shaft bore leaves insufficient tooth-root material.')
-            part.profile_metadata['parallel_train'] = dict(stage=stage, shaft=shaft, initial_tooth_phase_rad=phase)
-            part.port = dict(shaft=shaft, stage=stage, rigid_group=f'parallel_shaft_{shaft}')
-            part.color = ((.95,.65,.3),(.45,.65,.9),(.3,.78,.65),(.75,.55,.85))[shaft]
-            design.parts.append(part)
-            gears[stage, kind] = part
-            items.append(dict(name=part.name, shaft=shaft, stage=stage, kind='gear', center=part.center,
-                              z0=level, z1=level+width, radius=q['gear1' if kind == 'Pinion' else 'gear2']['tip_radius']))
-        level += width + v['stage_gap']
-    for shaft in range(n+1):
-        lo = levels[max(0, shaft-1)][0]
-        hi = levels[min(n-1, shaft)][1]
-        extension = v['shaft_extension']
-        part = Part(f'Shaft_{shaft+1}', circle(bores[shaft]/2), [], hi-lo+2*extension,
-                    lo-extension, centers[shaft], role='support', color=(.65,.72,.8))
-        part.port = dict(shaft=shaft, rigid_group=f'parallel_shaft_{shaft}')
+                part.double=True;part.gap=gap
+                part.core_radius=min(hypot(x,y) for x,y in part.outer)*.96
+                if p['bore']/2>=part.core_radius-.25:
+                    raise ValueError(f"{part.name}: bore too large for the continuous double-helix hub.")
+            part.profile_metadata['parallel_train']=dict(stage=component['port']['stage'],shaft=shaft,initial_tooth_phase_rad=place['phase_rad'])
+        else:
+            part=Part(component['name'],circle(p['radius_mm']),[circle(p['bore_radius_mm'])] if p['bore_radius_mm'] else [],
+                      p['width'],place['z_mm'],tuple(place['center_mm']),role='support' if component['name'].startswith('Shaft_') else 'gear')
+        part.port=dict(component['port'])
+        part.color=(.65,.72,.8) if part.role=='support' else ((.95,.65,.3),(.45,.65,.9),(.3,.78,.65),(.75,.55,.85))[shaft]
         design.parts.append(part)
-        items.append(dict(name=part.name, shaft=shaft, kind='shaft', center=part.center,
-                          z0=part.z, z1=part.z+part.width, radius=bores[shaft]/2))
-        if 0 < shaft < n:
-            radius = bores[shaft]/2+v['hub_wall']
-            roots = [meshes[shaft-1]['gear2']['root_radius'], meshes[shaft]['gear1']['root_radius']]
-            if radius >= min(roots)-.25:
-                raise ValueError(f'Intermediate shaft {shaft}: connecting hub exceeds the available tooth-root radius. Reduce hub wall/shaft diameter or enlarge the gears.')
-            z0 = levels[shaft-1][1]
-            part = Part(f'Compound_{shaft}_Hub', circle(radius), [circle(bores[shaft]/2)],
-                        levels[shaft][0]-z0, z0, centers[shaft], color=gears[shaft, 'Wheel'].color)
-            part.port = dict(shaft=shaft, rigid_group=f'parallel_shaft_{shaft}')
-            design.parts.append(part)
-            items.append(dict(name=part.name, shaft=shaft, kind='hub', center=part.center,
-                              z0=part.z, z1=part.z+part.width, radius=radius))
-    design.analysis.update(meshes=meshes, signed_ratio=forward_ratio(v),
-                           parallel_train=dict(stages=n, shaft_centers_mm=centers, shaft_diameters_mm=bores,
-                                               stage_levels_mm=levels, centre_line_angles_rad=angles,
-                                               envelope_check=_envelope_check(items, v['assembly_clearance'])))
+    design.analysis.update(plan['analysis'])
+    for key in ('shaft_centers_mm','stage_levels_mm'):
+        design.analysis['parallel_train'][key]=list(map(tuple,design.analysis['parallel_train'][key]))
+    meshes=plan['analysis']['meshes']
     design.metrics = [f'{n} stages · {n+1} parallel shafts · '+{'spur': 'spur teeth', 'helical': 'helical teeth', 'double': 'double-helical teeth'}[teeth_type],
                       f"Total reduction {forward_ratio(v):+.6g}:1",
                       'Stage centre distances: '+ ' / '.join(f"{q['center_distance_mm']:.3f}" for q in meshes)+' mm']

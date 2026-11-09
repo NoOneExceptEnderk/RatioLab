@@ -13,7 +13,7 @@ give the compound Wolfrom ratio; §III-B equation 12 gives the pitch-centre
 constraints. [Karaivanov et al., Torque Method Investigation of Wolfrom Gear
 Trains, §2, figures 2–4](https://hrcak.srce.hr/en/file/434707) distinguish one-rim
 and two-rim arrangements. This implementation uses the two-rim arrangement.
-One-rim triple engagement and modified profiles require separate
+One-rim triple engagement and alternative working-profile systems require separate
 geometry and assembly models.
 
 Let S, P1, Rf, P2 and Ro be the positive integer tooth counts of the sun, first
@@ -65,6 +65,13 @@ first-rim tooth pitch does not generally preserve engagement of its second rim;
 the congruence selects a compatible turn before generating geometry.
 
 ## Nominal profile scope
+
+The sun, both planet rims and both rings have independent
+[topping and semitopping](../tooth-tips.md) settings. Repeated compounds share
+their corresponding rim settings. `planet2_` identifies the second rim, and
+`output_ring_` identifies the output ring; these are not second-stage fields.
+Treatments retain the pitch-centre/module relation and ideal speed equations
+while reducing the primary working interval used by each affected mesh.
 
 ### Helix and axial phase conventions
 

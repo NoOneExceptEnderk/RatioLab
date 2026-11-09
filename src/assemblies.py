@@ -5,7 +5,7 @@ Reference geometry only; catalog bearings are applied by standard_parts.
 No structural sizing is performed.
 """
 from math import pi,sin,cos,hypot,radians
-from geometry import Part,circle,polar,transformed,gear_part,cycloid,TAU
+from geometry import Part,circle,polar,transformed,gear_part,cycloid,TAU,batch_circles
 
 SILVER=(.65,.72,.8);BEARING=(.42,.49,.59);HOUSING=(.32,.39,.49)
 
@@ -16,25 +16,65 @@ def annulus(d,name,radius,bore,width,z=0,center=(0,0),holes=None,role='support',
     d.parts.append(p);return p
 
 
+
+def _planetary_dimensions(v):
+    # Same dimensional expressions and operation order as the assembly. Exact
+    # inputs build sources first; one bounded Rust batch resolves the layout.
+    from precise_numbers import symbolic,evaluate_sources,select_source
+    q={key:symbolic(value) for key,value in v.items()}
+    minimum=lambda *args:select_source('min',args)
+    maximum=lambda values:select_source('max',values)
+    m=q['module'];t=q['plate'];c=q['assembly_clearance'];bore=q['bore']
+    mt=m/cos(radians(v.get('helix',0)));rshaft=bore/2
+    stages=[(v['sun'],v['planet'],q['width'],0)]
+    if v['variant'] in ('two_stage','two_stage_double'):
+        stages.append((v['sun2'],v['planet2'],q['width2'],q['width']+3*t+4*c+q['stage_gap']))
+    max_ring=maximum(mt*(zs+2*zp)/2+1.25*m+q['rim'] for zs,zp,w,z in stages)
+    outside=max_ring+c+q['housing_wall'];bolt=minimum(1.5,q['rim']/4)
+    bearingwall=maximum((.6,minimum(1.5,m*.65)));rbearing=rshaft+bearingwall
+    rows=[]
+    for zs,zp,w,z0 in stages:
+        zr=zs+2*zp;a=mt*(zs+zp)/2
+        rring=mt*zr/2+1.25*m+q['rim'];fixR=rring-q['rim']/2
+        pin=maximum((.3,rshaft-minimum(c/2,rshaft*.15)))
+        carrierR=a+pin+maximum((1.5,t*.7));tip_ring=mt*zr/2-m
+        rows.append(dict(a=a,fixR=fixR,pin=pin,carrierR=carrierR,tip_ring=tip_ring,
+            carrier_outside=carrierR+c,
+            lower=z0-c-t,upper=z0+w+c,tie_length=w+2*c+2*t,top=z0+w+c+t,
+            active=(w-v.get('gap',0))/2 if v['variant'] in ('double','two_stage_double') else w))
+    bottom=-2*t-3*c;top=rows[-1]['top']+2*c;extension=q['shaft_extension']
+    for i,(zs,zp,w,z0) in enumerate(stages):
+        start=z0+w+c
+        end=stages[i+1][3]+stages[i+1][2]*.65 if i+1<len(stages) else top+t+extension
+        rows[i].update(coupling_start=start,coupling_width=end-start)
+    return evaluate_sources(dict(stages=stages,rows=rows,rshaft=rshaft,
+        outside=outside,bolt=bolt,rbearing=rbearing,bearing_outer=rbearing-.02,
+        bearing_inner=rshaft+.02,bottom=bottom,top=top,
+        input_width=stages[0][2]*.6-bottom+extension,input_z=bottom-extension,
+        housing_width=top-bottom-t,housing_z=bottom+t,housing_bore=max_ring+c,
+        diameter=2*outside,body_length=top+t-bottom))
+
+
+@batch_circles()
 def planetary(d):
-    v=d.values;m=v['module'];pa=v['pressure'];backlash=v['backlash'];n=v['planets'];t=v['plate'];c=v['assembly_clearance'];bore=v['bore'];rshaft=bore/2
-    beta=v.get('helix',0);variant=v['variant'];mt=m/cos(radians(beta))
-    stages=[(v['sun'],v['planet'],v['width'],0)]
-    if variant in ('two_stage','two_stage_double'):stages.append((v['sun2'],v['planet2'],v['width2'],v['width']+3*t+4*c+v['stage_gap']))
-    max_ring=max(mt*(zs+2*zp)/2+1.25*m+v['rim'] for zs,zp,w,z in stages)
-    wall=v['housing_wall'];outside=max_ring+c+wall;bolt=min(1.5,v['rim']/4);ratio=1
+    v=d.values;m=v['module'];pa=v['pressure'];backlash=v['backlash'];n=v['planets'];t=v['plate'];bore=v['bore']
+    beta=v.get('helix',0);variant=v['variant'];layout=_planetary_dimensions(v)
+    stages=layout['stages'];rshaft=layout['rshaft']
+    outside=layout['outside'];bolt=layout['bolt'];rbearing=layout['rbearing'];ratio=1
     if v['rim']<2:raise ValueError('The assembly with fasteners requires a ring at least 2 mm thick.')
-    bearingwall=max(.6,min(1.5,m*.65));rbearing=rshaft+bearingwall
-    stage_tops=[];ringholes=[];pair_plans=[]
+    pair_plans=[]
     from internal_mesh import plan_planetary_internal_pair, validate_axial_pair
+    from tooth_tips import parameters as tip_parameters
     for index,(zs,zp,w,z0) in enumerate(stages):
-        tag=f'S{index+1}';zr=zs+2*zp;a=mt*(zs+zp)/2;ratio*=1+zr/zs
+        tag=f'S{index+1}';zr=zs+2*zp;dims=layout['rows'][index];a=dims['a'];ratio*=1+zr/zs
         plan=plan_planetary_internal_pair(zp,zr,m,pa,beta,backlash);pair_plans.append(plan)
         def gear(name,teeth,center=(0,0),phase=0,helix=0,internal=False):
-            p=gear_part(tag+'_'+name,teeth,m,pa,backlash,w,bore,center,phase,helix,internal,v['rim'],z0,ha=plan['ring_addendum_coefficient'] if internal else 1, minimum_join_radius_mm=plan['minimum_join_radius_mm'] if internal else None)
+            role='ring' if internal else 'sun' if name=='Sun' else 'planet'
+            p=gear_part(tag+'_'+name,teeth,m,pa,backlash,w,bore,center,phase,helix,internal,v['rim'],z0,ha=plan['ring_addendum_coefficient'] if internal else 1, minimum_join_radius_mm=plan['minimum_join_radius_mm'] if internal else None,
+                        **tip_parameters(v,role+(str(index+1) if index else '')))
             if variant in ('double','two_stage_double'):
                 p.double=True;p.gap=v['gap'];p.core_radius=min(hypot(x,y) for x,y in p.outer)*.96
-                if not internal and bore/2>=p.core_radius-.25:raise ValueError('Bore too large for the continuous double helix hub.')
+                if not internal and rshaft>=p.core_radius-.25:raise ValueError('Bore too large for the continuous double helix hub.')
             d.parts.append(p);return p
         gear('Sun',zs,helix=beta)
         for j in range(n):
@@ -42,6 +82,10 @@ def planetary(d):
             planet=gear(f'Planet_{j+1}',zp,polar(a,theta),phase,-beta)
         ring_phase=(zp*(pi/zp+pi)-pi)/zr
         ring=gear('Ring',zr,phase=ring_phase,helix=-beta,internal=True)
+        from tooth_tips import verify_internal_pair
+        verification=verify_internal_pair(planet,ring,zp,zr,backlash)
+        if verification:
+            plan['verification']=verification
         axial_failure=validate_axial_pair(planet,ring,zp,zr)
         if axial_failure:
             plan['verification'].update(status='unresolved',failure_reason=axial_failure,certified_separation_lower_bound_mm=None)
@@ -50,45 +94,46 @@ def planetary(d):
         ring.profile_metadata['tooth_profile']['construction_version']=plan['construction_version']
         if abs(ring.profile_metadata['tooth_profile']['involute_end_radius_mm']-plan['ring_join_radius_mm'])>1e-8:
             raise ValueError('Paired ring contour and plan disagree.')
-        rring=mt*zr/2+1.25*m+v['rim'];fixR=rring-v['rim']/2
+        fixR=dims['fixR']
         # Axial fixing holes are entirely outside the roots of the internal teeth.
         holes=[circle(bolt,32,polar(fixR,TAU*j/4+pi/4)) for j in range(4)] if not beta else []
-        ring.holes.extend(holes);ringholes.append((fixR,holes,z0,w))
-        pin=max(.3,rshaft-min(c/2,rshaft*.15));carrierR=a+pin+max(1.5,t*.7)
-        tip_ring=mt*zr/2-m
-        if carrierR+c>=tip_ring:raise ValueError('Planet carrier too large for the ring: reduce bore/pins or enlarge the gearing.')
+        ring.holes.extend(holes)
+        pin=dims['pin'];carrierR=dims['carrierR']
+        tip_ring=dims['tip_ring']
+        if dims['carrier_outside']>=tip_ring:raise ValueError('Planet carrier too large for the ring: reduce bore/pins or enlarge the gearing.')
         pinholes=[circle(pin,48,polar(a,TAU*j/n)) for j in range(n)]
-        annulus(d,tag+'_PlanetCarrier_lower',carrierR,rbearing,t,z0-c-t,holes=pinholes)
-        annulus(d,tag+'_Flange_output',carrierR,rshaft,t,z0+w+c,holes=pinholes)
-        annulus(d,tag+'_Retainer_ring_lower',max_ring+c,carrierR+c,t,z0-c-t,holes=holes,role='housing',color=HOUSING)
-        annulus(d,tag+'_Retainer_ring_upper',max_ring+c,carrierR+c,t,z0+w+c,holes=holes,role='housing',color=HOUSING)
-        for j in range(4 if not beta else 0):annulus(d,tag+f'_TieRod_ring_{j+1}',bolt,0,w+2*c+2*t,z0-c-t,polar(fixR,TAU*j/4+pi/4),role='housing',color=HOUSING)
-        for j in range(n):annulus(d,tag+f'_Pin_planet_{j+1}',pin,0,w+2*c+2*t,z0-c-t,polar(a,TAU*j/n),role='support')
-        annulus(d,tag+'_Bearing_planetcarrier_envelope',rbearing-.02,rshaft+.02,t,z0-c-t,role='support',color=BEARING)
-        stage_tops.append(z0+w+c+t)
-    bottom=-2*t-3*c;lastz=stages[-1][3];lastw=stages[-1][2];top=stage_tops[-1]+2*c
-    extension=v['shaft_extension']
-    annulus(d,'Shaft_input',rshaft,0,stages[0][2]*.6-bottom+extension,bottom-extension)
+        annulus(d,tag+'_PlanetCarrier_lower',carrierR,rbearing,t,dims['lower'],holes=pinholes)
+        annulus(d,tag+'_Flange_output',carrierR,rshaft,t,dims['upper'],holes=pinholes)
+        annulus(d,tag+'_Retainer_ring_lower',layout['housing_bore'],dims['carrier_outside'],t,dims['lower'],holes=holes,role='housing',color=HOUSING)
+        annulus(d,tag+'_Retainer_ring_upper',layout['housing_bore'],dims['carrier_outside'],t,dims['upper'],holes=holes,role='housing',color=HOUSING)
+        for j in range(4 if not beta else 0):annulus(d,tag+f'_TieRod_ring_{j+1}',bolt,0,dims['tie_length'],dims['lower'],polar(fixR,TAU*j/4+pi/4),role='housing',color=HOUSING)
+        for j in range(n):annulus(d,tag+f'_Pin_planet_{j+1}',pin,0,dims['tie_length'],dims['lower'],polar(a,TAU*j/n),role='support')
+        annulus(d,tag+'_Bearing_planetcarrier_envelope',layout['bearing_outer'],layout['bearing_inner'],t,dims['lower'],role='support',color=BEARING)
+    bottom=layout['bottom'];top=layout['top']
+    annulus(d,'Shaft_input',rshaft,0,layout['input_width'],layout['input_z'])
     for index,(zs,zp,w,z0) in enumerate(stages):
-        start=z0+w+c
-        end=(stages[index+1][3]+stages[index+1][2]*.65) if index+1<len(stages) else top+t+extension
-        annulus(d,f'S{index+1}_'+('Coupling_interstage' if index+1<len(stages) else 'Shaft_output'),rshaft,0,end-start,start)
+        dims=layout['rows'][index]
+        annulus(d,f'S{index+1}_'+('Coupling_interstage' if index+1<len(stages) else 'Shaft_output'),
+                rshaft,0,dims['coupling_width'],dims['coupling_start'])
     # Fixed enclosure and removable end plates. Rotor plates have axial clearance to both covers.
-    annulus(d,'Housing_tubular',outside,max_ring+c,top-bottom-t,bottom+t,role='housing',color=HOUSING)
+    annulus(d,'Housing_tubular',outside,layout['housing_bore'],layout['housing_width'],layout['housing_z'],role='housing',color=HOUSING)
     annulus(d,'Cover_input',outside,rbearing,t,bottom,role='housing',color=HOUSING)
     annulus(d,'Cover_output',outside,rbearing,t,top,role='housing',color=HOUSING)
-    annulus(d,'Bearing_input_envelope',rbearing-.02,rshaft+.02,t,bottom,color=BEARING)
-    annulus(d,'Bearing_output_envelope',rbearing-.02,rshaft+.02,t,top,color=BEARING)
+    annulus(d,'Bearing_input_envelope',layout['bearing_outer'],layout['bearing_inner'],t,bottom,color=BEARING)
+    annulus(d,'Bearing_output_envelope',layout['bearing_outer'],layout['bearing_inner'],t,top,color=BEARING)
     label={'spur':'Single stage · spur','helical':'Single stage · helical','double':'Single stage · double helical','two_stage':'Two stages in cascade','two_stage_double':'Two stages · double helical'}[variant]
-    d.metrics=[label+f' · reduction {ratio:.5g}:1',f'{len(stages)} stages · {n} planets per stage',f'Z sun / planet / ring: '+ ' → '.join(f'{zs}/{zp}/{zs+2*zp}' for zs,zp,w,z in stages),f'Housing diameter {2*outside:.2f} mm · body length {top+t-bottom:.2f} mm']
+    d.metrics=[label+f' · reduction {ratio:.5g}:1',f'{len(stages)} stages · {n} planets per stage',f'Z sun / planet / ring: '+ ' → '.join(f'{zs}/{zp}/{zs+2*zp}' for zs,zp,w,z in stages),f"Housing diameter {layout['diameter']:.2f} mm · body length {layout['body_length']:.2f} mm"]
     for i,plan in enumerate(pair_plans,1):
         d.metrics.append(f"Stage {i} ring: derived ha {plan['ring_addendum_coefficient']:.6f} · tip shortened {plan['ring_tip_relief_mm']:.4f} mm · neutral transverse polygon clearance {plan['verification']['status']}")
     from engineering import mesh
     d.analysis.update(signed_ratio=ratio,meshes=[])
-    for (zs,zp,w,z0),plan in zip(stages,pair_plans):
-        active=(w-v.get('gap',0))/2 if variant in ('double','two_stage_double') else w
+    for index,((zs,zp,w,z0),plan,dims) in enumerate(zip(stages,pair_plans,layout['rows'])):
+        active=dims['active']
         for a,b,internal in [(zs,zp,False),(zp,zs+2*zp,True)]:
-            q=mesh(a,b,m,pa,beta,active,internal=internal,strict=False,backlash=backlash,internal_plan=plan if internal else None)
+            suffix=str(index+1) if index else ''
+            q=mesh(a,b,m,pa,beta,active,internal=internal,strict=False,backlash=backlash,internal_plan=plan if internal else None,
+                   tooth_tips1=tip_parameters(v,('planet' if internal else 'sun')+suffix),
+                   tooth_tips2=tip_parameters(v,('ring' if internal else 'planet')+suffix))
     # Do not divide torque by planet count: the load-sharing factor is unknown.
             q['torque_factor']=None;d.analysis['meshes'].append(q)
     d.notes.append('Planetary rings use paired shortened involute teeth (planetary_paired_involute_v1). Neutral-backlash transverse polygon verification excludes unsampled analytic curves, exported 3D triangle interpolation, cutter envelopes, radial assembly and manufacturing checks.')

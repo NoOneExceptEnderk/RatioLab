@@ -8,7 +8,19 @@ export const automaticText = value => {
   const text = value.toFixed(6);
   return Number(text) === 0 && value !== 0 ? value.toExponential(6).replace(/\.?0+e/, 'e') : String(Number(text));
 };
-export const automatic = value => ({text: automaticText(value), exact: value, typed: false});
+export const SOURCE_KEY = '_decimal_inputs';
+export const automatic = (value, source) => ({text: automaticText(value), exact: value, typed: false, ...(source === undefined ? {} : {source})});
+const decimalIdentity = text => {
+  let value=String(text).trim().replace(',', '.').toLowerCase();
+  const match=value.match(/^([+-]?)(\d*\.?\d+)(?:e([+-]?\d+))?$/);
+  if (!match) return null;
+  const exponent=Number(match[3] || 0); if (!Number.isSafeInteger(exponent) || Math.abs(exponent)>4096) return null;
+  const mantissa=match[2], dot=mantissa.indexOf('.');
+  let digits=mantissa.replace('.','').replace(/^0+/,''), power=exponent-(dot<0?0:mantissa.length-dot-1);
+  if (!digits) return '0';
+  while (digits.endsWith('0')) { digits=digits.slice(0,-1); ++power; }
+  return (match[1]==='-'?'-':'')+digits+'e'+power;
+};
 export function numberValue(entry, spec) {
   if (!entry) return {error: 'Enter a value.'};
   const text = entry.text.trim();
@@ -61,7 +73,7 @@ export class BrowserDocument extends EventTarget {
     const key = contextKey(draft.options);
     const entries = draft.contexts[key] ??= {};
     for (const f of numeric(schema)) {
-      if (!Object.hasOwn(entries, f.key)) entries[f.key] = automatic(initial[f.key] ?? schema.defaults[f.key] ?? f.default);
+      if (!Object.hasOwn(entries, f.key)) entries[f.key] = automatic(initial[f.key] ?? schema.defaults[f.key] ?? f.default, initial[SOURCE_KEY]?.[f.key]);
     }
     return draft;
   }
@@ -94,13 +106,19 @@ export class BrowserDocument extends EventTarget {
     this.changed();
   }
   values(schema, linked = new Set()) {
-    const values = {...this.draft.options}, errors = {};
+    const values = {...this.draft.options}, errors = {}, sources = {};
     for (const f of numeric(schema)) {
       if (f.inactive) continue;
       const result = numberValue(this.entries[f.key], f);
       if (result.error && !linked.has(f.key)) errors[f.key] = result.error;
-      else if (!result.omitted && !result.error) values[f.key] = result.value;
+      else if (!result.omitted && !result.error) {
+        values[f.key] = result.value;
+        const entry=this.entries[f.key];
+        if (!entry.typed && entry.source !== undefined) sources[f.key]=clone(entry.source);
+        else if (entry.typed && decimalIdentity(entry.text)!==decimalIdentity(String(result.value))) sources[f.key]=entry.text.trim().replace(',', '.');
+      }
     }
+    if (Object.keys(sources).length) values[SOURCE_KEY]=sources;
     return {values, errors};
   }
   normalize(values, schema) {
@@ -110,7 +128,10 @@ export class BrowserDocument extends EventTarget {
       if (!Object.hasOwn(values, f.key)) continue;
       const old = this.entries[f.key], parsed = numberValue(old, f);
       if (parsed.error && old?.typed) continue;
-      if (parsed.value !== values[f.key]) this.entries[f.key] = automatic(values[f.key]);
+      const source=values[SOURCE_KEY]?.[f.key];
+      if (parsed.value !== values[f.key] || !old?.typed && JSON.stringify(old?.source)!==JSON.stringify(source)) {
+        this.entries[f.key] = automatic(values[f.key],source);
+      }
     }
   }
   undo() {
@@ -123,11 +144,19 @@ export class BrowserDocument extends EventTarget {
     this.past.push(clone(this.state)); this.state = this.future.pop();
     ++this.revision; this.coalesce = null; this.changed(); return true;
   }
-  replace(family, schema, values = {}, name = 'Untitled design', {recovery} = {}) {
+  replace(family, schema, values = {}, name = 'Untitled design', {recovery, quality} = {}) {
     this.identity = id(); ++this.revision; this.name = name;
     this.state = recovery ? clone(recovery.state) : {family, families: {}};
+    if (!recovery && quality && Object.keys(quality).length) this.state.quality=clone(quality);
     this.ensure(schema, values); this.past = []; this.future = []; this.coalesce = null;
     this.saved = recovery ? recovery.saved : fingerprint(this.state); this.changed();
+  }
+  setQuality(value) {
+    if (!value || typeof value !== 'object' || Array.isArray(value) || Object.entries(value).some(([key,v]) => !['preview_mm','export_mm'].includes(key) || typeof v !== 'number' || !Number.isFinite(v) || v <= 0)) throw Error('Surface thresholds must be positive finite numbers in mm.');
+    if (JSON.stringify(value)===JSON.stringify(this.state.quality || {})) return false;
+    this.checkpoint();
+    if (Object.keys(value).length) this.state.quality=clone(value); else delete this.state.quality;
+    this.changed();return true;
   }
   markSaved(name = this.name) { this.name = name; this.saved = fingerprint(this.state); this.changed(); }
   recovery() { return {format: 'ratiolab-browser-recovery/1', name: this.name, state: clone(this.state), saved: this.saved, time: Date.now()}; }

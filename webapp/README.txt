@@ -10,8 +10,9 @@ python, use python serve.py. Ctrl+C stops the local preview. Choose another
 loopback port with --port 8767. The helper verifies the bundle file inventory
 and checksums before serving and serves only listed files. Unlisted local files
 are ignored and cannot be requested. It performs no
-model calculations: the unchanged Python engine runs in your browser through
-Pyodide/WebAssembly. Python on the local computer is only for this HTTP preview.
+model calculations: the Rust geometry kernel runs as WebAssembly in your browser,
+with application and export adapters through Pyodide. Python on the local computer
+is only for this HTTP preview.
 
 A browser needs WebAssembly, Web Workers and WebGL, with HTTPS or a localhost
 secure context. Opening index.html directly through file:// will fail. The
@@ -23,7 +24,7 @@ application fallback that substitutes HTML for missing assets. No Python server
 or calculation backend is needed on the host. There is no service worker.
 
 Choose a model, edit dimensions/motion/assembly, inspect the generated model,
-and export. All ten families and their supported constructions use the same
+and export. The model families and their supported constructions use the same
 engine as desktop RatioLab. STEP/STL/SVG/DXF and full packages download through
 the browser; explicit component exports keep the selected source parts. Save
 and Open use desktop-compatible JSON. Recent projects and draft recovery use
@@ -43,10 +44,12 @@ strength, bearing life or manufacturing readiness. Read model warnings,
 calculation reports and technical references before using exported designs.
 Browser/OS compatibility beyond actually recorded checks is not established.
 
-License: LICENSE (RatioLab GPL-3.0-only), COPYRIGHT, notices/README.txt and
+License: LICENSE (RatioLab GPL-3.0-only), COPYRIGHT, rust-notices.zip, notices/README.txt and
 runtime/PYODIDE-LICENSE. Readable application source and the repeatable build,
-runtime-fetch and preview scripts are in source.zip. docs/web-app.md in that
-archive describes the source build and static hosting recipe. Runtime source:
+runtime-fetch and preview scripts are in source.zip. Extract source-fonts.zip
+into the same directory to include the unchanged font payloads. The two ZIPs
+keep every file below the hosting limit. docs/web-app.md in source.zip describes
+the complete source build and static hosting recipe. Runtime source:
 https://github.com/pyodide/pyodide/tree/314.0.7
 https://github.com/python/cpython/tree/v3.14.2
 https://github.com/emscripten-core/emscripten/tree/5.0.3

@@ -24,3 +24,10 @@ datas += [(str(path), 'ratiolab_resources/fusion_addin/RatioLabBridge')
 # Reviewed thumbnails rendered from the actual default generator models.
 datas += [(str(path), "ratiolab_resources/model-catalog")
           for path in sorted((resources/"model-catalog").glob("*.png"))]
+
+# Generated notices belong to this build's Rust dependency closure only.
+rust_notices=root/'target/ratiolab-rust-notices'
+if not (rust_notices/'components.json').is_file():
+    raise RuntimeError('Build the Rust geometry kernel before collecting application resources.')
+datas += [(str(path),str(Path('ratiolab_resources/rust-notices')/path.parent.relative_to(rust_notices)))
+          for path in sorted(rust_notices.rglob('*')) if path.is_file()]

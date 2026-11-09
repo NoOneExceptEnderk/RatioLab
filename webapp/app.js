@@ -70,6 +70,8 @@ function updateActions() {
   $('undo').disabled = !doc.past.length || busy; $('redo').disabled = !doc.future.length || busy;
   $('family').disabled = !catalog || busy; $('model-catalog-open').disabled = !catalog || busy; $('reset-family').disabled = !catalog || busy;
   for (const id of ['new-document','open-document','recent-documents']) $(id).disabled = !catalog || busy || actionConfirmation;
+  $('recover-document').hidden = !recovery;
+  $('recover-document').disabled = !catalog || busy || actionConfirmation;
   for (const button of document.querySelectorAll('[data-export-kind]')) button.disabled = !documentReady;
   $('cancel-generation').hidden = !generationRunning;
   const title = doc.name === 'Untitled design' ? 'Untitled' : doc.name;
@@ -126,6 +128,7 @@ function linkedDescription(key) {
 function isParallelMultistage(variant) { return /^(two|three)_stage(?:_(helical|double))?$/.test(variant); }
 function classify(spec) {
   const key = spec.key;
+  if (spec.tooth_tip_group) return ['dimensions', spec.tooth_tip_group];
   if (doc.family === 'parallel' && isParallelMultistage(doc.draft.options.variant)) {
     if (/^layout_angle[23]$/.test(key) || ['stage_gap','hub_wall','assembly_clearance'].includes(key)) return ['assembly','Shaft layout'];
     if (/^intermediate_bore[12]$/.test(key)) return ['dimensions','Shafts & bores'];
@@ -152,6 +155,9 @@ function optionDisabled(spec, value) {
 }
 function changeOption(key, value) {
   const values = {[key]:value};
+  if (doc.family === 'parallel' && key === 'variant' && isParallelMultistage(value)) {
+    values.bearing_mode = 'manual'; values.hardware_mode = 'none';
+  }
   if (doc.family === 'double' && key === 'variant') values.double_style = value;
   if (doc.family === 'parallel' && key === 'variant' && isParallelMultistage(value)) {
     values.bearing_mode = 'manual'; values.hardware_mode = 'none';
@@ -161,6 +167,16 @@ function changeOption(key, value) {
     if (key === 'io_scheme') values.harmonic_output = value.split('_')[1] === 'circular' ? 'circular' : 'flex';
   }
   doc.editOptions(values);
+}
+function applyEccentricPreset(proposal) {
+  if (busy || schemaPending || !proposal?.available) return;
+  doc.checkpoint();
+  const numbers=clone(doc.entries);
+  for (const [key,value] of Object.entries(proposal.parameters)) {
+    if (typeof value === 'number') numbers[key]={text:automaticText(value),exact:value,typed:false};
+    else doc.draft.options[key]=value;
+  }
+  doc.ensure(schema);Object.assign(doc.entries,numbers);doc.changed();
 }
 // One help surface avoids stacked popovers. The anchor and pane share a
 // short pointer-leave grace, so crossing their gap never dismisses the guide.
@@ -217,7 +233,10 @@ function showParameterHelp(anchor,{keyboard=false,activation=keyboard ? 'keyboar
     loadHelpIllustrations().then(asset => {
       if (helpDisplaySerial !== displayedSerial || helpAnchor !== anchor || helpSpec !== displayedSpec || helpPane.hidden) return;
       const digest = asset.entries[displayedSpec.help.diagram_context], url = asset.images[digest];
-      if (url) appendHelpDiagram(body,url,displayedSpec.help);
+      if (url) {
+        const numberedDigest=asset.numbered_entries?.[displayedSpec.help.diagram_context];
+        appendHelpDiagram(body,url,displayedSpec.help,{url:asset.numbered_images?.[numberedDigest],labels:asset.annotations?.[numberedDigest]??[]});
+      }
     }).catch(() => { if (helpDisplaySerial === displayedSerial && helpAnchor === anchor && helpSpec === displayedSpec) body.append(node('p','Illustration unavailable. Close and reopen this guide to retry.','muted')); });
   }
   helpPane.append(heading,body); placeParameterHelp();
@@ -230,9 +249,21 @@ function loadHelpIllustrations() {
   }).then(asset => { if (asset.format !== 'ratiolab-help-illustrations/1') throw Error('Unsupported illustration asset.'); return asset; }).catch(error => { helpIllustrationsPromise = null; throw error; });
   return helpIllustrationsPromise;
 }
-function appendHelpDiagram(body,url,help) {
+function updateDiagramLanguage(figure) {
+  const data=figure.localizedDiagram;if(!data)return;
+  const localized=document.documentElement.lang!=='en'&&!!data.numbered;
+  figure.querySelector('img').src=localized?data.numbered:data.original;
+  data.legend.hidden=!localized;
+}
+document.addEventListener('ratiolab-language-change',()=>{ for(const figure of helpPane?.querySelectorAll('figure')??[])updateDiagramLanguage(figure); });
+function appendHelpDiagram(body,url,help,localized=null) {
   const figure = node('figure'), image = node('img'); image.src = url; image.alt = help.dimension ?? help.title;
   image.addEventListener('load',placeParameterHelp); figure.append(image,node('figcaption','Schematic illustration · not exact model geometry','muted')); body.append(figure);
+  if (localized?.url) {
+    const legend=node('ol',null,'diagram-legend');
+    for(const label of localized.labels)legend.append(node('li',label));
+    figure.append(legend);figure.localizedDiagram={original:url,numbered:localized.url,legend};updateDiagramLanguage(figure);
+  }
   const expand = node('button','Expand diagram'); expand.setAttribute('aria-expanded','false');
   expand.addEventListener('click',() => { const expanded = helpPane.classList.toggle('expanded'); expand.textContent = expanded ? 'Compact diagram' : 'Expand diagram'; expand.setAttribute('aria-expanded',String(expanded)); placeParameterHelp(); }); body.append(expand); placeParameterHelp();
 }
@@ -358,13 +389,27 @@ function renderFields() {
     const group = page === 'dimensions' && classifiedGroup === 'Main geometry' && !primaryKeys.has(spec.key) ? 'Additional geometry' : classifiedGroup;
     if (!groups.has(group)) {
       let section, target;
-      if (['Advanced · profile & clearances','Nominal operating loads','Drive connections','Bearings & fits','Standard hardware','Housing & flanges','Eccentric shaft construction','Shaft layout','Stage 1','Stage 2','Stage 3'].includes(group)) {
-        section = node('details'); const groupKey = `${tab}:${group}`; section.open = group.startsWith('Advanced') ? advancedOpen : parameterGroupOpen.get(groupKey) ?? !['Nominal operating loads','Standard hardware','Eccentric shaft construction'].includes(group);
+      if (group.endsWith('· tooth tips') || ['Advanced · profile & clearances','Nominal operating loads','Drive connections','Bearings & fits','Standard hardware','Housing & flanges','Eccentric shaft construction','Shaft layout','Stage 1','Stage 2','Stage 3'].includes(group)) {
+        section = node('details'); const groupKey = `${tab}:${group}`; section.open = group.startsWith('Advanced') ? advancedOpen : parameterGroupOpen.get(groupKey) ?? (!group.endsWith('· tooth tips') && !['Nominal operating loads','Standard hardware','Eccentric shaft construction'].includes(group));
         section.addEventListener('toggle',() => parameterGroupOpen.set(groupKey,section.open));
         section.append(node('summary',group.startsWith('Advanced') ? 'Advanced tooth geometry' : group==='Drive connections'?'Drive · input and output':group)); target = node('div',null,'field-group'); section.append(target);
         if (group.startsWith('Advanced')) section.addEventListener('toggle',() => { advancedOpen = section.open; });
       } else { section = target = node('div',null,'field-group'); if (group === 'Main geometry') section.className += ' primary-geometry'; else target.append(node('h3',group)); }
       groups.set(group,target);
+      if (group === 'Eccentric shaft construction' && doc.family === 'cycloidal' && doc.draft.options.eccentric_design !== 'fdm_bolted') {
+        const proposals=schema.eccentric_interface_presets ?? [];
+        const select=node('select');select.setAttribute('aria-label','DIN keyway preset');
+        for (const proposal of proposals) {
+          const option=node('option',proposal.label+(proposal.available?'':' · does not fit'));
+          option.value=proposal.id;select.append(option);
+        }
+        const initial=proposals.find(p=>p.available && p.shaft_diameter_mm===Number(doc.entries.input_shaft?.text)) ?? proposals.find(p=>p.available) ?? proposals[0];
+        if(initial)select.value=initial.id;
+        const apply=node('button','Apply DIN keyway preset'),reason=node('p',null,'subtle');apply.type='button';
+        const update=()=>{const p=proposals.find(p=>p.id===select.value);apply.disabled=busy||schemaPending||!p?.available;reason.textContent=p?.reason??'';};
+        select.addEventListener('change',update);apply.addEventListener('click',()=>applyEccentricPreset(proposals.find(p=>p.id===select.value)));
+        select.disabled=busy||schemaPending;update();target.append(select,apply,reason);
+      }
       if (page === 'dimensions' && !['Main geometry','Advanced · profile & clearances','Stage 1','Stage 2','Stage 3'].includes(group)) remainingParameters().append(section);
       else if (remaining) container.insertBefore(section,remaining); else container.append(section);
     }
@@ -454,11 +499,22 @@ function updateFamilyHeader() {
   $('model-catalog-caption').textContent = familyDefinition()?.label ?? 'Model catalog';
   const family = familyDefinition(); $('family').value = doc.family; $('family-description').textContent = family.description; $('family').title = family.description; $('model-title').textContent = family.label; updateModelChip();
 }
+function schemaParameters() {
+  const parameters={...doc.draft.options};let incomplete=false;
+  if(doc.family==='cycloidal')for(const field of schema.fields){
+    const parsed=numberValue(doc.entries[field.key],field);
+    if(parsed.error)incomplete=true;
+    else if(!parsed.omitted)parameters[field.key]=parsed.value;
+  }
+  return {parameters,incomplete};
+}
 async function refreshSchema() {
   const serial = ++schemaSerial, token = currentToken(), family = doc.family;
   schemaPending = true; updateActions();
   try {
-    const result = await engine.request('schema',{family,parameters:{...doc.draft.options}});
+    const request=schemaParameters();
+    const result = await engine.request('schema',{family,parameters:request.parameters});
+    if(request.incomplete && result.eccentric_interface_presets)result.eccentric_interface_presets=result.eccentric_interface_presets.map(p=>({...p,available:false,reason:'Complete the current dimensions before applying a preset.'}));
     if (serial !== schemaSerial || !isCurrent(token)) return false;
     schema = result; doc.ensure(schema); schemaPending = false; renderFields(); return true;
   } catch (error) {
@@ -484,8 +540,8 @@ async function generateCurrent() {
   try {
     // Wolfrom rejection retains the accepted worker source; document tokens
     // keep the rejected draft stale while its source snapshot remains usable.
-    if (family !== 'wolfrom') sourceParameters = null;
-    const result = await engine.request('generate',{family,parameters:parsed.values});
+    if (family !== 'wolfrom' && !(family === 'parallel' && isParallelMultistage(doc.draft.options.variant))) sourceParameters = null;
+    const result = await engine.request('generate',{family,parameters:parsed.values,quality:doc.state.quality || {}});
     if (serial !== operationSerial || !isCurrent(token)) return;
     generationRunning = false; fatal = false; rateEditing = false; rateSource = null; nominalFrame = null; doc.normalize(result.values,schema);
     const changedFamily = lastFamily !== family;
@@ -494,7 +550,7 @@ async function generateCurrent() {
     validToken = token; phase = 0; syncPhaseControl();
     if (changedFamily) { viewer.supports = family === 'differential'; $('show-supports').checked = viewer.supports; viewer.housing = false; $('show-housing').checked = false; }
     $('stage-message').hidden = true; $('stale-banner').hidden = true;
-    $('model-meta').textContent = `${result.triangle_count.toLocaleString()} triangles · nominal geometry · mm`;
+    $('model-meta').textContent = `${result.triangle_count.toLocaleString()} triangles · preview mesh · mm`;
     $('motion-summary').textContent = result.motion.message;
     renderFields(); renderMetrics(); renderInspection(); updateActions();
     if (initialClean) { initialClean = false; doc.markSaved(); } else saveRecovery();
@@ -522,6 +578,7 @@ async function onDocumentChange() {
   updateActions(); saveRecovery();
   if (doc.revision === previousRevision || startup) return;
   previousRevision = doc.revision; initialClean = false;
+  if (!analysisActive && isQualityEdit()) { await applyQuality(); return; }
   if (!analysisActive && isSpeedEdit()) {
     clearTimeout(generationTimer); validToken = null; rateEditing = true; rateSource = design; ++operationSerial;
     events.dispatchEvent(new CustomEvent('invalidate',{detail:{token:currentToken()}}));
@@ -602,14 +659,67 @@ function rememberSourceParameters() {
   // parallel/spur's double_style) which canonical generation intentionally omits.
   // Retain the exact normalized document snapshot that generated this source;
   // never treat an arbitrary absent canonical key as safe to ignore.
-  sourceParameters = {identity:doc.identity,family:doc.family,values:clone(doc.values(schema,linkedFields()).values)};
+  sourceParameters = {identity:doc.identity,family:doc.family,values:clone(doc.values(schema,linkedFields()).values),quality:clone(doc.state.quality || {})};
 }
+function isQualityEdit() {
+  return design && !busy && !schemaPending && !generationRunning && sourceParameters?.identity===doc.identity && sourceParameters.family===doc.family &&
+    JSON.stringify(sourceParameters.values)===JSON.stringify(doc.values(schema,linkedFields()).values) &&
+    (JSON.stringify(sourceParameters.quality || {})!==JSON.stringify(doc.state.quality || {}) || !validToken);
+}
+async function applyQuality() {
+  const token=currentToken(), source=design, frame=viewer.frame, wasPlaying=playing;
+  const selected=[...viewer.selected], hidden=[...viewer.hidden], currentPhase=phase;
+  clearTimeout(generationTimer);setPlaying(false);validToken=null;generationRunning=true;
+  const serial=++operationSerial;updateActions();status('Preparing surface detail…','warning');
+  events.dispatchEvent(new CustomEvent('invalidate',{detail:{token}}));
+  try {
+    const result=await engine.request('quality',{design_id:source.design_id,quality:doc.state.quality || {}});
+    if (!isCurrent(token) || serial!==operationSerial) return;
+    if (result.buffers_retained) { design={...source,...result,buffers:source.buffers};viewer.design=design; }
+    else { viewer.setDesign(result,{fit:false});design=result;viewer.hidden=new Set(hidden);if(frame)viewer.applyFrame(frame); }
+    generationRunning=false;validToken=token;rememberSourceParameters();phase=currentPhase;
+    // Returning from an invalid draft can reuse this accepted source. Refresh
+    // its field diagnostics as well as its representation and document token.
+    errors={};applyFieldErrors();
+    renderFields();renderMetrics();renderInspection();updateActions();saveRecovery();
+    $('model-meta').textContent=`${design.triangle_count.toLocaleString()} triangles · preview mesh · mm`;
+    $('stale-banner').hidden=true;
+    events.dispatchEvent(new CustomEvent('design',{detail:{design,token,representation:true}}));
+    viewer.setSelection(selected);setPlaying(wasPlaying);status('Surface detail updated · nominal construction retained');
+  } catch(error) {
+    if (!isCurrent(token) || serial!==operationSerial) return;
+    generationRunning=false;validToken=null;$('stale-banner').hidden=false;updateActions();status(error.message+' Previous preview retained; export is blocked.','error');
+  }
+}
+async function qualityDialog() {
+  if (!design || busy || generationRunning || schemaPending) return;
+  const body=node('div'), entries={};
+  body.append(node('p','Choose independent surface interpolation thresholds in millimetres. Blank fields retain each part’s default. Lower values request more detail.'));
+  for (const [key,title] of [['preview_mm','Preview'],['export_mm','Export']]) {
+    const row=node('label',null,'dialog-field'),input=node('input');input.type='text';input.inputMode='decimal';input.id='quality-'+key;
+    input.value=String(doc.state.quality?.[key] ?? '');input.placeholder='Part default (normally 0.02 mm)';row.append(node('span',title),input);body.append(row);entries[key]=input;
+    const presets=node('div',null,'camera-buttons');
+    for (const [label,value] of [['Fast','0.1'],['Standard','0.02'],['Fine','0.005'],['Part default','']]) { const b=node('button',label);b.type='button';b.addEventListener('click',()=>{input.value=value;});presets.append(b); }
+    body.append(presets);
+  }
+  body.append(node('p','These thresholds cover procedural sweep interpolation. The 2D tooth profile and explicit mesh/station constructions retain their current sampling. Export detail is generated when exporting.','muted'));
+  const token=currentToken();
+  if (await dialog('Surface detail',body,[{label:'Cancel',value:false},{label:'Apply',value:true,primary:true}])) {
+    if (!isCurrent(token)) {status('The document changed. Open Surface detail again.','error');return;}
+    try {const value={};for(const [key,input] of Object.entries(entries)) {const text=input.value.trim();if(text) {const parsed=numberValue({text,typed:true},{type:'number'});if(parsed.error)throw Error(parsed.error);value[key]=parsed.value;}}doc.setQuality(value);}
+    catch(error){status(error.message,'error');}
+  }
+}
+
 function isSpeedEdit() {
+  if (JSON.stringify(sourceParameters?.quality || {})!==JSON.stringify(doc.state.quality || {})) return false;
   if (!design || !schema || schemaPending || generationRunning || busy || fatal || design.family !== doc.family ||
       sourceParameters?.identity !== doc.identity || sourceParameters.family !== doc.family) return false;
   const parsed = doc.values(schema,linkedFields());
   if (Object.keys(parsed.errors).some(key => !speedKeys.has(key))) return false;
-  const keys = new Set([...Object.keys(parsed.values),...Object.keys(sourceParameters.values)]);
+  const geometricSources = values => Object.fromEntries(Object.entries(values._decimal_inputs || {}).filter(([key])=>!speedKeys.has(key)));
+  if (JSON.stringify(geometricSources(parsed.values))!==JSON.stringify(geometricSources(sourceParameters.values))) return false;
+  const keys = new Set([...Object.keys(parsed.values),...Object.keys(sourceParameters.values)].filter(key=>key!=='_decimal_inputs'));
   return [...keys].every(key => speedKeys.has(key) || Object.hasOwn(parsed.values,key) &&
     Object.hasOwn(sourceParameters.values,key) && parsed.values[key] === sourceParameters.values[key]);
 }
@@ -1123,13 +1233,13 @@ async function openProject(project, name) {
     if (!isCurrent(token) || serial !== operationSerial) return false;
     const nextSchema = await engine.request('schema',{family:result.family,parameters:result.values});
     if (!isCurrent(token) || serial !== operationSerial) return false;
-    startup = true; schema = nextSchema; doc.replace(result.family,schema,result.values,name); previousRevision = doc.revision; initialClean = false; startup = false;
+    startup = true; schema = nextSchema; doc.replace(result.family,schema,result.values,name,{quality:result.quality}); previousRevision = doc.revision; initialClean = false; startup = false;
     rateEditing = false; rateSource = null; nominalFrame = null; viewer.supports = result.family === 'differential'; viewer.housing = false; viewer.setDesign(result,{fit:true}); design = result; lastFamily = result.family; phase = 0; validToken = currentToken(); rememberSourceParameters();
     viewer.supports = result.family === 'differential'; viewer.housing = false; $('show-supports').checked = viewer.supports; $('show-housing').checked = false;
     busy = false; schemaPending = false; updateFamilyHeader(); renderFields(); renderMetrics(); renderInspection(); updateActions();
     $('stage-message').hidden = true; $('stale-banner').hidden = true; $('motion-summary').textContent = result.motion.message;
-    $('model-meta').textContent = `${result.triangle_count.toLocaleString()} triangles · nominal geometry · mm`;
-    doc.markSaved(); storage.remember(name,{format:catalog.project_format,family:result.family,parameters:clone(result.values)}); status(`Opened ${name}${result.ignored_parameters?.length ? ` · ignored ${result.ignored_parameters.length} obsolete or unknown settings` : ''}`); events.dispatchEvent(new CustomEvent('design',{detail:{design,token:currentToken()}})); if (await requestPose(0)) nominalFrame = clone(viewer.frame); return true;
+    $('model-meta').textContent = `${result.triangle_count.toLocaleString()} triangles · preview mesh · mm`;
+    doc.markSaved(); storage.remember(name,{format:catalog.project_format,family:result.family,parameters:clone(result.values),...(result.quality && Object.keys(result.quality).length ? {quality:clone(result.quality)} : {})}); status(`Opened ${name}${result.ignored_parameters?.length ? ` · ignored ${result.ignored_parameters.length} obsolete or unknown settings` : ''}`); events.dispatchEvent(new CustomEvent('design',{detail:{design,token:currentToken()}})); if (await requestPose(0)) nominalFrame = clone(viewer.frame); return true;
   } catch (error) {
     if (serial !== operationSerial || !isCurrent(token)) return false;
     busy = false; schemaPending = false; handleFatal(error);
@@ -1194,7 +1304,7 @@ async function saveProject({saveAs = false} = {}) {
       name = input.value.trim(); if (!name) return false; if (!name.endsWith('.json')) name += '.config.json';
     }
     downloadBlob(new Blob([result.buffers[result.buffer]],{type:result.mime}),name);
-    const project = {format:catalog.project_format,family:current.family,parameters:clone(current.values)};
+    const project = {format:catalog.project_format,family:current.family,parameters:clone(current.values),...(current.quality && Object.keys(current.quality).length ? {quality:clone(current.quality)} : {})};
     doc.markSaved(name); storage.remember(name,project); status('Project download prepared · keep the file to reopen it later.'); return true;
   } catch (error) { if (isCurrent(token) && error.name !== 'AbortError') { status(error.message,'error'); handleFatal(error); } return false; }
   finally { busy = false; renderFields(); updateActions(); }
@@ -1205,6 +1315,7 @@ async function exportDialog() {
   format.id = 'export-format'; group.htmlFor = format.id; group.append(node('span','Export format'),format);
   for (const [key,label] of [['step','STEP · CAD solids + metadata'],['stl','STL · printable meshes + metadata'],['profiles','SVG + DXF · planar profiles'],['bom','Component list · CSV + JSON'],['report','Calculation report · TXT + JSON'],['package','Complete package · all formats + preview'],['project','Project · editable RatioLab JSON']]) { const option = node('option',label); option.value = key; format.append(option); }
   body.append(group);
+  const detail=node('button','Surface detail…');detail.type='button';detail.addEventListener('click',()=>{$('app-dialog').finish?.(null);qualityDialog();});body.append(detail);
   const selection = selectedIndices(), scope = node('label',null,'check-control'), checkbox = node('input'); checkbox.id = 'export-selection'; checkbox.type = 'checkbox'; checkbox.checked = !!selection.length; checkbox.disabled = !selection.length;
   scope.append(checkbox,node('span',`Export selected components only (${selection.length} selected)`)); body.append(scope);
   const note = node('p',`The project format always saves the complete source configuration. Geometry and calculation exports can describe an explicit component subset. Exports use nominal coordinates, independently of section, explosion and playback.`,'export-scope'); body.append(note);
@@ -1246,14 +1357,18 @@ async function recentDialog() {
 async function recoverDocument() {
   if (!recovery || !catalog || busy) return;
   const body = node('div'); body.append(node('p',`${recovery.name} · ${new Date(recovery.time).toLocaleString()}`),node('p','Restore the unsaved parameter drafts from this browser. Invalid or incomplete entries remain available for correction.'));
-  if (await dialog('Recover an unsaved design',body,[{label:'Cancel',value:null},{label:'Restore draft',value:'recover',primary:true}]) !== 'recover') return;
+  const choice = await dialog('Recover an unsaved design',body,[{label:'Cancel',value:null},{label:'Dismiss',value:'dismiss'},{label:'Restore draft',value:'recover',primary:true}]);
+  if (choice === 'dismiss') {
+    recovery = null; storage.clearRecovery(); saveRecovery(); updateActions(); return;
+  }
+  if (choice !== 'recover') return;
   if (!await protectChanges()) return;
   const savedRecovery = recovery;
   try {
     const family = catalog.families.find(f => f.key === savedRecovery.state.family); if (!family) throw Error('The recovery uses an unsupported model.');
     clearTimeout(generationTimer); invalidate('Restoring parameter drafts…'); startup = true; schema = family;
     doc.replace(family.key,schema,{},savedRecovery.name,{recovery:savedRecovery}); previousRevision = doc.revision; initialClean = false; startup = false;
-    recovery = null; $('recovery-banner').hidden = true; updateFamilyHeader();
+    recovery = null; updateActions(); updateFamilyHeader();
     if (await refreshSchema()) { renderFields(); scheduleGeneration(0); }
   } catch (error) { startup = false; status('Recovery could not be restored: '+error.message,'error'); }
 }
@@ -1266,8 +1381,10 @@ async function boot({retry = false} = {}) {
     $('family').replaceChildren(); for (const family of catalog.families) { const option = node('option',family.label); option.value = family.key; $('family').append(option); }
     if (!catalog.families.some(f => f.key === doc.family)) throw Error('The current model is missing from the catalog.');
     schema = familyDefinition(); doc.ensure(schema); startup = false; previousRevision = doc.revision; updateFamilyHeader();
-    if (recovery) $('recovery-banner').hidden = false;
-    if (await refreshSchema()) { renderFields(); updateActions(); scheduleGeneration(0); }
+    if (await refreshSchema()) {
+      renderFields(); updateActions(); scheduleGeneration(0);
+      if (recovery) await recoverDocument();
+    }
   } catch (error) { startup = false; fatal = true; stageMessage('RatioLab could not start',error.message,{retry:true}); status(error.message,'error'); updateActions(); }
 }
 
@@ -1331,10 +1448,11 @@ function setup() {
   });
   $('retry-engine').addEventListener('click',() => boot({retry:true}));
   $('cancel-generation').addEventListener('click',cancelOperations);
-  $('recover-document').addEventListener('click',recoverDocument); $('dismiss-recovery').addEventListener('click',() => { recovery = null; storage.clearRecovery(); saveRecovery(); $('recovery-banner').hidden = true; });
+  $('recover-document').addEventListener('click',recoverDocument);
   $('fit-view').addEventListener('click',() => viewer.fit());
   for (const [id,key] of [['show-supports','supports'],['show-housing','housing'],['section-view','section']]) $(id).addEventListener('change',() => { viewer[key] = $(id).checked; if (key !== 'section') viewer.updateFraming(); viewer.render(); renderInspection(); });
   $('explosion').addEventListener('input',() => { setPlaying(false); viewer.explosion = Number($('explosion').value); viewer.render(); });
+  $('surface-quality').addEventListener('click',qualityDialog);
   $('play-motion').addEventListener('click',() => setPlaying(!playing)); $('reset-motion').addEventListener('click',resetMotion);
   $('phase-range').addEventListener('input',scrubPreviewPhase); $('motion-io').addEventListener('click',() => switchTab('motion'));
   $('motion-rpm').addEventListener('input',() => doc.editNumber('input_rpm',$('motion-rpm').value));
@@ -1415,15 +1533,17 @@ function setup() {
       if (!currentValid()) throw Error('Wait for a valid current model.');
       const definitions = new Map([...schema.fields,...schema.options].map(f => [f.key,f]));
       for (const [key,value] of Object.entries(values)) {
+        if (key==='_decimal_inputs') continue;
         const field = definitions.get(key); if (!field) throw Error('Unknown parameter: '+key);
         if (field.type === 'choice' && !field.choices.some(c => c.value === value) || field.type === 'boolean' && typeof value !== 'boolean' || ['number','integer'].includes(field.type) && (typeof value !== 'number' || !Number.isFinite(value))) throw Error('Invalid parameter value: '+key);
       }
       doc.checkpoint();
       const numbers = clone(doc.entries);
       for (const [key,value] of Object.entries(values)) {
+        if (key==='_decimal_inputs') continue;
         const field = definitions.get(key);
         if (['choice','boolean'].includes(field.type)) doc.draft.options[key] = value;
-        else numbers[key] = {text:automaticText(value),exact:value,typed:false};
+        else numbers[key] = {text:automaticText(value),exact:value,typed:false,...(values._decimal_inputs?.[key]===undefined?{}:{source:clone(values._decimal_inputs[key])})};
       }
       // ensure() selects or creates the context after option changes; preserve
       // this explicit transaction's numeric proposal in that target context.

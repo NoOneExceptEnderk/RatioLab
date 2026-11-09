@@ -4,20 +4,49 @@
 export const LANGUAGES = Object.freeze({'en':'English','it':'Italiano','es':'Español',
   'fr':'Français','de':'Deutsch','pt':'Português (Portugal)','ru':'Русский','zh-CN':'简体中文','ta':'தமிழ்'});
 
+const templateCache = new WeakMap();
+const placeholder = /\{(value|arg\d+|message\d+)\}/gu;
+const escapePattern = value => value.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
+function templatesFor(messages) {
+  if (templateCache.has(messages)) return templateCache.get(messages);
+  const buckets = new Map();
+  for (const [source,target] of Object.entries(messages)) {
+    const fields = [...source.matchAll(placeholder)];
+    if (!fields.length || !/[A-Za-z]{3}/u.test(source.replace(placeholder,''))) continue;
+    const chunks=[], names=new Set(); let position=0;
+    for (const field of fields) {
+      chunks.push(escapePattern(source.slice(position,field.index)));
+      const name=field[1];
+      if (names.has(name)) chunks.push('\\k<'+name+'>');
+      else { names.add(name); chunks.push('(?<'+name+'>'+(name==='value'?'[+−\\-0-9.,eE]+':'.*?')+')'); }
+      position=field.index+field[0].length;
+    }
+    chunks.push(escapePattern(source.slice(position)));
+    const prefix=source.slice(0,fields[0].index), key=prefix.slice(0,1);
+    if (!buckets.has(key)) buckets.set(key,[]);
+    buckets.get(key).push({prefix,pattern:new RegExp('^'+chunks.join('')+'$','su'),target});
+  }
+  for (const entries of buckets.values()) entries.sort((a,b)=>b.prefix.length-a.prefix.length);
+  templateCache.set(messages,buckets); return buckets;
+}
+
 export function translate(text, language, catalog) {
-  if (!text || language === 'en') return text;
+  if (!text) return text;
   const messages = catalog.translations[language] ?? {};
   if (Object.hasOwn(messages,text)) return messages[text];
-  for (const [source,target] of Object.entries(messages)) {
-    if (!source.includes('{value}')) continue;
-    const pattern = source.split('{value}').map(part => part.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')).join('([+−\\-0-9.,eE]+)');
-    const match = text.match(new RegExp('^'+pattern+'$','u'));
-    if (match) return target.replace('{value}',match[1]);
+  const templates=templatesFor(messages);
+  for (const {prefix,pattern,target} of [...templates.get(text.slice(0,1))??[],...templates.get('')??[]]) {
+    if (prefix && !text.startsWith(prefix)) continue;
+    const match=pattern.exec(text);
+    if (match) return target.replace(placeholder,(_,name)=>name.startsWith('message')?translate(match.groups[name],language,catalog):match.groups[name]);
   }
   const core = text.trim();
   if (!core) return text;
   if (core !== text) return text.slice(0,text.length-text.trimStart().length) + translate(core,language,catalog) + text.slice(text.trimEnd().length);
-  for (const prefix of ['☀ ','☾ ','文 ', 'A↔ ', '◐ ','✓ ','‹ ','○ ','● '])
+  if (core.includes('\n')) return core.split('\n').map(line=>translate(line,language,catalog)).join('\n');
+  const capitalized=core.slice(0,1).toUpperCase()+core.slice(1).toLowerCase();
+  if (core[0]===core[0].toLowerCase() && Object.hasOwn(messages,capitalized)) return messages[capitalized];
+  for (const prefix of ['☀ ','☾ ','文 ', 'A↔ ', '◐ ','✓ ','‹ ','○ ','● ','- ','• '])
     if (core.startsWith(prefix)) return prefix + translate(core.slice(prefix.length),language,catalog);
   for (const suffix of ['…','...',':'])
     if (core.endsWith(suffix)) return translate(core.slice(0,-suffix.length),language,catalog) + suffix;
@@ -36,7 +65,7 @@ export async function initLanguage(language='en', root=document.body) {
   if (!response.ok) throw Error('Could not load interface languages.');
   const catalog = await response.json();
   const sources = new WeakMap(), attributes = new WeakMap();
-  const excluded = 'script,style,textarea,code,pre,[data-no-i18n],#document-name,#document-state';
+  const excluded = 'script,style,textarea,code,pre:not([data-localize-report]),[data-no-i18n],#document-name,#document-state';
   let current = language;
   function text(node) {
     if (!node.parentElement || node.parentElement.closest(excluded)) return;
@@ -50,7 +79,7 @@ export async function initLanguage(language='en', root=document.body) {
     if (node.closest(excluded)) return;
     let records = attributes.get(node);
     if (!records) { records = {}; attributes.set(node,records); }
-    for (const key of ['title','aria-label','placeholder']) {
+    for (const key of ['title','aria-label','aria-description','placeholder','alt']) {
       const value = node.getAttribute(key);
       if (value == null) continue;
       let record = records[key];
@@ -72,6 +101,7 @@ export async function initLanguage(language='en', root=document.body) {
     current = code;
     document.documentElement.lang = code;
     visit(root);
+    document.dispatchEvent(new CustomEvent('ratiolab-language-change',{detail:code}));
   }
   setLanguage(language);
   const observer = new MutationObserver(records => {
@@ -81,6 +111,6 @@ export async function initLanguage(language='en', root=document.body) {
       else for (const node of record.addedNodes) visit(node);
     }
   });
-  observer.observe(root,{subtree:true,childList:true,characterData:true,attributes:true,attributeFilter:['title','aria-label','placeholder']});
+  observer.observe(root,{subtree:true,childList:true,characterData:true,attributes:true,attributeFilter:['title','aria-label','aria-description','placeholder','alt']});
   return {setLanguage, disconnect:() => observer.disconnect()};
 }

@@ -50,6 +50,27 @@ class ModelCatalogTests(unittest.TestCase):
             self.assertTrue((Path(__file__).resolve().parents[1]/'src/ratiolab_resources/model-catalog'/f'{family}.png').is_file())
         picker.window.close()
 
+    def test_live_language_changes_translate_placeholders_without_editing_input(self):
+        from gi.repository import Gtk
+        from ui_language import catalog, translate
+        a = self.launch()
+        before = deepcopy(a.project_snapshot())
+        picker = Catalog(a); a.model_catalog = picker
+        picker.window.present(); pump(.2)
+        entry = Gtk.Entry(placeholder_text='Project name')
+        entry.set_text('Tools')
+        picker.detail.append(entry)
+        picker.search.set_text('bevel-20-40.config.json')
+        for code in (*catalog()['languages'], 'en'):
+            a.language.change(code); pump(.02)
+            with self.subTest(language=code):
+                self.assertEqual(picker.search.get_placeholder_text(), translate('Search models…', code))
+                self.assertEqual(entry.get_placeholder_text(), translate('Project name', code))
+                self.assertEqual(entry.get_text(), 'Tools')
+                self.assertEqual(picker.search.get_text(), 'bevel-20-40.config.json')
+                self.assertEqual(a.project_snapshot(), before)
+        picker.window.close()
+
     def test_separated_face_variant_initializes_a_real_groove(self):
         a=self.launch();picker=Catalog(a);a.model_catalog=picker
         picker.choose('face','double_helical');picker.extra['double_style']='separated'

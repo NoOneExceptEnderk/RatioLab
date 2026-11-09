@@ -9,6 +9,7 @@ Keep this registry independent of GTK so coverage can be checked headlessly.
 """
 from parallel_multistage import VARIANTS as PARALLEL_MULTISTAGE_VARIANTS
 from dataclasses import dataclass, replace
+from parallel_multistage import VARIANTS as PARALLEL_MULTISTAGE_VARIANTS
 
 
 @dataclass(frozen=True)
@@ -55,7 +56,7 @@ COMMON = {
     'radius': H('Roller pitch radius · mm', 'Distance from the housing axis to each ring roller centre.', 'Sets the ring roller circle, not the roller surface radius. Increasing it enlarges the disc and housing arrangement.', 'eccentric', 'R = roller-centre radius'),
     'pin_radius': H('Ring roller radius · mm', 'Radius of each roller contacting the outer cycloidal profile.', 'The disc profile is the inward normal offset of the roller-centre trajectory. Changing roller radius changes the generated contact profile.', 'eccentric', 'r = ring roller radius'),
     'eccentric': H('Eccentricity · mm', 'Offset e between the main shaft axis and the disc / eccentric-bearing centre.', 'Increase eccentricity to make the disc centre travel in a larger orbit. The output holes must also grow: hole radius = output pin radius + eccentricity + output clearance.', 'eccentric', 'e = axis offset'),
-    'eccentric_flat_depth': H('D-shaft flat depth · mm', 'Radial amount removed from the shaft to form its flat; cut plane x = shaft radius − depth before clocking.', 'The matching cam bore receives the same flat plus half the diametral allowance. Depth must be smaller than the shaft radius; allowance must preserve the flat engagement. Round bearing journals remain below the cams.', 'text'),
+    'eccentric_flat_depth': H('D-shaft flat depth · mm', 'Flat depth specified by the external mating shaft drawing; cut plane x = shaft radius − depth before clocking.', 'The cam bore receives the same flat plus half the diametral allowance. Depth must be smaller than the shaft radius; allowance must preserve the flat engagement. Separate shaft bodies are left to CAD.', 'text'),
     'eccentric_bore_allowance': H('Cam bore diametral allowance · mm', 'Nonnegative diametral clearance added to the direct shaft bore, independently of disc and output-pin clearances.', 'Half this value is added to the bore radius. For a D bore its flat moves outward by the same radial amount. Key widths remain nominal catalog dimensions; actual fit classes and axial retention must be designed in CAD.', 'text'),
     'eccentric_connection_angle': H('Shaft connection clocking · degrees', 'Orientation of the D-flat or keyway about the common input shaft axis.', 'Zero points toward world +X in the initial pose; positive angles rotate toward +Y. Both opposing cams use the same shaft datum. This does not change the eccentric phase or the disc profile.', 'text'),
     'output_count': H('Output pin count', 'Number of pins transferring disc motion to the output flange.', 'Pins and matching disc holes are distributed around the output pitch circle. Count does not change the cycloidal ideal ratio.', 'eccentric', 'K = output pins'),
@@ -133,7 +134,7 @@ OPTIONS = {
     'ratio_mode': H('Side / transverse tooth ratio', 'Custom permits independent tooth counts; presets link the transverse bevel count to the side count.', 'The 1:1 preset uses equal counts. The 2:1 spin preset uses twice as many transverse teeth; it refers to relative spin, not a universal differential ratio.', 'bevel'),
     'output_interface': H('Output connection', 'Choose a drilled flange, solid output shaft or hollow output shaft for the differential.', 'Shows the matching flange or shaft dimensions. It changes the mechanical interface, not the bevel speed equations.', 'bore'),
     'carrier_style': H('Carrier construction', 'Open carrier or a split carrier with bearing-seat halves.', 'Changes carrier support geometry and exposes joining-hole dimensions where applicable. It does not select a bearing load capacity.', 'section'),
-    'eccentric_design': H('Eccentric shaft construction', 'Integral solid shaft, direct D-shaft, direct keyed shaft, separate plain bored cams or the FDM two-bolt stack.', 'The integral shaft is the default. Direct options generate matching shaft and cam profiles without an intermediate insert; axial retention remains to be designed in CAD. Keyed dimensions use the supported catalog; its preset explicitly changes dimensions. Plain bored cams still need CAD fixing. The FDM stack retains its dedicated seats and bolts.', 'eccentric'),
+    'eccentric_design': H('Eccentric shaft construction', 'Integral solid eccentric, D-shaped cam bores, keyed cam bores, plain bores or the FDM two-bolt stack.', 'The functional integral body remains the default. Separate shaft blanks are omitted from preview and exports; their connection dimensions are recorded for CAD. DIN keyway presets are enabled only when the existing geometry fits and do not resize the seat or disc. D-flats remain drawing-specific. Complete external shafts and axial retention in CAD.', 'eccentric'),
     'bearing_mode': H('Standard fit', 'Free dimensions leave catalog links off. Bearing in bore seats a bearing inside the member; shaft support places bearings on a shaft.', 'Catalog modes derive linked diameters and can enlarge axial dimensions. Supported modes depend on the family and drive connection.', 'bore'),
     'bearing': H('NSK bearing designation', 'Selects the local open-bearing catalog entry, labelled d × D × B in mm.', 'd is bore diameter, D outside diameter and B axial width. Linked seat/shaft dimensions use these values plus the chosen allowances.', 'bore', 'd × D × B'),
     'fit': H('Seat dimensions', 'Nominal uses catalog diameters; custom exposes signed seat and shaft diameter allowances.', 'These values define geometry only. They are not an ISO fit-class selection or a guaranteed manufactured interference.', 'bore'),
@@ -170,6 +171,17 @@ CHECK_LABELS = {OPTIONS[k].title: k for k in (
 def lookup(family, key, values=None):
     """Resolve a known control without silently inventing a generic fallback."""
     values = values or {}
+    from tooth_tips import KEYS
+    tip_key = next((name for name in KEYS if key == name or key.endswith('_'+name)), None)
+    if tip_key == 'topping_mm':
+        return H('Topping removal · mm', 'Radial material removed from the existing nominal tooth head.',
+                 'Decreases external tip radius, increases internal tip radius, or lowers rack tooth height. Zero preserves the original tip. Roots, pitch and tooth count remain unchanged.', 'pitch', 'da changes by twice the radial removal')
+    if tip_key == 'semitopping_mm':
+        return H('Semitopping height · mm', 'Radial height of the head chamfer, measured from the finished tip after topping.',
+                 'A secondary involute joins the primary gear flank; rack chamfers are straight. Can combine with topping. Must retain a top land and a working addendum; contact on the chamfer is excluded from effective coverage.', 'pitch', '0 = no semitopping')
+    if tip_key == 'semitopping_angle_deg':
+        return H('Semitopping angle · degrees', 'Pressure angle of the virtual semitopping ramp in the normal rack plane.',
+                 'Must exceed the normal working pressure angle when semitopping is enabled. This is a generating-ramp angle, not a bevel measured on an axial end face.', 'pitch', 'αK > αn')
     result = COMMON[key] if key in COMMON else OPTIONS[key]
     if family == 'face':
         changes={
@@ -366,6 +378,8 @@ def coverage_rows():
             if family == 'differential':
                 options.update(('configuration', 'ratio_mode', 'output_interface', 'carrier_style'))
             all_keys = keys | options
-            missing = sorted(k for k in all_keys if k not in COMMON and k not in OPTIONS)
+            from tooth_tips import specs as tip_specs
+            tip_keys={s[0] for s in tip_specs(family,variant)}
+            missing = sorted(k for k in all_keys if k not in COMMON and k not in OPTIONS and k not in tip_keys)
             rows.append(dict(family=family, variant=variant or 'standard', parameters=sorted(keys), options=sorted(options), missing=missing))
     return rows

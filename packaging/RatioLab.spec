@@ -4,8 +4,13 @@ from pathlib import Path
 import sys
 sys.path.insert(0, str(Path(SPECPATH)))
 from bundle_support import write_notices, write_font_config
+import importlib.util
 
 root = Path(SPECPATH).parent
+rust_spec=importlib.util.spec_from_file_location('ratiolab_rust_builder',root/'scripts/build-rust-engine.py')
+rust_builder=importlib.util.module_from_spec(rust_spec)
+rust_spec.loader.exec_module(rust_builder)
+rust_library=rust_builder.build()
 metadata = Path(os.environ['RATIOLAB_BUNDLE_METADATA'])
 version = os.environ['RATIOLAB_VERSION']
 font_config = write_font_config(root/'packaging/fonts', root/'packaging/fonts.conf', metadata.parent/'fontconfig/fonts.conf')
@@ -13,7 +18,7 @@ datas = [(str(font_config), 'etc/fonts')]
 datas += [(str(path), 'share/fonts') for path in (root/'packaging/fonts').iterdir() if path.suffix in ('.ttf', '.ttc')]
 a = Analysis(
     [str(root/'packaging/entrypoint.py'), str(root/'packaging/mcp_entrypoint.py')], pathex=[str(root/'src')],
-    binaries=[], datas=datas,
+    binaries=[(str(rust_library),'ratiolab_resources/native')], datas=datas,
     hiddenimports=['app', 'ratiolab_checks', 'ratiolab_resources', 'cairo', 'gi._gi_cairo',
                    'gi.repository.Gtk', 'gi.repository.Gdk', 'gi.repository.Gio',
                    'gi.repository.GLib', 'gi.repository.GObject'],

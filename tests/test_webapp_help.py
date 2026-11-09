@@ -62,6 +62,21 @@ class WebHelpTests(unittest.TestCase):
         self.assertNotEqual(image('differential', 'module'), image('spur', 'module'))
         self.assertNotEqual(image('wolfrom', 'module'), image('planetary', 'module'))
 
+    def test_numbered_diagrams_have_translatable_legends_and_original_contexts(self):
+        from ui_language import catalog, translate
+        self.assertEqual(set(self.asset['numbered_entries']),set(self.asset['entries']))
+        for context,digest in self.asset['numbered_entries'].items():
+            if digest is None:
+                continue
+            self.assertIn(digest,self.asset['numbered_images'])
+            for source in self.asset['annotations'][digest]:
+                for language in catalog()['languages']:
+                    if language != 'en':
+                        messages=catalog()['translations'][language]
+                        self.assertTrue(source in messages or source.capitalize() in messages,(context,source,language))
+                        if len(source)>20 and ' = ' not in source:
+                            self.assertNotEqual(translate(source,language),source,(context,source,language))
+
     def test_renderer_new_context_dependencies_require_asset_review(self):
         tree = ast.parse((ROOT/'src/parameter_help_diagrams.py').read_text())
         keys = {node.args[0].value for node in ast.walk(tree) if isinstance(node, ast.Call)

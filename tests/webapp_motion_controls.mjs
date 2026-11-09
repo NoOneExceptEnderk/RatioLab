@@ -13,7 +13,7 @@ class Element {
   setAttribute(){}
 }
 const nodes=new Map();const el=id=>{if(!nodes.has(id))nodes.set(id,new Element());return nodes.get(id);};
-globalThis.document={getElementById:el,querySelectorAll:()=>[],activeElement:null};
+globalThis.document=Object.assign(new EventTarget(),{getElementById:el,querySelectorAll:()=>[],activeElement:null});
 globalThis.localStorage={getItem:()=>null};
 let nextFrame=0;globalThis.requestAnimationFrame=()=>++nextFrame;globalThis.cancelAnimationFrame=()=>{};
 const modules={};

@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-only
 """Document history and local persistence; no GTK or geometry dependencies."""
 from copy import deepcopy
+from decimal import Decimal,InvalidOperation
 import json
 from math import isfinite
 import os
@@ -35,15 +36,16 @@ def comparable(snapshot):
     for family, fields in list(result.get('raw', {}).items()):
         for key, text in list(fields.items()):
             try:
-                number = float(text.strip().replace(',', '.'))
-                if isfinite(number):
-                    if result.get('values', {}).get(family, {}).get(key) == number:
+                number = Decimal(text.strip().replace(',', '.'))
+                if number.is_finite():
+                    stored=result.get('values', {}).get(family, {}).get(key)
+                    if isinstance(stored,(int,float)) and Decimal(str(float(stored)))==number:
                         # Automatic displays need no raw edit. Equivalent user
                         # text must not create a formatting-only history step.
                         fields.pop(key)
                     else:
                         fields[key] = number
-            except ValueError:
+            except (ValueError,InvalidOperation):
                 pass
         if not fields:
             result['raw'].pop(family)
@@ -139,9 +141,11 @@ class Document:
 
 def validate_snapshot(value, families):
     if (not isinstance(value, dict)
-            or set(value) not in ({'family', 'values', 'raw'},
-                                 {'family', 'values', 'raw', 'automatic'})):
+            or not {'family','values','raw'} <= set(value)
+            or set(value)-{'family','values','raw','automatic','quality'}):
         raise ValueError('Invalid recovery snapshot')
+    from geometry_quality import normalize
+    normalize(value.get('quality'))
     if value['family'] not in families:
         raise ValueError('Unsupported recovery family')
     if not isinstance(value['values'], dict) or not isinstance(value['raw'], dict):
@@ -151,8 +155,10 @@ def validate_snapshot(value, families):
     for family, parameters in value['values'].items():
         if family not in families or not isinstance(parameters, dict):
             raise ValueError('Invalid recovery configuration')
-        if not all(isinstance(k, str) and isinstance(v, (str, bool, int, float))
-                   and (not isinstance(v, float) or isfinite(v)) for k, v in parameters.items()):
+        from precise_numbers import SOURCE_KEY,valid_sources
+        if not all(isinstance(k,str) and (valid_sources(v) if k==SOURCE_KEY else
+                   isinstance(v,(str,bool,int,float)) and (not isinstance(v,float) or isfinite(v)))
+                   for k,v in parameters.items()):
             raise ValueError('Invalid recovery parameter value')
     for family, fields in value['raw'].items():
         if family not in families or not isinstance(fields, dict) or not all(

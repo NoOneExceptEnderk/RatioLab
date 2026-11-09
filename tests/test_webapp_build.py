@@ -4,6 +4,7 @@
 from io import BytesIO
 import importlib.util
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -79,16 +80,26 @@ class BuildTests(unittest.TestCase):
             self.assertTrue(runtime['allow_external'])
             self.assertEqual(runtime['indexURL'], 'https://cdn.jsdelivr.net/pyodide/v314.0.7/full/')
             self.assertNotIn('runtime/pyodide.mjs', manifest['files'])
-            self.assertTrue({'LICENSE', 'COPYRIGHT', 'source.zip', 'engine.zip'} <= set(first))
-            self.assertEqual(set(builder.ASSETS), {'engine-client.js', 'worker.js', 'index.html', 'app.css', 'app.js', 'model-catalog.js', 'choice-menu.js', 'ui-language.js', 'viewer.js', 'document.js', 'preferences.js', 'tools.js', 'tools.css', 'help-illustrations.json'})
+            self.assertTrue({'LICENSE', 'COPYRIGHT', 'source.zip', 'source-fonts.zip', 'engine.zip'} <= set(first))
+            self.assertEqual(set(builder.ASSETS), {'rust-engine.js', 'engine-client.js', 'worker.js', 'index.html', 'app.css', 'app.js', 'model-catalog.js', 'choice-menu.js', 'ui-language.js', 'viewer.js', 'document.js', 'preferences.js', 'tools.js', 'tools.css', 'help-illustrations.json'})
             self.assertEqual(set(builder.BRANDING), {'ratiolab-icon.png', 'ratiolab-logo-dark.png'})
             for name in builder.ASSETS:
                 self.assertEqual(first[name], (ROOT/'webapp'/name).read_bytes())
             for name in builder.BRANDING:
                 self.assertEqual(first['branding/'+name], (ROOT/'src/ratiolab_resources/branding'/name).read_bytes())
-            expected_static = set(builder.ASSETS) | {'branding/'+name for name in builder.BRANDING} | {'runtime.json', 'bundle-manifest.json', 'LICENSE', 'COPYRIGHT', 'source.zip', 'engine.zip', 'README.txt', 'serve.py'} | {'notices/'+name for name in builder.NOTICES}
+            expected_static = set(builder.ASSETS) | {'branding/'+name for name in builder.BRANDING} | {'runtime.json', 'bundle-manifest.json', 'LICENSE', 'COPYRIGHT', 'source.zip', 'source-fonts.zip', 'engine.zip', 'README.txt', 'serve.py'} | {'notices/'+name for name in builder.NOTICES}
             expected_static |= set(builder.UI_RESOURCES) | {'fonts/'+name for name in builder.FONTS}
+            expected_static |= {'ratiolab_geometry.wasm', 'rust-notices.zip'}
             self.assertEqual(set(first), expected_static)
+            self.assertEqual(first['ratiolab_geometry.wasm'], (ROOT/'target/wasm32-unknown-unknown/release/ratiolab_geometry.wasm').read_bytes())
+            with ZipFile(output/'rust-notices.zip') as archive:
+                notices=json.loads(archive.read('components.json'))
+                self.assertEqual(notices['format'], 'ratiolab-rust-notices/1')
+                self.assertTrue(notices['packages'])
+                for package in notices['packages']:
+                    for name in package['notice_files']:
+                        self.assertTrue(archive.read(name))
+                self.assertTrue(archive.read('rust-stdlib/COPYRIGHT-library.html'))
             self.assertEqual(first['serve.py'], (ROOT/'scripts/serve-webapp.py').read_bytes())
             self.assertEqual(first['README.txt'], (ROOT/'webapp/README.txt').read_bytes())
             for name in builder.NOTICES:
@@ -97,7 +108,13 @@ class BuildTests(unittest.TestCase):
                 for name in builder.RECIPES:
                     self.assertEqual(archive.read('scripts/'+name), (ROOT/'scripts'/name).read_bytes())
                 self.assertIn('docs/web-app.md', archive.namelist())
+                self.assertEqual(archive.read('docs/technical/curved-cad-prototype.md'),
+                                 (ROOT/'docs/technical/curved-cad-prototype.md').read_bytes())
+                self.assertEqual(archive.read('docs/technical/curved-cylindrical-cad.md'),
+                                 (ROOT/'docs/technical/curved-cylindrical-cad.md').read_bytes())
                 self.assertIn('webapp/README.txt', archive.namelist())
+                for name in ('Cargo.toml','Cargo.lock','rust-toolchain.toml','rust/geometry-kernel/src/precision.rs'):
+                    self.assertEqual(archive.read(name), (ROOT/name).read_bytes())
             with ZipFile(output/'engine.zip') as archive:
                 names = set(archive.namelist())
                 self.assertTrue({'backlash_solver.py', 'collision_geometry.py', 'combination_search.py',
@@ -118,16 +135,29 @@ class BuildTests(unittest.TestCase):
             extracted = Path(temporary)/'engine'
             with ZipFile(output/'engine.zip') as archive: archive.extractall(extracted)
             probe = "import sys,json;sys.path.insert(0,sys.argv[1]);import engine_bridge as b;r=json.loads(b.dispatch('generate',json.dumps({'family':'wolfrom','parameters':{}})));assert r['ok'],r;assert r['result']['triangle_count']>0;assert len(r['result']['parts'])==18;assert r['result']['analysis']['wolfrom']['signed_ratio']==600;assert 'gi' not in sys.modules"
-            result = subprocess.run([sys.executable, '-I', '-c', probe, str(extracted)], cwd=temporary, capture_output=True, text=True)
+            # The Python archive is an adapter closure, not a second engine.
+            # Supply the separately built native equivalent for this CPython
+            # probe; the browser itself executes the matching Wasm asset.
+            from rust_geometry import _library
+            probe_env=dict(os.environ,RATIOLAB_GEOMETRY_LIBRARY=_library()._name)
+            result = subprocess.run([sys.executable, '-I', '-c', probe, str(extracted)], cwd=temporary, env=probe_env, capture_output=True, text=True)
             self.assertEqual(result.returncode, 0, result.stderr)
             # Published corresponding source can rebuild without GTK source.
             source = Path(temporary)/'source'
             with ZipFile(output/'source.zip') as archive: archive.extractall(source)
+            with ZipFile(output/'source-fonts.zip') as archive:
+                for name in builder.FONTS:
+                    self.assertEqual(archive.read('packaging/fonts/'+name), (ROOT/'packaging/fonts'/name).read_bytes())
+                archive.extractall(source)
             rebuilt = Path(temporary)/'rebuilt'
+            # Corresponding source includes the complete locked Rust recipe.
+            result = subprocess.run([sys.executable, str(source/'scripts/build-rust-engine.py'), '--target', 'wasm', '--offline'], cwd=temporary, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
             result = subprocess.run([sys.executable, str(source/'scripts/build-webapp.py'), '--external-runtime', '--output', str(rebuilt)], cwd=temporary, capture_output=True, text=True)
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual((output/'engine.zip').read_bytes(), (rebuilt/'engine.zip').read_bytes())
             self.assertEqual((output/'source.zip').read_bytes(), (rebuilt/'source.zip').read_bytes())
+            self.assertEqual((output/'source-fonts.zip').read_bytes(), (rebuilt/'source-fonts.zip').read_bytes())
             self.assertEqual((output/'bundle-manifest.json').read_bytes(), (rebuilt/'bundle-manifest.json').read_bytes())
             for name in (*builder.ASSETS, *('branding/'+n for n in builder.BRANDING)):
                 self.assertEqual((output/name).read_bytes(), (rebuilt/name).read_bytes())

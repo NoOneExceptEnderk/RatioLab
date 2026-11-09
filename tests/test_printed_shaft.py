@@ -106,7 +106,7 @@ class PrintedShaftTests(unittest.TestCase):
     def test_legacy_and_json_roundtrip_preserves_fixed_hardware(self):
         legacy = generate('cycloidal', {'variant': 'dual', 'eccentric_design': 'standard'})
         self.assertEqual(legacy.values['eccentric_design'], 'standard')
-        self.assertTrue(any((p.name == 'Shaft_input' for p in legacy.parts)))
+        self.assertFalse(any((p.name.startswith('Shaft_') for p in legacy.parts)))
         self.assertFalse(any((p.name.startswith('Eccentric_printed_') for p in legacy.parts)))
         d = self.design()
         again = generate('cycloidal', json.loads(json.dumps(d.values)))
@@ -145,30 +145,30 @@ class PrintedShaftTests(unittest.TestCase):
             x, y, z = transform(plan.matrix(ring_i, phase), (40, 0, 0))
             self.assertAlmostEqual(x, 40 * cos(phase / 16))
             self.assertAlmostEqual(y, 40 * sin(phase / 16))
-            fixed_i = next((i for i, p in enumerate(d.parts) if p.name == 'Shaft_pincarrier'))
+            fixed_i = next((i for i, p in enumerate(d.parts) if p.name == 'Pin_output_1'))
             self.assertEqual(transform(plan.matrix(fixed_i, phase), (3, 2, 5)), (3, 2, 5))
 
     def test_housing_output_interfaces_are_watertight_and_clear_of_the_fixed_shaft(self):
         for variant in ('single', 'dual'):
             d = self.design(variant, io_scheme='eccentric_ring_output')
             byname = {p.name: p for p in d.parts}
-            shaft = byname['Shaft_pincarrier']
+            shaft = next(p for p in d.analysis['external_shafts'] if p['member']=='output')
             rings = [byname['Attachment_ring_Hub'], byname['Attachment_ring_Flange']]
             frame = byname['Attachment_output_Frame_flange']
             cover = byname['Cover_output']
             self.assertAlmostEqual(rings[0].z, cover.z + cover.width)
             self.assertAlmostEqual(rings[1].z, rings[0].z + rings[0].width)
             self.assertGreater(frame.z, rings[1].z + rings[1].width)
-            self.assertAlmostEqual(shaft.z + shaft.width, frame.z)
+            self.assertNotIn('Shaft_pincarrier',byname)
             for p in rings:
-                self.assertGreater(circle_info(p.holes[0])[2], circle_info(shaft.outer)[2] + d.values['assembly_clearance'])
+                self.assertGreater(circle_info(p.holes[0])[2], shaft['diameter_mm']/2 + d.values['assembly_clearance'])
             self.assertEqual(len(rings[1].holes) - 1, 6)
             self.assertEqual(len(frame.holes), 8)
             for p in d.parts:
                 if p.name.startswith(('Eccentric_', 'Disc_cycloidal', 'Pin_output_', 'Roller_ring_')):
                     self.assertLessEqual(p.z + p.width, rings[0].z + 1e-07)
             checker = test_stl_export.StlExportTests()
-            for p in rings + [frame, shaft]:
+            for p in rings + [frame]:
                 checker.assert_solid(p)
             again = generate('cycloidal', json.loads(json.dumps(d.values)))
             self.assertEqual(again.analysis['mount_interfaces'], d.analysis['mount_interfaces'])

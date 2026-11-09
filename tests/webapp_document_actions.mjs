@@ -22,7 +22,7 @@ class Element extends EventTarget {
 }
 const nodes=new Map();
 const el=id=>{if(!nodes.has(id))nodes.set(id,new Element());return nodes.get(id);};
-globalThis.document={getElementById:el,createElement:tag=>new Element(tag),querySelectorAll:()=>[],activeElement:el('motion-rpm')};
+globalThis.document=Object.assign(new EventTarget(),{getElementById:el,createElement:tag=>new Element(tag),querySelectorAll:()=>[],activeElement:el('motion-rpm')});
 globalThis.requestAnimationFrame=()=>{throw Error('Document confirmation must not wait on animation frames');};
 globalThis.cancelAnimationFrame=()=>{};
 globalThis.localStorage={getItem:()=>null};
@@ -31,7 +31,8 @@ await documentModule.link(()=>{throw Error('Unexpected document dependency');});
 const preferencesModule=new vm.SourceTextModule(fs.readFileSync(root+'webapp/preferences.js','utf8'));
 await preferencesModule.link(()=>{throw Error('Unexpected preference dependency');});await preferencesModule.evaluate();
 const downloads=[],remembered=[];
-const exports={...documentModule.namespace,storage:{readRecovery:()=>null,writeRecovery:()=>true,clearRecovery(){},recent:()=>[],remember:(...v)=>remembered.push(v)},downloadBlob:(blob,name)=>downloads.push({blob,name})};
+let recoveryClears=0,recoveryWrites=0;
+const exports={...documentModule.namespace,storage:{readRecovery:()=>null,writeRecovery:()=>{++recoveryWrites;return true;},clearRecovery(){++recoveryClears;},recent:()=>[],remember:(...v)=>remembered.push(v)},downloadBlob:(blob,name)=>downloads.push({blob,name})};
 const documentImport=new vm.SyntheticModule(Object.keys(exports),function(){for(const [k,v]of Object.entries(exports))this.setExport(k,v);});
 const dependency=(name,value)=>new vm.SyntheticModule([name],function(){this.setExport(name,value);});
 const dependencies={'./preferences.js':preferencesModule,'./document.js':documentImport,'./engine-client.js':dependency('EngineClient',class{}),'./viewer.js':dependency('ModelViewer',class{}),'./tools.js':dependency('initTools',()=>{})};
@@ -45,32 +46,39 @@ dependencies['./choice-menu.js']=dependency('initChoiceMenus',()=>({close(){}}))
 let source=fs.readFileSync(root+'webapp/app.js','utf8').replace(/setup\(\);\s*$/,'');
 // Avoid renderer/startup work while retaining the actual document action,
 // precision/normalization, lease checks, dialogs, and keyboard handlers.
-source+=`\nrenderFields=()=>{}; renderMetrics=()=>{}; renderInspection=()=>{}; updateFamilyHeader=()=>{}; applyFieldErrors=()=>{}; syncMotionControl=()=>{};
-export {doc,saveProject,runExport,exportDialog,newDocument,openProject,protectChanges,documentShortcut,commitRates,currentValid,documentActionReady,previewSpeed};
-export function initialize(testSchema,values,transport) {
-  startup=true; schema=structuredClone(testSchema); catalog={project_format:'solidcraft-riduttori/1',families:[{key:'parallel',...schema}]};
-  doc.replace('parallel',schema,values); engine=transport; fatal=false; busy=false; actionConfirmation=false; analysisActive=false;
+source+=`\nrenderFields=()=>{}; renderMetrics=()=>{}; renderInspection=()=>{}; updateFamilyHeader=()=>{}; syncMotionControl=()=>{};
+export {doc,saveProject,runExport,exportDialog,newDocument,openProject,protectChanges,documentShortcut,commitRates,currentValid,documentActionReady,previewSpeed,applyEccentricPreset,schemaParameters,recoverDocument,boot,generateCurrent};
+export function initialize(testSchema,values,transport,testFamily='parallel') {
+  startup=true; recovery=null; errors={};fields.clear();schema=structuredClone(testSchema); catalog={project_format:'solidcraft-riduttori/1',families:[{key:testFamily,...schema}]};
+  doc.replace(testFamily,schema,values); engine=transport; fatal=false; busy=false; actionConfirmation=false; analysisActive=false;
   generationRunning=false; schemaPending=false; rateEditing=false; rateSource=null; ratePending=false; rateCompletion=null;
   speedSliderPreview=null; speedSliderActive=false; speedSliderKeyActive=false;
   poseCompletion=Promise.resolve(); phase=1.234; operationSerial=10; previousRevision=doc.revision;
-  design={family:'parallel',design_id:7,values:structuredClone(values),motion:{supported:true},parts:[{index:0}],buffers:[new ArrayBuffer(12)]};
-  viewer={design,selected:new Set([0]),frame:{parts:[]},render(){},clear(){},setDesign(next){this.design=next;},captureNominal:async()=>new Uint8Array([1])};
+  design={family:testFamily,design_id:7,values:structuredClone(values),motion:{supported:true},parts:[{index:0}],triangle_count:1,buffers:[new ArrayBuffer(12)]};
+  viewer={design,selected:new Set([0]),hidden:new Set(),frame:{parts:[]},render(){},clear(){},setSelection(indices){this.selected=new Set(indices);},setDesign(next){this.design=next;},captureNominal:async()=>new Uint8Array([1])};
   nominalFrame={parts:[]}; playing=true; validToken=doc.token(); rememberSourceParameters(); scheduled=[]; startup=false;
 }
 doc.addEventListener('change',onDocumentChange);
 export function testState(){return {design,phase,playing,ratePending,rateEditing,busy,actionConfirmation,operation:operationSerial};}
 export function setPoseWait(promise){poseCompletion=promise;}
+export function setRecovery(value){recovery=value;updateActions();}
+export function pendingRecovery(){return recovery;}
 export function setAnalysis(value){analysisActive=value;}
 export function replaceSource(){design={...design};}
+export function observeNumericField(key){
+  const field={input:document.createElement('input'),feedback:document.createElement('div'),spec:schema.fields.find(f=>f.key===key)};
+  fields.set(key,field);return field;
+}
 let scheduled=[]; export function scheduledGenerations(){return scheduled;}
 refreshSchema=async()=>true; scheduleGeneration=delay=>scheduled.push(delay);
 `;
 const app=new vm.SourceTextModule(source);await app.link(path=>dependencies[path]);await app.evaluate();const a=app.namespace;
 const defer=()=>{let resolve,reject;const promise=new Promise((yes,no)=>{resolve=yes;reject=no;});return {promise,resolve,reject};};
 const settle=()=>new Promise(resolve=>setImmediate(resolve));
-let calls=[],rateGate=null,exportGate=null,canonical;
-const engine={failure:null,async request(method,payload){
+let calls=[],rateGate=null,exportGate=null,qualityGate=null,canonical;
+const engine={failure:null,cancel(){},async request(method,payload){
   calls.push({method,payload:structuredClone(payload)});
+  if(method==='catalog')return {project_format:'solidcraft-riduttori/1',families:[{...fixture.schema,key:'parallel'}]};
   if(method==='rates'){
     const values={...canonical,...payload.rpm_patch};
     if(rateGate)await rateGate.promise;
@@ -82,10 +90,11 @@ const engine={failure:null,async request(method,payload){
     const bytes=new TextEncoder().encode(JSON.stringify(project));
     return {buffer:0,buffers:[bytes],mime:'application/json',name:'export.json',bytes:bytes.length};
   }
+  if(method==='quality'){if(qualityGate)await qualityGate.promise;return {design_id:payload.design_id+1,quality:payload.quality,buffers_retained:true,buffers:[]};}
   if(method==='import_project')throw Error('Invalid canonical module');
   throw Error('Unexpected request '+method);
 }};
-function reset(){calls=[];downloads.length=0;remembered.length=0;rateGate=exportGate=null;canonical=structuredClone(fixture.values);el('app-dialog').close();a.initialize(fixture.schema,fixture.values,engine);}
+function reset(){calls=[];downloads.length=0;remembered.length=0;rateGate=exportGate=qualityGate=null;canonical=structuredClone(fixture.values);el('app-dialog').close();a.initialize(fixture.schema,fixture.values,engine);}
 function edit(text){a.doc.editNumber('input_rpm',text);}
 function choose(label){const button=el('dialog-actions').children.find(b=>b.textContent===label);assert.ok(button,`Missing action ${label}`);assert.equal(button.disabled,false);button.click();}
 async function downloaded(){assert.equal(downloads.length,1);return JSON.parse(await downloads[0].blob.text());}
@@ -162,4 +171,81 @@ assert.deepEqual(a.scheduledGenerations(),[0]);
 reset();const previewRevision=a.doc.revision;a.previewSpeed(321);
 assert.equal(a.doc.revision,previewRevision);assert.equal(a.testState().design.values.input_rpm,fixture.values.input_rpm);
 assert.equal(await a.saveProject(),true);assert.equal((await downloaded()).parameters.input_rpm,321);
+// An export-only quality edit retains source buffers for future context restore,
+// selection and the exact phase. No mechanical generation/rates RPC is needed.
+globalThis.requestAnimationFrame=()=>1;
+reset();const qualitySource=a.testState().design,qualityBuffers=qualitySource.buffers;
+const qualityRaw=structuredClone(a.doc.entries);
+a.doc.setQuality({export_mm:.005});await settle();
+assert.equal(a.currentValid(),true);assert.equal(a.testState().design.buffers,qualityBuffers);
+assert.equal(a.testState().design.parts,qualitySource.parts);assert.equal(a.testState().phase,1.234);
+assert.deepEqual(a.doc.entries,qualityRaw);assert.deepEqual(calls.map(c=>c.method),['quality']);
+// Undo back to an accepted precise source reuses its representation. The old
+// invalid-field diagnostic must clear; Redo to the incomplete draft must still
+// block export and display that diagnostic again.
+reset();const preciseValues={...fixture.values,_decimal_inputs:{module:'2.00000000000000000001'}};
+a.initialize(fixture.schema,preciseValues,engine);
+const preciseSource=a.testState().design,preciseEntries=structuredClone(a.doc.entries);
+const moduleField=a.observeNumericField('module');
+a.doc.editNumber('module','-');await settle();await a.generateCurrent();
+assert.equal(moduleField.input.attributes['aria-invalid'],'true');
+assert.equal(moduleField.feedback.hidden,false);assert.equal(a.currentValid(),false);
+assert(a.doc.undo());await settle();
+assert.equal(a.currentValid(),true);assert.deepEqual(a.doc.entries,preciseEntries);
+assert.equal(moduleField.input.attributes['aria-invalid'],'false');
+assert.equal(moduleField.feedback.textContent,'');assert.equal(moduleField.feedback.hidden,true);
+assert.equal(a.doc.values(fixture.schema).values._decimal_inputs.module,'2.00000000000000000001');
+assert.equal(a.testState().design.buffers,preciseSource.buffers);
+assert.equal(a.testState().design.parts,preciseSource.parts);
+assert.deepEqual(calls.map(c=>c.method),['quality']);
+assert(a.doc.redo());await settle();await a.generateCurrent();
+assert.equal(moduleField.input.attributes['aria-invalid'],'true');
+assert.equal(moduleField.feedback.hidden,false);assert.equal(a.currentValid(),false);
+// A late quality reply cannot overwrite a newer mechanical edit.
+reset();qualityGate=defer();const beforeQuality=a.testState().design;
+a.doc.setQuality({export_mm:.005});await settle();a.doc.editNumber('module','3');qualityGate.resolve();await settle();
+assert.equal(a.testState().design,beforeQuality);assert.equal(a.doc.entries.module.text,'3');assert.equal(a.currentValid(),false);
+// A preset is an explicit one-step edit; unrelated precision and dimensions
+// survive the construction-context switch, and unavailable proposals do nothing.
+const presetSchema=structuredClone(fixture.schema);
+presetSchema.fields.push(...['input_shaft','bore','width'].map(key=>({key,type:'number',default:10,minimum:0,maximum:100})));
+presetSchema.options.push({key:'eccentric_design',type:'choice',default:'integral',choices:[{value:'integral'},{value:'keyed_shaft'}]});
+a.initialize(presetSchema,{...fixture.values,input_shaft:4,bore:18,width:10},engine,'cycloidal');
+a.doc.editNumber('width','10.1234567890123');
+const prior=structuredClone(a.doc.state),presetPast=a.doc.past.length;
+a.applyEccentricPreset({available:false,parameters:{eccentric_design:'keyed_shaft',input_shaft:12}});
+assert.deepEqual(a.doc.state,prior);assert.equal(a.doc.past.length,presetPast);
+a.applyEccentricPreset({available:true,parameters:{eccentric_design:'keyed_shaft',input_shaft:6}});
+assert.equal(a.doc.draft.options.eccentric_design,'keyed_shaft');assert.equal(a.doc.entries.input_shaft.exact,6);
+assert.equal(a.doc.entries.width.text,'10.1234567890123');assert.equal(a.doc.entries.bore.exact,18);
+assert.equal(a.doc.past.length,presetPast+1);assert(a.doc.undo());assert.deepEqual(a.doc.state,prior);
+assert.equal(a.schemaParameters().parameters.width,10.1234567890123);
+assert.equal(a.schemaParameters().parameters.bore,18);assert.equal(a.schemaParameters().incomplete,false);
+a.doc.editNumber('bore','-');assert.equal(a.schemaParameters().incomplete,true);
+// Startup opens the actual modal. Deferring through Cancel, Escape or X keeps
+// the source record, current document and the Project recovery action intact.
+reset();edit('-');const draft=a.doc.recovery();draft.name='Deferred draft';
+for(const close of ['Cancel','Escape','Close']) {
+  reset();a.setRecovery(draft);const current=structuredClone(a.doc.state);
+  const writes=recoveryWrites,clears=recoveryClears;
+  const popup=close==='Cancel' ? a.boot() : a.recoverDocument();await settle();
+  assert.equal(el('app-dialog').open,true);
+  assert.equal(el('dialog-title').textContent,'Recover an unsaved design');
+  if(close==='Cancel')choose('Cancel');
+  else if(close==='Escape')el('app-dialog').dispatchEvent(new Event('cancel',{cancelable:true}));
+  else el('dialog-close').onclick();
+  await popup;assert.equal(el('app-dialog').open,false);
+  assert.deepEqual(a.doc.state,current);assert.equal(a.pendingRecovery(),draft);
+  assert.equal(el('recover-document').hidden,false);
+  assert.equal(recoveryClears,clears);assert.equal(recoveryWrites,writes);
+}
+reset();a.setRecovery(draft);const restoring=a.recoverDocument();choose('Restore draft');await restoring;
+assert.equal(a.doc.name,'Deferred draft');assert.equal(a.doc.entries.input_rpm.text,'-');
+assert.equal(a.doc.dirty,true);assert.equal(a.pendingRecovery(),null);
+assert.equal(el('recover-document').hidden,true);
+reset();a.setRecovery(draft);const currentBeforeDismiss=structuredClone(a.doc.state),clears=recoveryClears;
+const dismissing=a.recoverDocument();choose('Dismiss');await dismissing;
+assert.deepEqual(a.doc.state,currentBeforeDismiss);assert.equal(a.pendingRecovery(),null);
+assert.equal(recoveryClears,clears+1);assert.equal(el('recover-document').hidden,true);
+reset();await a.boot();assert.equal(el('app-dialog').open,false);
 console.log('document action checks passed');

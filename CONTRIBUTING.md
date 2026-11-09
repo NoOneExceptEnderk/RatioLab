@@ -9,6 +9,8 @@ Code contributions use GPL-3.0-only; see [LICENSE](LICENSE).
 
 - `src/` contains the application modules, which retain their top-level import
   names. `src/ratiolab_resources/` holds the runtime catalogs and branding.
+- `rust/geometry-kernel/` contains the shared native/WebAssembly kernel;
+  `rust-toolchain.toml` and `Cargo.lock` pin its toolchain and dependencies.
 - `tests/` contains the test suite and is included only in source distributions.
 - `docs/` contains user, installation, development and technical documentation.
 - `scripts/`, `packaging/` and `build-support/` contain distribution tooling.
@@ -20,10 +22,14 @@ Module filenames below refer to `src/`.
 
 ## Architecture and ownership
 
-- `geometry.py` validates parameters and builds `Design`/`Part` objects. Family
-  construction lives in `assemblies.py`, `geartrains.py`, `special_drives.py`
-  and related geometry modules. `engineering.py` and `kinematics.py` calculate
-  nominal results and member speeds; the GUI displays those results.
+- `geometry.py` normalizes parameters and assembles `Design`/`Part` objects.
+  `assemblies.py`, `geartrains.py`, `special_drives.py` and related modules
+  orchestrate families and catalog construction. The Rust kernel owns the
+  shared geometric/numerical operations; Python modules such as
+  `engineering.py` and `kinematics.py` adapt results and prepare application
+  reports. Preserve exact decimal source trees across this boundary rather
+  than adding a second Python calculation after a kernel error. See
+  [engine ownership](docs/technical/engine-integration.md).
 - `app.py`, `*_ui.py`, controls and `preview3d.py` own GTK widgets, user actions
   and rendering. Keep GTK/OpenGL imports out of the headless geometry,
   analysis, persistence and export modules.
@@ -54,14 +60,20 @@ selected exports retain their original positions through `source_indices`.
 Part names also identify constructed members in some motion and interface
 rules, so changes to names or ordering need more than a display review.
 
-`profile_sections()` and `solid_geometry.faces()` define the shared sampled
-surfaces used by preview, STL, picking and interference. Keep one geometry
-path. Standalone STEP may promote circles/cylinders only when explicit
+`profile_sections()` and `solid_geometry.faces()` sample one common nominal
+construction. `geometry_quality` selects independent preview/export policies;
+picking follows preview, while engineering checks retain the canonical policy.
+Keep one construction path and explicit representation identities. See
+[representations](docs/technical/geometry-representations.md). Standalone STEP may promote circles/cylinders only when explicit
 `CircleProfile` construction provenance is intact and its placement qualifies;
 an arbitrary polygon that happens to be equiradial is insufficient. Analytic
 STEP bounds and sampled mesh bounds can therefore differ slightly. Sampling
 thresholds describe numerical construction, not manufacturing tolerances.
 See [variants](docs/technical/variants.md) for construction-specific geometry and validation limits.
+The [curved spur CAD prototype](docs/technical/curved-cad-prototype.md) is an
+explicit development path with continuous source curves and optional independent
+OCCT verification. Keep it separate from ordinary export behavior and do not add
+the verifier's CAD bindings to application runtime dependencies.
 
 ## Preserve these invariants
 
@@ -93,6 +105,17 @@ See [variants](docs/technical/variants.md) for construction-specific geometry an
 
 ## Verification
 
+Install the independent test oracle with `python3 -m pip install mpmath==1.3.0`.
+After building both Rust targets with `python3 scripts/build-rust-engine.py --target all`,
+run `python3 scripts/check-rust-engine.py` for the required headless kernel suite.
+Use the [isolated Linux GUI recipe](docs/development.md#isolated-linux-gui-checks)
+for the required GTK/OpenGL suite. Its private D-Bus must also have a unique
+`XDG_RUNTIME_DIR` and disposable user directories. Both suites require a native
+library, Node.js and actual Wasm execution; any skip fails the command. Use
+`--report PATH` to retain results. `--tests MODULE...` is labelled a custom
+diagnostic subset and does not replace the full CI commands. The portable Linux
+workflow runs both required suites before packaging.
+
 After setting up the source environment in the [development guide](docs/development.md),
 run relevant tests from the repository root, then the complete suite:
 
@@ -103,7 +126,8 @@ PYTHONPATH=src python3 -m unittest discover -s tests -p 'test_*.py'
 
 Use the interpreter that can load the installed native bindings. GUI and
 OpenGL checks need a working desktop or the supported test display setup;
-report skips and unavailable graphics explicitly. Run desktop checks in the
-normal application environment; use software-rendering overrides only when
+report skips and unavailable graphics explicitly. Run desktop checks with the
+normal renderer/driver in an isolated test profile; use software-rendering
+overrides only when
 deliberately verifying that configuration. Add regression coverage for changed
 behavior and describe the checks and relevant limitations in your pull request.

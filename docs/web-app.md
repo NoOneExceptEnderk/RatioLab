@@ -1,7 +1,7 @@
 # RatioLab in a browser
 
-The browser app uses RatioLab's unchanged Python generation, motion, analysis
-and export modules through Pyodide in a Web Worker. It provides the desktop
+The browser app runs the shared Rust geometry kernel as WebAssembly with
+Python application and export adapters through Pyodide in a Web Worker. It provides the desktop
 workspace and fifteen model families with browser downloads and local project
 recovery. CAD connection bridges and the desktop MCP companion are excluded.
 Calculations happen in the browser; there is no calculation backend.
@@ -12,13 +12,22 @@ downloads for desktop use and CAD integrations. Verification covers the tested
 flows; it does not establish compatibility with every browser, operating system
 or graphics driver.
 
+This page describes a build from the current source tree. The hosted app and
+downloaded desktop packages can lag source changes; their release/deployment
+state is separate from a successful local build.
+
 ## Build and open locally
 
-Use Python 3.10 or newer for these stdlib-only commands, from the checkout or
-an extracted `source.zip`. No Node, npm, GTK or native CAD libraries are needed.
-Only the first command accesses the network, fetching six exact pinned files:
+Use Python 3.10 or newer and the pinned Rust toolchain from the checkout or
+an extracted `source.zip` with `source-fonts.zip` unpacked into the same directory.
+Both archives are included beside the browser app; splitting the unchanged font
+payloads keeps each download below the hosting size limit. No Node, npm, GTK or
+native CAD libraries are needed.
+The Rust build downloads locked dependencies on its first run; add `--offline`
+when they are cached. The runtime fetch downloads six exact pinned files:
 
 ```sh
+python3 scripts/build-rust-engine.py --target wasm
 python3 scripts/fetch-web-runtime.py
 python3 scripts/fetch-web-runtime.py --check-only
 python3 scripts/build-webapp.py --runtime-dir work/webapp-runtime
@@ -38,7 +47,7 @@ fixed URL; redirects are rejected. It checks exact sizes and SHA256 against
 and symlinks are preserved by failing instead of replacing them. Remove or move an unwanted file yourself
 before retrying. Unrelated cache metadata is retained.
 
-The build and preview commands never fetch dependencies. The builder has an
+The web bundle and preview commands never fetch dependencies. The builder has an
 explicit source/asset list, deterministic ZIP contents and a checksum manifest.
 It refuses to replace a foreign output directory or a bundle with extra/edited
 files. Choose another `--output PATH` to retain a modified bundle. Native wheels
@@ -52,7 +61,9 @@ with pycairo; `--check` compares output and recorded source provenance. Ordinary
 web builds and browser use do not require Cairo or GTK.
 
 For a portable copy, retain the entire built folder. It includes `README.txt`,
-`serve.py`, licenses, notices and readable corresponding source in `source.zip`.
+`serve.py`, licenses, Rust notices in `rust-notices.zip`, and readable corresponding
+source and the locked Rust build recipe in `source.zip`, with font payloads in
+`source-fonts.zip`. Extract both source archives into one directory to rebuild.
 After unpacking a complete portable ZIP, run `python3 serve.py` inside its folder
 (or `python serve.py` if that is your interpreter's name). The preview helper
 verifies every manifest file and rejects symlinks in listed paths before opening
@@ -77,7 +88,21 @@ Right mouse drag pans; left drag orbits. The upper-right orientation cube suppor
 face, edge and corner snaps and dragging. Its Home, Fit, Pan and Display controls
 replace the old View panel, retaining all display options in the sliders menu.
 
-**View** and **Tools** share a translucent panel over the right of the model, with no reduction in preview width. The results band sits above the motion controls, with the progressive RPM slider, playback speed and preview phase available directly. Scrubbing phase pauses the preview without editing the project. Hover over parameters or **Model & dimensions** for adjacent help; the information button and F1 also open it. The pointer can enter the guide, and leaving both the guide and parameter dismisses it. Original schematics can be expanded for readability. CAD connections and native updates remain desktop features.
+**Display options** and **Tools** use panels over the right of the model, without
+reducing preview width. The results band sits above the motion controls, with
+the progressive RPM slider, playback speed and preview phase available directly.
+Scrubbing phase pauses the preview without editing project parameters or export
+geometry; a reference turn is not necessarily a complete assembly cycle. Rack
+travel remains finite. Hover over parameters for adjacent help; the information
+button and F1 also open it. The pointer can enter the guide, and leaving both
+guide and parameter dismisses it. Original schematics can be expanded.
+CAD connections and native updates remain desktop features.
+
+For cylindrical models, **Dimensions → All model parameters** contains a
+collapsed **tooth tips** group for each active member/stage. Topping removal,
+semitopping height and normal ramp angle reach the same Rust construction as
+the desktop. Both amounts default to zero. See the
+[tooth-tip workflow, supported members and examples](https://github.com/NoOneExceptEnderk/RatioLab/blob/main/docs/tooth-tips.md).
 
 While dragging the RPM slider, the number previews your choice and the model
 keeps its applied speed. Releasing the pointer or adjustment key applies the
@@ -91,9 +116,16 @@ and unsaved draft recovery are local to this browser/origin, and private browsin
 or cleared site data can remove them. Undo/Redo preserve document edits.
 
 **Theme** is an on/off switch: on selects light, off selects dark. **Language** changes the
-interface labels using the same nine languages as the documentation. Both are
+interface text using the same nine languages as the documentation. Both are
 saved for this browser and site, independently of projects, history and numeric
-precision. Untranslated technical explanations and reports remain in English.
+precision. Technical parameter explanations, model limits and on-screen reports
+also use the selected language; schematics have numbered references and translated
+legends. Downloaded reports and structured model data keep their canonical content.
+
+Custom palette import/export, desktop Settings and customizable keyboard/mouse
+CAD presets are desktop features. Browser light/dark and language preferences
+remain local to this site; opening a desktop project does not import desktop
+appearance or control preferences.
 
 Tools include component surface measurements, theoretical gear metrology,
 finite combination search, discrete interference and working-backlash proposals.
@@ -124,7 +156,7 @@ Copy the complete self-hosted output folder to a static HTTPS host, preserving
 relative paths. No Python, API endpoint or server computation is required there.
 Serve `.mjs`/`.js` as `text/javascript` and `.wasm` as `application/wasm`.
 Missing assets must return an error, rather than an HTML application fallback.
-Retain licenses, notices and `source.zip` with the app. This recipe does not
+Retain licenses, notices, `source.zip` and `source-fonts.zip` with the app. This recipe does not
 publish or configure any host.
 
 The self-hosted runtime performs no external fetches during operation. It does
@@ -144,6 +176,8 @@ notices; they are not an exhaustive audit of the WebAssembly binary.
 
 RatioLab is [GPL-3.0-only](../LICENSE); the bundle includes readable application
 source, all browser build/fetch/serve scripts and this recipe in `source.zip`.
+The accompanying `source-fonts.zip` contains the unchanged fonts and their notices;
+extract both archives into the same directory for a complete rebuild.
 The runtime is supplied unmodified. Its corresponding upstream sources are
 [Pyodide 314.0.7](https://github.com/pyodide/pyodide/tree/314.0.7),
 [CPython 3.14.2](https://github.com/python/cpython/tree/v3.14.2) and

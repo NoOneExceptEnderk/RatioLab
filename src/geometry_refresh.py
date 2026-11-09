@@ -12,6 +12,7 @@ class Request:
     view_flags: tuple
     document_identity: str
     reconcile_token: object
+    quality: dict = None
 
 
 class LatestOnly:

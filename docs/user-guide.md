@@ -1,6 +1,31 @@
 # RatioLab user guide
 
-[Download and installation](installation.md) · [Agent integration](mcp.md)
+[Documentation index](README.md) · [Download and installation](installation.md) · [Agent integration](mcp.md)
+
+This guide follows the current source tree. Published installers, a local build
+and the hosted browser can differ; check the running version and its release
+notes for feature availability.
+
+Quick paths: [Workspace](#workspace) · [Settings and themes](preferences.md) ·
+[Keyboard/mouse presets](keyboard-shortcuts.md) · [Preview and phase](#preview-and-motion) ·
+[Tooth tips](tooth-tips.md) · [Projects and exports](#save-load-and-export) ·
+[Metrology](#theoretical-gear-metrology) · [Working backlash](#solve-working-backlash).
+
+Parallel reducers have independent **Number of stages** and **Tooth type**
+choices. Two/three-stage shafts can fold in the XY plane; their axes remain
+parallel. Each stage has its own dimensions, helix and optional groove. See
+[parallel trains](technical/parallel.md) for clearance and catalog limitations.
+
+The **Rack and pinion** family converts pinion rotation to finite linear travel
+along +X. Playback stops at its working limit; reverse input speed or reset to
+move back. It has no rotary repetition period. Its explicit axial construction
+retains the separate 0.003 mm vertex-trace limit; the general surface-detail
+setting does not certify total rack/profile accuracy. See [rack](technical/rack.md).
+
+An opt-in [mathematical CAD recipe](technical/mathematical-cad-contract.md)
+supports source regeneration independently of preview meshes. Initial native
+SolidCraft coverage is straight extrusions; other CAD constructions retain their
+declared export/prototype limits.
 
 ## Workspace
 
@@ -21,7 +46,7 @@ You can continue editing; only the latest matching request replaces the model.
 Export and geometry-dependent tools wait for the accepted result. Explicit
 project loads and refreshes can still take time to finish.
 
-The **Project** menu contains **New**, **Open…**, **Save**, **Save As…** and **Recent…**. **Export…** stays in the header; the second toolbar contains **Undo / Redo**, the current model, **Theme** and **Language**. The document line shows its full path and any unsaved changes. **CAD Connections** opens the SolidCraft and Autodesk Fusion connection chooser. After a successful connection, the main action becomes **Import in SolidCraft** or **Import in Fusion**; the arrow remains available to choose another CAD. Connecting does not import a model. The existing document, parameter and connection checks still apply. An eligible **Update to v…** button appears immediately to its left and opens update notes/options. **Tools** includes the bill of materials, calculation report and notes; the bottom bar shows model status and component count. In the browser, **Model** contains family and variant controls; the horizontal **Dimensions**, **Motion** and **Assembly** navigation beneath them selects the parameter section. The desktop app uses the same horizontal **Dimensions**, **Motion** and **Assembly** bar beneath its compact family and variant selectors. The panel remembers its active section, advanced group and scroll position when choices rebuild its fields. Linked dimensions explain their source and provide **Change source…** to open the relevant Assembly section.
+The native **File** menu at the top left contains **New**, **Open…**, **Save**, **Save As…**, **Recent…** and the existing model reset/update commands, grouped by separators with current keyboard shortcuts. The RatioLab logo and name are centered in the title bar; **CAD Connections** and **Export…** remain on its right. The second toolbar begins with **Undo / Redo** and the current model; **Language** and **Settings** are on the right. The document line shows its full path and any unsaved changes. **CAD Connections** opens the SolidCraft and Autodesk Fusion connection chooser. After a successful connection, the main action becomes **Import in SolidCraft** or **Import in Fusion**; the arrow remains available to choose another CAD. Connecting does not import a model. The existing document, parameter and connection checks still apply. An eligible **Update to v…** button appears immediately to its left and opens update notes/options. **Tools** includes the bill of materials, calculation report and notes; the bottom bar shows model status and component count. In the browser, **Model** contains family and variant controls; the horizontal **Dimensions**, **Motion** and **Assembly** navigation beneath them selects the parameter section. The desktop app uses the same horizontal **Dimensions**, **Motion** and **Assembly** bar beneath its compact family and variant selectors. The panel remembers its active section, advanced group and scroll position when choices rebuild its fields. Linked dimensions explain their source and provide **Change source…** to open the relevant Assembly section.
 
 With an analysis tool open, choose **Expand tool** beside **Tools**
 to give the panel the workspace area. **Restore workspace** returns to the
@@ -30,22 +55,73 @@ Closing the tool or pressing Escape also restores the workspace.
 
 Hover over a parameter or the **Model & dimensions** heading for a compact adjacent guide. Move into the guide to read or expand its original schematic; leaving both the parameter and guide dismisses it. Use the information button or **F1** for keyboard/touch access, and **Escape** or the close button to dismiss. Passive hover does not move input focus.
 
-Use the **Theme** on/off switch to toggle directly between **Dark** (off, default)
-and **Light** (on), and **Language** to
-change interface labels. The choices match the documentation languages: English,
+On desktop, choose **Dark** (default) or **Light** in **Settings → Appearance →
+Color mode**. The browser retains its **Theme** on/off switch. Use **Language** to
+change interface text. The choices match the documentation languages: English,
 Italiano, Español, Français, Deutsch, Português (Portugal), Русский, 简体中文 and
 தமிழ். Both choices apply immediately and are remembered for future sessions.
 They do not change numeric text, units, model identifiers, project files or history.
-Technical explanations, calculation reports and messages without a translation
-remain in English. Desktop preferences are saved in the user profile; web
+Parameter explanations, model limits, on-screen reports and technical messages
+use the selected language. Localized schematics use numbered references with
+translated legends. Downloaded reports and structured model data retain their
+canonical content. Desktop preferences are saved in the user profile; web
 preferences are saved for the current browser and site. A failed preference save
 keeps the selection for the current session and displays a notice.
+
+On desktop, open **Settings** in the second toolbar or press **Ctrl+,**.
+The settings pages are listed in the left sidebar. **Appearance** contains
+light/dark color mode, theme previews and text size (100%, 125% or 150%). Choose
+RatioLab, Slate, Nord or Warm as a starting palette. Expand **Interface colors**
+or **3D view colors** to edit a color with the picker or a hex value; press Enter
+or leave the field to confirm a typed value. The reset arrow restores that
+color, and **Restore preset colors** resets the selected palette's edits.
+Personalizations are retained separately for each preset and light/dark mode.
+
+**Export theme…** saves the current palette as a RatioLab theme JSON file;
+**Import theme…** adds it as the imported theme for its light/dark mode. Imported
+themes keep their original colors for reset, and edits can be exported again.
+Theme files contain appearance colors only. Projects, model parameters, mouse
+presets and keyboard bindings stay independent. The 3D controls change view
+background, grid, orientation labels and selection highlighting; part colors
+remain those of the model.
+
+**Controls** selects mouse navigation, adjusts zoom and orbit sensitivity,
+reverses the scroll direction and lets you customize keyboard shortcuts.
+**General** contains the interface
+language, parameter hover help and access to release notes and updates.
+Turning hover help off keeps the information buttons and **F1** available.
+Preferences apply immediately and are remembered independently of projects.
+
+In **Controls**, choose **RatioLab**, **FreeCAD**, **Fusion**, **SOLIDWORKS**,
+**Inventor** or **SolidCraft**, then select **Apply preset** to set both keyboard
+and mouse controls. **Mouse navigation** can also be chosen separately without
+replacing your keys; its description shows the active mouse gestures. Sensitivity
+and zoom direction are preserved when applying a preset. Click a command's
+shortcut to record a replacement; **Apply** confirms it and **Escape** cancels.
+Enable **Sequence of two keys** for a view command such as FreeCAD's **V, F**.
+**Clear shortcut** disables an assignment, the row's reset button restores its
+preset binding, and **Restore RatioLab controls** restores the original keyboard
+and mouse mappings.
+Conflicting assignments and prefixes are rejected before changing the active
+keys. View shortcuts work when the preview or orientation cube has focus;
+click the preview first. File and history shortcuts retain their application
+scope. See [keyboard and mouse presets and references](keyboard-shortcuts.md).
+
+The [Settings guide](preferences.md) explains which preferences are shared,
+mode-specific or exported, and how to reset or replace an imported palette.
 
 The **Explode** slider in **View** moves continuously from the assembled pose at **0.00** to the exploded pose at **1.00**. Moving it pauses motion; **Start motion** or **Initial pose** returns to the assembled pose. Explosion affects only the preview: geometry exports and package previews use nominal assembly coordinates. Component selection and surface measurements follow the displayed pose; changing the amount clears existing measurement points.
 
 Invalid input remains visible, with a field message when the generator identifies the cause. Geometry actions are blocked immediately while a geometry update is pending. Invalid geometry stops motion; the last valid model of the same family remains visible with an explicit warning that it does not match the current parameters. An incomplete or unconfirmed RPM entry keeps motion at the last valid speed. Pressing Enter, leaving the speed field or requesting a save/export confirms the entry; failed confirmation shows a field error and blocks geometry exports and CAD transfers until the speed is corrected, while prior motion continues. No automatic correction replaces an invalid numeric entry on focus loss.
 
 Numeric fields omit unnecessary leading and trailing zeros when you press Enter or leave a completed entry. Automatically displayed values use up to six decimal places (scientific notation for very small values), while calculations and saved projects retain their full precision. Explicitly entered decimal places are preserved, apart from redundant zeros; no additional decimal rounding is applied to typed input.
+
+Projects preserve extra decimal sources in `_decimal_inputs`; keep those sources
+consistent with their numeric parameters when editing JSON. Named analytic
+results can include twenty-place decimal records, while sampled geometry uses
+binary64 and GPU/binary STL coordinates use binary32. Displayed decimal places,
+arithmetic precision and geometric interpolation are different quantities; see
+[the precision contract](technical/rust-kernel.md#numerical-precision-and-sampled-geometry).
 
 Saved configurations from earlier versions still load their geometry and kinematics. Obsolete material, stress and production settings are ignored and omitted from newly saved configurations and reports. Previously exported files remain independent snapshots.
 
@@ -225,7 +301,21 @@ preview-only; pan and orientation do not edit the project or nominal exports.
 
 **Supports**, **Housing**, **Exploded** and **Section** control the view. Cycloidal output pins remain visible when Supports is disabled, in both single and dual disc variants.
 
-Use the motion controls below the results: **Start motion / Pause**, **Initial pose**, a precise RPM entry, the progressive RPM slider and ±1 controls. **Rate info** opens the current motion convention; **I/O connections** opens the Motion parameters. The reference phase is a readout of the current preview. Press Enter or leave the entry to apply; both decimal points and commas are accepted. All inputs at zero freeze the phase. Changing only valid RPM preserves the current phase.
+Use the motion controls below the results: **Start motion / Pause**, **Initial
+pose**, a precise RPM entry, the progressive RPM slider and ±1 controls.
+**Rate info** opens the current motion convention; **I/O connections** opens
+the Motion parameters. Press Enter or leave the RPM entry to apply; decimal
+points and commas are accepted. All inputs at zero freeze the phase. Changing
+only valid RPM preserves the displayed pose.
+
+The **reference phase slider** beside the playback buttons pauses and seeks
+the existing preview motion. For rotary models it shows one 0–360° reference
+turn, which can be only part of a complete labelled assembly cycle. For rack
+models its range follows the finite working stroke and the readout shows travel
+in mm. It follows playback and Initial pose automatically. Seeking does not
+change RPM, tooth clocking, model dimensions, Undo history or export geometry.
+It returns an exploded preview to the assembled view. Invalid/pending geometry,
+unsupported motion and all-zero operating rates disable the slider.
 
 Dragging the RPM slider previews the chosen number while the model retains its
 applied speed. Release the slider to apply the final value as one Undo step.
@@ -500,7 +590,11 @@ the installation format; see [updates and release notes](updates.md).
 
 A separate recovery record stores unsaved edits, including incomplete numeric text, in the per-user application data directory under `projects/recovery/`. On the next launch, choose **Restore**, **Discard recovery** or **Keep for later**. Corrupt records are reported and kept until explicitly discarded. Save and deliberate discard clear the current session's recovery; forced process/window destruction leaves it available. Recovery contains the current draft and clean checkpoint, while the in-memory undo history is limited to 200 changes. The project line reports filesystem failures affecting recovery. Recent paths live in `projects/recent-projects.json` beside that directory. Each session captures its own paths and uses a distinct recovery filename.
 
-Keyboard shortcuts: Ctrl+N (New), Ctrl+O (Open), Ctrl+S (Save), Ctrl+Shift+S (Save As), Ctrl+Z (Undo), Ctrl+Shift+Z or Ctrl+Y (Redo), Ctrl+W (Close), and Ctrl+E (Export). File actions and close wait for an active export or CAD operation to finish.
+Default keyboard shortcuts: Ctrl+N (New), Ctrl+O (Open), Ctrl+S (Save),
+Ctrl+Shift+S (Save As), Ctrl+Z (Undo), Ctrl+Shift+Z or Ctrl+Y (Redo), Ctrl+W
+(Close), and Ctrl+E (Export). Desktop assignments can be changed in
+[Settings → Controls](keyboard-shortcuts.md); the browser retains its existing
+bindings. File actions and close wait for an active export or CAD operation.
 
 **Export…** remembers the destination folder and provides:
 
@@ -580,9 +674,23 @@ rating. See the [equations and supported domains](technical/calculations.md).
 
 ## Accuracy and limitations
 
+Use Settings > Model precision (also available as Export > Surface detail) on
+desktop, or View > Surface detail in the browser,
+to choose independent preview and export interpolation thresholds in mm. Presets
+are editable; blank fields retain part defaults. These settings affect procedural
+swept surfaces, while transverse profiles and explicit mesh/station constructions
+retain their sampling. They do not specify total tooth or manufacturing accuracy.
+Export-only edits retain the displayed mesh; export detail is generated on demand.
+The desktop comparison calculates model-specific sweep and complete-model error
+bounds for each preset and the current entries, in mm and µm. Requested thresholds
+remain separate from verified total bounds; unsupported totals say **Not bounded**.
+The project, undo/redo and recovery preserve the settings. See the
+[precision editor and scope](preferences.md#model-precision-and-geometric-deviation) and
+[representation details](technical/geometry-representations.md).
+
 These are dimensional design models, not certified production designs. Materials, manufacturing tolerances, lubrication, seals, fastening details, strength, bearing life and load capacity must be defined and verified. Reports provide nominal geometry, contact ratios, kinematic relations and static force estimates using assumed operating data; no ISO/AGMA strength verification is performed.
 
-External cylindrical gears use a rounded normal rack envelope at the root, with trimming against the usable involute where undercut occurs. The tool's normal circular corner becomes an ellipse in transverse helical sections. Internal gears use a circular blend tangent to the involute and dedendum circle; a pinion-cutter envelope and cutter interference checks remain unimplemented. Involutes and root curves use adaptive midpoint/quarter checks at a nominal 0.015 mm chord threshold. Shared circular profiles use a maximum radial sampling deviation of 0.002 mm where specified. These sample thresholds do not certify global analytical profile error. Tool parameters, method, domain and usable involute limits are recorded in the calculation and CAD/profile metadata. The reports retain nominal contact ratios and additionally report usable involute contact ratios after root trimming/blending. Worm wheels use the matching screw helicoid envelope, including the swept generating-tip root transition. Strain-wave rings use the full swept outline of a thickened matching flexible tooth under the prescribed ellipse pitch-arc/normal map; the same material map drives animation and interference checks. Numerical ring enclosure relief is recorded separately from reference tooth backlash. These constructions and the spherical involute bevel flanks are documented with their supported domains and numerical limits in the [worm](technical/worm.md), [strain-wave](technical/strain-wave.md) and [differential](technical/differential.md) references. Tubes and freeform surfaces use their documented sampling. Complex bodies have a 250,000 face limit.
+External cylindrical gears use a rounded normal rack envelope at the root, with trimming against the usable involute where undercut occurs. The tool's normal circular corner becomes an ellipse in transverse helical sections. Internal gears use a circular blend tangent to the involute and dedendum circle; a pinion-cutter envelope and cutter interference checks remain unimplemented. Involutes and root curves use adaptive midpoint/quarter checks at a nominal 0.015 mm chord threshold. Shared circular profiles use a maximum radial sampling deviation of 0.002 mm where specified. These sample thresholds do not certify global analytical profile error. Tool parameters, method, domain and usable involute limits are recorded in the calculation and CAD/profile metadata. The reports retain nominal contact ratios and additionally report usable primary-involute contact after root trimming/blending and any enabled topping or semitopping. Worm wheels use the matching screw helicoid envelope, including the swept generating-tip root transition. Strain-wave rings use the full swept outline of a thickened matching flexible tooth under the prescribed ellipse pitch-arc/normal map; the same material map drives animation and interference checks. Numerical ring enclosure relief is recorded separately from reference tooth backlash. These constructions and the spherical involute bevel flanks are documented with their supported domains and numerical limits in the [worm](technical/worm.md), [strain-wave](technical/strain-wave.md) and [differential](technical/differential.md) references. Tubes and freeform surfaces use their documented sampling. Complex bodies have a 250,000 face limit.
 
 Strain-wave deformation is prescribed, without an elastic or loaded-contact solution. Reference tooth-thickness allowance does not establish loaded rotational lost motion. Nominal interface contact is not proof of torque transmission. Tests on presets do not certify all parameter combinations.
 
@@ -620,3 +728,22 @@ old proposals. The ordinary calculation report reflects the applied model.
 **Export TXT + JSON** saves the separate query, its source revision and parameters,
 requested/proposed values, full discrete check and proposed/applied context in a
 new folder under the export destination.
+
+
+## Tooth tips: topping and semitopping
+
+For cylindrical gears and reducers, and rack and pinion, expand the member's
+**tooth tips** group in Dimensions. Each gear/rim and stage has its own controls;
+identical planets share the corresponding rim settings.
+
+- **Topping removal** is radial material removed from the existing tooth head.
+- **Semitopping height** is measured from the finished head after topping.
+- **Semitopping angle** is the virtual ramp pressure angle in the normal rack
+  plane; when enabled it must be larger than the working pressure angle.
+
+Both amounts default to zero and can be combined. Changes affect the actual
+preview/export geometry and are saved in projects and history. Excessive
+removal, a vanished top land or insufficient effective contact is rejected.
+In the browser, expand **All model parameters** to reach the per-member groups.
+See the [step-by-step guide, examples and report interpretation](tooth-tips.md)
+and [construction equations and supported domains](technical/variants.md#cylindrical-topping-and-semitopping).

@@ -8,6 +8,7 @@ claim. Cancellation and time budgets are observed between core operations.
 """
 from parallel_multistage import VARIANTS as PARALLEL_MULTISTAGE_VARIANTS
 from copy import deepcopy
+from parallel_multistage import VARIANTS as PARALLEL_MULTISTAGE_VARIANTS
 from dataclasses import dataclass, field
 from itertools import product
 from math import isfinite, prod
@@ -124,19 +125,13 @@ def nominal_bounds(design, check=lambda: None):
     """
     low = [float('inf')]*3
     high = [-float('inf')]*3
+    from rust_surfaces import surface
     for part in design.parts:
         check()
-        levels = ([[[point(part, q[:2], q[2], 0) for q in loop] for loop in face] for face in part.mesh]
-                  if part.mesh else rings(part))
-        for level in levels:
-            check()
-            for loop in level:
-                for vertex in loop:
-                    for axis, coordinate in enumerate(vertex):
-                        if not isfinite(coordinate):
-                            raise ValueError('Non-finite nominal geometry.')
-                        low[axis] = min(low[axis], coordinate)
-                        high[axis] = max(high[axis], coordinate)
+        bounds=surface(part,check).call('solid_bounds',check)
+        for axis in range(3):
+            low[axis]=min(low[axis],bounds[0][axis])
+            high[axis]=max(high[axis],bounds[1][axis])
     if not all(map(isfinite, low+high)):
         raise ValueError('No finite solid geometry.')
     return tuple(low), tuple(high)

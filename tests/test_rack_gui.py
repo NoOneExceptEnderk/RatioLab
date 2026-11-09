@@ -54,7 +54,11 @@ class RackGuiTests(unittest.TestCase):
             self.assertEqual('helix' in a.inputs,variant!='spur')
             a.canvas.set_motion_playing(True)
             before=a.canvas.motion_phase;wait_until(lambda:a.canvas.motion_phase!=before)
-            a.canvas.advance_motion(a.canvas.motion_last+100)
+            # The first rendered frame may arrive after the finite stroke has
+            # already completed. Both a real frame and this explicit advance
+            # must stop at the same physical endpoint; a stopped clock is None.
+            if a.canvas.motion_playing:
+                a.canvas.advance_motion(a.canvas.motion_last+100)
             self.assertFalse(a.canvas.motion_playing)
             self.assertAlmostEqual(a.canvas.motion_phase,a.canvas.motion_plan.phase_limits[1])
             old=a.canvas.motion_plan.matrix(1,a.canvas.motion_phase)

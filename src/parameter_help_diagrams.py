@@ -35,6 +35,7 @@ class TextBox:
 class RenderInfo:
     kind: str
     labels: tuple
+    annotations: tuple = ()
 
 
 def gear_outline(cx, cy, radius=55, teeth=18, phase=0.):
@@ -80,9 +81,11 @@ def pressure_contact_geometry():
 
 
 class Drawing:
-    def __init__(self, cr):
+    def __init__(self, cr, numbered=False):
         self.cr = cr
         self.labels = []
+        self.numbered = numbered
+        self.annotations = []
 
     def path(self, points, *, close=False, color=INK, fill=None, width=1.5, dash=()):
         if not points:
@@ -114,6 +117,12 @@ class Drawing:
 
     def text(self, x, y, value, *, color=INK, size=13, anchor='left', max_width=None, bold=False):
         """Measure every annotation; fit by wrapping instead of tiny fonts."""
+        if self.numbered:
+            import re
+            if re.search(r'[A-Za-z]{3}', str(value)):
+                if value not in self.annotations:
+                    self.annotations.append(value)
+                value = '['+str(self.annotations.index(value)+1)+']'
         c=self.cr;c.select_font_face('Sans',0,1 if bold else 0);c.set_font_size(size)
         lines=[]
         for paragraph in str(value).split('\n'):
@@ -856,7 +865,7 @@ def _face(d, family, key, values):
     d.dimension((75,145),(111,145),'Band',offset=20)
     if key=='offset':
         d.line(190,65,322,65,dash=(4,3))
-        d.dimension((307,65),(307,87),'Offset',offset=12)
+        d.dimension((275,65),(275,87),'Offset',offset=12)
         d.footer('Signed Y shift · axis distance = |offset|')
     else:d.footer('Face wheel generated from the matching pinion')
 
@@ -869,7 +878,7 @@ def _rack(d, family, key, values):
     d.path([(30,177),(330,177),(330,147)]+list(reversed(top)),fill=FILL,color=EDGE,width=1.3,close=True)
     d.line(25,136,335,136,color=BLUE,dash=(5,3))
     d.arrow(210,193,298,193)
-    d.text(310,198,'+X',size=12)
+    d.text(310,181,'+X',size=12)
     d.text(234,62,'+Z shaft',size=12)
     d.footer('x = r θ · normal module shared by both members')
 
@@ -882,8 +891,8 @@ def _hypoid(d, family, key, values):
     d.axis(24,64,313,64)
     d.line(112,64,112,143,color=ORANGE,width=2,dash=(4,3))
     d.dimension((145,64),(145,143),'E',offset=-15)
-    d.text(36,29,'Pinion axis · +X',size=13)
-    d.text(32,205,'Wheel axis · +Z out of page',size=12)
+    d.text(36,49,'Pinion axis · +X',size=13)
+    d.text(32,182,'Wheel axis · +Z out of page',size=12)
     d.footer('Axes do not intersect when offset E is nonzero')
 
 
@@ -950,7 +959,7 @@ RENDERERS = {
 }
 
 
-def draw_diagram(area, cr, width, height, help, *, key='', family='', values=None):
+def draw_diagram(area, cr, width, height, help, *, key='', family='', values=None, numbered=False):
     """Render a 360 x 220 logical technical illustration into any viewport.
 
     Aspect ratio and context state are preserved. ``area`` is accepted for GTK
@@ -971,8 +980,8 @@ def draw_diagram(area, cr, width, height, help, *, key='', family='', values=Non
         cr.translate((width-360*scale)/2,(height-220*scale)/2)
         cr.scale(scale,scale)
         cr.set_line_join(1);cr.set_line_cap(1)
-        d=Drawing(cr)
+        d=Drawing(cr, numbered=numbered)
         RENDERERS[kind](d,family,key,values)
-        return RenderInfo(kind,tuple(d.labels))
+        return RenderInfo(kind,tuple(d.labels),tuple(d.annotations))
     finally:
         cr.restore()

@@ -22,6 +22,14 @@ def segment_min_radius(a,b):
     return math.hypot(a[0]+t*dx,a[1]+t*dy)
 
 
+def contains_independent(point,polygon):
+    x,y=point;inside=False
+    for a,b in zip(polygon,polygon[1:]+polygon[:1]):
+        if (a[1]>y)!=(b[1]>y) and x<a[0]+(y-a[1])*(b[0]-a[0])/(b[1]-a[1]):
+            inside=not inside
+    return inside
+
+
 def independent_clear(planet,ring):
     """Independent spatial-grid proper crossings and ray containment.
 
@@ -146,13 +154,45 @@ class PairedConstructionTests(unittest.TestCase):
                     self.assertIn('phases',validate_axial_pair(p,r,q['z1'],q['z2']))
 
     def test_deformed_axial_core_does_not_pass_vertex_radius_shortcut(self):
+        from solid_geometry import kernel_part
+        from rust_geometry import call
         d=generate('planetary',dict(variant='double'))
         planet=next(q for q in d.parts if q.name=='S1_Planet_1')
         ring=next(q for q in d.parts if q.name=='S1_Ring')
         malformed=transformed(planet.outer,angle=.1)
-        original=profile_sections
-        with patch('geometry.profile_sections',side_effect=lambda p:[(0,0,p.outer),(p.width/2,0,malformed)] if p is planet else original(p)):
-            self.assertIn('core',validate_axial_pair(planet,ring,18,54))
+        # The ordinary path derives sections inside Rust now. Keep the same
+        # adversarial rotated contour at the explicit-section verifier boundary.
+        args=dict(planet=kernel_part(planet),ring=kernel_part(ring),zp=18,zr=54,
+                  planet_sections=[dict(outer=malformed)])
+        self.assertIn('core',call('internal_axial',args))
+        with self.assertRaisesRegex(ValueError,'substituted'):
+            call('internal_axial_derived',args)
+
+    def test_partial_radial_shoulders_have_literal_subset_and_negative_controls(self):
+        from solid_geometry import kernel_part
+        from rust_geometry import call
+        d=generate('planetary',dict(variant='double'))
+        planet=next(q for q in d.parts if q.name=='S1_Planet_1')
+        ring=next(q for q in d.parts if q.name=='S1_Ring')
+        args=dict(planet=kernel_part(planet),ring=kernel_part(ring),zp=18,zr=54)
+        # These partial changes cross the old incircle/circumcircle shortcuts.
+        # Their real polygons remain contained by the radial-fan construction.
+        for fraction in (.01,.15,.8):
+            p=[(x*(1-.02*fraction),y*(1-.02*fraction)) for x,y in planet.outer]
+            r=[(x*(1+.002*fraction),y*(1+.002*fraction)) for x,y in ring.holes[0]]
+            self.assertTrue(all(contains_independent(q,planet.outer) for q in p))
+            self.assertTrue(all(contains_independent(q,r) for q in ring.holes[0]))
+            self.assertIsNone(call('internal_axial',dict(args,
+                planet_sections=[dict(outer=p)],ring_sections=[dict(hole=r)])))
+        bad=list(planet.outer);bad[0]=tuple(x*1.001 for x in bad[0])
+        self.assertIn('core',call('internal_axial',dict(args,
+            planet_sections=[dict(outer=bad)],ring_sections=[])))
+        rotated=transformed(planet.outer,angle=8e-11)
+        self.assertIn('core',call('internal_axial',dict(args,
+            planet_sections=[dict(outer=rotated)],ring_sections=[])))
+        bad=list(ring.holes[0]);bad[0]=tuple(x*.999 for x in bad[0])
+        self.assertIn('enlargement',call('internal_axial',dict(args,
+            planet_sections=[],ring_sections=[dict(hole=bad)])))
 
     def test_unresolved_stage_and_legacy_parameters_remain_visible(self):
         original=plan_planetary_internal_pair
@@ -169,7 +209,8 @@ class PairedConstructionTests(unittest.TestCase):
         supplied=json.loads(json.dumps(d.values));again=generate('planetary',supplied)
         self.assertEqual(again.values,supplied)
         self.assertEqual((again.values['sun'],again.values['planet'],again.values['input_rpm']),(18,18,123.456))
-        fixed=generate('internal');self.assertNotIn('construction_version',fixed.parts[1].profile_metadata.get('tooth_profile',{}))
+        fixed=generate('internal');self.assertEqual('fixed_internal_rack_pair_v1',fixed.parts[1].profile_metadata['tooth_profile']['construction_version'])
+        self.assertTrue(fixed.analysis['meshes'][0]['nominal_contact_within_usable_involutes'])
         self.assertTrue(any('pinion-cutter' in n for n in fixed.notes))
         self.assertTrue(any('Internal involute interference' in n for n in mesh(18,54,2,internal=True,strict=False)['warnings']))
 

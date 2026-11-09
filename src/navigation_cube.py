@@ -29,7 +29,8 @@ class NavigationCube(Gtk.DrawingArea):
     def drag(self,gesture,x,y):
         self.distance=max(self.distance,(x*x+y*y)**.5)
         if self.distance<4:return
-        self.canvas.yaw=self.orbit[0]+x*.008;self.canvas.tilt=max(-pi,min(pi,self.orbit[1]+y*.008))
+        speed=.008*getattr(self.canvas,'rotation_speed',1)
+        self.canvas.yaw=self.orbit[0]+x*speed;self.canvas.tilt=max(-pi,min(pi,self.orbit[1]+y*speed))
         self.canvas.queue_render();self.canvas.emit('view-changed','custom')
     def end(self,gesture,x,y):
         if self.distance<4:
@@ -38,9 +39,13 @@ class NavigationCube(Gtk.DrawingArea):
         self.set_cursor_from_name('grab')
     def key(self,controller,keyval,keycode,state):
         key=Gdk.keyval_name(keyval)
-        directions=[FACES[i][1] for i in (3,2,0,1,4,5)]
-        if key and len(key)==1 and key in '123456':self.canvas.orient(directions[int(key)-1]);return True
-        if key=='Home':self.canvas.view('iso');return True
+        shortcuts=getattr(self.canvas,'keyboard_shortcuts',None)
+        if shortcuts is not None:
+            if shortcuts.view_key(keyval,state):return True
+        else:
+            directions=[FACES[i][1] for i in (3,2,0,1,4,5)]
+            if key and len(key)==1 and key in '123456':self.canvas.orient(directions[int(key)-1]);return True
+            if key=='Home':self.canvas.view('iso');return True
         if key in ('Left','Right','Up','Down'):
             self.canvas.yaw+=.12*((key=='Right')-(key=='Left'))
             self.canvas.tilt=max(-pi,min(pi,self.canvas.tilt+.12*((key=='Down')-(key=='Up'))))
@@ -60,7 +65,7 @@ class NavigationCube(Gtk.DrawingArea):
             cr.set_source_rgba(*((.40,.49,.54) if light else (.46,.58,.63)),.32)
             cr.set_line_width(.65);cr.stroke()
             if central:
-                cr.set_source_rgb(*((.15,.23,.28) if light else (.87,.93,.95)))
+                cr.set_source_rgb(*self.canvas.palette['axes'])
                 cr.set_font_size(9)
                 text=name.upper();ex=cr.text_extents(text)
                 x=sum(p[0] for p in polygon)/4;y=sum(p[1] for p in polygon)/4

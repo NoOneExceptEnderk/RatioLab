@@ -45,9 +45,9 @@ class EngineeringTests(unittest.TestCase):
                     d = generate(family, {'variant': variant})
                     gears = [p for p in d.parts if p.profile_metadata.get('tooth_profile')]
                     for k, (a, b) in enumerate(zip(gears[::2], gears[1::2])):
-                        suffix = str(k+1) if k else ''
-                        z1 = d.values['pinion'+suffix]
-                        z2 = d.values['wheel'+suffix]
+                        from parallel_multistage import stage_key
+                        z1 = d.values[stage_key('pinion',k+1)]
+                        z2 = d.values[stage_key('wheel',k+1)]
                         for height in (0, 0.2, 0.8, 1):
                             aa = a.twist * (min(height, 1 - height) if a.double else height)
                             ab = b.twist * (min(height, 1 - height) if b.double else height)

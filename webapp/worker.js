@@ -1,6 +1,8 @@
 // SPDX-FileCopyrightText: 2026 NoOneExceptEnderk
 // SPDX-License-Identifier: GPL-3.0-only
 // Dedicated module worker. No project data leaves this worker through fetch.
+import {loadRustGeometry} from './rust-engine.js';
+
 let pyodide;
 let bridge;
 let activeMethod = '';
@@ -41,6 +43,14 @@ async function initialize() {
   if (manifest.format !== 'ratiolab-web-bundle/1' || !expected || archive.byteLength !== expected.size || await sha256(archive) !== expected.sha256) {
     throw new Error('Engine archive does not match its bundle manifest');
   }
+  const wasm = await (await fetchOK(new URL('./ratiolab_geometry.wasm', import.meta.url))).arrayBuffer();
+  const wasmExpected = manifest.files?.['ratiolab_geometry.wasm'];
+  if (!wasmExpected || wasm.byteLength !== wasmExpected.size || await sha256(wasm) !== wasmExpected.sha256) {
+    throw new Error('Rust geometry does not match its bundle manifest');
+  }
+  self.ratiolabRustRequest = await loadRustGeometry(wasm);
+  const kernel = JSON.parse(self.ratiolabRustRequest(JSON.stringify({protocol: 1, operation: 'capabilities', parameters: {}})));
+  if (!kernel.ok || kernel.result.implementation !== 'Rust') throw new Error('Invalid Rust geometry protocol');
   pyodide.unpackArchive(archive, 'zip', {extractDir: '/ratiolab-engine'});
   pyodide.runPython("import sys; sys.path.insert(0, '/ratiolab-engine')");
   bridge = pyodide.pyimport('engine_bridge');
@@ -49,7 +59,7 @@ async function initialize() {
   // Imports are performed before ready so missing dependencies fail at boot.
   const check = JSON.parse(bridge.dispatch('catalog', '{}'));
   if (!check.ok) throw new Error(check.error.message);
-  progress('ready', 'Python engine ready');
+  progress('ready', 'Rust geometry and Python application adapters ready');
   self.postMessage({type: 'ready', api_version: 1, runtime: {name: 'Pyodide', version: config.version, python: config.python}});
 }
 

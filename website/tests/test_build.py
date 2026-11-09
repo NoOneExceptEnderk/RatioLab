@@ -201,11 +201,23 @@ class ComposedSiteFixture(unittest.TestCase):
         (cls.web_root / 'packaging').symlink_to(REPO / 'packaging', target_is_directory=True)
         (cls.web_root / 'src').symlink_to(REPO / 'src', target_is_directory=True)
         (cls.web_root / 'scripts').mkdir()
-        for name in ('build-webapp.py', 'fetch-web-runtime.py', 'serve-webapp.py', 'generate-web-help.py'):
+        for name in ('build-rust-engine.py', 'build-webapp.py', 'fetch-web-runtime.py',
+                     'serve-webapp.py', 'generate-web-help.py', 'prototype-curved-cad.py',
+                     'verify-curved-cad.py', 'validate-cylindrical-mesh.py', 'cad-recipe.py'):
             shutil.copyfile(REPO / 'scripts' / name, cls.web_root / 'scripts' / name)
         (cls.web_root / 'docs').mkdir()
         shutil.copyfile(REPO / 'docs/web-app.md', cls.web_root / 'docs/web-app.md')
-        for name in ('LICENSE', 'COPYRIGHT'):
+        (cls.web_root / 'docs/technical').mkdir()
+        for name in ('rust-kernel.md', 'curved-cad-prototype.md', 'curved-cylindrical-cad.md',
+                     'mathematical-cad-contract.md', 'cad-recipe.schema.json', 'parallel.md',
+                     'rack.md', 'bevel-pair.md', 'hypoid.md', 'face-gears.md',
+                     'rust-new-families.md', 'variants.md'):
+            shutil.copyfile(REPO / 'docs/technical' / name, cls.web_root / 'docs/technical' / name)
+        (cls.web_root / 'rust').symlink_to(REPO / 'rust', target_is_directory=True)
+        # Exercise the actual prebuilt Wasm and locked notice inventory while
+        # retaining tiny fake Pyodide files for these publication-boundary tests.
+        (cls.web_root / 'target').symlink_to(REPO / 'target', target_is_directory=True)
+        for name in ('LICENSE', 'COPYRIGHT', 'Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml'):
             shutil.copyfile(REPO / name, cls.web_root / name)
         cls.runtime = cls.web_root / 'work/webapp-runtime'
         cls.runtime.mkdir(parents=True)

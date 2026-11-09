@@ -1,9 +1,9 @@
 # SPDX-FileCopyrightText: 2026 NoOneExceptEnderk
 # SPDX-License-Identifier: GPL-3.0-only
-"""Browser RPC boundary for the unchanged, standard-library RatioLab engine.
+"""Browser RPC boundary for the shared Rust geometry and Python application adapters.
 
-Only the active design is retained. Geometry calculations and canonical exports
-keep Python doubles; float32 little-endian arrays are a display transport only.
+Only the active design is retained. The Rust analytic API retains extended precision; sampled coordinates are binary64.
+Float32 little-endian arrays are a display transport only.
 All part selections are zero-based; export source positions stay one-based.
 """
 from array import array
@@ -32,7 +32,7 @@ MAX_TRIANGLES = 1000000
 MAX_EXPORT_BYTES = 134217728
 LIMITATIONS = [
     'Units are millimetres. Exports use nominal assembly coordinates.',
-    'Display buffers use float32; calculations and source geometry retain Python float64 precision.',
+    'Display buffers use float32; sampled source geometry uses binary64. Extended-precision analytic results have a separate precision record.',
     'Sampled geometry and ideal motion do not establish strength, service life or manufacturing readiness.',
     'SVG/DXF are local planar sections with placement metadata; twisted/deformed sections are not manufacturing developments.',
     'Strain-wave motion is prescribed deformation, not an elastic solution.',
@@ -141,10 +141,14 @@ def parameters_check(family, values):
         raise BridgeError('invalid_parameters', 'Parameters must be an object with string keys.')
     numeric = numeric_parameter_keys(family)
     options = option_definitions(family)
+    from precise_numbers import SOURCE_KEY,valid_sources
     for key, value in values.items():
+        if key==SOURCE_KEY:
+            if not valid_sources(value):raise BridgeError('invalid_parameters','Invalid precise numeric source map.')
+            continue
         field = options.get(key)
         if key in numeric or field and field['type'] == 'number':
-            if type(value) not in (int, float) or not isfinite(value):
+            if isinstance(value,bool) or not isinstance(value,(int,float)) or not isfinite(value):
                 raise BridgeError('invalid_parameters', key+': a finite numeric value is required.')
         elif field and field['type'] == 'boolean':
             if type(value) is not bool:
@@ -187,6 +191,10 @@ def schema(family, parameters=None):
         fields.append(dict(key=key, label=label, type='integer' if key in geometry.INTEGER else 'number', default=default,
                            minimum=low, maximum=high, step=step, advanced=key in advanced,
                            inactive=key in inactive, help=help_for(family, key, supplied)))
+        from tooth_tips import group as tip_group
+        tips = tip_group(family,supplied.get('variant'),key)
+        if tips:
+            fields[-1]['tooth_tip_group'] = tips[1]
     options = option_definitions(family)
     multistage = family == 'parallel' and supplied.get('variant') in geometry.PARALLEL_MULTISTAGE_VARIANTS
     if multistage:
@@ -197,6 +205,9 @@ def schema(family, parameters=None):
     for key, field in options.items():
         field.update(help=help_for(family, key, supplied))
     presentation = {}
+    if family == 'cycloidal':
+        from printed_shaft import interface_presets
+        presentation['eccentric_interface_presets']=interface_presets(supplied)
     if family == 'parallel':
         from parallel_multistage import selectors, SELECTOR_NOTICE
         presentation = dict(parallel_selectors=selectors(variant or 'spur'), parallel_selector_notice=SELECTOR_NOTICE)
@@ -314,9 +325,10 @@ class Engine:
         return index
 
     def project(self):
-        return dict(format=PROJECT_FORMAT, family=self.design.family, parameters=self.design.values)
+        from geometry_quality import project
+        return project(self.design)
 
-    def generate(self, family, parameters):
+    def generate(self, family, parameters, quality=None):
         # Wolfrom edits are transactional; browser document tokens still block
         # exports for an invalid draft. Other families keep their invalidation.
         transactional = family == 'wolfrom' or family == 'parallel' and isinstance(parameters, dict) and parameters.get('variant') in geometry.PARALLEL_MULTISTAGE_VARIANTS
@@ -325,7 +337,7 @@ class Engine:
             self.invalidate_queries()
             self.design_id += 1
         values = parameters_check(family, parameters)
-        design = geometry.generate(family, values)
+        design = geometry.generate(family, values, quality=quality)
         plan = motion.build_plan(design)
         if transactional:
             self.invalidate_queries()
@@ -334,62 +346,60 @@ class Engine:
         self.design, self.plan = design, plan
         return result
 
+    def set_quality(self, args):
+        from geometry_quality import with_quality, settings, summary
+        source = self.require(args)
+        candidate = with_quality(source, args.get('quality', {}))
+        preview_changed = settings(source).get('preview_mm') != settings(candidate).get('preview_mm')
+        self.design_id += 1
+        result = self.pack_design(candidate, self.plan) if preview_changed else dict(
+            design_id=self.design_id,quality=candidate.quality,representation=summary(candidate),buffers_retained=True)
+        self.invalidate_queries()
+        self.design = candidate
+        return result
+
     def pack_design(self, design, plan):
         """Pack an independent assembly without replacing the active source."""
         import stl_export
-        from solid_geometry import PALETTE
+        from solid_geometry import PALETTE,profile_report,sampling_report
         from engineering import geometry_warnings
+        from geometry_quality import summary
         values = design.values
         if len(design.parts) > 256:
             raise BridgeError('resource_limit', 'The browser supports at most 256 components.')
         parts, triangles = [], 0
         lower, upper = [float('inf')]*3, [-float('inf')]*3
         for index, part in enumerate(design.parts):
-            positions, normals, materials = array('f'), array('f'), array('f')
-            lo, hi = [float('inf')]*3, [-float('inf')]*3
-            references = None
+            from rust_surfaces import surface
+            options=dict(triangle_limit=MAX_TRIANGLES-triangles,compensated_sum=sys.version_info>=(3,12))
             if index in plan.flex:
-                from wave_geometry import material_vertices, unmap_point
-                references = material_vertices(part)
-                a, b = design.analysis['pitch_ellipse_semiaxes_mm']
-                rp = values['module']*values['teeth']/2
-            for triangle in stl_export.triangles(part):
-                triangles += 1
-                if triangles > MAX_TRIANGLES:
-                    raise BridgeError('resource_limit', 'Mesh exceeds the browser triangle limit.')
-                aa, bb, cc = triangle
-                u = [bb[k]-aa[k] for k in range(3)]
-                v = [cc[k]-aa[k] for k in range(3)]
-                normal = (u[1]*v[2]-u[2]*v[1], u[2]*v[0]-u[0]*v[2], u[0]*v[1]-u[1]*v[0])
-                length = sqrt(sum(x*x for x in normal))
-                if length <= 1e-15:
-                    raise BridgeError('invalid_geometry', 'Degenerate triangle: '+part.name)
-                normal = tuple(x/length for x in normal)
-                for point in triangle:
-                    positions.extend(point)
-                    normals.extend(normal)
-                    for axis in range(3):
-                        lo[axis] = min(lo[axis], point[axis]); hi[axis] = max(hi[axis], point[axis])
-                    if references is not None:
-                        if point not in references:
-                            weight = max(0, min(1, (point[2]+values['cup_length']-values['diaphragm'])/(values['cup_length']-values['diaphragm'])))
-                            references[point] = unmap_point(point[0]-part.center[0], point[1]-part.center[1], weight, a, b, rp)
-                        materials.extend(references[point])
-            if not positions:
-                raise BridgeError('invalid_geometry', 'Component has no mesh: '+part.name)
-            mesh = dict(positions=self.add_buffer(float_bytes(positions)), normals=self.add_buffer(float_bytes(normals)), vertex_count=len(positions)//3)
-            if materials:
-                mesh['material'] = self.add_buffer(float_bytes(materials))
+                a,b=design.analysis['pitch_ellipse_semiaxes_mm']
+                options['wave']=dict(a=a,b=b,rp=values['module']*values['teeth']/2,
+                    length=values['cup_length'],diaphragm=values['diaphragm'],
+                    metadata=part.profile_metadata.get('wave_mapping',{}))
+            try:
+                from geometry_quality import part as representation_part
+                shown=representation_part(design,part,'preview')
+                packed,positions,normals,materials=surface(shown).web_mesh(**options)
+            except ValueError as error:
+                if 'triangle limit' in str(error):raise BridgeError('resource_limit',str(error)) from error
+                if str(error).startswith(('Degenerate triangle','Component has no mesh')):
+                    raise BridgeError('invalid_geometry',str(error)+': '+part.name) from error
+                raise
+            triangles+=packed['triangles'];lo,hi=packed['bounds']
+            mesh=dict(positions=self.add_buffer(positions),normals=self.add_buffer(normals),vertex_count=len(positions)//12)
+            if materials:mesh['material']=self.add_buffer(materials)
             for axis in range(3):
                 lower[axis] = min(lower[axis], lo[axis]); upper[axis] = max(upper[axis], hi[axis])
             parts.append(dict(index=index, source_index=index+1, name=part.name, role=part.role,
                               color=part.color if part.color != (.35, .72, .9) else PALETTE[index % len(PALETTE)],
                               bounds_mm=dict(minimum=lo, maximum=hi), mesh=mesh, port=part.port,
                               center=part.center, frame=part.frame, axis_x=part.axis_x,
-                              profile_geometry=part.profile_metadata, manufacturing=part.manufacturing))
+                              profile_geometry=profile_report(shown), manufacturing=part.manufacturing,
+                              preview_sampling=sampling_report(shown)))
         return dict(design_id=self.design_id, family=design.family, values=design.values, metrics=design.metrics,
                     notes=design.notes, warnings=geometry_warnings(design), requirements=design.requirements,
-                    analysis=design.analysis, parts=parts, triangle_count=triangles,
+                    analysis=design.analysis, quality=design.quality, representation=summary(design), parts=parts, triangle_count=triangles,
                     bounds_mm=dict(minimum=lower, maximum=upper), motion=self.motion_metadata(design, plan), limitations=LIMITATIONS)
 
     def motion_metadata(self, design=None, plan=None):
@@ -506,7 +516,7 @@ class Engine:
         if self.design.values != data['base']:
             raise BridgeError('stale_query', 'The search baseline has changed.')
         row = data['proposals'][index]
-        checked = geometry.generate(self.design.family, deepcopy(row['values']))
+        checked = geometry.generate(self.design.family, deepcopy(row['values']),quality=self.design.quality)
         settings = settings_check(search.Settings, data['settings'])
         lo, hi = search.nominal_bounds(checked)
         if (checked.values != row['values'] or any(checked.values.get(k) != v for k, v in data['base'].items() if k not in data['axes'])
@@ -546,6 +556,8 @@ class Engine:
         proposal_id = uuid4().hex
         result = self.remember('backlash', dict(proposal_id=proposal_id, **proposal.payload(), applicable=proposal.applicable), proposal.text(), proposal)
         if proposal.design is not None:
+            from geometry_quality import with_quality
+            proposal.design=with_quality(proposal.design,design.quality)
             result['candidate'] = self.pack_design(proposal.design, motion.build_plan(proposal.design))
             result['candidate']['proposal_id'] = proposal_id
             result['candidate']['is_candidate'] = True
@@ -647,7 +659,8 @@ class Engine:
         surfaces = []
         for index in indices:
             if index not in self.surfaces:
-                self.surfaces[index] = component.triangles(design.parts[index])
+                from geometry_quality import part
+                self.surfaces[index] = component.triangles(part(design,design.parts[index],'preview'))
             ts = self.surfaces[index]
             matrix, offset = transforms.get(index, motion.IDENTITY), offsets.get(index, (0, 0, 0))
             if matrix != motion.IDENTITY or offset != (0, 0, 0):
@@ -708,6 +721,9 @@ class Engine:
                     if kind == 'report':
                         (folder/'model.calculations.txt').write_text(('SELECTED COMPONENTS ONLY. Calculations below describe the SOURCE configuration.\n\n' if hasattr(design, 'export_scope') else '')+report_text(design), encoding='utf-8')
                         (folder/'model.calculations.json').write_text(json_text(design.analysis)+'\n', encoding='utf-8')
+                    if kind in ('stl','step','svg','dxf','profiles'):
+                        from geometry_quality import report
+                        (folder/'geometry-quality.json').write_text(json_text(report(design,'export'))+'\n',encoding='utf-8')
                     if hasattr(design, 'export_scope'):
                         (folder/'selection.json').write_text(json_text(design.export_scope)+'\n', encoding='utf-8')
                     # Project parameters describe the source assembly, including for a subset.
@@ -728,7 +744,7 @@ class Engine:
         multi_target = target == 'parallel' and isinstance(parameters, dict) and parameters.get('variant') in geometry.PARALLEL_MULTISTAGE_VARIANTS
         retained_source = self.design is not None and (self.design.family == 'wolfrom' or
             self.design.family == 'parallel' and self.design.values.get('variant') in geometry.PARALLEL_MULTISTAGE_VARIANTS)
-        transactional = method in ('generate', 'import_project') and (target == 'wolfrom' or multi_target or
+        transactional = method == 'quality' or method in ('generate', 'import_project') and (target == 'wolfrom' or multi_target or
             method == 'import_project' and retained_source)
         if not transactional:
             return self._call(method, args)
@@ -749,7 +765,8 @@ class Engine:
         if method == 'catalog': return catalog()
         if method == 'schema': return schema(args.get('family'), args.get('parameters'))
         if method == 'validate': return dict(family=family_check(args.get('family')), values=parameters_check(args['family'], args.get('parameters', {})))
-        if method == 'generate': return self.generate(args.get('family'), args.get('parameters', {}))
+        if method == 'generate': return self.generate(args.get('family'), args.get('parameters', {}), args.get('quality'))
+        if method == 'quality': return self.set_quality(args)
         if method == 'import_project':
             project = args.get('project')
             if not isinstance(project, dict) or project.get('format') != PROJECT_FORMAT or 'selected_export' in project:
@@ -764,8 +781,9 @@ class Engine:
                 unsupported = set(parameters) & {'profile_shift', 'module2', 'fixed_ring', 'one_rim'}
                 if unsupported:
                     raise BridgeError('invalid_parameters', 'Unsupported Wolfrom parameter(s): '+', '.join(sorted(unsupported)))
-            known = numeric_parameter_keys(family) | option_definitions(family).keys()
-            result = self.generate(family, {key: value for key, value in parameters.items() if key in known})
+            from precise_numbers import SOURCE_KEY
+            known = numeric_parameter_keys(family) | option_definitions(family).keys() | {SOURCE_KEY}
+            result = self.generate(family, {key: value for key, value in parameters.items() if key in known}, project.get('quality'))
             result['ignored_parameters'] = sorted(parameters.keys() - known)
             return result
         if method == 'project':

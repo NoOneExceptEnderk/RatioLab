@@ -39,6 +39,7 @@ def contexts(family):
 def generate():
     import cairo
     images, entries, kinds = {}, {}, set()
+    numbered_entries, numbered_images, annotations = {}, {}, {}
     for family in geometry.FAMILIES:
         for values in contexts(family):
             current = bridge.schema(family, values)
@@ -52,6 +53,7 @@ def generate():
                     continue
                 if diagrams.diagram_kind(family, key, help) == 'text':
                     entries[context] = None
+                    numbered_entries[context] = None
                     continue
                 surface = cairo.ImageSurface(cairo.FORMAT_ARGB32, 720, 480)
                 info = diagrams.draw_diagram(None, cairo.Context(surface), 720, 480, help,
@@ -59,13 +61,22 @@ def generate():
                 stream = BytesIO(); surface.write_to_png(stream); data = stream.getvalue()
                 digest = sha256(data).hexdigest(); images[digest] = 'data:image/png;base64,'+base64.b64encode(data).decode('ascii')
                 entries[context] = digest; kinds.add(info.kind)
+                surface = cairo.ImageSurface(cairo.FORMAT_ARGB32, 720, 480)
+                numbered = diagrams.draw_diagram(None, cairo.Context(surface), 720, 480, help,
+                    key=key, family=family, values=values, numbered=True)
+                stream = BytesIO(); surface.write_to_png(stream); data = stream.getvalue()
+                digest = sha256(data).hexdigest()
+                numbered_entries[context] = digest
+                numbered_images[digest] = 'data:image/png;base64,'+base64.b64encode(data).decode('ascii')
+                annotations[digest] = list(numbered.annotations)
     sources = {path:sha256((ROOT/path).read_bytes()).hexdigest() for path in
                ('src/parameter_help.py', 'src/parameter_help_diagrams.py', 'webapp/engine_bridge.py', 'scripts/generate-web-help.py')}
     return dict(format='ratiolab-help-illustrations/1', sources=sources,
                 logical_size=[360,220], pixel_size=[720,480],
                 renderer=dict(cairo=cairo.cairo_version_string(), pycairo=cairo.version, font='sans; canonical Cairo renderer'),
                 description='Original RatioLab Cairo schematics; not exact model geometry. Development generator: scripts/generate-web-help.py.',
-                kinds=sorted(kinds), entries=entries, images=images)
+                kinds=sorted(kinds), entries=entries, images=images,
+                numbered_entries=numbered_entries, numbered_images=numbered_images, annotations=annotations)
 
 
 def main():

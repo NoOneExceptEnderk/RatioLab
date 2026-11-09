@@ -3,6 +3,7 @@
 """GTK controls for selecting physical members without decoding permutations."""
 from parallel_multistage import VARIANTS as PARALLEL_MULTISTAGE_VARIANTS
 import gi
+from parallel_multistage import VARIANTS as PARALLEL_MULTISTAGE_VARIANTS
 gi.require_version('Gtk', '4.0')
 from gui_workflow import choice_dropdown
 from gi.repository import Gtk

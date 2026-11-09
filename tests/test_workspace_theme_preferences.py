@@ -67,6 +67,7 @@ class WorkspaceThemePreferencesTests(unittest.TestCase):
         before=deepcopy(app.project_snapshot())
         design=app.design
         self.assertFalse(app.theme_switch.get_active())
+        self.assertIsNone(app.theme_switch.get_parent())
         self.assertFalse(hasattr(app,'theme_popover'))
         for active, theme in ((True,'light'), (False,'dark'), (True,'light')):
             app.theme_switch.set_active(active);pump(.1)
@@ -76,10 +77,10 @@ class WorkspaceThemePreferencesTests(unittest.TestCase):
             self.assertIs(app.design,design)
             self.assertEqual(app.project_snapshot(),before)
         app.language.change('it');pump(.1)
-        self.assertEqual(app.theme_caption.get_label(),'Tema')
+        self.assertIs(app.appearance_button, app.settings_button)
         app.theme_switch.set_active(False);pump(.1)
         self.assertEqual(app.workspace_theme,'dark')
-        self.assertEqual(app.theme_caption.get_label(),'Tema')
+        self.assertFalse(app.theme_switch.get_mapped())
 
     def test_missing_or_invalid_preference_keeps_existing_dark_default(self):
         app = self.launch()

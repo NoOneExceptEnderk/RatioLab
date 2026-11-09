@@ -20,25 +20,21 @@ def _number(value, name, positive=False):
         raise ValueError(name+' must be finite.')
     if value < 0 or (positive and value == 0):
         raise ValueError(name+(' must be positive.' if positive else ' must be nonnegative.'))
-    return float(value)
+    from precise_numbers import PreciseFloat
+    return value if isinstance(value,PreciseFloat) else float(value)
 
 
 def working_backlash(reference_center_mm, transverse_pressure_deg, nominal_backlash_mm, extra_mm):
-    """Independent scalar form of engineering.mesh's exact forward relation."""
-    a0 = _number(reference_center_mm, 'Reference centre distance', True)
-    alpha = _number(transverse_pressure_deg, 'Transverse pressure angle', True)
-    if alpha >= 90:
-        raise ValueError('Transverse pressure angle must be less than 90 degrees.')
-    j0 = _number(nominal_backlash_mm, 'Nominal pair backlash')
-    extra = _number(extra_mm, 'Centre distance increase')
-    at = radians(alpha)
-    if extra == 0:
-        return j0
-    a = a0+extra
-    if not isfinite(a):
+    from rust_geometry import call
+    a0=_number(reference_center_mm,'Reference centre distance',True)
+    alpha=_number(transverse_pressure_deg,'Transverse pressure angle',True)
+    j0=_number(nominal_backlash_mm,'Nominal pair backlash')
+    extra=_number(extra_mm,'Centre distance increase')
+    if not isfinite(a0+extra):
         raise ValueError('Centre distance exceeds the finite numerical domain.')
-    aw = acos(a0*cos(at)/a)
-    value = j0*a/a0+2*a*((tan(aw)-aw)-(tan(at)-at))
+    result=call('working_backlash',dict(reference_center_mm=a0,
+        transverse_pressure_deg=alpha,nominal_backlash_mm=j0,extra_mm=extra))
+    value=float(result['values']['working_backlash_mm'])
     if not isfinite(value):
         raise ValueError('Working backlash exceeds the finite numerical domain.')
     return value
@@ -46,33 +42,18 @@ def working_backlash(reference_center_mm, transverse_pressure_deg, nominal_backl
 
 def inverse_distance(reference_center_mm, transverse_pressure_deg, nominal_backlash_mm,
                      desired_backlash_mm, minimum_extra_mm=0., maximum_extra_mm=5.):
-    """Unique root in the bounded nonnegative centre increase domain, in mm."""
-    target = _number(desired_backlash_mm, 'Desired working transverse tangential backlash')
-    low = _number(minimum_extra_mm, 'Minimum centre increase')
-    high = _number(maximum_extra_mm, 'Maximum centre increase')
-    if high < low:
-        raise ValueError('Centre distance bounds are reversed.')
-    forward = lambda extra: working_backlash(reference_center_mm, transverse_pressure_deg,
-                                             nominal_backlash_mm, extra)
-    lower, upper = forward(low), forward(high)
-    rounding = 1e-12*max(1., abs(lower), abs(upper))
-    if target < lower-rounding:
-        raise ValueError(f'Desired backlash is below the reachable baseline {lower:.12g} mm; negative centre increase is unsupported.')
-    if target > upper+rounding:
-        raise ValueError(f'Desired backlash exceeds {upper:.12g} mm at the parameter limit {high:g} mm.')
-    if target <= lower:
-        return low
-    if target >= upper:
-        return high
-    for _ in range(90):
-        middle = (low+high)/2
-        if middle in (low, high):
-            break
-        if forward(middle) < target:
-            low = middle
-        else:
-            high = middle
-    return (low+high)/2
+    from rust_geometry import call
+    a0=_number(reference_center_mm,'Reference centre distance',True)
+    alpha=_number(transverse_pressure_deg,'Transverse pressure angle',True)
+    j0=_number(nominal_backlash_mm,'Nominal pair backlash')
+    target=_number(desired_backlash_mm,'Desired working transverse tangential backlash')
+    low=_number(minimum_extra_mm,'Minimum centre increase')
+    high=_number(maximum_extra_mm,'Maximum centre increase')
+    result=call('inverse_working_backlash',dict(reference_center_mm=a0,
+        transverse_pressure_deg=alpha,nominal_backlash_mm=j0,desired_backlash_mm=target,
+        minimum_extra_mm=low,maximum_extra_mm=high,compatibility_roundoff=True))
+    from precise_numbers import from_text
+    return from_text(result['values']['extra_mm'])
 
 
 @dataclass
@@ -186,7 +167,8 @@ def solve(design, desired_backlash_mm, settings=None, cancel=None, progress=lamb
         # step for floating roundoff in inverse/forward trigonometric evaluation.
         extra = values['center_extra']
     result.values = deepcopy(values)
-    result.values['center_extra'] = extra
+    from precise_numbers import attach
+    attach(result.values,'center_extra',extra)
     progress('Generating centre-distance proposal…', 0.)
     try:
         candidate = generate('parallel', deepcopy(result.values))
@@ -220,7 +202,8 @@ def revalidate(proposal):
     if not proposal.applicable or proposal.interference is None or interference_blocker(proposal.interference):
         raise ValueError('No current fully checked proposal to apply.')
     expected = deepcopy(proposal.source_values)
-    expected['center_extra'] = proposal.values.get('center_extra')
+    from precise_numbers import attach
+    attach(expected,'center_extra',proposal.values.get('center_extra'))
     if expected != proposal.values:
         raise ValueError('Proposal changes parameters other than centre distance.')
     checked = generate('parallel', deepcopy(proposal.values))

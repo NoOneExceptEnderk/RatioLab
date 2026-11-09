@@ -2,6 +2,8 @@
 
 ![RatioLab](../../src/ratiolab_resources/branding/ratiolab-logo-dark.png)
 
+[![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/X0M22AB2SK)
+
 **Concevez des engrenages et des réducteurs, explorez leur mouvement et exportez des modèles pour la CAO ou l'impression 3D.**
 
 [Télécharger](#download-and-install) · [Guide d'utilisation (en anglais)](../user-guide.md) · [English](../../README.md) · [Italiano](../../README.it.md) · [Signaler un problème](https://github.com/NoOneExceptEnderk/RatioLab/issues) · [Discord](https://discord.gg/G8NVHNg6J)
@@ -50,7 +52,10 @@ Votre système peut afficher un avertissement concernant un éditeur inconnu ou 
 3. Enregistrez votre projet, puis choisissez **Export…** pour obtenir des fichiers destinés à la CAO ou à l'impression.
 
 Consultez le [guide d'utilisation (en anglais)](../user-guide.md) et les [exemples de projets](../../examples/) pour plus de détails.
-L'interface de l'application est en anglais.
+L'interface de bureau et celle du navigateur proposent les neuf langues
+indiquées ci-dessus. Choisissez la vôtre dans **Language / Langue** ; la préférence est
+enregistrée séparément des paramètres du projet. Le manuel technique complet
+et les rapports de calcul sont en anglais ; les textes non traduits restent en anglais.
 
 ## Limites actuelles
 

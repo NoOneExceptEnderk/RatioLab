@@ -6,17 +6,23 @@ operating RPM. Matrices are column-major, with translation in world millimetres.
 """
 from parallel_multistage import VARIANTS as PARALLEL_MULTISTAGE_VARIANTS
 from dataclasses import dataclass, field
-from math import sin, cos, sqrt, pi, atan2, remainder, isfinite
+from math import pi, remainder, isfinite
 from copy import copy, deepcopy
+from parallel_multistage import VARIANTS as PARALLEL_MULTISTAGE_VARIANTS
 
 SPEED_KEYS = frozenset(('input_rpm', 'input_b_rpm', 'output_difference_rpm'))
 
 
 def same_geometry(design, family, values):
     """The supported rotary families have no speed-dependent construction."""
-    return bool(design and design.family == family and
-                {k: v for k, v in design.values.items() if k not in SPEED_KEYS} ==
-                {k: v for k, v in values.items() if k not in SPEED_KEYS})
+    from precise_numbers import SOURCE_KEY
+    def geometric(values):
+        result={key:value for key,value in values.items() if key not in SPEED_KEYS and key!=SOURCE_KEY}
+        sources={key:value for key,value in values.get(SOURCE_KEY,{}).items() if key not in SPEED_KEYS}
+        if sources:result[SOURCE_KEY]=sources
+        return result
+    return bool(design and design.family==family and geometric(design.values)==geometric(values))
+
 
 
 def update_operating_rates(design, values):
@@ -39,7 +45,12 @@ def update_operating_rates(design, values):
                 raise ValueError(f'{label}: must be between {low} and {high}')
     from kinematics import TRIPLES, PAIRS, solve, coefficients
     d = copy(design)
-    d.values = dict(values)
+    # GTK adjustments return 18.0 for an unchanged validated tooth count 18.
+    # Reuse the accepted physical scalars as well as their surfaces; only speed
+    # values and their source map come from this operating-only edit. In
+    # particular, Rust's integer tooth-count contract must remain intact.
+    d.values = {key: value if key in SPEED_KEYS or key == '_decimal_inputs'
+                else design.values[key] for key, value in values.items()}
     d.analysis = dict(design.analysis)
     for key in ('input', 'output', 'kinematics', 'interstage_mounting'):
         if key in d.analysis:d.analysis[key] = deepcopy(d.analysis[key])
@@ -123,35 +134,41 @@ def wrapped_angle(angle):
     return remainder(angle,2*pi)
 
 def multiply(a, b):
-    return tuple((sum((a[4 * k + r] * b[4 * c + k] for k in range(4))) for c in range(4) for r in range(4)))
+    from rust_geometry import call
+    return tuple(call('affine_multiply',dict(a=a,b=b)))
 
 def translation(x=0, y=0, z=0):
     return (*IDENTITY[:12], x, y, z, 1.0)
 
 def rotation(angle, axis=(0, 0, 1), pivot=(0, 0, 0)):
-    length = sqrt(sum((x * x for x in axis)))
-    x, y, z = (v / length for v in axis)
-    c = cos(angle)
-    s = sin(angle)
-    k = 1 - c
-    rows = ((c + x * x * k, x * y * k - z * s, x * z * k + y * s), (y * x * k + z * s, c + y * y * k, y * z * k - x * s), (z * x * k - y * s, z * y * k + x * s, c + z * z * k))
-    shift = tuple((pivot[i] - sum((rows[i][j] * pivot[j] for j in range(3))) for i in range(3)))
-    return tuple((rows[r][col] if r < 3 and col < 3 else shift[r] if col == 3 and r < 3 else 1.0 if r == col == 3 else 0.0 for col in range(4) for r in range(4)))
+    from rust_geometry import call
+    return tuple(call('affine_rotation',dict(angle=angle,axis=axis,pivot=pivot)))
+
+
+def transform_points(m, points, check=None):
+    from rust_geometry import call
+    return [tuple(p) for p in call('affine_transform',dict(matrix=m,points=points),check=check)]
+
 
 def transform(m, p):
-    return tuple((sum((m[4 * j + i] * p[j] for j in range(3))) + m[12 + i] for i in range(3)))
+    return transform_points(m,[p])[0]
+
+
+def posed_triangles(m, triangles, check=None):
+    points=transform_points(m,[p for triangle in triangles for p in triangle],check)
+    return [tuple(points[i:i+3]) for i in range(0,len(points),3)]
+
+
+def orbital_matrix(spin, orbit, center):
+    from rust_geometry import call
+    return tuple(call('affine_orbital',dict(spin=spin,orbit=orbit,center=center)))
+
 
 def rigid(rate, pivot=(0, 0, 0), axis=(0, 0, 1)):
     return lambda phase: rotation(phase * rate, axis, pivot)
 
 def orbital(spin, orbit, center):
-
-    def pose(phase):
-        x, y = center
-        cx = x * cos(orbit * phase) - y * sin(orbit * phase)
-        cy = x * sin(orbit * phase) + y * cos(orbit * phase)
-        return multiply(translation(cx - x, cy - y), rotation(spin * phase, pivot=(x, y, 0)))
-    return pose
+    return lambda phase:orbital_matrix(phase*spin,phase*orbit,center)
 
 def part_axis(p):
     if p.frame:
@@ -161,6 +178,14 @@ def part_axis(p):
     if p.axis_x:
         return ((0, p.center[1], p.z), (1, 0, 0))
     return ((*p.center, 0), (0, 0, 1))
+
+@dataclass(frozen=True)
+class _KernelPose:
+    parameters: dict
+
+    def __call__(self,phase):
+        from rust_geometry import pose_matrices
+        return pose_matrices(phase,[self.parameters])[0]
 
 @dataclass
 class MotionPlan:
@@ -183,9 +208,20 @@ class MotionPlan:
     coordinate_rates: dict = field(default_factory=dict)
     coordinate_offsets: dict = field(default_factory=dict)
     phase_limits: tuple | None = None
+    _frame_phase: object = field(default=None,init=False,repr=False)
+    _frame_poses: dict = field(default_factory=dict,init=False,repr=False)
+    _frame_matrices: dict = field(default_factory=dict,init=False,repr=False)
     # Full labelled orientation period; geometric tooth symmetry is not assumed.
 
     def matrix(self, index, phase):
+        if isinstance(self.poses.get(index),_KernelPose):
+            if phase != self._frame_phase or self.poses != self._frame_poses:
+                from rust_geometry import pose_matrices
+                rows=[(i,p.parameters) for i,p in self.poses.items() if isinstance(p,_KernelPose)]
+                self._frame_matrices=dict(zip((i for i,_ in rows),pose_matrices(phase,[p for _,p in rows])))
+                self._frame_phase=phase
+                self._frame_poses=dict(self.poses)
+            return self._frame_matrices[index]
         return self.poses[index](phase) if index in self.poses else IDENTITY
 
     def warp(self, index, phase):
@@ -223,34 +259,29 @@ def build_plan(d, previous=None, phase=0):
     def spin(index, rpm, pivot=None, axis=None):
         p = parts[index]
         o, a = part_axis(p)
-        value = angle((index, 'spin'), rpm/ref)
-        plan.poses[index] = lambda phase: rotation(value(phase), axis or a, pivot or o)
+        angle((index, 'spin'), rpm/ref)
+        plan.poses[index] = _KernelPose(dict(kind='rotation',rate=rpm/ref,
+            offset=plan.coordinate_offsets[index,'spin'],axis=axis or a,pivot=pivot or o))
         plan.rates[index] = (rpm / ref,)
 
     def orbit(index, spin, orbit, center):
-        turning = angle((index, 'spin'), spin)
-        circling = angle((index, 'orbit'), orbit)
-        x, y = center
-        def pose(phase):
-            a = circling(phase)
-            return multiply(translation(x*cos(a)-y*sin(a)-x, x*sin(a)+y*cos(a)-y),
-                            rotation(turning(phase), pivot=(x, y, 0)))
-        plan.poses[index] = pose
+        angle((index, 'spin'), spin)
+        angle((index, 'orbit'), orbit)
+        plan.poses[index] = _KernelPose(dict(kind='orbital',spin_rate=spin,
+            spin_offset=plan.coordinate_offsets[index,'spin'],orbit_rate=orbit,
+            orbit_offset=plan.coordinate_offsets[index,'orbit'],center=center))
     for i, p in enumerate(parts):
         if 'rpm' in p.port:
             global_axis = f in ('planetary', 'cycloidal', 'harmonic', 'wolfrom')
             spin(i, p.port['rpm'], (0, 0, 0) if global_axis else None)
     if f == 'rack':
         r=d.analysis['rack']['pitch_radius_mm']
-        value=angle((1,'linear'), primary/ref)
+        angle((1,'linear'),primary/ref)
         low,high=d.analysis['rack']['pinion_angle_limits_rad']
-        def position(phase):
-            theta=value(phase)
-            if not low-1e-9<=theta<=high+1e-9:raise ValueError('Rack pose exceeds the finite working stroke.')
-            return translation(r*max(low,min(high,theta)))
-        plan.poses[1]=position
-        # Both angles retain the same offset on an RPM-only rebuild.
-        rate=plan.coordinate_rates[(1,'linear')];offset=plan.coordinate_offsets[(1,'linear')]
+        rate=plan.coordinate_rates[1,'linear'];offset=plan.coordinate_offsets[1,'linear']
+        plan.poses[1]=_KernelPose(dict(kind='linear',rate=rate,offset=offset,scale=r,axis=(1,0,0),limits=(low,high)))
+        pinion=dict(plan.poses[0].parameters,limits=(low,high))
+        plan.poses[0]=_KernelPose(pinion)
         plan.phase_limits=tuple(sorted(((low-offset)/rate,(high-offset)/rate))) if rate else (phase,phase)
         plan.message='Pinion rotation drives rack translation along +X. Preview stops at the finite working stroke.'
     elif f in ('spur', 'helical', 'double'):
@@ -339,10 +370,10 @@ def build_plan(d, previous=None, phase=0):
             if group in ('A', 'B', 'carrier'):
                 key = ('side_a' if classic else 'input_a') if group == 'A' else ('side_b' if classic else 'input_b') if group == 'B' else 'carrier'
                 rate, offset = plan.angular_rates[key], plan.angular_offsets[key]
-                plan.poses[i] = lambda phase, rate=rate, offset=offset: rotation(rate*phase+offset,(1,0,0))
+                plan.poses[i] = _KernelPose(dict(kind='rotation',rate=rate,offset=offset,axis=(1,0,0),pivot=(0,0,0)))
                 plan.rates[i] = (rate,)
             elif group in ('output','spider'):
-                plan.poses[i] = lambda phase, wc=wc, wo=wo, oc=oc, oo=oo: multiply(rotation(wc*phase+oc,(1,0,0)), rotation(wo*phase+oo,(0,0,1)))
+                plan.poses[i] = _KernelPose(dict(kind='differential',carrier_rate=wc,carrier_offset=oc,spin_rate=wo,spin_offset=oo))
                 plan.rates[i] = (wc, wo)
         plan.message = ('Both input signs use world +X. Equal speeds tilt the carrier; opposing speeds spin the output. '
                         'Output spin is relative to its moving carrier; spherical involute working flanks and ideal kinematics.')

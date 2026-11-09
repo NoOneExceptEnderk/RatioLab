@@ -27,12 +27,13 @@ class MotionTests(unittest.TestCase):
             self.assertTrue(p.supported, family)
             for i, part in enumerate(d.parts):
                 self.close(p.matrix(i, 0), IDENTITY)
-                phases = (0.2, 1.4, 5.3) if p.phase_limits is None else tuple(
-                    p.phase_limits[0]+(p.phase_limits[1]-p.phase_limits[0])*f for f in (.1,.5,.9))
+                phases=(0.2,1.4,5.3) if p.phase_limits is None else tuple(p.phase_limits[0]+f*(p.phase_limits[1]-p.phase_limits[0]) for f in (0,.2,.8,1))
                 for phase in phases:
                     self.assertTrue(all((isfinite(x) for x in p.matrix(i, phase))), (family, part.name))
                     if p.warp(i, phase):
                         self.assertTrue(all((isfinite(x) for x in p.warp(i, phase))))
+                if p.phase_limits is not None:
+                    with self.assertRaisesRegex(ValueError,'working stroke'):p.matrix(i,p.phase_limits[1]+.1)
 
     def test_planetary_spin_is_not_just_carrier_orbit(self):
         d = generate('planetary')

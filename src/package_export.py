@@ -22,6 +22,8 @@ def export(design, config, target, png):
     """
     if not isinstance(png, bytes) or not png.startswith(b'\x89PNG\r\n\x1a\n') or not png.endswith(b'IEND\xaeB`\x82'):
         raise ValueError('The complete package requires a finished PNG preview.')
+    from geometry_quality import project, report
+    config = dict(config or project(design), **({'quality': design.quality} if design.quality else {}))
     scope=getattr(design,'export_scope',None)
     target = Path(target)
     with directory(target) as staging:
@@ -38,6 +40,7 @@ def export(design, config, target, png):
         stl_export.export(design,staging/'model')
         bom.export(design,staging/'model')
         (staging/'preview.png').write_bytes(png)
+        (staging/'geometry-quality.json').write_text(json.dumps(report(design, 'export'),indent=2)+'\n',encoding='utf-8')
         (staging/'README.txt').write_text(
             ('RatioLab SELECTED COMPONENTS export · not a complete assembly\nSource configuration parameters/calculations are retained for reference. Regenerating them creates the source assembly; replay model.script.json for this subset.\n\n' if scope else 'RatioLab complete export\n\n')+
             'Units: millimetres. STEP and STL retain the nominal assembly coordinates.\n'+

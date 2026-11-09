@@ -117,9 +117,11 @@ class Binding:
 
     def describe(self):
         help = self.owner.help_for(self)
+        from ui_language import translate
+        language = getattr(getattr(self.owner.app, 'language', None), 'language', 'en')
         self.control.update_property([Gtk.AccessibleProperty.DESCRIPTION],
-            [help.meaning+' '+help.effect+' Press F1 for illustrated help.'])
-        self.button.update_property([Gtk.AccessibleProperty.LABEL], ['Explain '+self.label.get_text()])
+            [translate(help.meaning, language)+' '+translate(help.effect, language)+' '+translate('Press F1 for illustrated help.', language)])
+        self.button.update_property([Gtk.AccessibleProperty.LABEL], [translate('Explain', language)+' '+self.label.get_text()])
 
     def key_pressed(self, controller, keyval, keycode, state):
         if keyval == Gdk.KEY_F1:
@@ -137,7 +139,8 @@ class Binding:
 def effect_sections(effect):
     """Keep the first complete explanation visible and retain the full detail."""
     import re
-    sentences = re.split(r'(?<=[.!?])\s+(?=[A-Z])', effect)
+    sentences = re.split(r'(?<=[.!?])\s+(?=[^\W\d_])|(?<=[。！？])', effect)
+    sentences = [sentence for sentence in sentences if sentence]
     return sentences[0], ' '.join(sentences[1:])
 
 
@@ -159,6 +162,14 @@ class HelpController:
         Gtk.StyleContext.add_provider_for_display(Gdk.Display.get_default(), self.style,
                                                  Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION+1)
         self._update_style(1)
+
+    def refresh_language(self):
+        for binding in self.all_bindings:
+            binding.describe()
+        if self.popover:
+            self.drawing.queue_draw()
+            self.diagram_legend.set_visible(self.app.language.language != 'en')
+            self._popup_geometry = None
 
     def _update_style(self, scale):
         if scale == self.style_scale:
@@ -351,8 +362,11 @@ class HelpController:
                 binding.button.grab_focus()
 
     @staticmethod
-    def _text(value, css, *, selectable=False):
-        label = Gtk.Label(label=value, xalign=0, wrap=True, selectable=selectable, css_classes=[css])
+    def _text(value, css, *, selectable=False, transform=None):
+        label = Gtk.Label(label=transform(value) if transform else value, xalign=0, wrap=True, selectable=selectable, css_classes=[css])
+        if transform:
+            label._ratiolab_source_label = value
+            label._ratiolab_label_transform = transform
         label.set_max_width_chars(48)
         return label
 
@@ -411,13 +425,27 @@ class HelpController:
         self.drawing.set_content_height(220)
         def draw(area, cr, width, height):
             draw_diagram(area, cr, width, height, help, key=binding.key,
-                         family=self.app.family, values=self.values())
+                         family=self.app.family, values=self.values(), numbered=self.app.language.language != 'en')
         self.drawing.set_draw_func(draw)
         self.drawing.update_property([Gtk.AccessibleProperty.LABEL], ['Diagram: '+help.dimension])
         illustrated = diagram_kind(self.app.family,binding.key,help) not in ('text','empty')
         self.drawing.set_visible(False)
         self.diagram_expander = Gtk.Expander(label='Show diagram')
-        self.diagram_expander.set_child(self.drawing)
+        diagram_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        diagram_box.append(self.drawing)
+        self.diagram_legend = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=5)
+        import cairo
+        context = cairo.Context(cairo.ImageSurface(cairo.FORMAT_ARGB32, 360, 220))
+        annotations = draw_diagram(None, context, 360, 220, help, key=binding.key,
+            family=self.app.family, values=self.values(), numbered=True).annotations
+        for index, annotation in enumerate(annotations, 1):
+            row = Gtk.Box(spacing=6)
+            row.append(Gtk.Label(label='['+str(index)+']', valign=Gtk.Align.START))
+            row.append(self._text(annotation, 'help-details'))
+            self.diagram_legend.append(row)
+        self.diagram_legend.set_visible(self.app.language.language != 'en')
+        diagram_box.append(self.diagram_legend)
+        self.diagram_expander.set_child(diagram_box)
         self.diagram_expander.set_visible(illustrated)
         self.diagram_expander.set_tooltip_text('Open the illustrated explanation')
         def diagram_changed(expander, *_):
@@ -436,13 +464,13 @@ class HelpController:
         self.body.append(self._text(help.meaning, 'help-meaning', selectable=True))
         self.body.append(self._text('SET DIMENSIONS' if section else 'WHAT CHANGES', 'help-subtitle'))
         summary, detail = effect_sections(help.effect)
-        self.body.append(self._text(summary, 'help-effect', selectable=True))
+        self.body.append(self._text(help.effect, 'help-effect', selectable=True, transform=lambda value:effect_sections(value)[0]))
         self.details = Gtk.Expander(label='Model and limits' if binding.key == 'worm_static_friction' else 'Geometry and dependencies')
-        self.details.set_child(self._text(detail, 'help-details', selectable=True))
+        self.details.set_child(self._text(help.effect, 'help-details', selectable=True, transform=lambda value:effect_sections(value)[1]))
         self.details.set_visible(bool(detail) and not section)
         if section:
             self.body.append(self._text('ADVANCED OPTIONS', 'help-subtitle'))
-            self.body.append(self._text(detail, 'help-details', selectable=True))
+            self.body.append(self._text(help.effect, 'help-details', selectable=True, transform=lambda value:effect_sections(value)[1]))
         self.details.connect('notify::expanded', lambda *_: setattr(self, '_popup_geometry', None))
         self.body.append(self.details)
         self.scroll = Gtk.ScrolledWindow()

@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: 2026 NoOneExceptEnderk
 # SPDX-License-Identifier: GPL-3.0-only
-"""Printable cycloidal eccentric stack clamped by two off-axis M3 tie bolts.
+"""Cycloidal CAD connections and printable stack with two off-axis M3 tie bolts.
 
 The asymmetric bolt pattern provides a positive rotational constraint and
 indexes opposing cams. Bearing dimensions are from NSK 6804; this construction
@@ -11,8 +11,8 @@ from geometry import Part, circle, transformed
 from hardware_catalog import FASTENERS, LENGTHS, SCREW_SOURCE, NUT_SOURCE, WASHER_SOURCE, KEYS, KEY_LENGTHS, KEY_SOURCE, KEY_PRODUCT
 
 DESIGNS = {'integral': 'Integral shaft · solid eccentrics',
-           'd_shaft': 'Direct D-shaft · matching cam bores',
-           'keyed_shaft': 'Direct keyed shaft · matching keyways',
+           'd_shaft': 'D-shaped cam bores · external shaft',
+           'keyed_shaft': 'Keyed cam bores · external shaft',
            'standard': 'Separate bored cams · CAD fixing required',
            'fdm_bolted': 'FDM · printed shaft + 2 through bolts'}
 SUPPORTED_SCHEMES = ('eccentric_output_ring', 'eccentric_ring_output')
@@ -35,6 +35,88 @@ def direct_field_active(key, construction):
     if key == 'eccentric_flat_depth':
         return construction == 'd_shaft'
     return construction in ('d_shaft', 'keyed_shaft')
+
+
+def interface_presets(values):
+    """Explicit DIN keyway proposals; never resize the surrounding mechanism.
+
+    Availability runs the ordinary complete generator with only the proposed
+    construction/diameter changed. It is nominal geometric compatibility, not
+    a fit, load or standards-conformity certificate.
+    """
+    from geometry import generate
+    presets=[]
+    for diameter,(b,h,ts,th) in KEYS.items():
+        parameters=dict(eccentric_design='keyed_shaft',input_shaft=diameter)
+        item=dict(id=f'din_6885_{diameter}',label=f'DIN 6885-1 · Ø{diameter} · key {b} × {h} mm',
+            parameters=parameters,shaft_diameter_mm=diameter,key_width_mm=b,key_height_mm=h,
+            shaft_keyway_depth_mm=ts,hub_keyway_depth_mm=th,source=KEY_SOURCE)
+        try:
+            design=generate('cycloidal',dict(values,**parameters))
+            if design.values['input_shaft']!=diameter:
+                raise ValueError('The current bearing catalog links the shaft to a different diameter. Change the bearing selection or use manual dimensions.')
+            item.update(available=True,reason='Fits the current nominal geometry; actual fits and axial retention remain CAD work.')
+        except (ValueError,TypeError) as error:
+            item.update(available=False,reason=str(error))
+        presets.append(item)
+    return presets
+
+
+def omit_reference_shafts(d):
+    """Keep functional integral/printed bodies; omit separate CAD shaft blanks.
+
+    Run after role-adapted mounting is finalized so its datum metadata survives,
+    and before reports/preview/export bind their final component indices.
+    """
+    if d.family!='cycloidal':return
+    construction=d.values['eccentric_design']
+    removed={'Shaft_output','Shaft_pincarrier'}
+    if construction!='integral':removed.update(('Shaft_input','Shaft_eccentric'))
+    # These arbitrary adapters extended the reference shafts. Retain their
+    # interface datums, rather than leaving floating adapter flanges in CAD.
+    for record in d.analysis.get('mount_interfaces',[]):
+        if record['member'] in ('eccentric','output') and construction!='fdm_bolted':
+            removed.update(record['parts'])
+            record.update(parts=[],generated_geometry=False,status='external CAD connection; shaft and coupling geometry omitted')
+    external=[]
+    for part in d.parts:
+        if part.name not in removed or not part.name.startswith('Shaft_'):continue
+        member=part.port.get('member','output' if 'output' in part.name else 'eccentric')
+        connection=d.analysis.get('eccentric_connection',{}) if member=='eccentric' else {}
+        external.append(dict(member=member,role=part.port.get('role',''),
+            diameter_mm=d.values['input_shaft' if member=='eccentric' else 'output_shaft'],
+            profile=construction if member=='eccentric' and construction in ('d_shaft','keyed_shaft') else 'round',axis=[0,0,1],
+            machining=[dict(operation) for operation in part.machining],machining_origin_z_mm=part.z,
+            length_to_define_in_cad=True,**{key:connection[key] for key in
+                ('flat_depth_mm','key_width_mm','key_height_mm','shaft_keyway_depth_mm','clocking_deg') if key in connection}))
+    # Some arrangements already replaced a reference shaft with an adapter.
+    for member,key in (('eccentric','input_shaft'),('output','output_shaft')):
+        if member=='eccentric' and construction in ('integral','fdm_bolted'):continue
+        if not any(item['member']==member for item in external):
+            external.append(dict(member=member,diameter_mm=d.values[key],
+                profile=construction if member=='eccentric' and construction in ('d_shaft','keyed_shaft') else 'round',axis=[0,0,1],length_to_define_in_cad=True))
+    d.parts[:]=[p for p in d.parts if p.name not in removed]
+    names={p.name for p in d.parts}
+    cam=next((p.name for p in d.parts if p.name=='Eccentric_1'),None)
+    carrier=next(p.name for p in d.parts if p.name in ('Flange_output','Flange_pincarrier'))
+    for record in d.analysis.get('mount_interfaces',[]):
+        if any(name in removed for name in record['parts']):
+            record.update(external_shaft=True,status='nominal interface for an externally supplied shaft; actual shaft and retention require CAD design')
+        if record['anchor'] not in names:
+            record['anchor']=cam if record['member']=='eccentric' else carrier
+        record['parts']=[name for name in record['parts'] if name in names]
+    connection=d.analysis.get('eccentric_connection')
+    if connection:
+        connection['shaft_generated']=construction=='integral'
+        if construction!='integral':connection['part']=cam
+    d.analysis['external_shafts']=external
+    if construction!='fdm_bolted' and d.analysis.get('mount_interfaces'):
+        d.analysis['mounting_status']='external_cad_datums'
+        d.notes[:]=[q for q in d.notes if not q.startswith('Geometry adapted to the selected members: hubs connect')]
+    d.notes[:]=[q.replace('includes eccentric cams, shafts, seats and bearing envelopes.',
+        'includes eccentric cams, seats and bearing envelopes; separate shaft geometry is left to CAD.') for q in d.notes]
+    d.notes.append('Separate cycloidal shaft blanks and their automatic external adapters are omitted from preview, CAD exports and component inventory. Functional integral/printed eccentric bodies remain; external shaft datums and nominal diameters are recorded for CAD.')
+    d.requirements.append('Complete the external shafts, their actual lengths, connections and axial retention in CAD; see external_shafts for the nominal connection diameters/profiles.')
 
 
 def prepare(supplied):
@@ -103,11 +185,11 @@ def _integral(d):
     d.requirements.append('Complete the integral shaft external coupling, axial bearing retention and any manufacturing details in CAD.')
 
 
-def _d_profile(radius, flat_x, *, round_section=False):
-    """Circle clipped at +X; corresponding round section for axial shoulders.
+def _d_profile(radius, flat_x):
+    """Circle clipped at +X for the cam bore.
 
     Flat endpoints: y=±sqrt(r²-x²), arc angles ±acos(x/r). The fixed
-    correspondence gives a planar shoulder when the flat starts at one Z.
+    arc and straight chord define the nominal D-shaped opening.
     """
     theta = acos(flat_x/radius)
     y = sqrt(radius*radius-flat_x*flat_x)
@@ -116,7 +198,7 @@ def _d_profile(radius, flat_x, *, round_section=False):
     points[0], points[-1] = (flat_x,y), (flat_x,-y)
     for j in range(1,32):
         yy = -y+2*y*j/32
-        points.append((sqrt(max(0,radius*radius-yy*yy)) if round_section else flat_x, yy))
+        points.append((flat_x, yy))
     return points
 
 
@@ -143,10 +225,7 @@ def _direct(d):
             raise ValueError('D-shaft flat depth must be positive and smaller than the shaft radius.')
         if allowance >= depth:
             raise ValueError('Cam bore allowance removes the D-flat engagement: reduce the allowance or increase flat depth.')
-        round_profile = _d_profile(r,r-depth,round_section=True)
-        engaged_profile = _d_profile(r,r-depth)
         bore_profile = rotate(_d_profile(r+allowance,r-depth+allowance))
-        engagements = [(cams[0].z,cams[-1].z+cams[-1].width)]
         record = dict(flat_depth_mm=depth)
     else:
         diameter = v['input_shaft']
@@ -160,9 +239,6 @@ def _direct(d):
         if allowance >= h-ts:
             raise ValueError('Cam bore allowance removes key engagement: reduce the allowance.')
         length = max(lengths)
-        key_spec = dict(b=b,depth=ts)
-        round_profile = shaped_circle(r,key_spec,False)
-        engaged_profile = shaped_circle(r,key_spec,True)
         bore_profile = rotate(shaped_circle(r+allowance,dict(b=b,depth=th),True,True))
         for cam in cams:
             start = cam.z+(cam.width-length)/2
@@ -179,19 +255,6 @@ def _direct(d):
         cam.holes[0] = hole
         cam.machining.append(dict(type=construction+'_bore',shaft_diameter_mm=2*r,
             diametral_allowance_mm=2*allowance,clocking_deg=v['eccentric_connection_angle'],**record))
-    # Keep round journals below the cams and between finite key pockets.
-    round_profile, engaged_profile = rotate(round_profile), rotate(engaged_profile)
-    levels = [(shaft.z,round_profile)]
-    for start,end in engagements:
-        levels.extend([(start,round_profile),(start,engaged_profile),(end,engaged_profile)])
-        if end < shaft.z+shaft.width:
-            levels.append((end,round_profile))
-    if levels[-1][0] < shaft.z+shaft.width:
-        levels.append((shaft.z+shaft.width,round_profile))
-    shaft.outer = round_profile
-    shaft.stations = [dict(z=z-shaft.z,outer=profile,holes=[]) for z,profile in levels]
-    shaft.role = 'gear'
-    shaft.machining.append(dict(type=construction,engagements_z_mm=engagements,**record))
     if construction == 'keyed_shaft':
         for i,(start,end) in enumerate(engagements,1):
             bottom = r-ts
@@ -205,11 +268,11 @@ def _direct(d):
     d.analysis['eccentric_connection'] = dict(construction=construction,part=shaft.name,
         cam_parts=[p.name for p in cams],shaft_bore=True,intermediate_insert=False,
         diametral_allowance_mm=2*allowance,clocking_deg=v['eccentric_connection_angle'],
-        status='matched nominal shaft/cam connection; axial retention and fits to be defined',**record)
+        status='nominal cam interface for external shaft; shaft geometry, axial retention and fits require CAD',**record)
     d.requirements[:] = [q.replace('Eccentric cams, pins and output flange connection:',
                                   'Pins and output flange connection:') for q in d.requirements]
     d.requirements.append('Direct eccentric shaft connection: complete axial retention, external coupling and actual fits in CAD. The matched profile does not retain the cam axially.')
-    d.notes.append('Direct shaft connection: matching shaft and cam bores share one input-axis datum. No intermediate insert. The input bearing journal stays round; disc profiles and eccentric offsets are unchanged.')
+    d.notes.append('The cam bores are prepared for an externally supplied shaft using one common input-axis datum. No intermediate insert or reference shaft body is exported; disc profiles and eccentric offsets are unchanged.')
 
 
 def apply(d):

@@ -144,6 +144,7 @@ class Controller:
         self.add_field(advanced, 'seconds', 'Time limit (seconds)', '30')
         advanced.append(label('Finite local search, not a continuous or global optimum. All other dimensions, variants, stages and I/O stay fixed. Every proposal passes the generator; this is not an interference or strength check. Stop is cooperative: one generation or surface section may finish first.'))
         self.report = Gtk.TextView(editable=False, monospace=True, wrap_mode=Gtk.WrapMode.WORD_CHAR)
+        self.report._ratiolab_localize_report = True
         report_scroll = Gtk.ScrolledWindow()
         report_scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
         report_scroll.set_min_content_height(100)
@@ -621,7 +622,7 @@ class Controller:
         if not proposal.changes:
             return False
         try:
-            checked = generate(app.family, deepcopy(proposal.values))
+            checked = generate(app.family, deepcopy(proposal.values),**({'quality':app.quality} if getattr(app,'quality',None) else {}))
             if checked.values != proposal.values:
                 raise ValueError('Proposal normalization changed; run a new search.')
         except Exception as error:
@@ -659,6 +660,8 @@ class Controller:
             return
         text, serial = self.result.text(), self.serial
         dialog = Gtk.FileChooserNative(title='Save search report', transient_for=self.app.win, action=Gtk.FileChooserAction.SAVE, accept_label='Save', cancel_label='Cancel')
+        from ui_language import localize_native_dialog
+        localize_native_dialog(dialog, self.app.language.language)
         dialog.set_current_name('combination-search.txt')
         def response(widget, code):
             file = widget.get_file() if code == Gtk.ResponseType.ACCEPT else None

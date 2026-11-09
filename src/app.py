@@ -51,15 +51,24 @@ LABELS=[gui_workflow.CATALOG.get(key,(label,''))[0] for key,label in FAMILIES.it
 def prepare_geometry(request,current):
     """Pure CPU work: request-owned values, shared existing geometry/scene code."""
     if not current():return None
-    design=generate(request.family,deepcopy(request.values))
-    if not current():return None
-    scene=preview3d.build_scene(design,*request.view_flags,frame_explosion=True)
-    return design,scene
+    from rust_geometry import control_scope
+    class Superseded(Exception):pass
+    def check():
+        if not current():raise Superseded()
+    try:
+        with control_scope(check):
+            quality=getattr(request,'quality',None)
+            design=generate(request.family,deepcopy(request.values),**({'quality':quality} if quality else {}))
+            check()
+            scene=preview3d.build_scene(design,*request.view_flags,frame_explosion=True)
+            check()
+            return design,scene
+    except Superseded:return None
 
 class ReducerApp(ProjectActions, Gtk.Application):
     def __init__(self):
         super().__init__(application_id=app_paths.APP_ID)
-        self.values={};self.design=None;self.family='parallel';self.busy=False;self.pending=0;self.building=False;self.variant_model_family=None;self.last_valid_family=None;self.connected=False;self.fusion_connected=False
+        self.quality={};self.values={};self.design=None;self.family='parallel';self.busy=False;self.pending=0;self.building=False;self.variant_model_family=None;self.last_valid_family=None;self.connected=False;self.fusion_connected=False
     def do_activate(self):
         if hasattr(self,'win'):
             # Launching RatioLab returns to the workspace. The optional model
@@ -75,6 +84,8 @@ class ReducerApp(ProjectActions, Gtk.Application):
         workspace_ui.build(self, LABELS)
         from language_ui import Controller as Language
         self.language = Language(self)
+        if hasattr(self, 'parameter_help'):
+            self.parameter_help.refresh_language()
         self.canvas.zoom_speed = self.workspace_preferences['zoom_speed']
         self.canvas.rotation_speed = self.workspace_preferences['rotation_speed']
         self.canvas.invert_zoom = self.workspace_preferences['invert_zoom']
@@ -154,8 +165,9 @@ class ReducerApp(ProjectActions, Gtk.Application):
         self.error_field=None
         result=dict(self.values.get(self.family,{}))
         result.update(getattr(self,"option_values",{}))
+        from precise_numbers import attach
         for key,spin in self.inputs.items():
-            try:result[key]=gui_workflow.numeric_value(spin)
+            try:attach(result,key,gui_workflow.numeric_value(spin))
             except ValueError:
                 self.error_field=key;spin.add_css_class('field-error');raise ValueError('Complete the numeric value: '+self.input_labels[key])
             else:spin.remove_css_class('field-error')
@@ -168,7 +180,7 @@ class ReducerApp(ProjectActions, Gtk.Application):
                 if not isfinite(rpm) or not low<=rpm<=high:raise ValueError()
             except ValueError:
                 self.error_field='input_rpm';raise ValueError('Complete a valid input speed.')
-            result['input_rpm']=rpm
+            attach(result,'input_rpm',rpm)
             if not self.motion_rate_editing:self.motion_input_invalid=False
             if self.motion_input_invalid:self.error_field='input_rpm'
             self.motion_rpm=rpm
@@ -318,21 +330,56 @@ class ReducerApp(ProjectActions, Gtk.Application):
         double=is_double(self.family,variant)
         while (child:=self.eccentric_design_box.get_first_child()):self.eccentric_design_box.remove(child)
         self.eccentric_design_box.set_visible(self.family=='cycloidal')
+        self.eccentric_preset_refresh=None
         if self.family=='cycloidal':
             from printed_shaft import DESIGNS
             self.eccentric_design_selector=choice('eccentric_design','Eccentric shaft construction',DESIGNS,'integral',self.eccentric_design_box)
             if self.option_values.get('eccentric_design')=='standard':
                 self.eccentric_design_box.append(gui_workflow.text('Bored cams require an anti-rotation connection and axial retention completed in CAD.'))
             if self.option_values.get('eccentric_design') in ('d_shaft','keyed_shaft'):
-                self.eccentric_design_box.append(gui_workflow.text('The shaft fits directly into matching cam bores. Complete axial retention in CAD.'))
+                self.eccentric_design_box.append(gui_workflow.text('Cam bores for an external shaft. Shaft bodies are omitted; complete the shaft and axial retention in CAD.'))
             if self.option_values.get('eccentric_design')=='keyed_shaft':
-                preset=Gtk.Button(label='Apply compatible keyed dimensions')
+                preset=Gtk.Button(label='Apply example keyed dimensions')
                 preset.set_tooltip_text('Sets input shaft Ø6 mm, eccentric seat Ø18 mm and disc thickness 10 mm; bearing catalog becomes manual. Other parameters are preserved.')
                 def apply_keyed_preset(*args):
                     from printed_shaft import KEYED_PRESET
                     self.rebuild_options(KEYED_PRESET)
                 preset.connect('clicked',apply_keyed_preset);self.eccentric_design_box.append(preset)
                 self.keyed_preset_button=preset
+            if self.option_values.get('eccentric_design')!='fdm_bolted':
+                from printed_shaft import interface_presets
+                proposals=interface_presets(values)
+                self.eccentric_preset_options=proposals
+                self.eccentric_design_box.append(gui_workflow.text('DIN keyway presets · checked against current geometry'))
+                selector=gui_workflow.choice_dropdown([p['label']+('' if p['available'] else ' · does not fit') for p in proposals])
+                initial=next((i for i,p in enumerate(proposals) if p['shaft_diameter_mm']==values.get('input_shaft') and p['available']),
+                             next((i for i,p in enumerate(proposals) if p['available']),0))
+                selector.set_selected(initial)
+                apply=Gtk.Button(label='Apply DIN keyway preset')
+                reason=gui_workflow.text('')
+                updating=[False];signature=[None]
+                def update_preset(*args):
+                    if updating[0] or selector.get_selected()>=len(proposals):return
+                    proposal=proposals[selector.get_selected()]
+                    apply.set_sensitive(proposal['available']);reason.set_text(proposal['reason'])
+                def refresh_presets(current):
+                    key=json.dumps({k:v for k,v in current.items() if k not in ('input_rpm','input_torque','efficiency')},sort_keys=True)
+                    if signature[0]==key:return
+                    signature[0]=key;selected=selector.get_selected();updating[0]=True
+                    proposals[:]=interface_presets(current)
+                    selector.get_model().splice(0,selector.get_model().get_n_items(),[p['label']+('' if p['available'] else ' · does not fit') for p in proposals])
+                    selector.set_selected(min(selected,len(proposals)-1));updating[0]=False;update_preset()
+                def apply_preset(*args):
+                    proposed=proposals[selector.get_selected()]
+                    try:current_values=self.read_values()
+                    except ValueError:return
+                    current=next(p for p in interface_presets(current_values) if p['id']==proposed['id'])
+                    if current['available']:self.rebuild_options(current['parameters'])
+                selector.connect('notify::selected',update_preset);apply.connect('clicked',apply_preset)
+                update_preset()
+                for widget in (selector,apply,reason):self.eccentric_design_box.append(widget)
+                self.eccentric_preset_selector=selector;self.eccentric_preset_apply=apply
+                self.eccentric_preset_refresh=refresh_presets
         printed=self.family=='cycloidal' and self.option_values.get('eccentric_design')=='fdm_bolted'
         if printed:
             self.eccentric_design_box.append(gui_workflow.text('6804 seat: Ø32 mm + allowance; disc ≥14.7 mm. Apply the preset only to replace shaft/disc dimensions.'))
@@ -488,11 +535,12 @@ class ReducerApp(ProjectActions, Gtk.Application):
         reconcile_token=self.project_reconcile_token()
         try:
             values=self.read_values()
+            if self.family=='cycloidal' and getattr(self,'eccentric_preset_refresh',None):self.eccentric_preset_refresh(values)
             if same_geometry(self.design,self.family,values):
                 self.pending=0;self.refresh();return False
             request=Request(self.family,deepcopy(values),
                 (self.canvas.show_support,self.canvas.show_housing),
-                self.document.token[0],reconcile_token)
+                self.document.token[0],reconcile_token,deepcopy(self.quality))
             self._geometry_waiting=True
             self.geometry_worker.submit(request)
             return True
@@ -507,7 +555,7 @@ class ReducerApp(ProjectActions, Gtk.Application):
         if request.document_identity!=self.document.token[0] or request.family!=self.family:return
         try:
             values=self.read_values()
-            if values!=request.values:return
+            if values!=request.values or (request.quality or {})!=self.quality:return
             if request.view_flags!=(self.canvas.show_support,self.canvas.show_housing):return
             self.stop_geometry_timer()
             if error is not None:self.refresh_failed(error)
@@ -575,14 +623,25 @@ class ReducerApp(ProjectActions, Gtk.Application):
         reconcile_token=self.project_reconcile_token()
         try:
             values=self.read_values()
+            if self.family=='cycloidal' and getattr(self,'eccentric_preset_refresh',None):self.eccentric_preset_refresh(values)
             rate_only=same_geometry(self.design,self.family,values)
-            design=update_operating_rates(self.design,values) if rate_only else generate(self.family,values)
-            return self.apply_design(design,values,reconcile_token,reuse_scene=rate_only)
+            from geometry_quality import with_quality, settings
+            reuse=rate_only and settings(self.design).get('preview_mm')==self.quality.get('preview_mm')
+            current=self.design if rate_only and self.design.values==values else update_operating_rates(self.design,values) if rate_only else None
+            design=with_quality(current,self.quality) if rate_only else generate(self.family,values,**({'quality':self.quality} if self.quality else {}))
+            return self.apply_design(design,values,reconcile_token,reuse_scene=reuse)
         except Exception as error:return self.refresh_failed(error)
 
     def apply_design(self,design,values,reconcile_token,*,reuse_scene=False,prepared_scene=None):
         self.canvas.set_design(design,reuse_scene=reuse_scene,prepared_scene=prepared_scene)
         self.design = design
+        # Returning an invalid draft to the accepted values can reuse the same
+        # Design instance. Canvas identity alone therefore cannot distinguish a
+        # redraw from this successful validation. Restore validity here, at the
+        # acceptance boundary, without rebuilding the mesh or resetting phase.
+        if not self.canvas.motion_valid:
+            self.canvas.motion_valid=True
+            self.canvas.emit('motion-state')
         if getattr(self,'hardware_warning_labels',None):
             from pair_assembly import hardware_warnings
             warnings=hardware_warnings(self.family,design.values)

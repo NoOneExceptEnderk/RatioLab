@@ -73,9 +73,20 @@ class ComponentLabelGuiTests(unittest.TestCase):
             XDG_CONFIG_HOME=str(root/'config'),XDG_DATA_HOME=str(root/'data'),
             XDG_CACHE_HOME=str(root/'cache'),APPDATA=str(root/'roaming'),LOCALAPPDATA=str(root/'local')))
         cls.env.start();cls.app=module.ReducerApp()
-        cls.app.set_application_id(f'local.ratiolab.componentlabels.p{os.getpid()}')
+        cls.app.set_application_id(f'local.ratiolab.componentlabels.{cls.__name__.lower()}.p{os.getpid()}')
         cls.app.set_flags(Gio.ApplicationFlags.NON_UNIQUE)
-        cls.app.register(None);cls.app.activate();pump(.15)
+        cls.app.register(None)
+        # Establish the bounded viewport before the first map. A default size
+        # is a hint, not a portable resize API for an already realized toplevel.
+        build=module.workspace_ui.build
+        def bounded_build(app,labels):
+            build(app,labels)
+            monitor=Gdk.Display.get_default().get_monitors().get_item(0)
+            area=monitor.get_geometry()
+            app.win.set_default_size(min(1200,area.width-64),min(680,area.height-96))
+        with patch.object(module.workspace_ui,'build',side_effect=bounded_build):
+            cls.app.activate()
+        pump(.15)
 
     @classmethod
     def tearDownClass(cls):
@@ -128,11 +139,17 @@ class ComponentLabelGuiTests(unittest.TestCase):
         a=self.app;c=self.c;a.text_size.set_selected(2)
         monitor=Gdk.Display.get_default().get_monitor_at_surface(a.win.get_surface())
         area=monitor.get_workarea() if hasattr(monitor,'get_workarea') else monitor.get_geometry()
-        limit=(min(1280,area.width),min(768,area.height))
+        # Wayland's monitor geometry includes compositor panels. Leave room for
+        # those and client decorations so the default-size hint is feasible;
+        # otherwise the compositor may retain the previous full-screen width.
+        # The smaller viewport makes action reachability stricter, not looser.
+        reserve=0 if hasattr(monitor,'get_workarea') else 64
+        limit=(min(1280,area.width),min(768,area.height-reserve))
         a.win.unfullscreen();a.win.unmaximize();pump(.1);a.win.set_visible(False)
         a.win.set_default_size(*limit);a.win.present();pump(.15);a.win.unmaximize()
         self.assertTrue(wait_until(lambda:not a.win.is_maximized()))
-        self.assertTrue(wait_until(lambda:a.win.get_width()<=limit[0] and a.win.get_height()<=limit[1]))
+        self.assertTrue(wait_until(lambda:a.win.get_width()<=limit[0] and a.win.get_height()<=limit[1]),
+                        f'Window allocation {a.win.get_width()}x{a.win.get_height()}, default={a.win.get_default_size()}, limit={limit}, maximized={a.win.is_maximized()}')
         c.select((0,));token=a.document.token;scene=a.canvas.scene
         self.assertEqual([b.get_label() for b in c.export_buttons],['STEP','STL','DXF / SVG','Package'])
         for expanded in (False,True):
@@ -157,7 +174,10 @@ class ComponentLabelGuiTests(unittest.TestCase):
                     self.assertTrue(target.get_sensitive());self.assertTrue(target.grab_focus())
                     def visible_and_focused():
                         ok,bounds=target.compute_bounds(clip)
-                        return (ok and target.has_focus() and bounds.get_x()>=-1 and bounds.get_y()>=-1
+                        # Logical focus is testable without stealing the user's
+                        # compositor focus. has_focus additionally requires the
+                        # toplevel to be globally active, unlike is_focus.
+                        return (ok and target.is_focus() and bounds.get_x()>=-1 and bounds.get_y()>=-1
                             and bounds.get_x()+bounds.get_width()<=clip.get_width()+1
                             and bounds.get_y()+bounds.get_height()<=clip.get_height()+1)
                     reachable=wait_until(visible_and_focused)
@@ -174,6 +194,10 @@ class ComponentLabelGuiTests(unittest.TestCase):
                 # At enlarged text in the narrow dock, the real parent scroll
                 # must bring its lower actions into view rather than clip them.
                 if not expanded:self.assertTrue(scrolled)
+                # Once focus/layout have settled, an intentional user scroll
+                # must stay put even if it hides the focused last action.
+                pump(.05);adjustment.set_value(0);pump(.05)
+                self.assertAlmostEqual(adjustment.get_value(),0)
                 self.assertEqual(c.selected,(0,));self.assertEqual(a.document.token,token);self.assertIs(a.canvas.scene,scene)
 
 

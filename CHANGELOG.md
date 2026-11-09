@@ -6,6 +6,84 @@ published packages and their verification results.
 
 ## Unreleased
 
+## 0.2.2 — 2026-11-09
+
+### Added
+
+- **Geometry engine rebuilt in Rust**, replacing the previous Python geometry
+  core with a shared desktop/WebAssembly kernel; application logic stays in Python.
+- **Model precision in Settings:** preview/export presets and model-specific
+  error bounds for supported constructions.
+- **Topping and semitopping:** independent tooth-tip treatments for cylindrical
+  gears, reducers and racks, shared by previews, projects and exports.
+- **Settings sidebar** for appearance, controls and general preferences, saved
+  separately from projects.
+- **Custom themes:** editable light/dark palettes, color pickers, reset and
+  portable theme files for the interface and 3D viewport.
+- **Custom keyboard shortcuts** with key recording, conflict detection,
+  per-command reset and CAD-inspired presets.
+- **Mouse navigation presets** for FreeCAD, Fusion, SOLIDWORKS, Inventor and
+  SolidCraft, with a separate selector and gesture summary.
+- **Mathematical CAD recipes** to reconstruct supported SolidCraft curves and
+  features from exact parameters, independently of preview meshes.
+- **Experimental curved STEP** for supported external/internal spur and helical
+  gears, with optional independent CAD verification.
+- **Optional cylindrical-pair audits** for contact and clearance, with explicit
+  unresolved results and manufacturing limitations.
+- **Complete-surface error bounds** for qualified external spur, helical and
+  double-helical constructions; other cases and STEP exchange remain unqualified.
+- **Required native/Wasm regression checks**, including isolated GUI coverage;
+  skipped required tests fail the checks.
+
+### Changed
+
+- Center the RatioLab branding and replace Project with a native **File menu**;
+  keep theme editing in Settings.
+- Restore the **phase slider** for inspecting and positioning the existing
+  animation without changing geometry or project history.
+- Move existing **multistage parallel reducers and rack-and-pinion calculations**
+  to Rust, preserving motion, projects, search and exports.
+- Separate **preview/export quality** from nominal geometry, with independent
+  interpolation settings and millimetre-based sweep bounds.
+- Preserve **exact decimal inputs** through projects and undo. Supported analytic
+  results are checked at two working precisions and returned with 20 decimal places.
+- Reduce repeated geometry, preview/export and interference work through
+  **Rust caches, shared buffers and fewer data copies**.
+- Include the **compiled Rust kernel**, pinned build recipes and dependency
+  notices in distributions; Python wheels become platform-specific.
+- Expand **nine-language UI translations**, including technical help, on-screen
+  reports, diagrams and file dialogs, without changing exported data.
+- Simplify **cycloidal previews and exports** by omitting separate shaft blanks
+  and their automatic adapters; add compatible DIN keyway presets.
+- Use dedicated **desktop/browser recovery dialogs**, preserving unsaved drafts
+  and deferred browser recovery.
+- Refresh the **multilingual READMEs**, highlighting languages, mechanisms,
+  desktop/browser/MCP workflows, exports, tutorials and community links.
+- Add the **Ko-fi button** below the RatioLab banner in all nine READMEs.
+- Expand **guides and examples** for tooth-tip treatments, preferences, CAD
+  controls and phase inspection; add a task-based documentation index.
+
+### Fixed
+
+- Build the shared **WebAssembly kernel before composing the website**.
+- Split browser source and font archives to fit **hosting download limits**.
+- Prevent **stale pixels above Linux text** after label changes and partial redraws.
+- Clear **stale browser field errors** when undo/redo restores a valid representation.
+- Cancel obsolete **Surface detail and geometry preparation** work on close or
+  state changes; preserve cleanup and reject stale results.
+- Balance **mesh refinement** within existing face budgets without changing
+  interpolation accuracy or mesh coordinates.
+- Correct **internal-pair root sampling** to avoid adding interfering material
+  in audited cases, retaining explicit tooling/manufacturing limits.
+- Correct **internal-pair backlash** trends and reject negative backlash or
+  unsupported internal profile shifts.
+- Fix **experimental curved-CAD spline continuity and verification**, including
+  knot rounding and positive-weight checks.
+- Preserve **exact decimal dimensions** when generating sampled solids and
+  planetary support plates.
+- Fix **GUI self-test timeouts for occluded Wayland previews**, while still
+  requiring fresh OpenGL captures.
+
 ## 0.2.1 — 2026-11-05
 
 ### Added

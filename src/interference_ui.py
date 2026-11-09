@@ -95,6 +95,7 @@ class Controller:
         restore=Gtk.Button(label='Restore preview');restore.connect('clicked',lambda _:self.restore_view());buttons.append(restore)
         self.save_button=Gtk.Button(label='Save report…');self.save_button.connect('clicked',lambda _:self.save());buttons.append(self.save_button);self.save_button.set_sensitive(self.result is not None)
         self.report=Gtk.TextView(editable=False,monospace=True,wrap_mode=Gtk.WrapMode.WORD_CHAR);self.report.set_cursor_visible(False)
+        self.report._ratiolab_localize_report = True
         report_scroll=Gtk.ScrolledWindow();report_scroll.set_min_content_height(150);report_scroll.set_child(self.report);details(box,'Full interference report',report_scroll)
         def close(*_):
             self.restore_view()
@@ -216,6 +217,8 @@ class Controller:
         if not self.result or not self.current(self.serial):return
         text=self.result.text();serial=self.serial
         dialog=Gtk.FileChooserNative(title='Save interference report',transient_for=self.app.win,action=Gtk.FileChooserAction.SAVE,accept_label='Save',cancel_label='Cancel');dialog.set_current_name('interference.txt')
+        from ui_language import localize_native_dialog
+        localize_native_dialog(dialog, self.app.language.language)
         def response(widget,code):
             file=widget.get_file() if code==Gtk.ResponseType.ACCEPT else None;widget.destroy()
             if file and self.current(serial):

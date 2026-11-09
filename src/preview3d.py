@@ -21,6 +21,7 @@ from gl_loader import load_epoxy, bind_function
 
 from solid_geometry import point,section_loops,PALETTE
 from component_geometry import displayed_part,explosion_offset
+import mouse_navigation
 
 
 def normal(a,b,c):
@@ -61,105 +62,40 @@ class Scene:
 
 
 def build_scene(design,show_support=False,show_housing=False,exploded=False,*,frame_explosion=False):
-    from dataclasses import replace
-    from geometry import profile_sections,section_holes
-    data=array('f');parts=[];allpoints=[]
+    from rust_surfaces import surface
+    from rust_geometry import preview_scene,control_check
+    held=[];items=[]
+    def keep(part):
+        snapshot=surface(part);held.append(snapshot)
+        if snapshot._identity!=held[0]._identity:raise RuntimeError('Rust backend changed while preparing a scene.')
+        return snapshot.parameters()
     for index,source in enumerate(design.parts):
+        control_check()
         if source.role=='support' and not show_support:continue
         if source.role=='housing' and not show_housing:continue
-        p=displayed_part(design,index,exploded)
-        if p.mesh:
-            from solid_geometry import faces
-            begin=len(data)//6
-            for face in faces(p):
-                for loop in face:
-                    allpoints.extend(loop)
-                    for j in range(1,len(loop)-1):triangle(data,loop[0],loop[j],loop[j+1])
-            color=PALETTE[index%len(PALETTE)] if p.color==(.35,.72,.9) else p.color
-            parts.append(MeshPart((begin,len(data)//6-begin),(len(data)//6,0),[],color,index))
-            continue
-        sections=profile_sections(p)
-    # Corresponding section vertices keep the preview on the shared faceted surface.
-        def loops_at(outer,z):return section_loops(p,outer,z)
-        begin=len(data)//6;first_z,first_a,first_outer=sections[0]
-        prev=[[point(p,q,first_z,radians(first_a)) for q in loop] for loop in loops_at(first_outer,first_z)]
-        for loop in prev:allpoints.extend(loop)
-        for z,angle,outer in sections[1:]:
-            current=[[point(p,q,z,radians(angle)) for q in loop] for loop in loops_at(outer,z)]
-            for lower,upper in zip(prev,current):
-                for j in range(len(lower)):
-                    k=(j+1)%len(lower);a,b,c,d=lower[j],lower[k],upper[k],upper[j]
-                    if p.alternate_diagonal:triangle(data,a,b,d);triangle(data,b,c,d)
-                    else:triangle(data,a,b,c);triangle(data,a,c,d)
-                allpoints.extend(upper)
-            prev=current
-        side=(begin,len(data)//6-begin);caps=[];edges=[]
-        for (z,angle,outer),top in [(sections[0],False),(sections[-1],True)]:
-            caploops=[[point(p,q,z,radians(angle)) for q in loop] for loop in loops_at(outer,z)]
-            n=p.frame[3] if p.frame else ((1,0,0) if p.axis_x else (0,0,1))
-            if not top:n=tuple(-x for x in n)
-            begin=len(data)//6
-            for loop in caploops:
-                for j in range(1,len(loop)-1):triangle(data,loop[0],loop[j],loop[j+1],n)
-            fan=(begin,len(data)//6-begin)
-            a=radians(angle);c,s=cos(a),sin(a);rotated=[(x*c-y*s,x*s+y*c) for x,y in outer]
-            xmin=min(x for x,y in rotated);xmax=max(x for x,y in rotated);ymin=min(y for x,y in rotated);ymax=max(y for x,y in rotated)
-            corners=[point(p,q,z,0) for q in [(xmin,ymin),(xmax,ymin),(xmax,ymax),(xmin,ymax)]]
-            begin=len(data)//6;triangle(data,*corners[:3],n);triangle(data,corners[0],corners[2],corners[3],n);caps.append(Cap(fan,(begin,6)))
-            edges.extend(caploops)
-        # Show groove edges on the continuous double helix without adding internal cap faces.
-        if p.double and p.gap:
-            for z,angle,outer in sections:
-                if (not p.stations and outer is not p.outer) or (p.stations and min(abs(z-(p.width-p.gap)/2),abs(z-(p.width+p.gap)/2))<1e-7):edges.append([point(p,q,z,radians(angle)) for q in outer])
-        begin=len(data)//6
-        for loop in edges:
-            for a,b in zip(loop,loop[1:]+loop[:1]):vertex(data,a,(0,0,1));vertex(data,b,(0,0,1))
-        edge=(begin,len(data)//6-begin)
-        color=PALETTE[index%len(PALETTE)] if p.color==(.35,.72,.9) else p.color
-        parts.append(MeshPart(side,edge,caps,color,index))
-    # A single stable envelope fits both endpoints. The actual vertex buffers
-    # remain nominal; slider events only change the per-part display uniform.
-    for mesh in parts:
-        mesh.explosion=explosion_offset(design,mesh.source_index)
-        if frame_explosion:
-            start=mesh.side[0];end=mesh.edges[0]+mesh.edges[1]
-            allpoints.extend(tuple(data[6*i+j]+mesh.explosion[j] for j in range(3)) for i in range(start,end))
-    if not allpoints:
-        from solid_geometry import faces
-        allpoints=[q for part in design.parts for face in faces(part) for loop in face for q in loop]
-        if not allpoints:raise ValueError('The model contains no components')
-    mins=tuple(min(p[i] for p in allpoints) for i in range(3));maxs=tuple(max(p[i] for p in allpoints) for i in range(3))
-    center=tuple((a+b)/2 for a,b in zip(mins,maxs));radius=max(sqrt(sum((p[i]-center[i])**2 for i in range(3))) for p in allpoints)
-    begin=len(data)//6
-    span=max(maxs[0]-mins[0],maxs[1]-mins[1],10);step=10**int(__import__('math').floor(__import__('math').log10(span/8)))
-    if span/step>16:step*=2
-    extent=ceil(span*.7/step)*step;ground=mins[2]-max(.5,span*.025);cx,cy=center[:2]
-    for j in range(-int(extent/step),int(extent/step)+1):
-        off=j*step
-        for a,b in [((cx+off,cy-extent,ground),(cx+off,cy+extent,ground)),((cx-extent,cy+off,ground),(cx+extent,cy+off,ground))]:vertex(data,a,(0,0,1));vertex(data,b,(0,0,1))
-    materials=array('f',[0.0])*(len(data)//2)
+        part=displayed_part(design,index,exploded)
+        normal=part.frame[3] if part.frame else ((1,0,0) if part.axis_x else (0,0,1))
+        color=PALETTE[index%len(PALETTE)] if part.color==(.35,.72,.9) else part.color
+        grooves=[]
+        if part.double and part.gap and part.stations:
+            grooves=[i for i,s in enumerate(part.stations) if min(abs(s['z']-(part.width-part.gap)/2),abs(s['z']-(part.width+part.gap)/2))<1e-7]
+        items.append(dict(keep(part),source_index=index,color=color,
+            explosion=explosion_offset(design,index),bottom_normal=tuple(-x for x in normal),top_normal=normal,
+            groove_sections=grooves,flexspline=source.name.startswith('Flexspline')))
+    args=dict(parts=items,frame_explosion=bool(frame_explosion),compensated_sum=sys.version_info>=(3,12),
+              fallback_parts=[] if items else [keep(p) for p in design.parts])
     if design.family=='harmonic' and not exploded and any(p.name.startswith('Flexspline') for p in design.parts):
-        from wave_geometry import unmap_point
-        rp=design.values['module']*design.values['teeth']/2
         from special_drives import ellipse_axes
+        rp=design.values['module']*design.values['teeth']/2
         a,b=design.analysis.get('pitch_ellipse_semiaxes_mm',ellipse_axes(rp,design.values['module']*design.values['wave_factor']))
-        length=design.values['cup_length'];diaphragm=design.values['diaphragm'];cache={}
-        for part in parts:
-            source=design.parts[part.source_index]
-            if not source.name.startswith('Flexspline'):continue
-            for station in source.stations:
-                references=[station.get('material_outer',[])]+station.get('material_holes',[])
-                for loop,reference in zip([station['outer']]+station['holes'],references):
-                    for xy,material in zip(loop,reference):
-                        xyz=tuple(array('f',point(source,xy,station['z'],0)))
-                        cache[xyz]=material
-            for i in range(part.side[0],part.edges[0]+part.edges[1]):
-                xyz=tuple(data[6*i:6*i+3])
-                if xyz not in cache:
-                    x,y,z=xyz;weight=max(0,min(1,(z+length-diaphragm)/(length-diaphragm)))
-                    cache[xyz]=unmap_point(x,y,weight,a,b,rp)
-                materials[3*i:3*i+3]=array('f',cache[xyz])
-    return Scene(data,parts,(begin,len(data)//6-begin),center,max(radius,1),(mins,maxs),materials)
+        args['wave']=dict(a=a,b=b,rp=rp,length=design.values['cup_length'],diaphragm=design.values['diaphragm'])
+    metadata,vertices,materials=preview_scene(args,_backend=held[0]._backend if held else None)
+    control_check()
+    parts=[MeshPart(tuple(row['side']),tuple(row['edges']),
+        [Cap(tuple(cap['fan']),tuple(cap['plane'])) for cap in row['caps']],tuple(row['color']),
+        row['source_index'],tuple(row['explosion'])) for row in metadata['parts']]
+    return Scene(vertices,parts,tuple(metadata['grid']),tuple(metadata['center']),metadata['radius'],
+                 tuple(tuple(p) for p in metadata['bounds']),materials)
 
 
 class GL:
@@ -175,7 +111,8 @@ class GL:
             'GetUniformLocation':(i,[u,C.c_char_p]),'Uniform4f':(None,[i,f,f,f,f]),'UniformMatrix4fv':(None,[i,i,C.c_ubyte,C.POINTER(f)]),'Uniform1f':(None,[i,f]),'Uniform2f':(None,[i,f,f]),'Uniform3f':(None,[i,f,f,f]),
             'GenVertexArrays':(None,[i,C.POINTER(u)]),'BindVertexArray':(None,[u]),'DeleteVertexArrays':(None,[i,C.POINTER(u)]),
             'GenBuffers':(None,[i,C.POINTER(u)]),'BindBuffer':(None,[u,u]),'BufferData':(None,[u,C.c_ssize_t,p,u]),'DeleteBuffers':(None,[i,C.POINTER(u)]),
-            'EnableVertexAttribArray':(None,[u]),'VertexAttribPointer':(None,[u,i,u,C.c_ubyte,i,p]),
+            'EnableVertexAttribArray':(None,[u]),'DisableVertexAttribArray':(None,[u]),
+            'VertexAttrib3f':(None,[u,f,f,f]),'VertexAttribPointer':(None,[u,i,u,C.c_ubyte,i,p]),
             'Viewport':(None,[i,i,i,i]),'Enable':(None,[u]),'Disable':(None,[u]),'ClearColor':(None,[f,f,f,f]),'Clear':(None,[u]),
             'DepthFunc':(None,[u]),'DepthMask':(None,[C.c_ubyte]),'ColorMask':(None,[C.c_ubyte]*4),'StencilMask':(None,[u]),
             'StencilFunc':(None,[u,i,u]),'StencilOp':(None,[u,u,u]),'DrawArrays':(None,[u,i,i]),'PolygonOffset':(None,[f,f]),
@@ -326,13 +263,7 @@ def framebuffer_argb32(pixels, width, height):
 
 
 # Display-only colors: scene vertices, model materials and export data are untouched.
-PREVIEW_PALETTES = {
-    'dark': {'background': (.065, .085, .115), 'grid': (.12, .16, .205),
-             'axes': (.76, .84, .9), 'selection': (1., .78, .18)},
-    'light': {'background': (233/255, 238/255, 241/255),
-              'grid': (190/255, 203/255, 212/255), 'axes': (66/255, 85/255, 101/255),
-              'selection': (.72, .36, .14)},
-}
+from theme_preferences import BASE_PREVIEW as PREVIEW_PALETTES
 
 
 class Preview3D(Gtk.GLArea):
@@ -348,10 +279,12 @@ class Preview3D(Gtk.GLArea):
         self.palette = PREVIEW_PALETTES[self.theme]
         self.use_es=None
         self.set_has_depth_buffer(True);self.set_has_stencil_buffer(True);self.set_auto_render(False)
-        self.set_hexpand(True);self.set_vexpand(True);self.set_size_request(320,280)
+        self.set_hexpand(True);self.set_vexpand(True);self.set_size_request(320,280);self.set_focusable(True)
         self.design=None;self.show_support=False;self.show_housing=False;self.exploded=0.;self.section=False;self.scene=None;self.dirty=False;self.gl=None;self.failure=None;self.zoom=1.;self.pan_offset=(0.,0.,0.);self.pan_mode=False;self.yaw=radians(-35);self.tilt=radians(-55)
         self.inspection_phase=None;self.inspection_indices=();self.inspection_motion_plan=None
         self.selected_indices=();self.isolated_indices=None;self.drag_distance=0.;self.rendered_phase=0.
+        self.mouse_navigation='ratiolab';self.drag_kind=None;self._drag_button=0;self._drag_offset=(0.,0.)
+        self._freecad_buttons=0;self._freecad_origin=None;self._freecad_right_orbit=False;self._navigation_click=False
         self.render_serial=0;self.render_size=None
         self.motion_plan=None;self.motion_enabled=False;self.motion_playing=False;self.motion_speed=1.;self.motion_phase=0.;self.motion_tick=0;self.motion_last=None;self.motion_valid=True
         self.connect('realize',self.on_realize);self.connect('unrealize',self.on_unrealize);self.connect('render',self.on_render)
@@ -359,8 +292,13 @@ class Preview3D(Gtk.GLArea):
         scroll=Gtk.EventControllerScroll.new(Gtk.EventControllerScrollFlags.VERTICAL);scroll.connect('scroll',self.scroll);self.add_controller(scroll)
         self.set_tooltip_text('Left drag to orbit · right drag to pan · scroll to zoom · double click to fit')
         click=Gtk.GestureClick.new();click.set_button(1);click.connect('released',self.component_click);self.add_controller(click)
-    def set_theme(self, theme):
-        self.palette = PREVIEW_PALETTES[theme]
+        # GtkGestureSingle resets when another mouse button is pressed. Observe
+        # FreeCAD's multi-button chord before those gestures, retaining GTK's
+        # normal dispatch/grab/release handling and ordinary primary selection.
+        chord=Gtk.EventControllerLegacy(propagation_phase=Gtk.PropagationPhase.CAPTURE)
+        chord.connect('event',self.freecad_pointer_event);self.add_controller(chord)
+    def set_theme(self, theme, palette=None):
+        self.palette = dict(palette or PREVIEW_PALETTES[theme])
         self.theme = theme
         self.queue_render()
 
@@ -436,7 +374,7 @@ class Preview3D(Gtk.GLArea):
             candidate=self.motion_phase+max(0,now-self.motion_last)*2*pi/60*rpm
             limits=self.motion_plan.phase_limits
             self.motion_phase=max(limits[0],min(limits[1],candidate)) if limits is not None else candidate
-            if limits is not None and candidate>limits[1]+1e-12:
+            if limits is not None and (candidate>limits[1]+1e-12 or candidate<limits[0]-1e-12):
                 self.set_motion_playing(False);return
         self.motion_last=max(now,self.motion_last) if self.motion_last is not None else now
     def reset_motion(self):
@@ -444,6 +382,20 @@ class Preview3D(Gtk.GLArea):
         if self.exploded:self.set_options(self.show_support,self.show_housing,0.,self.section)
         if self.design:self.motion_plan=build_plan(self.design)
         self.queue_render();self.emit('motion-state')
+    def seek_motion_phase(self,phase):
+        """Seek the existing preview plan without changing rates or model data."""
+        from math import isfinite
+        phase=float(phase)
+        if not isfinite(phase):raise ValueError('Preview phase must be finite.')
+        if not (self.motion_valid and self.motion_plan and self.motion_plan.supported) or self.failure:return False
+        self.set_motion_playing(False)
+        self.clear_inspection()
+        limits=self.motion_plan.phase_limits
+        if limits is not None:phase=max(limits[0],min(limits[1],phase))
+        if self.exploded:self.set_options(self.show_support,self.show_housing,0.,self.section)
+        self.motion_phase=phase;self.motion_enabled=True;self.motion_last=None
+        self.queue_render();self.emit('motion-state')
+        return True
     def invalidate_motion(self):
         self.clear_inspection();self.motion_valid=False;self.set_motion_playing(False)
     def set_motion_speed(self,speed):
@@ -474,36 +426,116 @@ class Preview3D(Gtk.GLArea):
         else:self.yaw=radians(-35);self.tilt=radians(-55)
         self.zoom=1.;self.pan_offset=(0.,0.,0.);self.queue_render();self.emit('view-changed',name)
     def component_click(self,gesture,n,x,y):
-        if self.drag_distance>4 or self.pan_mode:return
+        self.grab_focus()
+        if self.drag_distance>4 or self.pan_mode or self._navigation_click:return
         if n==2:self.view('iso');return
         from gi.repository import Gdk
         modifiers=gesture.get_current_event_state()
         self.emit('component-click',x,y,bool(modifiers & (Gdk.ModifierType.CONTROL_MASK|Gdk.ModifierType.SHIFT_MASK)))
     def drag_begin(self,g,x,y):
+        if self.mouse_navigation=='freecad' and isinstance(g,Gtk.GestureDrag):return
+        self.grab_focus()
         button=g.get_current_button() if g is not None else 1
-        self.drag_kind='pan' if button==3 or button==1 and self.pan_mode else 'orbit' if button==1 else None
-        if self.drag_kind is None:g.set_state(Gtk.EventSequenceState.DENIED)
-        self.drag_origin=(self.yaw,self.tilt);self.drag_pan=self.pan_offset;self.drag_distance=0.
-        if self.drag_kind=='pan':self.set_cursor_from_name('grabbing')
+        state=g.get_current_event_state() if g is not None and hasattr(g,'get_current_event_state') else 0
+        self._drag_button=button;self.drag_distance=0.;self._navigation_click=False
+        self._anchor_drag(self._mouse_mode(self._button_mask(state)|(1<<(button-1)) if 1<=button<=3 else 0,state),0,0)
+        if self.drag_kind is None and g is not None:g.set_state(Gtk.EventSequenceState.DENIED)
     def drag_update(self,g,x,y):
-        if not self.drag_kind:return
+        if self.mouse_navigation=='freecad' and isinstance(g,Gtk.GestureDrag):return
+        if g is not None and hasattr(g,'get_current_event_state'):
+            state=g.get_current_event_state()
+            buttons=self._button_mask(state)|(1<<(self._drag_button-1)) if 1<=self._drag_button<=3 else 0
+            kind=self._mouse_mode(buttons,state)
+            if kind!=self.drag_kind:self._anchor_drag(kind,x,y)
+        self._move_drag(x,y)
+
+    def _anchor_drag(self,kind,x,y):
+        self.drag_kind=kind;self._drag_offset=(x,y)
+        self.drag_origin=(self.yaw,self.tilt);self.drag_pan=self.pan_offset;self.drag_zoom=self.zoom
+        if kind:self.set_cursor_from_name('grabbing')
+
+    def _move_drag(self,x,y):
         self.drag_distance=max(self.drag_distance,sqrt(x*x+y*y))
-        if self.drag_distance<=4:return
+        if self.drag_distance<=4 or self.drag_kind is None:return
+        x-=self._drag_offset[0];y-=self._drag_offset[1]
         if self.drag_kind=='pan':
             from view_navigation import pan_delta
             delta=pan_delta(x,y,self.scene.radius if self.scene else 30,self.zoom,self.get_width(),self.get_height(),*self.drag_origin)
             self.pan_offset=tuple(a+b for a,b in zip(self.drag_pan,delta))
-        else:
+        elif self.drag_kind=='orbit':
             speed = .008*getattr(self, 'rotation_speed', 1)
             self.yaw=self.drag_origin[0]+x*speed;self.tilt=max(-pi,min(pi,self.drag_origin[1]+y*speed))
+        elif self.drag_kind=='zoom':
+            direction=-1 if getattr(self,'invert_zoom',False) else 1
+            delta=max(-20.,min(20.,-y/20*direction*getattr(self,'zoom_speed',1)))
+            self.zoom=max(.25,min(8,self.drag_zoom*1.12**delta))
         self.queue_render();self.emit('view-changed','custom')
-    def drag_end(self,*_):self.set_cursor_from_name('grab' if self.pan_mode else 'default')
+    def drag_end(self,*args):
+        if self.mouse_navigation=='freecad' and args and isinstance(args[0],Gtk.GestureDrag):return
+        self.drag_kind=None;self._drag_button=0
+        self.set_cursor_from_name('grab' if self.pan_mode else 'default')
+
+    def set_mouse_navigation(self,value):
+        self.mouse_navigation=mouse_navigation.profile(value)
+        self._freecad_buttons=0;self._freecad_origin=None;self._freecad_right_orbit=False;self._navigation_click=False
+        self.drag_kind=None;self._drag_button=0
+        self.set_cursor_from_name('grab' if self.pan_mode else 'default')
+        self.set_tooltip_text(mouse_navigation.SUMMARIES[self.mouse_navigation])
+
+    @staticmethod
+    def _button_mask(state):
+        return sum(bit for mask,bit in ((Gdk.ModifierType.BUTTON1_MASK,1),(Gdk.ModifierType.BUTTON2_MASK,2),
+                                       (Gdk.ModifierType.BUTTON3_MASK,4)) if state&mask)
+
+    def _mouse_mode(self,buttons,state):
+        return mouse_navigation.drag_mode(self.mouse_navigation,buttons,
+            shift=bool(state&Gdk.ModifierType.SHIFT_MASK),control=bool(state&Gdk.ModifierType.CONTROL_MASK),
+            alt=bool(state&Gdk.ModifierType.ALT_MASK),pan_mode=self.pan_mode)
+
+    def freecad_pointer_event(self,controller,event):
+        if self.mouse_navigation!='freecad':return False
+        # Some GTK/PyGObject versions omit the signal argument, while the
+        # controller still owns the current event (as with the motion slider).
+        event=event or controller.get_current_event()
+        if event is None:return False
+        kind=event.get_event_type()
+        if kind in (Gdk.EventType.GRAB_BROKEN,Gdk.EventType.TOUCH_CANCEL):
+            self._freecad_buttons=0;self._freecad_origin=None;self.drag_end();return False
+        if kind not in (Gdk.EventType.BUTTON_PRESS,Gdk.EventType.BUTTON_RELEASE,Gdk.EventType.MOTION_NOTIFY):return False
+        valid,x,y=event.get_position()
+        if not valid:return False
+        state=event.get_modifier_state();buttons=self._button_mask(state)
+        if kind==Gdk.EventType.BUTTON_PRESS:
+            button=event.get_button()
+            if not 1<=button<=3:return False
+            buttons|=1<<(button-1)
+            if self._freecad_origin is None:
+                self.grab_focus();self._freecad_origin=(x,y);self.drag_distance=0.;self._navigation_click=False;self._freecad_right_orbit=False
+        elif kind==Gdk.EventType.BUTTON_RELEASE:
+            button=event.get_button()
+            if 1<=button<=3:buttons&=~(1<<(button-1))
+        if self._freecad_origin is None:return False
+        dx,dy=x-self._freecad_origin[0],y-self._freecad_origin[1]
+        self._navigation_click=self._navigation_click or bool(buttons&mouse_navigation.MIDDLE)
+        self._freecad_right_orbit=self._freecad_right_orbit or buttons==(mouse_navigation.MIDDLE|mouse_navigation.RIGHT)
+        next_kind=self._mouse_mode(buttons,state)
+        if self._freecad_right_orbit and buttons==mouse_navigation.RIGHT:next_kind='orbit'
+        if next_kind!=self.drag_kind or not self._freecad_buttons:self._anchor_drag(next_kind,dx,dy)
+        if kind==Gdk.EventType.MOTION_NOTIFY:self._move_drag(dx,dy)
+        self._freecad_buttons=buttons
+        if not buttons:self._freecad_origin=None;self.drag_end()
+        return False
     def scroll(self,c,dx,dy):
         direction = -1 if getattr(self, 'invert_zoom', False) else 1
         delta = max(-20., min(20., -dy*direction*getattr(self, 'zoom_speed', 1)))
         self.zoom=max(.25,min(8,self.zoom*1.12**delta));self.queue_render();self.emit('view-changed','custom');return True
     def on_realize(self,*args):
         self.failure=None;self.use_es=None
+        # Observe the native window, including when this GLArea is already
+        # hidden by an expanded tool and receives no further unmap signal.
+        if self.get_display().__gtype__.name=='GdkWaylandDisplay':
+            native=self.get_native()
+            self._native_unmap=(native,native.connect('unmap',self.on_native_unmap))
         self.make_current()
         if self.get_error():self.failure=str(self.get_error());return
         try:
@@ -520,10 +552,22 @@ class Preview3D(Gtk.GLArea):
             self.dirty=True;self.queue_render()
         except Exception as e:self.failure=str(e);__import__('traceback').print_exc()
     def on_unrealize(self,*args):
+        link=getattr(self,'_native_unmap',None)
+        if link:
+            link[0].disconnect(link[1]);self._native_unmap=None
         self.set_motion_playing(False)
         if self.gl and not self.get_error() and hasattr(self,'vbo'):
             self.make_current();self.gl.DeleteBuffers(1,C.byref(self.vbo));self.gl.DeleteBuffers(1,C.byref(self.material_vbo));self.gl.DeleteVertexArrays(1,C.byref(self.vao));self.gl.DeleteProgram(self.program)
         self.gl=None
+    def on_native_unmap(self,*args):
+        # A realized GL context retains the native Wayland drawable. Release it
+        # before a hidden toplevel destroys/recreates its xdg_surface role; an
+        # old drawable otherwise triggers "already has a buffer committed" on
+        # remap. GTK realizes the GLArea again when the window is shown.
+        # Hiding only this widget (e.g. expanding a tool) keeps the native
+        # window alive: retain that context for offscreen package captures.
+        if self.get_realized():
+            self.unrealize()
     def save_png(self,path):
         if self.failure or self.get_error():raise RuntimeError('3D preview unavailable')
         self.capture_path=str(path);self.queue_render()
@@ -580,6 +624,8 @@ class Preview3D(Gtk.GLArea):
         if self.dirty:
             raw=s.vertices.tobytes();buf=C.create_string_buffer(raw);g.BufferData(0x8892,len(raw),buf,0x88E8)
             g.BindBuffer(0x8892,self.material_vbo.value);raw=s.materials.tobytes();buf=C.create_string_buffer(raw);g.BufferData(0x8892,len(raw),buf,0x88E8);g.BindBuffer(0x8892,self.vbo.value);self.dirty=False
+        if s.materials:g.EnableVertexAttribArray(2)
+        else:g.DisableVertexAttribArray(2);g.VertexAttrib3f(2,0.,0.,0.)
         loc=self.locations
         g.Uniform1f(loc['section'],float(self.section));g.Uniform1f(loc['sectionY'],s.center[1])
         g.Uniform3f(loc['center'],*self.camera_center);g.Uniform2f(loc['orbit'],self.yaw,self.tilt)

@@ -104,6 +104,7 @@ export function initTools(api) {
   }
   function panel(key,intro) {
     const p={key,fields:{},downloads:[],selected:null,root:el('div',null,'analysis-tool'),form:el('div',null,'tool-form'),rows:el('div',null,'tool-rows'),report:el('pre',null,'tool-report'),summary:el('p','Choose settings, then run.','tool-summary')};
+    p.report.dataset.localizeReport='';
     p.root.id=`tool-${key}`;p.root.append(el('h3',titles[key]),el('p',intro,'tool-note'),p.form);
     p.form.addEventListener('input',()=>edited(p));p.form.addEventListener('change',()=>edited(p));
     const actions=el('div',null,'tool-actions');p.run=button(key==='search'?'Search':key==='metrology'?'Calculate':key==='backlash'?'Solve':'Check cycle',()=>run(p));p.run.id=`${key}-run`;

@@ -11,7 +11,7 @@ import json
 import re
 
 from geometry import CircleProfile, profile_sections, section_holes
-from solid_geometry import faces, rings, point, signature, step as faceted_step
+from solid_geometry import faces, iter_faces, rings, point, signature, profile_report, step as faceted_step
 from export_transaction import directory, write_text
 
 
@@ -69,7 +69,8 @@ def circular_walls(p):
     if p.mesh:
         return {}
     sections = profile_sections(p)
-    all_loops = [[outer]+section_holes(p, z, outer) for z, angle, outer in sections]
+    all_loops = [[outer]+section_holes(p, z, outer, i if p.stations else None)
+                 for i,(z, angle, outer) in enumerate(sections)]
     result = {}
     for j in range(len(all_loops[0])):
         loops = [level[j] for level in all_loops]
@@ -193,7 +194,7 @@ class Writer:
                 # Fusion imports implicit POLY_LOOP/FACETED_BREP boundaries as
                 # surfaces on some releases. Give the same sampled faces shared
                 # EDGE_CURVEs so the reader can retain their closed solid shell.
-                faceids = [self.plane(face) for face in faces(p)]
+                faceids = [self.plane(face) for face in iter_faces(p)]
                 shell = self.add("CLOSED_SHELL('',"+self.refs(faceids)+')')
                 solid = self.add('MANIFOLD_SOLID_BREP('+self.quote(name)+','+shell+')')
                 return solid, dict(representation='sampled planar faces with explicit shared edges',
@@ -201,20 +202,10 @@ class Writer:
                                    sampled_volume_mm3=shared['volume_mm3'],
                                    cad_volume_mm3=shared['volume_mm3'], volume_difference_mm3=0)
             # Existing planar representation remains compact for freeform meshes.
-            source = faceted_step(p, 'body')
-            data = source.split('DATA;\n',1)[1].split('\nENDSEC;',1)[0]
-            offset = len(self.entities)
-            solid = None
-            for line in data.splitlines():
-                value = line.split('=',1)[1][:-1]
-                if 'LENGTH_UNIT()' in value:
-                    break
-                value = re.sub(r'#(\d+)', lambda m:'#'+str(int(m.group(1))+offset), value)
-                if value.startswith("FACETED_BREP('body',"):
-                    value = value.replace("FACETED_BREP('body',",'FACETED_BREP('+self.quote(name)+',',1)
-                entity = self.add(value)
-                if value.startswith('FACETED_BREP('):
-                    solid = entity
+            from solid_geometry import faceted_body
+            # Same entity order, faces, coordinates and absolute references;
+            # no temporary complete STEP document or regex renumbering pass.
+            solid = '#'+str(faceted_body(p,self.quote(name),lambda value:int(self.add(value)[1:])))
             return solid, dict(representation='sampled planar faces', cylinders=0, max_radial_difference_mm=0,
                                sampled_volume_mm3=shared['volume_mm3'], cad_volume_mm3=shared['volume_mm3'], volume_difference_mm3=0)
         levels = rings(p)
@@ -313,7 +304,7 @@ def document(parts, indices=None, *, explicit_topology=False):
     for index, p in zip(indices,parts):
         solid, info = writer.body(p, f'{index:03d} {p.name}', explicit_topology=explicit_topology)
         solids.append(solid)
-        metadata.append(dict(index=index, name=p.name, profile_geometry=p.profile_metadata, **info))
+        metadata.append(dict(index=index, name=p.name, profile_geometry=profile_report(p), **info))
     return writer.finish(solids), metadata
 
 
@@ -324,6 +315,8 @@ def write(path, parts, indices=None, *, explicit_topology=False):
 
 
 def write_files(design, folder):
+    from geometry_quality import representation, summary
+    design = representation(design, 'export')
     folder = Path(folder)
     components = folder/'step-parts'
     components.mkdir()
@@ -332,7 +325,7 @@ def write_files(design, folder):
         write(components/(filename(index,p.name)+'.step'), [p],indices=[index])
     metadata = write(folder/'assembly.step', design.parts,indices=indices)
     (folder/'step-info.json').write_text(json.dumps(dict(units='mm', coordinates='nominal assembly',
-        scope=getattr(design,'export_scope',None), components=metadata, limitations='Sampled tooth contours and freeform surfaces remain planar. Cylinders replace only intact circle constructions with invariant axes/radii. Reported radial differences compare circular walls against the actual shared sampled wall triangles, including twist interpolation. Volume differences are theoretical CAD minus sampled geometry, not a CAD reader measurement. These values do not bound tooth-profile or freeform error.'),indent=2)+'\n',encoding='utf-8')
+        scope=getattr(design,'export_scope',None), quality=summary(design), components=metadata, limitations='Sampled tooth contours and freeform surfaces remain planar. Cylinders replace only intact circle constructions with invariant axes/radii. Reported radial differences compare circular walls against the actual shared sampled wall triangles, including twist interpolation. Volume differences are theoretical CAD minus sampled geometry, not a CAD reader measurement. These values do not bound tooth-profile or freeform error.'),indent=2)+'\n',encoding='utf-8')
     return metadata
 
 

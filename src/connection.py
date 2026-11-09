@@ -197,6 +197,11 @@ class Client:
             pass
         return result
 
+    def insert_recipe(self, recipe, *, replace=None):
+        """Opt-in native reconstruction from the common mathematical contract."""
+        from solidcraft_recipe import insert
+        return insert(self,recipe,replace=replace)
+
 
 def connect_or_launch(log_dir):
     try:

@@ -3,6 +3,7 @@
 """GUI navigation and actions; geometry and kinematics remain in their modules."""
 from parallel_multistage import VARIANTS as PARALLEL_MULTISTAGE_VARIANTS
 from pathlib import Path
+from parallel_multistage import VARIANTS as PARALLEL_MULTISTAGE_VARIANTS
 import json
 import weakref
 import gi
@@ -174,17 +175,23 @@ def numeric_value(widget):
     """Read the exact automatic value or the complete, unrounded user input."""
     if numeric_is_automatic(widget):
         return widget._numeric_exact
-    return float(widget.get_text().strip().replace(',', '.'))
+    from precise_numbers import from_text
+    return from_text(widget.get_text())
 
 
 def numeric_snapshot_text(widget):
     """Keep automatic display rounding out of project history and recovery."""
-    return repr(widget._numeric_exact) if numeric_is_automatic(widget) else widget.get_text()
+    if numeric_is_automatic(widget):
+        value=widget._numeric_exact
+        return value.expression if isinstance(getattr(value,'expression',None),str) else repr(value)
+    return widget.get_text()
 
 
 def set_numeric_value(widget, value):
     """Display an automatic value while preserving its exact numeric backing."""
     _track_numeric_entry(widget)
+    from precise_numbers import PreciseFloat
+    backing=value if isinstance(value,PreciseFloat) else float(value)
     value = float(value)
     typed = getattr(widget, '_numeric_typed_text', None)
     if typed is not None:
@@ -200,7 +207,7 @@ def set_numeric_value(widget, value):
         except ValueError:
             pass
     shown = roundtrip_text(value)
-    widget._numeric_exact, widget._numeric_display = value, shown
+    widget._numeric_exact, widget._numeric_display = backing, shown
     widget._numeric_typed_text = None
     widget._numeric_setting = True
     try:
@@ -656,7 +663,11 @@ def geometry_groups(app, specs):
                 box.set_spacing(11)
                 app.sections['geometry'][1].append(box)
             else:
-                disclosure=Gtk.Expander(label=title,expanded=group_open.get(key,True))
+                disclosure=Gtk.Expander(label=title,expanded=group_open.get(key,not key.startswith('tooth_tips_')))
+                if key.startswith('tooth_tips_'):
+                    heading=Gtk.Label(label=title,xalign=0,wrap=True,wrap_mode=Pango.WrapMode.WORD_CHAR)
+                    heading.set_max_width_chars(20)
+                    disclosure.set_label_widget(heading)
                 disclosure.set_child(box)
                 box._section=disclosure
                 app.sections['geometry'][1].append(disclosure)
@@ -679,6 +690,7 @@ def geometry_groups(app, specs):
                            for stage in (1,2,3)
                            for key in ('pinion','wheel','module','width','helix','gap','pressure','backlash','profile_shift','center_extra'))
     order = {key: i for i, key in enumerate(main_order)}
+    app.sections['housing'][0].set_label('Shaft layout' if multistage else 'Housing & flanges')
     specs = sorted(specs, key=lambda s: order.get(s[0], len(order)))
     app.sections['housing'][0].set_label('Shaft layout' if multistage else 'Housing & flanges')
     app.field_feedback, app.linked_notes, app.field_containers = {}, {}, {}
@@ -693,13 +705,17 @@ def geometry_groups(app, specs):
         from differential_wrist import inactive_fields
         inactive=inactive_fields(dict(app.field_values,**app.option_values))
     for key, label, default, low, high, step in specs:
+        from tooth_tips import group as tip_group
+        tips = tip_group(app.family, app.field_values.get('variant'), key)
         if app.family=='cycloidal' and key.startswith('eccentric_'):
             from printed_shaft import direct_field_active
             if not direct_field_active(key, app.option_values.get('eccentric_design')):continue
         if key in inactive or key=='input_rpm' or app.family=='differential' and key=='spiral_hand' or (key.startswith('print_') and app.option_values.get('eccentric_design')!='fdm_bolted'):
             continue
         page = 'geometry'
-        if key in ('input_b_rpm','output_difference_rpm'):
+        if tips:
+            target = group(*tips)
+        elif key in ('input_b_rpm','output_difference_rpm'):
             target, page = app.io_box, 'motion'
         elif key in ('input_torque','efficiency','pull_force'):
             target, page = load_box, 'motion'
@@ -727,6 +743,8 @@ def geometry_groups(app, specs):
         unit_match = re.search(r'\[([^]]+)\]', label)
         caption = re.sub(r'\s*\[[^]]+\]', '', label).split(' (')[0]
         caption = {'pinion':'Pinion teeth', 'wheel':'Wheel teeth', 'module':'Module', 'width':'Face width'}.get(key,caption)
+        if tips:
+            caption = 'Semitopping angle' if key.endswith('semitopping_angle_deg') else 'Semitopping height' if key.endswith('semitopping_mm') else 'Topping removal'
         unit = unit_match.group(1) if unit_match else ''
         container = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=5, hexpand=True)
         row = Gtk.Box(spacing=3)
@@ -1046,6 +1064,8 @@ def install_exports(app):
     app.export_count = text('')
     body.append(app.export_count)
     body.append(text('Nominal assembly coordinates · visibility does not change scope.'))
+    from quality_ui import open_quality
+    action(body,'Surface detail…','Independent preview and export interpolation in mm.',lambda *_:(popup.popdown(),open_quality(app)))
     export_actions = []
     for kind, title, description, fn in [
         ('step', 'STEP for CAD', 'Combined model and component solids · mm.', app.export_step),
@@ -1095,6 +1115,8 @@ def install_exports(app):
 def choose_output(app):
     parent = app.win
     dialog = Gtk.FileChooserNative(title='Where should exported files be saved?', transient_for=parent, action=Gtk.FileChooserAction.SELECT_FOLDER, accept_label='Use this folder', cancel_label='Cancel')
+    from ui_language import localize_native_dialog
+    localize_native_dialog(dialog, app.language.language)
     if app.output_dir.exists():
         dialog.set_current_folder(Gio.File.new_for_path(str(app.output_dir)))
 
@@ -1136,22 +1158,12 @@ def open_link(app, uri):
     return True  # Suppress Gtk.LinkButton's default unsanitized launch handler.
 
 def install_shortcuts(app):
-    for name, accelerator, callback in [('new', '<Control>n', app.new_project), ('open', '<Control>o', app.load_dialog), ('save', '<Control>s', app.save_dialog), ('save-as', '<Control><Shift>s', app.save_as_dialog), ('undo', '<Control>z', app.undo_project), ('redo', '<Control><Shift>z', app.redo_project), ('close', '<Control>w', app.close_project), ('export', '<Control>e', lambda _: app.export_menu.popup())]:
+    for name, callback in [('new', app.new_project), ('open', app.load_dialog), ('save', app.save_dialog), ('save-as', app.save_as_dialog), ('undo', app.undo_project), ('redo', app.redo_project), ('close', app.close_project), ('export', lambda _: app.export_menu.popup())]:
         action = Gio.SimpleAction.new(name, None)
         action.connect('activate', lambda _, parameter, fn=callback: fn(None) if not app.busy else None)
         app.add_action(action)
-        app.set_accels_for_action('app.' + name, [accelerator])
-    # Capture history shortcuts before GtkEntry's local text editor can consume
-    # Ctrl+Z. The document restores text, options and family in one operation.
-    controller = Gtk.ShortcutController()
-    controller.set_scope(Gtk.ShortcutScope.GLOBAL)
-    controller.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
-    app.history_shortcuts = []
-    for trigger, name in [('<Control>z', 'undo'), ('<Control><Shift>z', 'redo'), ('<Control>y', 'redo')]:
-        shortcut = Gtk.Shortcut.new(Gtk.ShortcutTrigger.parse_string(trigger), Gtk.NamedAction.new('app.'+name))
-        controller.add_shortcut(shortcut)
-        app.history_shortcuts.append(shortcut)
-    app.win.add_controller(controller)
+    from keyboard_shortcuts import Controller
+    app.keyboard = Controller(app)
 
 def show_report(app, title, content):
     """Browsable report with text search, selection and copying."""

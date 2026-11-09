@@ -40,8 +40,10 @@ def prepare(supplied):
     from hardware_catalog import options as hardware_options
     from engineering import LOAD_FIELDS
     supplied = {key: value for key, value in supplied.items()
-                if key != 'material' and not key.startswith(('stress_', 'manufacturing_'))}
+                if key not in ('material','_decimal_inputs') and not key.startswith(('stress_', 'manufacturing_'))}
     allowed = {q[0] for q in SPECS + LOAD_FIELDS}
+    from tooth_tips import specs as tip_specs
+    allowed.update(q[0] for q in tip_specs('wolfrom', supplied.get('variant','spur')))
     allowed.update(('variant', 'io_scheme', 'double_style', 'helix', 'gap'))
     allowed.update(catalog_options('wolfrom', {}))
     allowed.update(hardware_options('wolfrom', {}))
@@ -60,49 +62,36 @@ def assembly_phases(s, p1, p2, ro, n):
     B=(P1*Ro+P2*S)/n. Solvability requires n*gcd(P1,P2) | numerator.
     Normalisation is by full body turns, never separately by tooth pitch.
     """
-    if any(isinstance(q, bool) or not isinstance(q, int) or q <= 0 for q in (s, p1, p2, ro, n)):
-        raise ValueError('Wolfrom teeth and planet count must be positive integers.')
-    rf = s + 2*p1
-    divisor = gcd(p1, p2)
-    numerator = p1*ro + p2*s
-    if (s+rf) % n or numerator % (n*divisor):
-        raise ValueError('Equally spaced identical Wolfrom compounds cannot satisfy all three tooth phases: require n dividing S+Rf and n*gcd(P1,P2) dividing P1*Ro+P2*S.')
-    mod = p1//divisor
-    k1 = 0 if mod == 1 else (-(numerator//n//divisor)*pow(p2//divisor, -1, mod)) % mod
-    delta = pi/p2 - pi/p1
-    compounds = []
-    for j in range(n):
-        theta = 2*pi*j/n
-        phi1 = (pi+pi/p1+(s+p1)*theta/p1+2*pi*j*k1/p1) % (2*pi)
-        compounds.append(dict(index=j+1, theta_rad=theta, planet_phase_rad=phi1,
-                              planet2_phase_rad=phi1+delta, reindex=j*k1))
-    return dict(k1=k1, common_clocking_rad=delta, fixed_ring_phase_rad=p1*pi/rf,
-                output_ring_phase_rad=p2*pi/ro, compounds=compounds,
-                basis='neutral backlash; one common rigid P2-P1 clocking; full-body radians')
+    from rust_geometry import call
+    return call('wolfrom_phases',dict(sun=s,planet=p1,planet2=p2,output_ring=ro,planets=n))
 
 
 def dimensions(v):
-    s, p1, p2, ro = (v[k] for k in ('sun', 'planet', 'planet2', 'output_ring'))
-    rf = s + 2*p1
-    determinant = p1*ro - rf*p2
-    if ro <= p2:
-        raise ValueError('Wolfrom output ring teeth must exceed second planet teeth.')
-    if determinant == 0:
-        raise ValueError('Wolfrom determinant P1*Ro−Rf*P2 is zero: the output is stationary; no finite reducer ratio exists.')
-    m1 = v['module']
-    beta = v.get('helix', 0)
-    return dict(fixed_ring_teeth=rf, module2_mm=m1*(s+p1)/(ro-p2),
-                center_distance_mm=m1*(s+p1)/(2*cos(radians(beta))), determinant=determinant,
-                signed_ratio=(s+rf)*p1*ro/(s*determinant))
+    from rust_geometry import call
+    calculated=call('wolfrom_dimensions',v)
+    exact=calculated['values']
+    result={key:(value if isinstance(value,int) else float(value)) for key,value in exact.items()}
+    from precise_numbers import PreciseFloat
+    if isinstance(v['module'],PreciseFloat):
+        result['module2_mm']=v['module']*(v['sun']+v['planet'])/(v['output_ring']-v['planet2'])
+        if not v.get('helix',0):
+            result['center_distance_mm']=v['module']*(v['sun']+v['planet'])/2
+        # For a nonzero helix, the Rust result already includes the normal to
+        # transverse conversion. Sampled centres use binary64; analytic_values
+        # retain its checked twenty-decimal result from the original sources.
+    result['analytic_values']=exact
+    result['analytic_precision']=calculated['precision']
+    return result
 
 
-def rates(v, rpm):
-    q = dimensions(v)
-    s, p1, p2, ro = (v[k] for k in ('sun', 'planet', 'planet2', 'output_ring'))
-    rf = q['fixed_ring_teeth']
-    den = (s+rf)*p1*ro
-    return dict(sun=rpm, ring=0, carrier=rpm*s/(s+rf),
-                planet=rpm*s*(p1-rf)/((s+rf)*p1), output=rpm*s*q['determinant']/den)
+def rates(v,rpm):
+    from rust_geometry import call
+    from fractions import Fraction
+    if isinstance(rpm,Fraction):
+        exact=call('wolfrom_exact_rates',dict(v,numerator=str(rpm.numerator),denominator=str(rpm.denominator)))
+        return {key:Fraction(int(value[0]),int(value[1])) for key,value in exact.items()}
+    exact=call('wolfrom_dimensions',dict(v,rpm=rpm))['values']['rates_rpm']
+    return {k:float(value) for k,value in exact.items()}
 
 
 def validate(v):
@@ -178,9 +167,10 @@ def build(d):
         if plan['verification']['status'] != 'clear':
             raise ValueError(f"Wolfrom layer {index}: paired internal polygon clearance must be clear; {plan['verification']['status']}: {plan['verification'].get('failure_reason', '')}")
     active1, active2 = ((w1-gap)/2, (w2-gap)/2) if double else (w1, w2)
-    meshes = [mesh(s,p1,m1,pa,beta,width=active1,backlash=b),
-              mesh(p1,rf,m1,pa,beta,width=active1,internal=True,backlash=b,internal_plan=plans[0]),
-              mesh(p2,ro,m2,pa,beta,width=active2,internal=True,backlash=b,internal_plan=plans[1])]
+    from tooth_tips import parameters as tip_parameters
+    meshes = [mesh(s,p1,m1,pa,beta,width=active1,backlash=b,tooth_tips1=tip_parameters(v,'sun'),tooth_tips2=tip_parameters(v,'planet')),
+              mesh(p1,rf,m1,pa,beta,width=active1,internal=True,backlash=b,internal_plan=plans[0],tooth_tips1=tip_parameters(v,'planet'),tooth_tips2=tip_parameters(v,'ring')),
+              mesh(p2,ro,m2,pa,beta,width=active2,internal=True,backlash=b,internal_plan=plans[1],tooth_tips1=tip_parameters(v,'planet2'),tooth_tips2=tip_parameters(v,'output_ring'))]
     for index, pair in enumerate(meshes, 1):
         if pair['profile_contact_total'] < 1 or pair['contact_total'] < 1:
             raise ValueError(f'Wolfrom mesh {index}: usable and nominal involute contact ratios must both be at least 1.')
@@ -199,11 +189,13 @@ def build(d):
         d.parts.append(p)
         return p
     def gear(name, teeth, module, width, z, member, role, group, body_phase=0, center=(0,0), plan=None, **metadata):
+        from tooth_tips import parameters as tip_parameters
+        tip_role=('planet2' if metadata.get('layer')==2 else 'planet') if member=='planet' else 'output_ring' if member=='output' else member
         p = gear_part(name,teeth,module,pa,b,width,v['bore'],center,body_phase,
                       helix=beta if member=='sun' else -beta,
                       internal=plan is not None,rim=v['rim'],zoff=z,
                       ha=plan['ring_addendum_coefficient'] if plan else 1,
-                      minimum_join_radius_mm=plan['minimum_join_radius_mm'] if plan else None)
+                      minimum_join_radius_mm=plan['minimum_join_radius_mm'] if plan else None,**tip_parameters(v,tip_role))
         if double:
             p.double = True
             p.gap = gap
@@ -230,6 +222,11 @@ def build(d):
             (f'Compound_{j}_rim2',p2,m2,w2,z2,item['planet2_phase_rad'],2)):
             planet = gear(name,teeth,module,width,z,'planet','internal',group,angle,center,
                           compound=j,layer=layer)
+            from tooth_tips import verify_internal_pair
+            verification=verify_internal_pair(planet,rings[layer-1],teeth,(rf,ro)[layer-1],b)
+            if verification:
+                plans[layer-1]['verification']=verification
+                meshes[layer]['internal_pair_construction']['verification']=verification
             failure = validate_axial_pair(planet, rings[layer-1], teeth, (rf,ro)[layer-1])
             if failure:
                 raise ValueError(f'Wolfrom layer {layer}: {failure}')

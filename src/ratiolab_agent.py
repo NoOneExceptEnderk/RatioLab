@@ -279,7 +279,7 @@ class AgentService:
     def _summary(self, project):
         d = project.document
         return dict(handle=d.identity, revision=d.revision, family=project.design.family,
-                    parameters=deepcopy(project.design.values), dirty=d.dirty, saved=d.path is not None,
+                    parameters=deepcopy(project.design.values), quality=deepcopy(project.design.quality), dirty=d.dirty, saved=d.path is not None,
                     path=d.path.relative_to(self.workspace.root).as_posix() if d.path else None,
                     components=len(project.design.parts))
 
@@ -289,16 +289,18 @@ class AgentService:
                 budget.check()
             if len(self.projects) >= self.limits.projects:
                 raise AgentError('resource_limit', 'Close a project before opening another.', maximum=self.limits.projects)
-            document = Document(dict(family=design.family, values={design.family: design.values}, raw={}), path)
+            snapshot=dict(family=design.family, values={design.family:design.values}, raw={})
+            if design.quality:snapshot['quality']=deepcopy(design.quality)
+            document = Document(snapshot, path)
             project = Project(document, design, digest)
             self.projects[document.identity] = project
             return self._summary(project)
 
-    def _generate(self, family, parameters, budget):
+    def _generate(self, family, parameters, budget, quality=None):
         budget.check()
         values = checked_parameters(family, parameters)
         try:
-            design = generate(family, deepcopy(values))
+            design = generate(family, deepcopy(values), **({'quality':quality} if quality else {}))
         except (ValueError, TypeError, OverflowError) as error:
             raise AgentError('invalid_geometry', str(error)) from error
         budget.check()
@@ -312,6 +314,7 @@ class AgentService:
                 raise AgentError('invalid_arguments', 'Choose family before variant/style.')
             return dict(families=[dict(id=k, label=v, variants=VARIANTS.get(k, {})) for k,v in FAMILIES.items()],
                         limits=asdict(self.limits), limitations=LIMITATIONS,
+                        quality=dict(keys=['preview_mm','export_mm'],units='mm',scope='Procedural sweep interpolation only; positive finite requests, explicit resource limits'),
                         formats=['step', 'stl', 'svg', 'dxf', 'profiles', 'package'],
                         component_indices='1-based source indices; always tied to a project revision')
         _family(family)
@@ -332,7 +335,9 @@ class AgentService:
         import hardware_catalog
         presets = {}
         if family == 'cycloidal':
-            from printed_shaft import PRESET, SUPPORTED_SCHEMES
+            from printed_shaft import PRESET, SUPPORTED_SCHEMES, interface_presets
+            for proposal in interface_presets(values):
+                presets[proposal['id']]=dict(proposal,explanation='Explicit DIN keyway dimensions, enabled only for current nominal geometry; no surrounding dimensions are resized.')
             presets['fdm_bolted'] = dict(parameters=dict(PRESET, eccentric_design='fdm_bolted'),
                 canonical_defaults=checked_parameters(family, dict(eccentric_design='fdm_bolted')),
                 supported_io_schemes=list(SUPPORTED_SCHEMES),
@@ -366,9 +371,9 @@ class AgentService:
                         spider_pin_diameter='Classic only; real carrier-fixed pin, with spider gear bore = pin diameter + 2*spider_clearance',
                         spider_clearance='Classic only; positive radial running clearance, no bearing capacity estimate')) if family=='differential' else {}))
 
-    def project_create(self, family, parameters=None, cancel=None):
+    def project_create(self, family, parameters=None, cancel=None, quality=None):
         budget = self._budget(cancel)
-        return self._add(self._generate(family, parameters if parameters is not None else {}, budget), budget=budget)
+        return self._add(self._generate(family, parameters if parameters is not None else {}, budget, quality), budget=budget)
 
     def project_open(self, path, cancel=None):
         budget = self._budget(cancel)
@@ -380,27 +385,34 @@ class AgentService:
         except (ValueError, UnicodeError, RecursionError) as error:
             raise AgentError('invalid_json', 'Invalid UTF-8 JSON configuration.') from error
         _object(obj, 'configuration')
-        if set(obj) != {'format', 'family', 'parameters'} or obj.get('format') != CONFIG_FORMAT:
+        if not {'format','family','parameters'} <= set(obj) or set(obj)-{'format','family','parameters','quality'} or obj.get('format') != CONFIG_FORMAT:
             raise AgentError('invalid_format', 'Expected a full solidcraft-riduttori/1 configuration; subset/script/recovery imports are not accepted.')
-        design = self._generate(obj['family'], obj['parameters'], budget)
+        design = self._generate(obj['family'], obj['parameters'], budget, obj.get('quality'))
         return self._add(design, target, hashlib.sha256(data).hexdigest(), budget)
 
     def project_list(self, cancel=None):
         with self.lock:
             return dict(projects=[self._summary(p) for p in self.projects.values()])
 
-    def project_update(self, handle, revision, parameters, cancel=None):
+    def project_update(self, handle, revision, parameters=None, cancel=None, quality=None):
         budget = self._budget(cancel)
         with self.lock:
             project = self._get(handle, revision)
             values = dict(project.design.values)
-            values.update(_object(parameters, 'parameters'))
-            family = project.design.family
-        design = self._generate(family, values, budget)
+            values.update(_object(parameters if parameters is not None else {}, 'parameters'))
+            source=project.design
+            family = source.family
+            requested=source.quality if quality is None else quality
+        if not parameters:
+            from geometry_quality import with_quality
+            design=with_quality(source,requested)
+        else:design = self._generate(family, values, budget, requested)
         with self.lock:
             project = self._get(handle, revision)
             budget.check()
-            project.document.record(dict(family=family, values={family: design.values}, raw={}))
+            state=dict(family=family, values={family:design.values}, raw={})
+            if design.quality:state['quality']=deepcopy(design.quality)
+            project.document.record(state)
             project.design = design
             return self._summary(project)
 
@@ -415,7 +427,10 @@ class AgentService:
             if not 0 <= target < len(document.states):
                 raise AgentError('no_history', 'No '+action+' state is available.')
             snapshot = deepcopy(document.states[target])
-        design = self._generate(snapshot['family'], snapshot['values'][snapshot['family']], budget)
+        if project.design.family==snapshot['family'] and project.design.values==snapshot['values'][snapshot['family']]:
+            from geometry_quality import with_quality
+            design=with_quality(project.design,snapshot.get('quality'))
+        else:design = self._generate(snapshot['family'], snapshot['values'][snapshot['family']], budget, snapshot.get('quality'))
         with self.lock:
             project = self._get(handle, revision)
             budget.check()
@@ -443,7 +458,8 @@ class AgentService:
                     raise AgentError('conflict', 'File changed outside this handle; reopen it before replacing.')
             elif overwrite:
                 raise AgentError('conflict', 'Cannot replace a missing file; save to a new path instead.')
-            data = json_bytes(dict(format=CONFIG_FORMAT, family=project.design.family, parameters=project.design.values))
+            from geometry_quality import project as project_config
+            data = json_bytes(project_config(project.design))
             descriptor, temporary = tempfile.mkstemp(prefix='save-', dir=self.workspace.private)
             try:
                 with os.fdopen(descriptor, 'wb') as stream:
@@ -533,7 +549,8 @@ class AgentService:
         import profile_export
         import stl_export
         from export_transaction import directory
-        config = dict(format=CONFIG_FORMAT, family=original.family, parameters=original.values)
+        from geometry_quality import project as project_config
+        config = project_config(original)
         with self.lock:
             self._get(handle, revision)
             budget.check()

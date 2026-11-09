@@ -20,6 +20,7 @@ class CatalogTests(unittest.TestCase):
             'two_stage_helical', 'three_stage_helical',
             'two_stage_double', 'three_stage_double',
         })
+        self.assertEqual(set(VARIANTS['rack']),{'spur','helical','double'})
         self.assertEqual(set(VARIANTS['internal']), {'spur', 'helical', 'double'})
 
     def test_linked_catalog_dimensions_and_roundtrip(self):

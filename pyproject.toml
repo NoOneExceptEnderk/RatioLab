@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ratiolab"
-version = "0.2.1"
+version = "0.2.2"
 description = "Parametric gears and reducers with a GTK 4 and OpenGL preview"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -39,16 +39,18 @@ include-package-data = false
 package-dir = {"" = "src", "build_support" = "build-support"}
 packages = ["ratiolab_resources"]
 py-modules = [
-  "app", "app_paths", "ui_language", "language_ui", "release_version", "release_notes", "updates", "update_download", "update_install", "update_macos", "update_receipt", "update_ui", "assemblies", "bom", "cad_export", "catalog", "connection", "export_transaction",
-  "bevel_geometry", "differential_wrist", "engineering", "external_programs", "export_feedback", "fusion_connection", "geartrains", "geometry", "geometry_refresh", "gl_loader", "gui_workflow", "parameter_help", "parameter_help_ui", "parameter_help_diagrams",
+  "cad_contract", "solidcraft_recipe", "parallel_multistage", "rack_geometry",
+  "app", "app_paths", "ui_language", "language_ui", "file_menu_ui", "settings_ui", "precision_ui", "theme_preferences", "theme_editor_ui", "keyboard_shortcuts", "shortcut_capture_ui", "mouse_navigation", "release_version", "release_notes", "updates", "update_download", "update_install", "update_macos", "update_receipt", "update_ui", "assemblies", "bom", "cad_export", "curved_cad", "curved_cylindrical", "catalog", "connection", "export_transaction",
+  "bevel_geometry", "differential_wrist", "engineering", "cylindrical_validation", "external_programs", "export_feedback", "fusion_connection", "geartrains", "geometry", "geometry_quality", "geometry_error_budget", "quality_ui", "geometry_refresh", "gl_loader", "gui_workflow", "parameter_help", "parameter_help_ui", "parameter_help_diagrams",
   "hardware", "hardware_catalog", "install_desktop", "io_controls", "backdrivability", "gear_measurement", "gear_measurement_ui", "backlash_solver", "backlash_ui",
   "component_geometry", "components_ui", "selected_export", "pair_assembly", "combination_search", "combination_search_ui", "collision_geometry", "interference", "interference_ui", "kinematics", "motion", "motion_controls", "mounting", "preview3d",
   "project_document", "project_ui", "package_export", "parallel_multistage", "printed_shaft", "profile_export", "ratiolab_agent", "ratiolab_mcp", "ratiolab_checks", "ratiolab_cli", "result_controls", "solid_geometry",
-  "special_drives", "bevel_pair", "hypoid_geometry", "rack_geometry", "face_geometry", "face_herringbone", "wolfrom", "worm_geometry", "wave_geometry", "wave_envelope", "tooth_profiles", "internal_mesh", "standard_parts", "stl_export", "workspace_ui", "workspace_tools", "model_catalog_ui", "navigation_cube", "view_navigation",
+  "precise_numbers", "rust_geometry", "rust_surfaces", "special_drives", "bevel_pair", "hypoid_geometry", "rack_geometry", "face_geometry", "face_herringbone", "wolfrom", "worm_geometry", "wave_geometry", "wave_envelope", "tooth_profiles", "tooth_tips", "internal_mesh", "standard_parts", "stl_export", "workspace_ui", "workspace_tools", "model_catalog_ui", "navigation_cube", "view_navigation",
 ]
 
 [tool.setuptools.cmdclass]
 build_py = "build_support.ratiolab_build.BuildPy"
+bdist_wheel = "build_support.ratiolab_build.BdistWheel"
 
 [tool.setuptools.package-data]
-ratiolab_resources = ["*.json", "branding/*.json", "branding/*.png", "model-catalog/*.png", "icons/hicolor/index.theme", "icons/hicolor/*/apps/*.png", "fusion_addin/RatioLabBridge/*.py", "fusion_addin/RatioLabBridge/*.manifest"]
+ratiolab_resources = ["native/*", "*.json", "branding/*.json", "branding/*.png", "model-catalog/*.png", "icons/hicolor/index.theme", "icons/hicolor/*/apps/*.png", "fusion_addin/RatioLabBridge/*.py", "fusion_addin/RatioLabBridge/*.manifest"]

@@ -32,7 +32,7 @@ class Element extends EventTarget {
   click(){if(!this.disabled)this.dispatchEvent(new Event('click'));}
 }
 const nodes=new Map();const el=id=>{if(!nodes.has(id)){const n=new Element();n.connected=true;nodes.set(id,n);}return nodes.get(id);};
-globalThis.document={getElementById:el,createElement:tag=>new Element(tag),querySelectorAll:()=>[],activeElement:null,body:el('body'),documentElement:{clientWidth:1280}};
+globalThis.document=Object.assign(new EventTarget(),{getElementById:el,createElement:tag=>new Element(tag),querySelectorAll:()=>[],activeElement:null,body:el('body'),documentElement:{clientWidth:1280}});
 // Match the real motion bar's help anchor around the precise RPM input.
 const motionControls=new Element();motionControls.className='motion-bar input-controls';
 motionControls.append(el('motion-rpm'));document.body.append(motionControls);

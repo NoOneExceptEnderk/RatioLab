@@ -9,12 +9,20 @@ Install the native GTK/Python bindings for your OS as described below, then
 create a development environment using that same interpreter. Linux example:
 
 ```sh
+# Install the Rust toolchain specified in rust-toolchain.toml first.
+python3 scripts/build-rust-engine.py --target all
 python3 -m venv --system-site-packages .venv
 .venv/bin/python -m pip install -e .
 .venv/bin/ratiolab --diagnose
 .venv/bin/ratiolab
 .venv/bin/python -m unittest discover -s tests -p 'test_*.py' -v
 ```
+
+The shared Rust kernel is in `rust/geometry-kernel/`; Python modules adapt the
+application to its C ABI, and the browser instantiates the same crate as WebAssembly.
+Source launches and tests require a built native kernel. Wheel and installer builds
+compile it and collect its dependency notices. End users need no Rust toolchain.
+The wheel has a platform tag because it contains a native shared library.
 
 `src/` contains application modules and runtime resources. `tests/` contains
 automated checks; tests are part of the source distribution and are excluded
@@ -31,6 +39,59 @@ For a quick source launch use `./launch.sh`. A headless source command from
 the repository root can use `PYTHONPATH=src python3 -m ratiolab_cli --diagnose`.
 On PowerShell, set `$env:PYTHONPATH = "src"` before the corresponding command.
 The editable installation above avoids that extra environment setting.
+
+The launcher does not compile a missing kernel. Build the native target before
+launching source code. Source, an installed wheel, a frozen desktop bundle and
+a browser bundle resolve their own resources; starting one does not update the
+others. See [engine ownership](technical/engine-integration.md).
+
+## Required kernel checks
+
+With the development environment active, install the independent test oracle
+`mpmath==1.3.0`, build both Rust targets and make Node.js available for actual
+Wasm execution. Then run:
+
+```sh
+python3 scripts/check-rust-engine.py
+```
+
+The required suite fails on skips, missing native/Wasm products or unavailable
+Node. `--tests MODULE...` labels a custom subset; it is not a substitute for
+the required suite. Use `--report PATH` to retain a JSON result. Rust tests,
+formatting and Clippy checks are described in the
+[kernel build guide](technical/rust-kernel.md#building-and-checking).
+
+### Isolated Linux GUI checks
+
+Display-backed tests need GTK, a working GL driver, Xvfb and D-Bus. Run them
+with a disposable user profile **and a unique runtime directory**. A private
+D-Bus with the desktop's existing `XDG_RUNTIME_DIR` can start a second document
+portal against the desktop mount. Separating only config/data directories is
+insufficient.
+
+From the activated development environment:
+
+```sh
+(
+    set -eu
+    ratiolab_gui_dir=$(mktemp -d)
+    trap 'rm -rf -- "$ratiolab_gui_dir"' EXIT
+    mkdir -m 700 "$ratiolab_gui_dir/runtime" "$ratiolab_gui_dir/config" \
+        "$ratiolab_gui_dir/data" "$ratiolab_gui_dir/cache" "$ratiolab_gui_dir/state"
+    XDG_RUNTIME_DIR="$ratiolab_gui_dir/runtime" \
+    XDG_CONFIG_HOME="$ratiolab_gui_dir/config" \
+    XDG_DATA_HOME="$ratiolab_gui_dir/data" \
+    XDG_CACHE_HOME="$ratiolab_gui_dir/cache" \
+    XDG_STATE_HOME="$ratiolab_gui_dir/state" \
+    GDK_BACKEND=x11 \
+        dbus-run-session -- xvfb-run -a python3 scripts/check-rust-engine.py --gui
+)
+```
+
+This creates its own display/session and keeps the normal renderer/driver.
+Use the same isolation around full test discovery or installed GUI checks;
+change only the final test command. Keep the daily application outside this
+test profile. macOS/Windows use their native display-backed CI environments.
 
 ## Building the native installers
 
@@ -157,9 +218,10 @@ and [Apple's distribution signing documentation](https://developer.apple.com/doc
 
 ## Source and wheel installation (development)
 
-RatioLab 0.1 is a Python/GTK 4 desktop application. Its Python wheel and source
-archive can be installed on another computer; GTK, PyGObject, Cairo and libepoxy
-come from that computer's native package manager. The wheel is **not** a
+RatioLab uses a Python/GTK 4 desktop application and a shared native Rust kernel.
+Its platform-specific Python wheel and source archive can be installed on
+another computer; GTK, PyGObject, Cairo and libepoxy come from that computer's
+native package manager. The wheel is **not** a
 self-contained Windows installer, macOS application bundle or Linux AppImage.
 An Internet connection is needed to install dependencies, not to generate or
 export models.
@@ -168,8 +230,11 @@ Required: Python 3.10 or newer, **GTK 4.12 or newer**, PyGObject, Pycairo, libep
 driver providing **desktop OpenGL 3.3+** or **OpenGL ES 3.0+**. GTK negotiates
 an available API; Windows includes ANGLE as a GLES backend. The same Python must load the
 native bindings and run RatioLab. A virtual environment uses
-`--system-site-packages` so it can see those bindings. The wheel's `py3-none-any`
-tag describes its Python code and resources, not the native runtime.
+`--system-site-packages` so it can see those bindings. Current wheels use
+`py3-none-<platform>` because they include the OS/architecture-specific C ABI
+library; they are not `py3-none-any` packages. Choose a matching wheel. Installing
+from source also requires the pinned Rust toolchain and a native linker; the
+build compiles the kernel. A matching built wheel needs no Rust compiler.
 
 ### Linux source/wheel
 
@@ -203,7 +268,7 @@ To install a wheel instead (replace the example wheel path):
 
 ```sh
 /usr/bin/python3 -m venv --system-site-packages "$HOME/.local/share/ratiolab/venv"
-"$HOME/.local/share/ratiolab/venv/bin/python" -m pip install --no-deps /path/to/ratiolab-0.1.3-py3-none-any.whl
+"$HOME/.local/share/ratiolab/venv/bin/python" -m pip install --no-deps /path/to/ratiolab-VERSION-py3-none-PLATFORM.whl
 "$HOME/.local/share/ratiolab/venv/bin/ratiolab" --diagnose
 "$HOME/.local/share/ratiolab/venv/bin/ratiolab-install-desktop"
 ```
@@ -219,7 +284,7 @@ pacman -S --needed mingw-w64-ucrt-x86_64-python mingw-w64-ucrt-x86_64-python-pip
 ```
 
 Unpack the RatioLab source archive in a folder you own, navigate there in that
-UCRT64 terminal (`cd /c/Users/YourName/Downloads/ratiolab-0.1.3` for example), then:
+UCRT64 terminal (`cd /c/Users/YourName/Downloads/RatioLab` for example), then:
 
 ```sh
 bash scripts/install-windows-msys2.sh
@@ -236,7 +301,7 @@ installation, not a portable executable.
 
 For a wheel, create the same environment with
 `/ucrt64/bin/python.exe -m venv --system-site-packages "$HOME/.local/share/ratiolab/venv"`,
-then run its `bin/python.exe -m pip install --no-deps /c/path/to/ratiolab-0.1.3-py3-none-any.whl`.
+then run its `bin/python.exe -m pip install --no-deps /c/path/to/ratiolab-VERSION-py3-none-PLATFORM.whl`.
 Run from the UCRT64 terminal so GTK's native resource paths remain available.
 RatioLab also adds that Python installation's `bin` to DLL discovery before
 importing PyGObject. Windows ARM64 is not covered by this UCRT64 x86-64 recipe.
@@ -263,7 +328,7 @@ logged-in macOS desktop session; no XQuartz is needed for GTK's Quartz backend.
 
 For a wheel, source `scripts/macos-python.sh`, set
 `python=$(choose_macos_python)`, create a `--system-site-packages` environment with
-that interpreter, then use its `bin/python -m pip install --no-deps /path/to/ratiolab-0.1.3-py3-none-any.whl`.
+that interpreter, then use its `bin/python -m pip install --no-deps /path/to/ratiolab-VERSION-py3-none-PLATFORM.whl`.
 For a self-contained app, use the DMGs described above. Those packages
 use ad-hoc signing, without a Developer ID identity or Apple notarization.
 

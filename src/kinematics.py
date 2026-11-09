@@ -7,6 +7,7 @@ the selected I/O mounting and ports after family/catalog/hardware construction.
 """
 from parallel_multistage import VARIANTS as PARALLEL_MULTISTAGE_VARIANTS
 from itertools import permutations
+from parallel_multistage import VARIANTS as PARALLEL_MULTISTAGE_VARIANTS
 TRIPLES = {'planetary': {'sun': 'Sun', 'carrier': 'Planet carrier', 'ring': 'Ring'}, 'cycloidal': {'eccentric': 'Eccentric', 'output': 'Pin flange', 'ring': 'Ring / housing'}, 'harmonic': {'wave': 'Wave generator', 'flex': 'Flexspline', 'circular': 'Circular spline'}}
 PAIRS = {'parallel': ('Pinion', 'Wheel'), 'internal': ('Pinion', 'Ring'), 'worm': ('Worm', 'Wheel')}
 PAIRS['bevel'] = ('Pinion · +X', 'Wheel · +Z')
@@ -70,10 +71,13 @@ def coefficients(family, v, stage=1):
     raise ValueError('Three member equation unavailable.')
 
 def solve(a, scheme, rpm):
-    source, target, fixed = scheme.split('_')
-    ratio = -a[target] / a[source]
-    rates = {source: rpm, target: rpm / ratio, fixed: 0.0}
-    return dict(input=source, output=target, fixed=fixed, signed_ratio=ratio, rates_rpm=rates, coefficients=a)
+    from rust_geometry import call
+    result=call('kinematic_solve',dict(coefficients=a,scheme=scheme,rpm=rpm))
+    exact=result['values']
+    return dict(input=exact['input'],output=exact['output'],fixed=exact['fixed'],
+        signed_ratio=float(exact['signed_ratio']),rates_rpm={k:float(v) for k,v in exact['rates_rpm'].items()},
+        coefficients=a,analytic_values=exact,analytic_precision=result['precision'])
+
 
 def apply(d):
     f = d.family

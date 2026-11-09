@@ -7,7 +7,7 @@ from math import isfinite
 from pathlib import Path
 import gi
 gi.require_version('Gtk', '4.0')
-from gi.repository import Gtk, Gio, GLib
+from gi.repository import Gtk, Gio, GLib, Gdk, Pango
 import app_paths
 from geometry import FAMILIES, VARIANTS, defaults, generate
 from project_document import Document, Store, atomic_json, equivalent
@@ -41,6 +41,7 @@ class ProjectActions:
         """Read each entry independently: one incomplete value cannot erase others."""
         values = dict(self.values.get(self.family, defaults(self.family)))
         values.update(getattr(self, 'option_values', {}))
+        from precise_numbers import attach
         raw = dict(getattr(self, 'raw_edits', {}).get(self.family, {}))
         automatic = set(getattr(self, 'automatic_edits', {}).get(self.family, []))
         for key, widget in self.inputs.items():
@@ -57,11 +58,11 @@ class ProjectActions:
             try:
                 value = numeric_value(widget)
                 if isfinite(value):
-                    values[key] = value
+                    attach(values,key,value)
             except ValueError:
                 pass
         if hasattr(self, 'motion_rpm'):
-            values['input_rpm'] = self.motion_rpm
+            attach(values,'input_rpm',self.motion_rpm)
             raw['input_rpm'] = numeric_snapshot_text(self.motion_speed_text)
             if numeric_is_automatic(self.motion_speed_text):
                 automatic.add('input_rpm')
@@ -70,7 +71,7 @@ class ProjectActions:
             try:
                 number = numeric_value(self.motion_speed_text)
                 if isfinite(number):
-                    values['input_rpm'] = number
+                    attach(values,'input_rpm',number)
             except ValueError:
                 pass
         if self.family in VARIANTS:
@@ -89,8 +90,10 @@ class ProjectActions:
 
     def project_snapshot(self):
         self.collect_fields()
-        return deepcopy(dict(family=self.family, values=self.values, raw=self.raw_edits,
+        result=deepcopy(dict(family=self.family, values=self.values, raw=self.raw_edits,
                              automatic=self.automatic_edits))
+        if getattr(self,'quality',None):result['quality']=deepcopy(self.quality)
+        return result
 
     def project_changed(self, group=None):
         if not hasattr(self, 'document') or not self.project_alive or self.project_restoring or self.building:
@@ -154,8 +157,14 @@ class ProjectActions:
         if hasattr(self, 'combination_search'):self.combination_search.invalidate('Document replaced · run a new search')
         self.project_restoring = True
         try:
+            from geometry_quality import normalize
+            from precise_numbers import restore
+            self.quality = normalize(snapshot.get('quality'))
             self.family = snapshot['family']
-            self.values = deepcopy(snapshot['values'])
+            # JSON recovery has plain floats plus an exact source map. Rebuild
+            # their numeric backing before creating any entry or RPM control.
+            self.values = {family: restore(values) for family, values in
+                           deepcopy(snapshot['values']).items()}
             self.raw_edits = deepcopy(snapshot['raw'])
             self.automatic_edits = deepcopy(snapshot.get('automatic', {}))
             self.building = True
@@ -166,13 +175,22 @@ class ProjectActions:
             self.project_restoring = False
 
     def restore_raw_fields(self):
+        from precise_numbers import from_text
+        def automatic_number(widget, text):
+            # Snapshot text is only a representation: expression-backed values
+            # may have a rounded float string here. Keep the backing installed
+            # from the source map when this is still its automatic display.
+            if numeric_is_automatic(widget) and numeric_snapshot_text(widget) == text:
+                return numeric_value(widget)
+            return from_text(text)
+
         automatic = set(getattr(self, 'automatic_edits', {}).get(self.family, []))
         for key, value in getattr(self, 'raw_edits', {}).get(self.family, {}).items():
             if key in self.inputs and self.inputs[key].get_sensitive():
                 widget = self.inputs[key]
                 if key in automatic:
                     try:
-                        number = float(value.strip().replace(',', '.'))
+                        number = automatic_number(widget, value)
                         if isfinite(number):
                             set_numeric_value(widget, number)
                             continue
@@ -182,7 +200,8 @@ class ProjectActions:
             elif key == 'input_rpm' and hasattr(self, 'motion_rpm'):
                 self.motion_rate_editing = key not in automatic
                 try:
-                    number = float(value.strip().replace(',', '.'))
+                    number = (automatic_number(self.motion_speed_text, value) if key in automatic
+                              else from_text(value))
                     low, high = self.motion_rate_limits
                     if not isfinite(number) or not low <= number <= high:
                         raise ValueError('Input speed is outside its allowed range.')
@@ -217,8 +236,10 @@ class ProjectActions:
     def config(self):
         # Generation validates finite numbers, enum choices and geometric constraints.
         values = self.read_values()
-        checked = generate(self.family, values)
-        return dict(format='solidcraft-riduttori/1', family=self.family, parameters=checked.values)
+        from geometry_quality import project,with_quality
+        current=getattr(self,'design',None)
+        checked=with_quality(current,getattr(self,'quality',{})) if current and current.family==self.family and current.values==values else generate(self.family,values,quality=getattr(self,'quality',{}))
+        return project(checked)
 
     def checked_config(self, obj):
         if not isinstance(obj, dict) or obj.get('format') != 'solidcraft-riduttori/1':
@@ -228,12 +249,13 @@ class ProjectActions:
             raise ValueError('Unsupported reducer: '+str(family))
         if not isinstance(obj.get('parameters'), dict):
             raise ValueError('Configuration parameters must be an object')
-        return generate(family, obj['parameters'])
+        return generate(family, obj['parameters'],quality=obj.get('quality'))
 
     def load_config_data(self, obj, path=None):
         checked = self.checked_config(obj)
         old = self.project_snapshot() if hasattr(self, 'document') else None
         snapshot = dict(family=checked.family, values={checked.family: checked.values}, raw={})
+        if checked.quality:snapshot['quality']=checked.quality
         try:
             self.restore_project_snapshot(snapshot)
         except Exception:
@@ -276,6 +298,78 @@ class ProjectActions:
             callback(code)
         dialog.connect('response', response)
         dialog.present()
+        return dialog
+
+    def recovery_popup(self, title, detail, choices, callback):
+        """Present recovery with workspace styling and a non-destructive close."""
+        dialog = Gtk.Dialog(title=title, application=self, transient_for=self.win,
+                            modal=True, destroy_with_parent=True, use_header_bar=False,
+                            default_width=520, resizable=False,
+                            css_classes=['reducers', 'recovery-popup'])
+        header = Gtk.Box(spacing=12, css_classes=['recovery-heading'])
+        header.append(Gtk.Label(label=title, xalign=0, hexpand=True, wrap=True,
+                                wrap_mode=Pango.WrapMode.WORD_CHAR,
+                                css_classes=['step-title']))
+        close = Gtk.Button(label='×', tooltip_text='Close dialog', css_classes=['flat'])
+        close.update_property([Gtk.AccessibleProperty.LABEL], ['Close dialog'])
+        close.connect('clicked', lambda *_: dialog.response(Gtk.ResponseType.CANCEL))
+        header.append(close)
+        handle = Gtk.WindowHandle()
+        handle.set_child(header)
+        dialog.set_titlebar(handle)
+        body = dialog.get_content_area()
+        details = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6,
+                          css_classes=['recovery-detail'])
+        for index, text in enumerate(detail.split('\n', 1)):
+            label = Gtk.Label(label=text, xalign=0, wrap=True,
+                              wrap_mode=Pango.WrapMode.WORD_CHAR, max_width_chars=55)
+            if index:
+                # The existing catalog stores the explanation with its newline.
+                label._ratiolab_source_label = '\n'+text
+                label._ratiolab_label_transform = lambda value: value.lstrip('\n')
+            details.append(label)
+        body.append(details)
+        body.append(Gtk.Separator())
+        actions = Gtk.FlowBox(selection_mode=Gtk.SelectionMode.NONE,
+                              min_children_per_line=1, max_children_per_line=3,
+                              column_spacing=8, row_spacing=8,
+                              css_classes=['recovery-actions'])
+        body.append(actions)
+        initial_focus = close
+        for label, code in choices:
+            button = Gtk.Button(label=label, hexpand=True,
+                                css_classes=['primary'] if code == Gtk.ResponseType.ACCEPT else [])
+            button.connect('clicked', lambda _, value=code: dialog.response(value))
+            actions.append(button)
+            button.get_parent().set_focusable(False)
+            if code == Gtk.ResponseType.CANCEL:
+                dialog.set_default_widget(button)
+                initial_focus = button
+        answered = False
+        self.project_dialog = dialog
+        def response(widget, code):
+            nonlocal answered
+            if answered:
+                return
+            answered = True
+            self.project_dialog = None
+            widget.destroy()
+            callback(code)
+        dialog.connect('response', response)
+        def close_requested(*_):
+            dialog.response(Gtk.ResponseType.CANCEL)
+            return True
+        dialog.connect('close-request', close_requested)
+        keys = Gtk.EventControllerKey()
+        def key_pressed(_, key, *args):
+            if key != Gdk.KEY_Escape:
+                return False
+            dialog.response(Gtk.ResponseType.CANCEL)
+            return True
+        keys.connect('key-pressed', key_pressed)
+        dialog.add_controller(keys)
+        dialog.present()
+        initial_focus.grab_focus()
         return dialog
 
     def protect_document(self, continuation, cancelled=None):
@@ -383,6 +477,8 @@ class ProjectActions:
             return write(self.document.path)
         dialog = Gtk.FileChooserNative(title='Save model configuration', transient_for=self.win,
             action=Gtk.FileChooserAction.SAVE, accept_label='Save', cancel_label='Cancel')
+        from ui_language import localize_native_dialog
+        localize_native_dialog(dialog, self.language.language)
         path = self.document.path
         dialog.set_current_name(path.name if path else f'{self.family}.config.json')
         folder = path.parent if path else self.output_dir
@@ -429,8 +525,10 @@ class ProjectActions:
         token = self.document.token
         dialog = Gtk.FileChooserNative(title='Open reducer configuration', transient_for=self.win,
             action=Gtk.FileChooserAction.OPEN, accept_label='Open', cancel_label='Cancel')
+        from ui_language import localize_native_dialog, translate
+        localize_native_dialog(dialog, self.language.language)
         file_filter = Gtk.FileFilter()
-        file_filter.set_name('JSON configurations')
+        file_filter.set_name(translate('JSON configurations', self.language.language))
         file_filter.add_pattern('*.json')
         dialog.add_filter(file_filter)
         self.project_dialog = dialog
@@ -491,7 +589,7 @@ class ProjectActions:
             try:
                 recovered = self.project_store.read_recovery(path, FAMILIES)
                 # Preflight options/UI construction is transactional during Restore.
-                title = 'Recover an interrupted session?'
+                title = 'Recover an unsaved design'
                 detail = str(recovered.path or 'Untitled project')+'\nIncomplete numeric edits are included.'
                 choices = [('Keep for later', Gtk.ResponseType.CANCEL), ('Discard recovery', Gtk.ResponseType.REJECT), ('Restore', Gtk.ResponseType.ACCEPT)]
             except (OSError, ValueError, TypeError, KeyError) as error:
@@ -529,6 +627,6 @@ class ProjectActions:
                 except Exception as error:
                     self.status_text(f'Recovery could not be completed: {error}')
                 next_record()
-            self.message_dialog(title, detail, choices, answer)
+            self.recovery_popup(title, detail, choices, answer)
         next_record()
         return False

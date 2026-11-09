@@ -200,6 +200,144 @@ class GuiEventLoopTests(unittest.TestCase):
         self.assertEqual(context.iteration.call_count, 3)
 
 
+class SuspendedPreviewTests(unittest.TestCase):
+    def image(self, blank=False, width=3):
+        import cairo
+        image=cairo.ImageSurface(cairo.FORMAT_ARGB32,width,2)
+        cr=cairo.Context(image);cr.set_source_rgb(0,0,0);cr.paint()
+        if not blank:
+            cr.set_source_rgb(1,0,0);cr.rectangle(0,0,1,1);cr.fill()
+        output=io.BytesIO();image.write_to_png(output);return output.getvalue()
+
+    def capture_fixture(self):
+        canvas,context,clock=GuiEventLoopTests.frame_fixture(self,width=3)
+        canvas.get_height.return_value=2;canvas.get_scale_factor.return_value=1
+        canvas.failure=None;canvas.get_error.return_value=None
+        canvas.gl=unittest.mock.Mock();canvas.gl.GetError.return_value=0
+        dispatch=context.iteration.side_effect
+        def current_viewport(blocking):
+            dispatch(blocking)
+            if context.iteration.call_count >= 2:
+                canvas.render_size=(canvas.get_width()*canvas.get_scale_factor(),
+                                    canvas.get_height()*canvas.get_scale_factor())
+        context.iteration.side_effect=current_viewport
+        def capture(callback):
+            canvas.render_serial+=1
+            canvas.render_size=(canvas.get_width()*canvas.get_scale_factor(),
+                                canvas.get_height()*canvas.get_scale_factor())
+            canvas.dirty=False;callback(self.image(),None)
+        canvas.capture_png.side_effect=capture
+        return canvas,context,clock
+
+    def test_visible_capture_requires_a_new_completed_gtk_frame(self):
+        from ratiolab_checks import _capture_preview_frame
+        canvas,context,clock=self.capture_fixture()
+        with patch('ratiolab_checks._surface_suspended',return_value=False),patch('ratiolab_checks.time.sleep'):
+            data,proof=_capture_preview_frame(canvas,context)
+        self.assertEqual(proof['mode'],'gtk-frame')
+        self.assertGreater(proof['frame_after'],proof['frame_before'])
+        self.assertEqual(context.iteration.call_count,2)
+        self.assertEqual(data,self.image());canvas.capture_png.assert_called_once()
+        clock.disconnect.assert_called_once_with(7)
+
+    def test_other_widget_paints_without_a_canvas_render_cannot_satisfy_capture(self):
+        from itertools import count
+        from ratiolab_checks import _capture_preview_frame
+        canvas,context,clock=self.capture_fixture()
+        def other_paint(blocking):
+            clock.connect.call_args.args[1](clock)
+        context.iteration.side_effect=other_paint
+        with patch('ratiolab_checks._surface_suspended',return_value=False), \
+             patch('ratiolab_checks.time.monotonic',side_effect=count(0.,.01).__next__), \
+             patch('ratiolab_checks.time.sleep'), self.assertRaisesRegex(RuntimeError,'Timed out'):
+            _capture_preview_frame(canvas,context,timeout=.05)
+        canvas.capture_png.assert_not_called()
+        clock.disconnect.assert_called_once_with(7)
+
+    def test_new_canvas_render_in_the_current_global_frame_is_sufficient(self):
+        from ratiolab_checks import _capture_preview_frame
+        canvas,context,clock=self.capture_fixture()
+        def current_paint(blocking):
+            canvas.render_serial+=1
+            canvas.render_size=(3,2)
+            clock.connect.call_args.args[1](clock)
+        context.iteration.side_effect=current_paint
+        with patch('ratiolab_checks._surface_suspended',return_value=False),patch('ratiolab_checks.time.sleep'):
+            _,proof=_capture_preview_frame(canvas,context)
+        self.assertEqual(proof['mode'],'gtk-frame')
+        self.assertEqual(proof['frame_after'],proof['frame_before'])
+        self.assertGreater(proof['render_after'],proof['render_before'])
+        canvas.capture_png.assert_called_once()
+
+    def test_suspended_capture_uploads_and_renders_without_a_compositor_frame(self):
+        from ratiolab_checks import _capture_preview_frame
+        canvas,context,clock=self.capture_fixture();canvas.dirty=True
+        context.iteration.side_effect=None
+        with patch('ratiolab_checks._surface_suspended',return_value=True):
+            data,proof=_capture_preview_frame(canvas,context)
+        self.assertEqual(proof['mode'],'suspended-capture')
+        self.assertEqual(proof['frame_after'],proof['frame_before'])
+        self.assertFalse(canvas.dirty);self.assertEqual(data,self.image())
+        canvas.capture_png.assert_called_once();clock.disconnect.assert_called_once_with(7)
+
+    def test_suspension_during_wait_does_not_require_the_frame_that_was_paused(self):
+        from ratiolab_checks import _capture_preview_frame
+        canvas,context,clock=self.capture_fixture();canvas.dirty=True;context.iteration.side_effect=None
+        with patch('ratiolab_checks._surface_suspended',side_effect=[False,True]),patch('ratiolab_checks.time.sleep'):
+            _,proof=_capture_preview_frame(canvas,context)
+        self.assertEqual(proof['mode'],'suspended-capture')
+        self.assertEqual(context.iteration.call_count,2)
+
+    def test_suspension_does_not_excuse_invalid_rendering(self):
+        from ratiolab_checks import _capture_preview_frame
+        for failure in ('callback','missing image','blank','wrong size','upload','GL error','context'):
+            canvas,context,clock=self.capture_fixture();context.iteration.side_effect=None
+            def capture(callback):
+                if failure=='callback':callback(None,'capture error')
+                elif failure=='missing image':return
+                else:callback(self.image(blank=failure=='blank',width=4 if failure=='wrong size' else 3),None)
+            canvas.capture_png.side_effect=capture
+            if failure=='upload':canvas.dirty=True
+            if failure=='GL error':canvas.gl.GetError.return_value=0x0502
+            if failure=='context':canvas.get_error.return_value='context lost'
+            with self.subTest(failure=failure),patch('ratiolab_checks._surface_suspended',return_value=True),self.assertRaises(RuntimeError):
+                _capture_preview_frame(canvas,context)
+            clock.disconnect.assert_called_once_with(7)
+
+    def test_unmapped_or_unallocated_suspended_canvas_still_times_out(self):
+        from ratiolab_checks import _capture_preview_frame
+        for problem in ('unmapped','zero width','zero height','missing GL'):
+            canvas,context,clock=self.capture_fixture();context.iteration.side_effect=None
+            if problem=='unmapped':canvas.get_mapped.return_value=False
+            elif problem=='zero width':canvas.get_width.return_value=0
+            elif problem=='zero height':canvas.get_height.return_value=0
+            else:canvas.gl=None
+            with self.subTest(problem=problem),patch('ratiolab_checks._surface_suspended',return_value=True), \
+                    patch('ratiolab_checks.time.monotonic',side_effect=[0,.05,.15,.25,.35]), \
+                    patch('ratiolab_checks.time.sleep'),self.assertRaisesRegex(RuntimeError,'Timed out'):
+                _capture_preview_frame(canvas,context,timeout=.3)
+            canvas.capture_png.assert_not_called();clock.disconnect.assert_called_once_with(7)
+
+    def test_unsuspended_surface_without_new_frames_still_times_out(self):
+        from ratiolab_checks import _capture_preview_frame
+        canvas,context,clock=self.capture_fixture();context.iteration.side_effect=None
+        with patch('ratiolab_checks._surface_suspended',return_value=False), \
+                patch('ratiolab_checks.time.monotonic',side_effect=[0,.05,.15,.25,.35]), \
+                patch('ratiolab_checks.time.sleep'),self.assertRaisesRegex(RuntimeError,'Timed out'):
+            _capture_preview_frame(canvas,context,timeout=.3)
+        canvas.capture_png.assert_not_called();clock.disconnect.assert_called_once_with(7)
+
+    def test_only_explicit_surface_suspension_enables_direct_capture(self):
+        from gi.repository import Gdk
+        from ratiolab_checks import _surface_suspended
+        canvas=unittest.mock.Mock();surface=unittest.mock.Mock(spec=Gdk.Toplevel)
+        canvas.get_native.return_value.get_surface.return_value=surface
+        for state in (0,Gdk.ToplevelState.MINIMIZED,Gdk.ToplevelState.SUSPENDED):
+            surface.get_state.return_value=state
+            self.assertEqual(_surface_suspended(canvas),state==Gdk.ToplevelState.SUSPENDED)
+        canvas.get_native.return_value=None;self.assertFalse(_surface_suspended(canvas))
+
+
 class NativeGuiChecksTests(unittest.TestCase):
     def test_current_catalog_passes_and_missing_duplicate_or_substituted_families_fail(self):
         from geometry import FAMILIES

@@ -50,6 +50,44 @@ class Panel(Gtk.Box):
         self.scroll = Gtk.ScrolledWindow(vexpand=True, hexpand=True)
         self.scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
         self.append(self.scroll)
+        self._focus_watch=None;self._focus_layout=None
+        self.connect('map',self._watch_focus_layout)
+        self.connect('unmap',self._stop_focus_layout)
+
+    def _stop_focus_layout(self,*_):
+        if self._focus_watch:
+            clock,paint,root,focus=self._focus_watch
+            clock.disconnect(paint);root.disconnect(focus)
+            self._focus_watch=None
+        self._focus_layout=None
+
+    def _watch_focus_layout(self,*_):
+        self._stop_focus_layout()
+        clock=self.get_frame_clock();root=self.get_root()
+        if clock is None or root is None:return
+        def changed(*_):
+            self._focus_layout=None;self.queue_draw()
+        self._focus_watch=(clock,clock.connect('after-paint',self._reveal_focused_control),
+                           root,root.connect('notify::focus-widget',changed))
+
+    def _reveal_focused_control(self,*_):
+        # Native focus scrolling can use an allocation from before dock/window
+        # resizing. Check after layout, once per focus/allocation change. A
+        # deliberate wheel scroll with unchanged layout must not snap back.
+        root=self.get_root();focus=root.get_focus() if root else None
+        viewport=self.scroll.get_child();body=getattr(self,'body',None)
+        if not focus or not viewport or body is None or not focus.is_ancestor(body):return
+        layout=(focus,viewport.get_width(),viewport.get_height(),body.get_width(),body.get_height(),
+                focus.get_width(),focus.get_height())
+        if layout==self._focus_layout:return
+        self._focus_layout=layout
+        ok,bounds=focus.compute_bounds(viewport)
+        if not ok or bounds.get_height()>viewport.get_height():return
+        y=bounds.get_y();bottom=y+bounds.get_height()
+        delta=y if y<0 else max(0,bottom-viewport.get_height())
+        if delta:
+            adjustment=self.scroll.get_vadjustment()
+            adjustment.set_value(adjustment.get_value()+delta)
 
     def set_child(self, child):
         self.body=child

@@ -323,6 +323,17 @@ def collect_source_licenses(component, destination):
 
 def component_for_binary(path):
     path = Path(path).resolve()
+    root=Path(__file__).resolve().parent.parent
+    own_names={'libratiolab_geometry.so','libratiolab_geometry.dylib','ratiolab_geometry.dll'}
+    if path.name in own_names and path.parent==root/'target/release':
+        notices=root/'target/ratiolab-rust-notices'
+        if not (notices/'components.json').is_file():
+            raise RuntimeError('Build the Rust kernel and collect its notices before packaging.')
+        version=json.loads((root/'src/ratiolab_resources/version.json').read_text())['release']
+        return dict(name='RatioLab Rust geometry and its locked dependencies',version=version,
+            provider='RatioLab Cargo build',source='Cargo.lock and corresponding Rust sources',
+            license_declarations=['GPL-3.0-only; dependency licenses in the attached notices'],
+            _licenses=[root/'LICENSE',root/'COPYRIGHT',*[p for p in sorted(notices.rglob('*')) if p.is_file()]])
     if sys.platform.startswith('linux'):
         component = linux_component(path)
     elif sys.platform == 'win32':

@@ -19,7 +19,7 @@ class PreferenceValidationTests(unittest.TestCase):
             self.assertEqual(app_paths.ui_preferences(value), app_paths.UI_DEFAULTS)
         self.assertEqual(app_paths.ui_preferences(dict(text_scale=1.5, zoom_speed=.5,
                          rotation_speed=2, hover_help=False, invert_zoom=True, theme='light', language='en')),
-                         dict(text_scale=1.5, zoom_speed=.5, rotation_speed=2,
+                         dict(app_paths.UI_DEFAULTS, text_scale=1.5, zoom_speed=.5, rotation_speed=2,
                               hover_help=False, invert_zoom=True, theme='light', language='en'))
 
     def test_atomic_preferences_preserve_output_and_unknown_keys(self):
@@ -84,6 +84,7 @@ class DesktopLanguageTests(unittest.TestCase):
         from ui_language import catalog, translate
         app_paths.save_preferences(custom={'keep': 9})
         a = self.launch()
+        heading_source = a.model_dimensions_heading.get_label()
         precise = a.inputs['module']
         precise.set_text('2.000000000012345')
         raw = precise.get_text()
@@ -96,7 +97,7 @@ class DesktopLanguageTests(unittest.TestCase):
             a.language.change(code)
             pump(.18)
             label = a.model_dimensions_heading.get_label()
-            self.assertEqual(label, translate('Family', code))
+            self.assertEqual(label, translate(heading_source, code))
             self.assertEqual(a.selector.get_selected(), family_index)
             self.assertEqual(a.variant_selector.get_selected(), variant_index)
             self.assertEqual(precise.get_text(), raw)
@@ -112,13 +113,15 @@ class DesktopLanguageTests(unittest.TestCase):
         self.assertEqual(app_paths.load_preferences()['custom'], {'keep':9})
         b = self.launch()
         self.assertEqual(b.language.language, 'it')
-        self.assertEqual(b.model_dimensions_heading.get_label(), 'Famiglia')
+        self.assertEqual(b.model_dimensions_heading.get_label(), translate(heading_source, 'it'))
         self.assertEqual(b.workspace_theme, 'light')
-        self.assertFalse(hasattr(b, 'settings_button'))
+        self.assertTrue(hasattr(b, 'settings_button'))
 
     def test_closing_transient_popup_keeps_dynamic_label_translation_running(self):
         from gi.repository import Gtk, GLib
         from test_interference_gui import pump
+        from gui_workflow import CATALOG
+        from ui_language import translate
         a = self.launch()
         popup = Gtk.Popover()
         popup.set_parent(a.language_menu)
@@ -130,7 +133,7 @@ class DesktopLanguageTests(unittest.TestCase):
         self.assertIsNotNone(GLib.MainContext.default().find_source_by_id(a.language.timer))
         a.make_fields()
         pump(.2)
-        self.assertEqual(a.model_dimensions_heading.get_label(),'Famiglia')
+        self.assertEqual(a.model_dimensions_heading.get_label(), translate(CATALOG[a.family][0], 'it'))
         self.assertIsNotNone(GLib.MainContext.default().find_source_by_id(a.language.timer))
 
     def test_language_save_failure_keeps_session(self):

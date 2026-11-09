@@ -35,3 +35,6 @@ SKILL.md
 
 # Generated public website output stays outside source and application artifacts.
 /_site/
+
+# Rust build products; ship reviewed sources and lockfile, not local binaries.
+/target/

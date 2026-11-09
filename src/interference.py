@@ -12,13 +12,12 @@ poses, unsupported deformation and unfinished coverage remain explicit.
 from parallel_multistage import VARIANTS as PARALLEL_MULTISTAGE_VARIANTS
 from dataclasses import dataclass, field, asdict
 from fractions import Fraction
+from parallel_multistage import VARIANTS as PARALLEL_MULTISTAGE_VARIANTS
 from math import pi, ceil, lcm, gcd, isfinite
 from threading import Event
 from time import monotonic
 import json
-from solid_geometry import faces
-from stl_export import triangulate
-from motion import build_plan, transform, IDENTITY
+from motion import build_plan, IDENTITY
 from collision_geometry import Surface, relation
 
 
@@ -113,12 +112,12 @@ def expected_interface(d,i,j):
     """Constructor identities/port membership annotate, NEVER suppress a pair."""
     a,b=d.parts[i],d.parts[j];names=(a.name.lower(),b.name.lower());f=d.family
     if f=='parallel' and d.values.get('variant') in PARALLEL_MULTISTAGE_VARIANTS:
-        if a.port.get('rigid_group') == b.port.get('rigid_group'):
+        if a.port.get('rigid_group') and a.port.get('rigid_group')==b.port.get('rigid_group'):
             return 'Same rigid parallel-shaft compound · interface candidate (overlap still requires review)'
         if all(p.profile_metadata.get('tooth_profile') for p in (a,b)):
-            return ('Constructed gear mesh · boundary contact expected, intersection is suspect'
-                    if a.port.get('stage') == b.port.get('stage') else '')
+            return 'Constructed gear mesh · boundary contact expected, intersection is suspect' if a.port.get('stage')==b.port.get('stage') else ''
         return ''
+    if f=='rack':return 'Constructed rack/pinion mesh · finite stroke; intersection is suspect'
     if f=='wolfrom' and a.port.get('rigid_group') and a.port.get('rigid_group')==b.port.get('rigid_group'):
         return 'Same rigid Wolfrom body · interface candidate (overlap still requires review)'
     if f!='wolfrom' and a.port.get('member') and a.port.get('member')==b.port.get('member') and a.port.get('stage')==b.port.get('stage'):
@@ -161,7 +160,11 @@ def analyze(design,settings=None,cancel=None,progress=lambda message,fraction:No
     def check():
         if cancel.is_set():raise Stopped('Cancelled by user; unfinished poses and pairs are not checked')
         if monotonic()-start>settings.max_seconds:raise Stopped('Time limit reached; unfinished poses and pairs are not checked')
-    records={};base={};materials={};unsupported=set();total_triangles=0
+    records={};base={};surfaces={};flex=set();unsupported=set();total_triangles=0
+    def close_poses():
+        for index,surface in surfaces.items():
+            if surface is not base.get(index):surface.close()
+        surfaces.clear()
     try:
         check()
         if not plan.supported:
@@ -178,7 +181,7 @@ def analyze(design,settings=None,cancel=None,progress=lambda message,fraction:No
         if finite is not None:result.requested_end_degrees=finite[1]*180/pi
         required=max(1,ceil(360*turns/settings.step_degrees)+1)
         result.planned_poses=min(required,settings.max_poses)
-        if required>settings.max_poses:result.issues.append(f'Pose limit: {required} poses required for the full period; only a prefix is checked')
+        if required>settings.max_poses:result.issues.append(f'Pose limit: {required} poses required for the full '+('working stroke' if finite is not None else 'period')+'; only a prefix is checked')
         if design.family=='worm' and not design.analysis.get('wheel_geometry',{}).get('conjugate'):
             result.studies.append('Worm/wheel conjugacy is unverified; findings describe the sampled model only')
         if design.family=='harmonic':
@@ -194,28 +197,23 @@ def analyze(design,settings=None,cancel=None,progress=lambda message,fraction:No
         for i,part in enumerate(design.parts):
             check();progress(f'Preparing {i+1}/{len(design.parts)} · {part.name}',0.)
             result.parts.append(dict(index=i,name=part.name,supported=True))
+            surface=None
             try:
+                deformation=None
                 if i in plan.flex:
                     if design.family!='harmonic' or not part.name.startswith('Flexspline'):
                         raise ValueError('Unknown deformation: only the prescribed strain-wave material map is supported')
-                    from wave_geometry import material_vertices,posed_vertices
-                    materials[i]=material_vertices(part,check)
-                    posed_vertices(part,materials[i],plan.deformation(i,0.),check)
+                    deformation=plan.deformation(i,0.)
+                    flex.add(i)
                 if i in plan.warps:raise ValueError('Time-varying warp is not supported by this checker')
-                triangles=[]
-                for face in faces(part):
-                    check()
-                    if sum(len(loop) for loop in face)>40000:raise ValueError('Face vertex limit (40000) exceeded')
-                    triangles.extend(triangulate(face,check))
-                    if total_triangles+len(triangles)>settings.max_triangles:raise ValueError('Assembly triangle limit exceeded')
-                surface=Surface(triangles,check)
-                if i in materials and any(q not in materials[i] for triangle in triangles for q in triangle):
-                    raise ValueError('Shared surface contains a vertex without an immutable material reference')
+                surface=Surface.from_part(part,check,max_triangles=settings.max_triangles-total_triangles,
+                                          deformation=deformation,flex=i in flex)
                 if surface.edge_approximation_mm>settings.tolerance_mm/100:raise ValueError('Near-collinear triangle edge approximation exceeds tolerance / 100')
-                result.parts[-1].update(triangles=len(triangles),thin_triangles=surface.thin_triangles,edge_approximation_mm=surface.edge_approximation_mm)
-                if i in materials:result.parts[-1]['deformation']='prescribed pitch-arc/normal map'
-                total_triangles+=len(triangles);base[i]=surface
+                result.parts[-1].update(triangles=surface.triangle_count,thin_triangles=surface.thin_triangles,edge_approximation_mm=surface.edge_approximation_mm)
+                if i in flex:result.parts[-1]['deformation']='prescribed pitch-arc/normal map'
+                total_triangles+=surface.triangle_count;base[i]=surface
             except ValueError as error:
+                if surface is not None:surface.close()
                 unsupported.add(i);result.parts[-1].update(supported=False,reason=str(error));result.issues.append(f'{i+1} · {part.name}: {error}')
         indices=list(base);pairs=[(i,j) for k,i in enumerate(indices) for j in indices[k+1:]]
         result.pairs_per_pose=len(pairs)
@@ -224,24 +222,18 @@ def analyze(design,settings=None,cancel=None,progress=lambda message,fraction:No
         for sample in range(result.planned_poses):
             check();phase=phase_start+min(sample*step,interval);result.attempted_phase_degrees=phase*180/pi
             progress(f'Pose {sample+1}/{result.planned_poses} · {phase*180/pi:.3f}°',sample/result.planned_poses)
-            surfaces={}
+            close_poses()
             for i in indices:
                 check()
                 m=plan.matrix(i,phase)
-                if i in materials:
-                    mapped=posed_vertices(design.parts[i],materials[i],plan.deformation(i,phase),check)
-                    transformed=[]
-                    for j,triangle in enumerate(base[i].triangles):
-                        if j%128==0:check()
-                        transformed.append(tuple(transform(m,mapped[q]) for q in triangle))
-                    surfaces[i]=Surface(transformed,check)
+                if i in flex:
+                    surfaces[i]=base[i].posed(m,plan.deformation(i,phase))
                     if surfaces[i].edge_approximation_mm>settings.tolerance_mm/100:raise ValueError('Deformed triangle edge approximation exceeds tolerance / 100')
                 elif m==IDENTITY:surfaces[i]=base[i]
                 else:
-                    transformed=[tuple(transform(m,q) for q in t) for t in base[i].triangles]
                     # Validation at each transformed pose also rejects singular/custom
                     # transforms rather than silently assuming all poses are rigid.
-                    surfaces[i]=Surface(transformed,check)
+                    surfaces[i]=base[i].posed(m)
                     if surfaces[i].edge_approximation_mm>settings.tolerance_mm/100:raise ValueError('Transformed triangle edge approximation exceeds tolerance / 100')
             for pair_index,(i,j) in enumerate(pairs):
                 check()
@@ -265,6 +257,8 @@ def analyze(design,settings=None,cancel=None,progress=lambda message,fraction:No
     except ValueError as error:
         result.issues.append(f'Pose geometry unsupported: {error}')
     finally:
+        close_poses()
+        for surface in base.values():surface.close()
         severity={'Intersection':0,'Containment':1,'Boundary contact / unresolved':2,'Separated':3}
         result.rows=sorted(records.values(),key=lambda r:(severity[r['kind']],r['distance'],r['index_a'],r['index_b']))
         result.elapsed_seconds=monotonic()-start

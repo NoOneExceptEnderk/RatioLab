@@ -33,6 +33,7 @@ OBJECT = dict(type='object')
 COMPONENTS = dict(type='array', minItems=1, maxItems=128, uniqueItems=True,
                   items=dict(type='integer', minimum=1), description='1-based current source positions, tied to revision.')
 REFERENCE = dict(handle=STRING, revision=INTEGER)
+QUALITY = dict(type='object',properties={key:dict(type='number',exclusiveMinimum=0) for key in ('preview_mm','export_mm')},additionalProperties=False,description='Independent procedural sweep interpolation thresholds in mm; absent keys inherit part defaults. Does not bound total tooth-profile error.')
 PARAMETERS = dict(type='object', description='Patch of known geometric parameters/options; discovery lists accepted keys.')
 
 
@@ -46,12 +47,12 @@ TOOLS = [
     tool('discover', 'List available families and limits, or numeric specs, defaults, variants, I/O, bearing/hardware options for one family.',
          dict(family=STRING, variant=STRING, double_style=STRING, parameters=PARAMETERS), read_only=True),
     tool('project_create', 'Generate and validate a new in-memory project; return handle/revision and canonical parameters.',
-         dict(family=STRING, parameters=PARAMETERS), ['family']),
+         dict(family=STRING, parameters=PARAMETERS, quality=QUALITY), ['family']),
     tool('project_open', 'Import only a complete UTF-8 JSON solidcraft-riduttori/1 configuration from the workspace.',
          dict(path=STRING), ['path']),
     tool('project_list', 'List live handles, revisions, paths and parameters; handles expire with the server process.', {}, read_only=True),
     tool('project_update', 'Atomically validate/generate a parameter patch before committing a new project revision.',
-         dict(**REFERENCE, parameters=PARAMETERS), ['handle','revision','parameters']),
+         dict(**REFERENCE, parameters=PARAMETERS, quality=QUALITY), ['handle','revision']),
     tool('project_history', 'Undo or redo one validated Document state; always check the current revision first.',
          dict(**REFERENCE, action=dict(type='string', enum=['undo','redo'])), ['handle','revision','action']),
     tool('project_save', 'Save UTF-8 JSON atomically. Default refuses existing files; explicit overwrite requires this handle’s unchanged opened/saved file.',

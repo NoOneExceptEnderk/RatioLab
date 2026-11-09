@@ -4,6 +4,7 @@
 from math import pi, hypot
 from geometry import gear_part, Part, circle
 from engineering import mesh
+from tooth_tips import parameters as tip_parameters
 
 def build_train(d):
     if d.family == 'parallel':
@@ -23,9 +24,14 @@ def build_train(d):
         raise ValueError('The groove must leave at least 1 mm of teeth in each stage.')
     if v['wheel'] <= v['pinion']:
         raise ValueError('For a reducer, choose more driven wheel teeth than pinion teeth.')
+    internal_plan = None
+    if d.family == 'internal':
+        from internal_mesh import plan_fixed_internal_pair
+        internal_plan = plan_fixed_internal_pair(v['pinion'],v['wheel'],m,pa,beta,j)
 
     def pair(z1, z2, module, width, shift=0, extra=0, internal=False):
-        return mesh(z1, z2, module, pa, beta, (width - gap) / 2 if double else width, shift, extra, internal, backlash=j)
+        return mesh(z1, z2, module, pa, beta, (width - gap) / 2 if double else width, shift, extra, internal, backlash=j,internal_plan=internal_plan if internal else None,
+                    tooth_tips1=tip_parameters(v,'pinion'),tooth_tips2=tip_parameters(v,'ring' if internal else 'wheel'))
     first = pair(v['pinion'], v['wheel'], m, w, v.get('profile_shift', 0), v.get('center_extra', 0), d.family == 'internal')
     d.analysis['meshes'] = [first]
     first['torque_factor'] = 1
@@ -33,8 +39,12 @@ def build_train(d):
     r1 = v['wheel'] / v['pinion']
     parts = []
 
-    def gear(name, z, module, width, bore, center, phase=0, helix=0, zoff=0, internal=False, shift=0):
-        p = gear_part(name, z, module, pa, j, width, bore, center, phase, helix, internal, v.get('rim', 5), zoff, shift)
+    def gear(name, z, module, width, bore, center, phase=0, helix=0, zoff=0, internal=False, shift=0,ha=1,minimum_join_radius_mm=None,rack_tip_radius_mm=None,safe_pair_sampling=False):
+        p = gear_part(name, z, module, pa, j, width, bore, center, phase, helix, internal, v.get('rim', 5), zoff, shift,
+            ha=ha,minimum_join_radius_mm=minimum_join_radius_mm,rack_tip_radius_mm=rack_tip_radius_mm,safe_pair_sampling=safe_pair_sampling,
+            **tip_parameters(v,'ring' if internal else 'pinion' if 'Pinion' in name or 'pinion' in name else 'wheel'))
+        if internal_plan is not None:
+            p.profile_metadata['tooth_profile']['construction_version']=internal_plan['construction_version']
         if double:
             p.double = True
             p.gap = gap
@@ -49,12 +59,19 @@ def build_train(d):
         if bore:
             d.parts.append(Part(name, circle(bore / 2), [], end - start, start, center, role='support', color=(0.65, 0.72, 0.8)))
     if d.family == 'internal':
-        gear('Pinion_input', v['pinion'], m, w, v['bore'], (a1, 0), helix=beta)
-        gear('Ring_output', v['wheel'], m, w, 0, (0, 0), pi / v['wheel'], beta, internal=True)
+        gear('Pinion_input', v['pinion'], m, w, v['bore'], (a1, 0), helix=beta,
+             rack_tip_radius_mm=internal_plan['pinion_rack_tip_radius_mm'],safe_pair_sampling=True)
+        gear('Ring_output', v['wheel'], m, w, 0, (0, 0), pi / v['wheel'], beta, internal=True,
+             ha=internal_plan['ring_addendum_coefficient'],minimum_join_radius_mm=internal_plan['minimum_join_radius_mm'],safe_pair_sampling=True)
+        from tooth_tips import verify_internal_pair
+        verification=verify_internal_pair(parts[0],parts[1],v['pinion'],v['wheel'],j)
+        if verification:
+            first['internal_pair_construction']['verification']=verification
         shaft('Shaft_input', v['bore'], -8, w + 8, (a1, 0))
         d.analysis['signed_ratio'] = r1
         d.metrics = [f'Internal ring · reduction +{r1:.5g}:1', f'Centre distance {a1:.3f} mm · fixed axes, same rotation direction']
         d.requirements.append('Annular support, ring output flange, bearings, retainers and housing must be designed; no central shaft passes through the pinion.')
+        d.notes.append('The pinion generating rack is paired with the ring active involute. A custom normal tool-tip radius can preserve full nominal contact; its actual value is in the calculation report. This is a virtual generating tool, not a selected commercial cutter or a tooth-root strength verification. Profile sampling removes material at the pinion root and ring active flanks within its reported bound.')
     else:
         x = v['profile_shift']
         gear('S1_Pinion', v['pinion'], m, w, v['bore'], (0, 0), helix=beta, shift=x)

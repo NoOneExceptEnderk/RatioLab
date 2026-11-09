@@ -153,14 +153,39 @@ class CycloidalEccentricVisibilityGuiTests(unittest.TestCase):
             self.assertEqual(a.design.values['eccentric_design'],construction)
             self.assertIn('eccentric_bore_allowance',a.inputs)
             self.assertIn('eccentric_connection_angle',a.inputs)
-            shaft=next(p for p in a.design.parts if p.name=='Shaft_input')
-            self.assertEqual(shaft.role,'gear')
+            self.assertFalse(any(p.name.startswith('Shaft_') for p in a.design.parts))
+            if construction=='keyed_shaft':
+                self.assertTrue(a.eccentric_preset_options[0]['available'])
+                a.eccentric_preset_selector.set_selected(3)
+                self.assertFalse(a.eccentric_preset_apply.get_sensitive())
+                a.eccentric_preset_selector.set_selected(0)
+                self.assertTrue(a.eccentric_preset_apply.get_sensitive())
+            else:self.assertFalse(any(p['available'] for p in a.eccentric_preset_options))
             cam=next(i for i,p in enumerate(a.design.parts) if p.name=='Eccentric_1')
             a.canvas.isolated_indices=(cam,)
             a.canvas.view('top');a.canvas.zoom=4;a.canvas.queue_render();pump(.1)
             self.capture(construction+'-cam-bore.png')
             a.canvas.isolated_indices=None
             a.canvas.view('iso')
+
+    def test_din_availability_updates_after_numeric_edits_and_applies_only_interface(self):
+        a=self.app
+        self.load('dual',INPUT_SCHEMES[0])
+        self.assertFalse(any(p['available'] for p in a.eccentric_preset_options))
+        module.gui_workflow.set_numeric_value(a.inputs['bore'],18)
+        module.gui_workflow.set_numeric_value(a.inputs['width'],10)
+        a.refresh();pump(.1)
+        self.assertTrue(a.eccentric_preset_options[0]['available'])
+        a.eccentric_preset_selector.set_selected(0)
+        a.eccentric_preset_apply.emit('clicked');pump(.1)
+        self.assertEqual(a.design.values['eccentric_design'],'keyed_shaft')
+        self.assertEqual(a.design.values['input_shaft'],6)
+        self.assertEqual(a.design.values['bore'],18)
+        self.assertEqual(a.design.values['width'],10)
+        self.assertFalse(any(p.name.startswith('Shaft_') for p in a.design.parts))
+        a.undo_project();pump(.1)
+        self.assertEqual(a.design.values['eccentric_design'],'integral')
+        self.assertEqual(a.design.values['input_shaft'],4)
 
     def test_full_fusion_manifest_matches_filtered_preview_without_dropping_supports(self):
         a = self.app

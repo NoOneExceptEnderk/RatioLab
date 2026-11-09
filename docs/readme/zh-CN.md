@@ -2,6 +2,8 @@
 
 ![RatioLab](../../src/ratiolab_resources/branding/ratiolab-logo-dark.png)
 
+[![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/X0M22AB2SK)
+
 **设计齿轮和减速器，探索其运动，并导出用于 CAD 或 3D 打印的模型。**
 
 [下载](#download-and-install) · [用户指南（英文）](../user-guide.md) · [English](../../README.md) · [Italiano](../../README.it.md) · [报告问题](https://github.com/NoOneExceptEnderk/RatioLab/issues) · [Discord](https://discord.gg/G8NVHNg6J)
@@ -50,7 +52,8 @@ Windows 安装程序未签名；macOS 版本采用临时签名（ad-hoc signing�
 3. 保存项目，然后选择 **Export…**，导出用于 CAD 或打印的文件。
 
 更多信息请参阅[用户指南（英文）](../user-guide.md)和[示例项目](../../examples/)。
-应用程序界面为英文。
+桌面版和浏览器版的界面均支持上方列出的九种语言。在 **Language / 语言** 菜单中选择语言；
+语言偏好与项目参数分开保存。完整技术手册和计算报告目前为英文，尚未翻译的界面文本也会显示为英文。
 
 ## 当前限制
 

@@ -184,7 +184,7 @@ class WorkspaceTests(unittest.TestCase):
         self.assertTrue(a.undo_button.is_ancestor(a.secondary_toolbar))
         self.assertTrue(a.motion_speed.get_mapped())
         self.assertTrue(a.page_buttons['geometry'].get_visible())
-        self.assertEqual(a.project_menu.get_label(),'Project')
+        self.assertEqual(a.project_menu.get_label(),'File')
         a.extra_geometry_expander.set_expanded(True)
         a.geometry_group_boxes['shafts']._section.set_expanded(False)
         a.rebuild_options({});pump(.1)
@@ -285,7 +285,7 @@ class WorkspaceTests(unittest.TestCase):
                                 self.assertEqual(label.get_layout().get_line_count(),1)
                                 self.assertEqual(label.get_ellipsize(),0)
             for button,name in ((a.undo_button,'undo'),(a.redo_button,'redo'),
-                                (a.project_menu,'folder'),(a.cad_action,'cad-link'),(a.export_menu,'download')):
+                                (a.cad_action,'cad-link'),(a.export_menu,'download')):
                 self.assertIsInstance(button.workspace_icon,Gtk.DrawingArea)
                 self.assertEqual(button.workspace_icon.glyph_name,name)
                 self.assertEqual(button.workspace_icon.get_sensitive(),button.get_sensitive())

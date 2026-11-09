@@ -7,6 +7,7 @@ trigonometric helpers and profile phase use radians; convert at those boundaries
 See README.md and docs/technical/calculations.md for model limits.
 """
 from dataclasses import dataclass, field
+from rust_geometry import call as rust_call
 from math import sin, cos, tan, acos, atan, atan2, sqrt, pi, radians, degrees, hypot, isfinite, ceil
 import uuid
 TAU = 2 * pi
@@ -153,6 +154,8 @@ def get_specs(family, variant=None, double_style=None):
         if style == 'joined':
             specs = [s for s in specs if s[0] not in ('gap', 'gap2', 'gap3')]
     from engineering import LOAD_FIELDS
+    from tooth_tips import specs as tip_specs
+    specs += tip_specs(family, variant)
     if family == 'differential':
         specs += [('input_rpm', 'Input A speed [rpm]', 12, -100000, 100000, 1),
                   ('input_b_rpm', 'Input B speed [rpm]', -12, -100000, 100000, 1)]
@@ -189,9 +192,20 @@ def validate(family, supplied):
     """
     if family not in FAMILIES:
         raise ValueError('Unknown family')
+    from precise_numbers import restore,PreciseFloat,SOURCE_KEY,attach,from_text
+    supplied=restore(supplied)
+    from tooth_tips import KEYS as TIP_KEYS, specs as tip_specs
+    requested_tips={key for key in supplied if any(key==name or key.endswith('_'+name) for name in TIP_KEYS)}
+    # Inactive stage/variant drafts follow the existing parameter contract:
+    # recognize them here, then retain only the active specs below.
+    supported_tips={item[0] for variant in VARIANTS.get(family,{None:None}) for item in tip_specs(family,variant)}
+    if requested_tips-supported_tips:
+        raise ValueError('Unsupported tooth-tip parameter(s): '+', '.join(sorted(requested_tips-supported_tips)))
+    precise={key:value for key,value in supplied.items() if isinstance(value,PreciseFloat)}
+    supplied.pop(SOURCE_KEY,None)
     if family == 'parallel':
         from parallel_multistage import prepare as prepare_parallel
-        supplied = prepare_parallel(dict(supplied))
+        supplied = prepare_parallel(supplied)
     if family == 'wolfrom':
         from wolfrom import prepare as prepare_wolfrom
         supplied = prepare_wolfrom(supplied)
@@ -234,6 +248,13 @@ def validate(family, supplied):
         v = supplied.get(key, default)
         if isinstance(v, bool):
             raise ValueError(f'{label}: a numeric value is required')
+        if isinstance(v,str):v=from_text(v)
+        exact=v if isinstance(v,PreciseFloat) else precise.get(key)
+        if exact is not None and float(exact)!=float(v):exact=None
+        if exact is not None:
+            try:rust_call('validate_number',dict(value=exact.expression,lower=low,upper=high,
+                integer=key in INTEGER,compatibility_value=float(v)))
+            except ValueError as error:raise ValueError(label+': '+str(error)) from error
         v = float(v)
         if not isfinite(v) or not low <= v <= high:
             raise ValueError(f'{label}: must be between {low} and {high}')
@@ -241,7 +262,7 @@ def validate(family, supplied):
             if v != int(v):
                 raise ValueError(f'{label}: an integer is required')
             v = int(v)
-        values[key] = v
+        attach(values,key,PreciseFloat(v,exact.expression) if exact is not None and key not in INTEGER else v)
     if family in ('differential', 'bevel') and 'spiral_hand' in values and values['spiral_hand'] not in (-1,1):
         raise ValueError('Spiral handedness must be −1 or +1.')
     if double:
@@ -323,15 +344,15 @@ def validate(family, supplied):
         from face_geometry import Generator
         Generator(values)
     if family == 'rack':
-        from rack_geometry import dimensions
-        dimensions(values)
+        from rack_geometry import validate_dimensions
+        validate_dimensions(values)
     if family == 'hypoid':
         from hypoid_geometry import Generator
         Generator(values)
     return values
 
 def polar(r, a):
-    return (r * cos(a), r * sin(a))
+    return tuple(rust_call('planar_polar',dict(radius=r,angle=a)))
 
 class CircleProfile(list):
     """Sampled circle with explicit construction provenance, for CAD export.
@@ -351,53 +372,65 @@ class CircleProfile(list):
 
 
 def circle(r, n=96, center=(0, 0)):
-    return CircleProfile([(center[0] + r * cos(TAU * i / n), center[1] + r * sin(TAU * i / n)) for i in range(n)], r, center)
+    pending=_CIRCLE_BATCH.get()
+    if pending is not None:
+        result=CircleProfile([],r,center)
+        pending.append((result,dict(radius=r,count=n,center=center)))
+        return result
+    return CircleProfile([tuple(p) for p in rust_call('planar_circle',dict(radius=r,count=n,center=center))],r,center)
+
+
+from contextvars import ContextVar
+from contextlib import contextmanager
+_CIRCLE_BATCH=ContextVar('ratiolab_circle_batch',default=None)
+
+
+@contextmanager
+def batch_circles():
+    """Fill independent construction circles together before publishing a Design.
+    The planetary builder only stores these loops until this context exits.
+    Each CircleProfile owns its list and preserves its circle provenance.
+    """
+    if _CIRCLE_BATCH.get() is not None:
+        yield
+        return
+    pending=[];token=_CIRCLE_BATCH.set(pending)
+    try:
+        yield
+        if pending:
+            from rust_geometry import call_geometry
+            rows=call_geometry('planar_circles',dict(circles=[spec for _,spec in pending]))
+            if len(rows)!=len(pending):raise RuntimeError('Invalid circle batch result.')
+            for (circle,spec),points in zip(pending,rows):
+                if len(points)!=spec['count']:raise RuntimeError('Invalid circle point count.')
+                circle.extend(points)
+                circle.samples=tuple(points)
+    finally:
+        _CIRCLE_BATCH.reset(token)
 
 def transformed(points, center=(0, 0), angle=0):
-    c, s = (cos(angle), sin(angle))
-    result = [(center[0] + x * c - y * s, center[1] + x * s + y * c) for x, y in points]
-    if isinstance(points, CircleProfile) and points.intact():
-        x, y = points.center
-        return CircleProfile(result, points.radius, (center[0]+x*c-y*s, center[1]+x*s+y*c))
+    result=[tuple(p) for p in rust_call('planar_transform',dict(points=points,center=center,angle=angle))]
+    if isinstance(points,CircleProfile) and points.intact():
+        moved=rust_call('planar_transform',dict(points=[points.center],center=center,angle=angle))[0]
+        return CircleProfile(result,points.radius,moved)
     return result
 
+
 def circle_info(points):
-    if len(points) < 16:
-        return None
-    cx = sum((p[0] for p in points)) / len(points)
-    cy = sum((p[1] for p in points)) / len(points)
-    rs = [hypot(x - cx, y - cy) for x, y in points]
-    r = sum(rs) / len(rs)
-    if r > 0 and max(rs) - min(rs) < 1e-07:
-        return (cx, cy, r)
-    return None
+    result=rust_call('planar_circle_info',dict(points=points))
+    return tuple(result) if result is not None else None
 
-def contains(points, q):
-    x, y = q
-    inside = False
-    for a, b in zip(points, points[1:] + points[:1]):
-        if (a[1] > y) != (b[1] > y) and x < (b[0] - a[0]) * (y - a[1]) / (b[1] - a[1]) + a[0]:
-            inside = not inside
-    return inside
 
-def material_point(outer, holes):
-    radius = max((hypot(x, y) for x, y in outer))
-    for fraction in (0.98, 0.94, 0.88, 0.75, 0.5, 0.25, 0):
-        for j in range(48):
-            q = polar(radius * fraction, TAU * (j + 0.217) / 48)
-            if contains(outer, q) and (not any((contains(h, q) for h in holes))):
-                return list(q)
-    raise ValueError('No solid region found in the profile: check the remaining thickness.')
+def contains(points,q):
+    return rust_call('planar_contains',dict(points=points,point=q))
+
+
+def material_point(outer,holes):
+    return rust_call('planar_material_point',dict(outer=outer,holes=holes))
+
 
 def clean(points):
-    out = []
-    for x, y in points:
-        p = (round(x, 9), round(y, 9))
-        if not out or hypot(p[0] - out[-1][0], p[1] - out[-1][1]) > 1e-07:
-            out.append(p)
-    if len(out) > 1 and hypot(out[-1][0] - out[0][0], out[-1][1] - out[0][1]) < 1e-07:
-        out.pop()
-    return out
+    return [tuple(p) for p in rust_call('planar_clean',dict(points=points))]
 
 def sample_curve(fn, a, b, tolerance=0.015, depth=0):
     start, end = (fn(a), fn(b))
@@ -414,90 +447,27 @@ def sample_curve(fn, a, b, tolerance=0.015, depth=0):
         return [start, end]
     return sample_curve(fn, a, mid, tolerance, depth + 1)[:-1] + sample_curve(fn, mid, b, tolerance, depth + 1)
 
-def involute(z, m, pressure=20, backlash=0.15, internal=False, samples=4, depth_module=None, shift=0, normal_pressure=None, ha=1, hf=1.25, metadata=None, minimum_join_radius_mm=None):
-    """Involute with a rack-generated external root or constructed ring blend.
+# The callback remains available to callers outside the kernel. Cylindrical
+# construction recognizes this sampler and performs its refinement in Rust.
+sample_curve._ratiolab_rust_adaptive = True
 
-    ``samples`` remains a compatibility argument. All curves use the shared
-    adaptive 0.015 mm chord threshold. Metadata is optional, never a second
-    geometry path.
-    """
-    from tooth_profiles import external_half, internal_half
-    depth = m if depth_module is None else depth_module
-    if internal:
-        if shift:
-            raise ValueError('Shifted internal rings require a dedicated shaping cutter model.')
-        flank, info = internal_half(z, m, pressure, backlash, depth, ha, hf, sample_curve, minimum_join_radius_mm)
-    else:
-        flank, info = external_half(z, m, pressure, backlash, depth, shift, normal_pressure, ha, hf, sample_curve)
+
+def involute(z, m, pressure=20, backlash=0.15, internal=False, samples=4, depth_module=None, shift=0, normal_pressure=None, ha=1, hf=1.25, metadata=None, minimum_join_radius_mm=None):
+    from rust_geometry import call
+    result = call('involute_profile', dict(z=z, mt=m, pressure=pressure,
+        backlash=backlash, internal=internal, depth=depth_module, shift=shift,
+        normal_pressure=normal_pressure, ha=ha, hf=hf,
+        minimum_join_radius_mm=minimum_join_radius_mm))
     if metadata is not None:
-        metadata.update(info)
-    pitch = TAU/z
-    root = info['root_radius_mm']; tip = info['tip_radius_mm']
-    at = atan2(flank[0 if internal else -1][1], flank[0 if internal else -1][0])
-    ar = atan2(flank[-1 if internal else 0][1], flank[-1 if internal else 0][0])
-    right = flank if internal else list(reversed(flank))
-    points=[]
-    for k in range(z):
-        a=k*pitch
-        root_left=sample_curve(lambda q:polar(root,q),-pitch/2,-ar)
-        root_right=sample_curve(lambda q:polar(root,q),ar,pitch/2)
-        if internal and minimum_join_radius_mm is not None:
-            # Root-circle chords belong to the excluded non-involute region.
-            # Reject a chord that cuts inside the selected blend join.
-            for arc in (root_left,root_right):
-                for p0,p1 in zip(arc,arc[1:]):
-                    dx=p1[0]-p0[0];dy=p1[1]-p0[1];den=dx*dx+dy*dy
-                    q=max(0,min(1,-(p0[0]*dx+p0[1]*dy)/den)) if den else 0
-                    if hypot(p0[0]+q*dx,p0[1]+q*dy)<info['involute_end_radius_mm']-1e-8:
-                        raise ValueError('Paired ring root chord violates its radial exclusion.')
-        local=root_left[:-1]
-        local += [(x,-y) for x,y in reversed(right)]
-        tip_arc=sample_curve(lambda q:polar(tip,q),-at,at)
-        if internal and minimum_join_radius_mm is not None:
-            # Circumscribed tangents preserve the exact radial exclusion;
-            # ordinary inscribed chords would dip below the planned tip radius.
-            circumscribed=[tip_arc[0]]
-            for p0,p1 in zip(tip_arc,tip_arc[1:]):
-                q0=atan2(p0[1],p0[0]);q1=atan2(p1[1],p1[0])
-                circumscribed.extend((polar(tip/cos((q1-q0)/2),(q0+q1)/2),p1))
-            tip_arc=circumscribed
-            info['tip_sampling']='circumscribed tangent segments; radial exclusion preserved'
-        local += tip_arc[1:-1]
-        local += right
-        local += root_right[1:]
-        points.extend(transformed(local,angle=a))
-    if metadata is not None:
-        metadata.update(info)
-    return clean(points)
+        metadata.update(result['metadata'])
+    return [tuple(p) for p in result['points']]
+
 
 def cycloid(n, R, e, pin, clearance=0, samples=None, tolerance=0.01):
-    """Inward offset of the roller-centre trajectory in the disc frame."""
-    if e * n >= R * 0.9:
-        raise ValueError('Eccentricity eccessiva: usare e × N / R < 0,90.')
-    count = max(4096, n * 64)
-
-    def evaluate(t):
-        x = R * cos(t) - e * cos(n * t)
-        y = R * sin(t) - e * sin(n * t)
-        dx = -R * sin(t) + e * n * sin(n * t)
-        dy = R * cos(t) - e * n * cos(n * t)
-        ddx = -R * cos(t) + e * n * n * cos(n * t)
-        ddy = -R * sin(t) + e * n * n * sin(n * t)
-        speed = hypot(dx, dy)
-        curvature = (dx * ddy - dy * ddx) / speed ** 3
-        return ((x - (pin + clearance) * dy / speed, y + (pin + clearance) * dx / speed), curvature)
-    min_curvature = min((1 / k for j in range(count) if (k := evaluate(TAU * j / count)[1]) > 0), default=float('inf'))
-    if pin + clearance >= min_curvature * 0.98:
-        raise ValueError('Cycloidal offset has cusps: reduce roller radius or eccentricity.')
-    if 2 * pin >= 2 * R * sin(pi / n):
-        raise ValueError('Ring rollers overlap.')
-    if samples:
-        points = [evaluate(TAU * j / samples)[0] for j in range(samples)]
-    else:
-        points = []
-        for j in range(n * 8):
-            points.extend(sample_curve(lambda t: evaluate(t)[0], TAU * j / (n * 8), TAU * (j + 1) / (n * 8), tolerance)[:-1])
-    return clean(points)
+    from rust_geometry import call
+    result = call('cycloid_profile', dict(n=n, radius=R, eccentricity=e, pin=pin,
+        clearance=clearance, samples=samples, tolerance=tolerance))
+    return [tuple(p) for p in result['points']]
 
 @dataclass
 class Part:
@@ -531,54 +501,39 @@ class Part:
     port: dict = field(default_factory=dict)
     manufacturing: dict = field(default_factory=dict)
     profile_metadata: dict = field(default_factory=dict)
+    # Surface interpolation only; the sampled 2D tooth profile has its own error.
+    surface_tolerance_mm: float = 0.02
 
 def profile_sections(p):
-    """Return (local Z mm, twist degrees, outer contour) for one continuous solid.
-
-    The continuous core and groove transitions belong to this shared geometry;
-    exporters and preview must not invent separate lofts for the two helices.
-    """
     if p.stations:
-        return [(s['z'], 0, s['outer']) for s in p.stations]
-    if not p.double:
-        n = max(1, min(288, ceil(abs(p.twist) / 6)))
-        return [(p.width * j / n, p.twist * j / n, p.outer) for j in range(n + 1)]
-    h = (p.width - p.gap) / 2
-    peak = p.twist * h / p.width
-    radius = max((hypot(x, y) for x, y in p.outer))
-    maxstep = degrees(2 * acos(max(0, 1 - 0.02 / radius)))
-    n = max(2, ceil(abs(peak) / maxstep))
-    if 2 * n + 5 > 512:
-        raise ValueError('Double helix too complex: reduce width or helix angle.')
-    shoulder = min(0.15, h * 0.08, p.gap * 0.2) if p.gap else 0
-    end = h - shoulder
-    sections = [(end * j / n, p.twist * end * j / n / p.width, p.outer) for j in range(n + 1)]
-    if p.gap:
-        root = min((hypot(x, y) for x, y in p.outer))
-        core = p.outer if p.internal else [polar(p.core_radius + 0.001 * (hypot(x, y) - root), atan2(y, x)) for x, y in p.outer]
-        sections.extend([(h, peak, core), (h + p.gap, peak, core)])
-        start = h + p.gap + shoulder
-        sections.append((start, peak - p.twist * shoulder / p.width, p.outer))
-    else:
-        start = h
-    for j in range(1, n + 1):
-        z = start + (p.width - start) * j / n
-        sections.append((z, p.twist * (p.width - z) / p.width, p.outer))
-    return sections
+        return [(s['z'],0,s['outer']) for s in p.stations]
+    from rust_surfaces import surface
+    rows=surface(p).call('solid_sections')
+    return [(row['z'],row['angle'],p.outer if row['base'] else [tuple(q) for q in row['outer']]) for row in rows]
 
-def section_holes(p, z, outer=None):
+
+def resolve_station_index(p,z,outer=None,station_index=None):
+    """Select a section explicitly; equal contours can have different bores."""
+    if station_index is not None:
+        if (type(station_index) is not int or not 0<=station_index<len(p.stations)
+                or p.stations[station_index]['z']!=z):
+            raise ValueError('Invalid station index or axial position.')
+        return station_index
+    candidates=[i for i,s in enumerate(p.stations) if s['z']==z]
+    if len(candidates)>1 and outer is not None:
+        candidates=[i for i in candidates if p.stations[i]['outer'] is outer]
+    if len(candidates)!=1:
+        raise ValueError('Ambiguous or missing station; supply an explicit station index.')
+    return candidates[0]
+
+
+def section_holes(p,z,outer=None,station_index=None):
     if p.stations:
-        return next((s['holes'] for s in p.stations if s['outer'] is outer)) if outer is not None else next((s['holes'] for s in p.stations if s['z'] == z))
+        return p.stations[resolve_station_index(p,z,outer,station_index)]['holes']
     if not (p.double and p.internal and p.gap):
         return p.holes
-    h = (p.width - p.gap) / 2
-    shoulder = min(0.15, h * 0.08, p.gap * 0.2)
-    factor = max(0, min(1, (z - h + shoulder) / shoulder, (h + p.gap + shoulder - z) / shoulder))
-    loop = p.holes[0]
-    root = max((hypot(x, y) for x, y in loop))
-    groove = min(root + 0.3, min((hypot(x, y) for x, y in p.outer)) - 0.5)
-    inner = [polar((1 - factor) * hypot(x, y) + factor * (groove + 0.001 * (hypot(x, y) - root)), atan2(y, x)) for x, y in loop]
-    return [inner] + p.holes[1:]
+    from rust_surfaces import surface
+    return [[tuple(q) for q in loop] for loop in surface(p).call('solid_section_holes',z=z)]
 
 @dataclass
 class Design:
@@ -595,6 +550,7 @@ class Design:
     token: str = field(default_factory=lambda: uuid.uuid4().hex[:8])
     requirements: list = field(default_factory=list)
     analysis: dict = field(default_factory=dict)
+    quality: dict = field(default_factory=dict)
 
     def asset_folder(self, asset_dir=None):
         from pathlib import Path
@@ -605,7 +561,8 @@ class Design:
         from solid_geometry import step, signature
         from export_transaction import write_text
         folder = self.asset_folder(asset_dir)
-        for idx, p in zip((i-1 for i in getattr(self,'source_indices',range(1,len(self.parts)+1))),self.parts):
+        from geometry_quality import representation
+        for idx, p in zip((i-1 for i in getattr(self,'source_indices',range(1,len(self.parts)+1))),representation(self,'export').parts):
             if p.mesh or p.frame or p.stations or p.double or (abs(p.twist) > 1e-08):
                 signature(p)
                 folder.mkdir(parents=True, exist_ok=True)
@@ -623,7 +580,8 @@ class Design:
         add('component.create', name=group)
         from bom import build
         add('component.metadata.set', component=group, values={'local.solidcraft.riduttori': build(self)})
-        for idx, p in zip((i-1 for i in getattr(self,'source_indices',range(1,len(self.parts)+1))),self.parts):
+        from geometry_quality import representation
+        for idx, p in zip((i-1 for i in getattr(self,'source_indices',range(1,len(self.parts)+1))),representation(self,'export').parts):
             base = f'{self.token}_{idx}_{p.name}'
             explicit = p.mesh or p.frame or p.stations or p.double or (abs(p.twist) > 1e-08)
             if explicit:
@@ -639,7 +597,8 @@ class Design:
             if p.manufacturing:
                 metadata['local.solidcraft.manufacturing'] = p.manufacturing
             if p.profile_metadata:
-                metadata['local.solidcraft.profile_geometry'] = p.profile_metadata
+                from solid_geometry import profile_report
+                metadata['local.solidcraft.profile_geometry'] = profile_report(p)
             add('component.metadata.set', component=base, part_number=info['code'], description=info['description'], values=metadata, properties={'Procurement': info['category'], 'Manufacturer': info.get('manufacturer', ''), 'Dimensions': info['dimensions'], 'Source': info.get('source', ''), 'Standard': info.get('standard', ''), **port_properties(p)})
             if p.machining:
                 add('component.metadata.set', component=base, values={'local.solidcraft.machining': {'operations': p.machining}})
@@ -681,22 +640,53 @@ class Design:
         add('component.activate', component='root')
         return cmds
 
-def gear_part(name, z, m, pressure, backlash, width, bore=0, center=(0, 0), phase=0, helix=0, internal=False, rim=5, zoff=0, shift=0, ha=1, hf=1.25, minimum_join_radius_mm=None):
-    """Build from normal module/pressure; pressure and helix are degrees, phase radians."""
-    mt = m / cos(radians(helix))
-    at = degrees(atan(tan(radians(pressure)) / cos(radians(helix))))
-    profile_info = {}
-    outline = transformed(involute(z, mt, at, backlash, internal, depth_module=m, shift=shift, normal_pressure=pressure, ha=ha, hf=hf, metadata=profile_info, minimum_join_radius_mm=minimum_join_radius_mm), angle=phase)
-    if not internal and bore / 2 >= min((hypot(x, y) for x, y in outline)) - 0.25:
-        raise ValueError(f'{name}: bore too large for the tooth root diameter.')
-    outer = circle(mt * z / 2 + hf * m + rim) if internal else outline
-    holes = [outline] if internal else [circle(bore / 2)] if bore > 0 else []
-    return Part(name, outer, holes, width, zoff, center, degrees(width * tan(radians(helix)) / (mt * z / 2)), internal=internal, profile_metadata={'tooth_profile': profile_info})
+def gear_part(name, z, m, pressure, backlash, width, bore=0, center=(0, 0), phase=0, helix=0, internal=False, rim=5, zoff=0, shift=0, ha=1, hf=1.25, minimum_join_radius_mm=None,cutter_allowance=False,rack_tip_radius_mm=None,safe_pair_sampling=False,topping_mm=0,semitopping_mm=0,semitopping_angle_deg=45):
+    from rust_geometry import cached_call
+    result=cached_call('gear_part',dict(name=name,z=z,m=m,pressure=pressure,
+        backlash=backlash,width=width,bore=bore,center=center,phase=phase,helix=helix,
+        internal=internal,rim=rim,zoff=zoff,shift=shift,ha=ha,hf=hf,
+        minimum_join_radius_mm=minimum_join_radius_mm,cutter_allowance=cutter_allowance,rack_tip_radius_mm=rack_tip_radius_mm,safe_pair_sampling=safe_pair_sampling,
+        topping_mm=topping_mm,semitopping_mm=semitopping_mm,semitopping_angle_deg=semitopping_angle_deg))
+    return part_from_kernel(name,result)
 
-def generate(family, supplied=None):
+
+def part_from_kernel(name, result):
+    """Decode Rust construction data without rebuilding its mathematical shape."""
+    result=dict(result)
+    result.pop('name',None)
+    outer=[tuple(p) for p in result['outer']]
+    holes=[[tuple(p) for p in loop] for loop in result['holes']]
+    outer_radius=result.pop('outer_circle_radius',None)
+    bore_radius=result.pop('bore_circle_radius',None)
+    if outer_radius is not None:
+        outer=CircleProfile(outer,outer_radius,(0,0))
+    if bore_radius is not None:
+        holes[0]=CircleProfile(holes[0],bore_radius,(0,0))
+    result.update(outer=outer,holes=holes)
+    if 'center' in result:result['center']=tuple(result['center'])
+    if 'color' in result:result['color']=tuple(result['color'])
+    if 'frame' in result:result['frame']=tuple(tuple(axis) for axis in result['frame'])
+    triangle_points=result.pop('mesh_triangle_points',None)
+    if triangle_points is not None:
+        if len(triangle_points)%3 or len(triangle_points)//3>250000:
+            raise RuntimeError('Invalid Rust construction triangle count.')
+        from rust_geometry import control_check
+        mesh=[]
+        for start in range(0,len(triangle_points),3):
+            if start%3072==0:control_check()
+            mesh.append([[tuple(p) for p in triangle_points[start:start+3]]])
+        result['mesh']=mesh
+    for station in result.get('stations',[]):
+        station['outer']=[tuple(p) for p in station['outer']]
+        station['holes']=[[tuple(p) for p in loop] for loop in station['holes']]
+    return Part(name,**result)
+
+
+def generate(family, supplied=None, *, quality=None):
     """Normalize once, construct the assembly, then finalize kinematics and reports."""
     v = validate(family, supplied or {})
-    d = Design(family, v)
+    from geometry_quality import normalize
+    d = Design(family, v, quality=normalize(quality))
     w = v['width']
     bore = v.get('bore', 0)
     m = v.get('module', 2)
@@ -704,7 +694,8 @@ def generate(family, supplied=None):
     b = v.get('backlash', 0.15)
 
     def gear(name, z, center=(0, 0), phase=0, helix=0, internal=False, rim=5, bore_override=None, zoff=0):
-        p = gear_part(name, z, m, pa, b, w, bore if bore_override is None else bore_override, center, phase, helix, internal, rim, zoff, v.get('profile_shift', 0) if family in ('spur', 'helical', 'double') else 0, v.get('addendum', 1), v.get('dedendum', 1.25))
+        from tooth_tips import parameters
+        p = gear_part(name, z, m, pa, b, w, bore if bore_override is None else bore_override, center, phase, helix, internal, rim, zoff, v.get('profile_shift', 0) if family in ('spur', 'helical', 'double') else 0, v.get('addendum', 1), v.get('dedendum', 1.25), **parameters(v))
         d.parts.append(p)
         return p
     if family in ('spur', 'helical', 'double'):
@@ -719,7 +710,7 @@ def generate(family, supplied=None):
                 raise ValueError('Bore too large for the continuous hub below the groove.')
         d.metrics = [f'Pitch diameter: {m * z / cos(radians(beta)):.3f} mm', f'Teeth: {z} · normal module: {m:g} mm', f'Total twist: {p.twist:.2f}°']
         from engineering import gear_dimensions, force_components, gear_warnings
-        g = gear_dimensions(z, m, pa, beta, v['profile_shift'], v['addendum'], v['dedendum'], backlash=b)
+        g = gear_dimensions(z, m, pa, beta, v['profile_shift'], v['addendum'], v['dedendum'], backlash=b, topping_mm=v['topping_mm'])
         g['tooth_thickness'] = p.profile_metadata['tooth_profile']['tooth_thickness']
         d.analysis['gear'] = g
         d.analysis['forces'] = force_components(v['input_torque'], 2 * g['pitch_radius'], g['alpha_t'], beta)
@@ -728,7 +719,7 @@ def generate(family, supplied=None):
         if family == 'double':
             d.notes.append('Theoretical net axial force is zero only when load is shared equally between the two halves. Reported Fa represents a single helix at full torque as a conservative reference.')
         if family == 'double':
-            d.notes.append('A single STEP BRep solid with the same faces as the preview, without interpolated lofts. Continuous hub below the groove and axial transitions of at most 0.15 mm.')
+            d.notes.append('A single STEP BRep solid from the nominal construction, with independent preview/export interpolation and no interpolated lofts. Continuous hub below the groove and axial transitions of at most 0.15 mm.')
     elif family in ('planetary', 'cycloidal'):
         from assemblies import planetary, cycloidal
         (planetary if family == 'planetary' else cycloidal)(d)
@@ -766,11 +757,17 @@ def generate(family, supplied=None):
     # reports, motion and exports must describe the same completed assembly.
     from kinematics import apply as apply_kinematics
     apply_kinematics(d)
+    from printed_shaft import omit_reference_shafts
+    omit_reference_shafts(d)
     from engineering import attach_report
     attach_report(d)
     if any((p.mesh or p.frame or p.stations or p.double or (abs(p.twist) > 1e-08) for p in d.parts)):
         d.notes.append('Faithful preview export: faceted STEP BRep solids for parts with shared surfaces. Extruded profile circles are sampled with a maximum radial deviation of 0.002 mm; tubes and freeform surfaces use the sampling specified in the guide. Edit dimensions in the generator and regenerate the group. This is not a smooth parametric loft.')
     d.analysis['tooth_profiles'] = [dict(part=p.name, **p.profile_metadata['tooth_profile']) for p in d.parts if 'tooth_profile' in p.profile_metadata]
+    treated=[dict(part=p.name,**p.profile_metadata['tooth_profile']['tip_treatment']) for p in d.parts if p.profile_metadata.get('tooth_profile',{}).get('tip_treatment')]
+    if treated:
+        d.analysis['tooth_tip_treatments']=treated
+        d.notes.append('Tooth tips: topping is radial removal from the existing nominal head; semitopping is a secondary involute from a normal rack ramp. Effective contact excludes the chamfer. Internal roots remain nominal constructed blends; a production shaping cutter is not qualified.')
     if family not in ('differential', 'bevel', 'hypoid', 'rack', 'face'):
         d.notes.append('External cylindrical roots use a rounded normal rack envelope with undercut trimming; internal roots use a tangent circular construction, not a shaping cutter envelope. Adaptive chord threshold 0.015 mm; tool geometry and domain are in the calculation JSON. Strength, lubrication and manufacturing tolerances are not verified.')
     return d

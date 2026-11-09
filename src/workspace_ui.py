@@ -13,80 +13,8 @@ from math import cos, sin, hypot, atan2, pi
 # Colors are shared by the workspace, its dialogs and popovers. The light
 # palette follows the preserved initial web theme without changing the layout.
 THEMES = ('dark', 'light')
-_PALETTES = {
-    'dark': {
-        'window': '#1d2229',
-        'text': '#e9eef4',
-        'muted': '#acb9c9',
-        'accent': '#7cc8c8',
-        'on_accent': '#102a2c',
-        'line': '#38414d',
-        'surface': '#242b34',
-        'hover': '#303a46',
-        'focus': '#9bd8d8',
-        'field_label': '#dce4ed',
-        'input': '#151b22',
-        'active': '#29343e',
-        'selected': '#30434a',
-        'preview': '#11161d',
-        'preview_state': '#253642',
-        'preview_text': '#cde4e8',
-        'preview_line': '#405465',
-        'error_bg': '#382623',
-        'error': '#ffb1a5',
-        'error_line': '#9b6257',
-        'number': '#f0f6fb',
-        'warning_bg': '#302a20',
-        'warning_line': '#504534',
-        'invalid_line': '#704940',
-        'warning': '#efbf79',
-        'derived': '#27313b',
-        'field_error': '#f1a596',
-        'io_line': '#718499',
-        'io_input': '#e9a45d',
-        'io_output': '#74c8a4',
-        'io_result': '#addbdd',
-        'status': '#a9cdbb',
-        'trough': '#3c4754',
-        'slider': '#d2dce6',
-    },
-    'light': {
-        'window': '#f7f9fa',
-        'text': '#263846',
-        'muted': '#627380',
-        'accent': '#aa633d',
-        'on_accent': '#ffffff',
-        'line': '#d6dfe5',
-        'surface': '#ffffff',
-        'hover': '#eef3f5',
-        'focus': '#a15b35',
-        'field_label': '#354c5b',
-        'input': '#ffffff',
-        'active': '#e9eef1',
-        'selected': '#ead8cb',
-        'preview': '#e9eef1',
-        'preview_state': '#f7f9fa',
-        'preview_text': '#425565',
-        'preview_line': '#bbcbd5',
-        'error_bg': '#fbe9e5',
-        'error': '#9b362b',
-        'error_line': '#bc7368',
-        'number': '#122638',
-        'warning_bg': '#f8edda',
-        'warning_line': '#d7b98d',
-        'invalid_line': '#bc7368',
-        'warning': '#805518',
-        'derived': '#edf2f5',
-        'field_error': '#9b362b',
-        'io_line': '#718499',
-        'io_input': '#a15b35',
-        'io_output': '#28775b',
-        'io_result': '#466777',
-        'status': '#37694f',
-        'trough': '#c6d2da',
-        'slider': '#263846',
-    },
-}
+from theme_preferences import BASE_PALETTES as _PALETTES
+import theme_preferences
 
 _CSS_TEMPLATE = '''
 window.reducers { background: @rl_window; color: @rl_text; font-size: 14px; }
@@ -111,10 +39,46 @@ window.reducers { background: @rl_window; color: @rl_text; font-size: 14px; }
 .reducers button.flat { background: transparent; border-color: transparent; }
 .reducers button:focus-visible, .reducers entry:focus, .reducers spinbutton:focus-within { outline: 2px solid @rl_focus; outline-offset: 1px; }
 .reducers button:disabled { opacity: 0.5; }
+.reducers.recovery-popup .recovery-heading { padding: 15px 20px; border-bottom: 1px solid @rl_line; }
+.reducers.recovery-popup .recovery-detail { padding: 18px 20px; }
+.reducers.recovery-popup .recovery-actions { padding: 12px 20px; }
+.reducers.recovery-popup .recovery-actions flowboxchild { padding: 0; }
+.reducers.settings-panel .settings-heading { padding: 12px 20px; border-bottom: 1px solid @rl_line; }
+.reducers.settings-panel .settings-tabs { padding: 18px 12px; border-right: 1px solid @rl_line; background: @rl_surface; }
+.reducers.settings-panel .settings-tabs button { background: transparent; border: 1px solid transparent; border-radius: 5px; padding: 11px 10px; }
+.reducers.settings-panel .settings-tabs button:checked { color: @rl_text; background: @rl_selected; border-color: @rl_line; }
+.reducers.settings-panel .settings-tabs button:hover { background: @rl_hover; }
+.reducers.settings-panel .settings-page { padding: 22px 24px; }
+.reducers.settings-panel .settings-page-title { font-size: 22px; font-weight: 600; padding-bottom: 5px; }
+.reducers.settings-panel .settings-row { min-height: 32px; }
+.reducers.settings-panel .settings-row dropdown { min-width: 160px; }
+.reducers.settings-panel .settings-shortcut { color: @rl_muted; font-size: 12px; font-family: monospace; }
+.reducers.settings-panel .settings-shortcuts .settings-row { min-height: 26px; }
+.reducers.settings-panel .shortcut-binding { min-width: 156px; font-family: monospace; font-size: 12px; }
+.reducers.settings-panel .shortcut-binding.custom-binding { border-color: @rl_accent; }
+.reducers .shortcut-recorder { padding: 14px; background: @rl_surface; border: 1px solid @rl_accent; border-radius: 5px; }
+.reducers .shortcut-recorder .recorded-shortcut { padding: 12px; background: @rl_input; border: 1px solid @rl_line; border-radius: 5px; font-family: monospace; font-size: 16px; }
+.reducers.settings-panel .settings-footer { padding: 12px 20px; }
+.reducers.settings-panel .theme-card { padding: 7px; border: 2px solid @rl_line; background: @rl_surface; }
+.reducers.settings-panel .theme-card:checked { border-color: @rl_accent; background: @rl_selected; }
+.reducers.settings-panel .theme-card label { font-size: 12px; }
+.reducers.settings-panel .theme-color-entry { font-family: monospace; min-width: 86px; }
+.reducers.settings-panel .theme-colors > title { padding: 8px 0; font-size: 14px; }
+.reducers.settings-panel flowboxchild { padding: 0; }
+.reducers .theme-file-chooser .view { background: @rl_input; color: @rl_text; }
+.reducers .theme-file-chooser placessidebar, .reducers .theme-file-chooser placessidebar list { background: @rl_surface; color: @rl_text; }
+.reducers .theme-file-chooser row:selected { background: @rl_selected; color: @rl_text; }
+.reducers .theme-file-chooser row:hover { background: @rl_hover; }
  .reducers .studio-header { min-height: 60px; padding: 0 15px; border-bottom: 1px solid @rl_line; background: @rl_window; }
 .reducers .studio-header button { font-size: 14px; line-height: 1.45em; min-height: 20px; padding: 6px 9px; }
 .reducers .studio-header menubutton > button { font-size: 14px; }
 .reducers .studio-project > button { background: transparent; border-color: transparent; }
+.reducers .file-menu > contents { padding: 4px 0; border-radius: 5px; background: @rl_surface; }
+.reducers .file-menu button.model, .reducers .file-menu modelbutton { border: 0; border-radius: 0; background: transparent; background-image: none; box-shadow: none; padding: 6px 14px; min-height: 22px; font-size: 14px; }
+.reducers .file-menu button.model:hover, .reducers .file-menu button.model:focus,
+.reducers .file-menu modelbutton:hover, .reducers .file-menu modelbutton:focus { background: @rl_hover; color: @rl_text; }
+.reducers .file-menu modelbutton:focus-visible { outline: 2px solid @rl_focus; outline-offset: -2px; }
+.reducers .file-menu separator { margin: 4px 10px; }
 .reducers .studio-header windowcontrols button { background: transparent; border: 0; box-shadow: none; min-height: 28px; padding: 4px; }
 .reducers .brand-name { font-weight: 500; }
 .reducers .studio-header .document-name { font-weight: 400; }
@@ -153,7 +117,6 @@ window.reducers { background: @rl_window; color: @rl_text; font-size: 14px; }
 .reducers entry { background: @rl_input; color: @rl_text; border: 1px solid @rl_line; border-radius: 4px; min-height: 30px; }
 .reducers .page-nav { padding: 0 9px; margin-top: 6px; border-top: 1px solid @rl_line; border-bottom: 1px solid @rl_line; }
 .reducers .page-nav button { background: transparent; border: 0; border-bottom: 2px solid transparent; border-radius: 0; padding: 9px 3px; font-size: 12px; min-width: 42px; }
-.reducers .theme-control { padding: 0 7px; }
 .reducers switch.theme-switch { min-width: 32px; min-height: 16px; padding: 2px; border-radius: 12px; border: 1px solid @rl_line; background: @rl_trough; }
 .reducers switch.theme-switch:checked { background: @rl_accent; border-color: @rl_accent; }
 .reducers switch.theme-switch slider { min-width: 14px; min-height: 14px; margin: 0; border-radius: 50%; background: #ffffff; border: 0; box-shadow: none; }
@@ -542,13 +505,13 @@ def decorate_action(button, icon_name, *, vector=False):
     return wrapper
 
 
-def theme_css(theme='dark', text_scale=0):
+def theme_css(theme='dark', text_scale=0, customizations=None):
     """Build one complete palette so scaling never restores a previous theme."""
     import re
     theme = theme if theme in THEMES else 'dark'
     factor = (1, 1.25, 1.5)[text_scale]
     definitions = ''.join(f'@define-color rl_{key} {value};\n'
-                          for key, value in _PALETTES[theme].items())
+                          for key, value in theme_preferences.palette(theme, customizations).items())
     scaled = re.sub(r'font-size: (\d+)px',
                     lambda match: f'font-size: {int(match[1])*factor:g}px',
                     _CSS_TEMPLATE)
@@ -564,27 +527,42 @@ def apply_theme(app):
     scale = app.text_size.get_selected() if hasattr(app, 'text_size') else 0
     if scale:app.win.add_css_class('enlarged-text')
     else:app.win.remove_css_class('enlarged-text')
-    app.workspace_style.load_from_data(theme_css(app.workspace_theme, scale))
+    config = app.workspace_preferences.get('theme_customizations')
+    app.workspace_style.load_from_data(theme_css(app.workspace_theme, scale, config))
     if hasattr(app, 'canvas'):
-        app.canvas.set_theme(app.workspace_theme)
+        app.canvas.set_theme(app.workspace_theme, theme_preferences.viewport(app.workspace_theme, config))
     if hasattr(app, 'axes'):
         app.axes.queue_draw()
+    panel = getattr(app, 'settings', None)
+    if panel is not None and panel.dialog is not None and hasattr(panel, 'theme_editor'):
+        panel.theme_editor.refresh()
 
 
 def change_theme(app, widget):
-    from app_paths import save_preferences
     app.workspace_theme = THEMES[widget.get_selected()]
     app.theme_switch.set_active(app.workspace_theme == 'light')
     app.theme_switch.set_tooltip_text('Light' if app.workspace_theme == 'light' else 'Dark')
-    app.workspace_preferences['theme'] = app.workspace_theme
     apply_theme(app)
+    save_ui_preference(app, theme=app.workspace_theme)
+
+
+def save_ui_preference(app, **changes):
+    from app_paths import save_preferences
+    app.workspace_preferences.update(changes)
     try:
-        save_preferences(legacy_root=app.BASE, theme=app.workspace_theme)
+        save_preferences(legacy_root=app.BASE, **app.workspace_preferences)
         app.theme_error.set_visible(False)
+        if hasattr(app, 'language'):
+            app.language.error.set_visible(False)
     except OSError:
         # Keep the usable session preference even on a read-only user profile.
         app.theme_error.set_visible(True)
         app.status_text('Changed for this session. Could not save preference.')
+
+
+def change_text_size(app):
+    apply_theme(app)
+    save_ui_preference(app, text_scale=(1, 1.25, 1.5)[app.text_size.get_selected()])
 
 def margins(widget, value):
     for setter in (widget.set_margin_start, widget.set_margin_end,
@@ -599,7 +577,7 @@ def install_navigation(app, overlay):
     navigation.set_margin_top(54);navigation.set_margin_end(14)
     cube=NavigationCube(app.canvas);navigation.append(cube)
     row=Gtk.Box(spacing=2,halign=Gtk.Align.CENTER,css_classes=['cube-actions'])
-    app.pan_button=Gtk.ToggleButton(tooltip_text='Pan · right mouse drag')
+    app.pan_button=Gtk.ToggleButton(tooltip_text='Pan · drag with the left button when enabled')
     app.pan_button.set_child(workspace_glyph('pan',app.pan_button))
     def toggle_pan(button):
         app.canvas.pan_mode=button.get_active()
@@ -623,7 +601,8 @@ def fit_camera(app):
 
 
 def build(app, labels):
-    from app_paths import APP_ID, resource_path, load_preferences
+    from app_paths import APP_ID, resource_path, load_preferences, configure_gtk_text
+    configure_gtk_text(Gtk)
     brand_dir = resource_path('branding')
     # A flat PNG lookup has no registered sizes, so GTK cannot populate native
     # window icons. Keep a standard hicolor theme for source, wheels and bundles.
@@ -647,15 +626,24 @@ def build(app, labels):
     root = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
     app.win.set_child(root)
     header = Gtk.Box(spacing=12, css_classes=['studio-header'])
+    header_overlay = Gtk.Overlay()
+    header_overlay.set_child(header)
+    app.header_bar, app.header_start = header_overlay, header
     header_handle = Gtk.WindowHandle()
-    header_handle.set_child(header)
+    header_handle.set_child(header_overlay)
     brand = Gtk.Box(spacing=8)
     logo = Gtk.Image.new_from_gicon(Gio.FileIcon.new(Gio.File.new_for_path(str(brand_dir/'ratiolab-icon.png'))))
     logo.set_pixel_size(20)
     brand.append(logo)
     brand.append(Gtk.Label(label='RatioLab', css_classes=['brand-name']))
-    header.append(brand)
+    brand._ratiolab_no_translate = True
+    brand.set_halign(Gtk.Align.CENTER)
+    brand.set_valign(Gtk.Align.CENTER)
+    brand.set_can_target(False)
+    header_overlay.add_overlay(brand)
+    app.header_brand = brand
     title_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=1, hexpand=True)
+    title_box.set_halign(Gtk.Align.START)
     app.project_title = Gtk.Label(label='Untitled', xalign=0, max_width_chars=28, ellipsize=Pango.EllipsizeMode.MIDDLE, css_classes=['document-name'])
     def project_caption(label, *_):
         value = label.get_text()
@@ -665,29 +653,31 @@ def build(app, labels):
     app.document_label = Gtk.Label(xalign=0, ellipsize=Pango.EllipsizeMode.MIDDLE,
                                   max_width_chars=40, css_classes=['muted'])
     title_box.append(app.document_label)
-    header.append(title_box)
-    project_menu = Gtk.MenuButton(label='Project', css_classes=['flat','studio-project'])
+    project_menu = Gtk.MenuButton(label='File', css_classes=['flat','studio-project'])
+    project_menu.set_direction(Gtk.ArrowType.NONE)
     project_menu.set_tooltip_text('Project files and recent documents')
-    project_popup = Gtk.Popover()
+    project_popup = Gtk.PopoverMenu.new_from_model(Gio.Menu())
+    project_popup.add_css_class('file-menu')
+    project_popup.set_has_arrow(False)
+    project_popup.set_halign(Gtk.Align.START)
     project_menu.set_popover(project_popup)
     app.project_menu = project_menu
-    commands = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
-    project_popup.set_child(commands)
-    for title, callback in [('New project', app.new_project), ('Open project…', app.load_dialog),
-                            ('Save', app.save_dialog), ('Save As…', app.save_as_dialog),
-                            ('Recent projects…', app.show_recent)]:
+    app.file_menu = project_menu
+    app.file_command_buttons = {}
+    header.append(project_menu)
+    header.append(title_box)
+    for command, title, callback in [('new','New project', app.new_project), ('open','Open project…', app.load_dialog),
+                            ('save','Save', app.save_dialog), ('save-as','Save As…', app.save_as_dialog),
+                            ('recent','Recent projects…', app.show_recent)]:
         button = Gtk.Button(label=title)
         button.connect('clicked', lambda b, fn=callback: (project_popup.popdown(), fn(b)))
-        commands.append(button)
+        app.file_command_buttons[command] = button
         app.file_buttons.append(button)
-    header.append(project_menu)
     # Existing header consumers pack actions from right to left. Keep that
     # contract while letting the project name use the available flexible space.
     def pack_header_action(widget):
         widget.set_valign(Gtk.Align.CENTER)
-        anchor=project_menu
-        while anchor.get_parent() is not header:anchor=anchor.get_parent()
-        header.insert_child_after(widget, anchor)
+        header.insert_child_after(widget, title_box)
     header.pack_end = pack_header_action
     gui_workflow.install_exports(app)
     app.export_menu.set_label("Export")
@@ -699,14 +689,13 @@ def build(app, labels):
     app.updates = Controller(app, header)
     release_notes = Gtk.Button(label='Release notes and updates…')
     release_notes.connect('clicked', lambda *_: (project_popup.popdown(), app.updates.show(manual=True)))
-    commands.append(release_notes)
+    app.file_command_buttons['updates'] = release_notes
     window_controls = Gtk.WindowControls(side=Gtk.PackType.END)
     header.append(window_controls)
     child=header.get_first_child()
     while child:
         child.set_valign(Gtk.Align.CENTER)
         child=child.get_next_sibling()
-    decorate_action(project_menu,'folder',vector=True)
     decorate_action(app.cad_action,'cad-link',vector=True)
     decorate_action(app.export_menu,'download',vector=True)
     app.win.set_titlebar(header_handle)
@@ -725,23 +714,9 @@ def build(app, labels):
     app.family_chip.set_valign(Gtk.Align.CENTER)
     secondary.append(app.family_chip)
     secondary.append(Gtk.Box(hexpand=True))
-    theme_control = Gtk.Box(spacing=7, css_classes=['theme-control'])
-    theme_control.set_valign(Gtk.Align.CENTER)
-    theme_icon = Gtk.Label(label='◐')
-    theme_icon.set_accessible_role(Gtk.AccessibleRole.PRESENTATION)
-    theme_control.append(theme_icon)
-    app.theme_caption = Gtk.Label(label='Theme')
-    theme_control.append(app.theme_caption)
+    # Retain the programmatic switch API used by integrations. The visible
+    # color-mode control belongs to Settings > Appearance, not this toolbar.
     app.theme_switch = Gtk.Switch(active=app.workspace_theme == 'light', css_classes=['theme-switch'])
-    app.theme_switch.set_valign(Gtk.Align.CENTER)
-    app.theme_switch.update_property([Gtk.AccessibleProperty.LABEL], ['Theme'])
-    app.theme_caption.connect('notify::label', lambda label, *_:
-        app.theme_switch.update_property([Gtk.AccessibleProperty.LABEL], [label.get_text()]))
-    app.theme_switch.set_tooltip_text('Light' if app.workspace_theme == 'light' else 'Dark')
-    theme_control.append(app.theme_switch)
-    secondary.append(theme_control)
-    # Compatibility alias used to move focus away from an edited parameter.
-    app.appearance_button = app.theme_switch
     app.language_menu = Gtk.MenuButton(label='Language', css_classes=['flat'])
     app.language_popover = Gtk.Popover()
     app.language_menu.set_popover(app.language_popover)
@@ -802,12 +777,12 @@ def build(app, labels):
     app.reset_button.connect('clicked', app.reset_defaults)
     app.reset_button.set_tooltip_text('Restore defaults for this model. Undo reset is available afterwards.')
     app.file_buttons.append(app.reset_button)
-    commands.append(app.reset_button)
+    app.file_command_buttons['reset-defaults'] = app.reset_button
     app.undo_reset = Gtk.Button(label='Undo reset', css_classes=['flat'])
     app.undo_reset.set_visible(False)
     app.undo_reset.connect('clicked', app.undo_defaults)
     app.file_buttons.append(app.undo_reset)
-    commands.append(app.undo_reset)
+    app.file_command_buttons['undo-reset'] = app.undo_reset
     right = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
     right.set_hexpand(True)
     content.set_end_child(right)
@@ -860,10 +835,11 @@ def build(app, labels):
     app.theme_selector.connect('notify::selected', lambda widget, *_: change_theme(app, widget))
     app.theme_switch.connect('notify::active', lambda widget, *_:
                              app.theme_selector.set_selected(1 if widget.get_active() else 0))
-    # Preserve the saved text scale; the cancelled Settings screen is not exposed.
+    # Shared preference controls also back the Settings panel.
     app.text_size = gui_workflow.choice_dropdown(['100%', '125%', '150%'])
     app.text_size.set_selected((1, 1.25, 1.5).index(app.workspace_preferences['text_scale']))
-    app.text_size.connect('notify::selected', lambda *_: apply_theme(app))
+    app.text_size.connect('notify::selected', lambda *_: change_text_size(app))
+    apply_theme(app)
 
     app.view_options = {}
     for key, title in [('support','Supports'), ('housing','Housing'), ('exploded','Exploded'), ('section','Section')]:
@@ -1005,3 +981,7 @@ def build(app, labels):
         app.file_buttons.append(b)
     root.append(footer)
     gui_workflow.install_shortcuts(app)
+    from settings_ui import install as install_settings
+    install_settings(app)
+    from file_menu_ui import Controller as FileMenu
+    app.file_menu_controller = FileMenu(app)

@@ -120,6 +120,12 @@ preview animation and RPM-only updates use these identities rather than names.
 
 ## Layout validity and limits
 
+Each stage's pinion and wheel have independent
+[topping and semitopping](../tooth-tips.md) controls. Later stages use the
+`pinion2_` / `wheel2_` and `pinion3_` / `wheel3_` prefixes. Effective contact
+uses the remaining primary flanks; the selected pitch centres and tooth-count
+speed ratios retain their existing definitions.
+
 Every stage runs the canonical external mesh checks. Nonmating gears, shafts
 and connecting hubs are also checked as **full-rotation swept cylinders** using
 tip radii and their actual axial spans. Unrelated cylinders must have either

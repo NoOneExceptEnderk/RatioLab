@@ -58,27 +58,26 @@ class DirectShaftTests(unittest.TestCase):
                 local=[(x*c+y*s,-x*s+y*c) for x,y in world]
                 self.assertAlmostEqual(max(x for x,y in local),radius-.6+.05)
                 self.assertAlmostEqual(max(hypot(x,y) for x,y in local),radius+.05)
-            shaft=next(p for p in d.parts if p.name=='Shaft_input')
-            self.assertTrue(all(abs(hypot(x,y)-radius)<1e-8 for x,y in shaft.stations[0]['outer']))
-            # Independent circular-segment area oracle, over the entire flat span.
-            cut=radius-.6
-            removed=radius*radius*acos(cut/radius)-cut*sqrt(radius*radius-cut*cut)
-            span=2*d.values['width']+d.values['disc_gap']
-            expected=pi*radius*radius*shaft.width-removed*span
-            self.assertAlmostEqual(signature(shaft)['volume_mm3']/expected,1,delta=.0002)
+            self.assertFalse(any(p.name.startswith('Shaft_') for p in d.parts))
+            # Independent circular-segment oracle for the actual D-bored cam.
+            cam=next(p for p in d.parts if p.name=='Eccentric_1')
+            outer_radius=hypot(*cam.outer[0]);n=len(cam.outer)
+            hole_radius=radius+.05;cut=radius-.6+.05
+            cap=hole_radius**2*acos(cut/hole_radius)-cut*sqrt(hole_radius**2-cut**2)
+            expected=(n*outer_radius**2*sin(2*pi/n)/2-(pi*hole_radius**2-cap))*cam.width
+            self.assertAlmostEqual(signature(cam)['volume_mm3']/expected,1,delta=.0002)
 
     def test_key_dimensions_pockets_and_procurement_are_coherent(self):
         d=generate('cycloidal',arguments('keyed_shaft',variant='dual'))
         record=d.analysis['eccentric_connection']
         self.assertEqual([record[k] for k in ('key_width_mm','key_height_mm','shaft_keyway_depth_mm','hub_keyway_depth_mm')],[2,2,1.2,1])
         self.assertAlmostEqual(record['shaft_keyway_depth_mm']+record['hub_keyway_depth_mm']-record['key_height_mm'],.2)
-        shaft=next(p for p in d.parts if p.name=='Shaft_input')
         keys=[p for p in d.parts if p.name.startswith('Eccentric_key_')]
         for key in keys:
             self.assertAlmostEqual(signature(key)['volume_mm3'],2*2*8)
             self.assertEqual(key.procurement['dimensions'],'2 × 2 × 8 mm')
             self.assertGreaterEqual(key.z % (d.values['width']+d.values['disc_gap']),.5)
-        self.assertTrue(all(not s['holes'] for s in shaft.stations))
+        self.assertFalse(any(p.name.startswith('Shaft_') for p in d.parts))
         self.assertTrue(any('axial retention' in q for q in d.requirements))
         self.assertFalse(any('keys, threads and seals are not generated' in q for q in d.notes))
 
@@ -107,7 +106,7 @@ class DirectShaftTests(unittest.TestCase):
         with TemporaryDirectory() as temporary:
             for construction in ('d_shaft','keyed_shaft'):
                 d=generate('cycloidal',arguments(construction,variant='dual'))
-                indices=[i for i,p in enumerate(d.parts) if p.name in ('Shaft_input','Eccentric_2')]
+                indices=[i for i,p in enumerate(d.parts) if p.name in ('Eccentric_1','Eccentric_2')]
                 target=Path(temporary)/construction
                 selected_export.export(d,indices,'step',target,revision='direct-shaft')
                 self.assertEqual((target/'assembly.step').read_text().count('CLOSED_SHELL('),2)

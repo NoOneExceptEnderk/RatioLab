@@ -170,7 +170,8 @@ def shaped_circle(r,key,active,hub=False):
 def rebuild(p):
     cuts=[o for o in p.machining if o['type'] in ('groove_internal','groove_external','keyway_shaft','keyway_hub')]
     if not cuts:return
-    raw=[(z,angle,[outer]+section_holes(p,z)) for z,angle,outer in profile_sections(p)]
+    raw=[(z,angle,[outer]+section_holes(p,z,outer,i if p.stations else None))
+         for i,(z,angle,outer) in enumerate(profile_sections(p))]
     counts=[]
     for j in range(len(raw[0][2])):
         radii=[ci[2] for z,angle,loops in raw if (ci:=circle_info(loops[j]))]

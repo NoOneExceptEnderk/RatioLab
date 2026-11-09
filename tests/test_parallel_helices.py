@@ -178,7 +178,10 @@ class ParallelHelicesTests(unittest.TestCase):
         sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'webapp'))
         import engine_bridge as web
         for options in cases():
-            values=dict(options,helix2=-23.1234567890123,gap2=2.1234567890123,layout_angle2=73)
+            # Compact gears exercise every export without exceeding the retained
+            # 128 MiB browser archive limit with duplicated faceted STEP bodies.
+            # Default counts/whole assemblies are checked separately above.
+            values=dict(options,wheel=24,wheel2=24,wheel3=24,helix2=-23.1234567890123,gap2=2.1234567890123,layout_angle2=73)
             e=web.Engine();r=e.call('generate',dict(family='parallel',parameters=values))
             source=e.design;buffers=list(e.buffers)
             schema=web.schema('parallel',source.values)

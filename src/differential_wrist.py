@@ -7,7 +7,7 @@ nonworking root relief is constructed, not a manufacturing cutter fillet.
 No external belt drive, pulleys or motors are part of this assembly.
 """
 from math import atan2, cos, sin, hypot, pi, degrees, acos, sqrt, radians, tan, log, ceil
-from geometry import Part, circle, transformed, polar
+from geometry import Part, circle, polar
 from bevel_geometry import parameters as bevel_parameters, section as bevel_section, engagement, PROFILE_TOLERANCE
 
 # All frames are right handed; their local Z is the positive shaft direction.
@@ -82,117 +82,52 @@ def spiral_trace(cone_distance, outer_distance, cone_angle, beta, hand):
     This helper defines the pitch-cone trace within the reference face interval.
     Individual planar-section vertices use their actual apex distance instead.
     """
-    ratio=cone_distance/outer_distance
-    if not 0<ratio<=1 or not 0<cone_angle<pi/2:
-        raise ValueError('Spiral trace requires a positive cone-distance ratio at or below 1 and a valid cone angle.')
-    if hand not in (-1,1) or not 0<=beta<=45:
-        raise ValueError('Spiral trace requires hand −1 or +1 and unsigned angle from 0 to 45°.')
-    return hand*tan(radians(beta))/sin(cone_angle)*log(ratio)
+    from rust_geometry import call
+    return call('bevel_spiral_trace',dict(cone_distance=cone_distance,outer_distance=outer_distance,
+        cone_angle=cone_angle,beta=beta,hand=hand))
 
 
 def cone_stations(v,q):
-    """Common cone distances with a conservative linear trace chord bound.
-
-    For f(R)=a R exp(i k ln(R/Ro)), |f''|=a |k|sqrt(1+k²)/R.
-    Linear interpolation error <= max|f''| deltaR²/8 on each interval.
-    """
-    outer=q['cone_distance'];inner=outer-v['width']
-    if not 0<inner/outer<=1:raise ValueError('The inner pitch cone distance must be positive.')
-    if v.get('variant','straight')!='spiral' or v['spiral_angle']==0:return [inner,outer]
-    bound=0
-    for angle,pitch in ((q['side_cone_angle'],q['side_pitch_radius']),(q['output_cone_angle'],q['output_pitch_radius'])):
-        k=tan(radians(v['spiral_angle']))/sin(angle)
-        bound=max(bound,(pitch+v['module'])/outer*abs(k)*sqrt(1+k*k)/inner)
-    count=max(1,ceil(v['width']*sqrt(bound/(8*TRACE_CHORD_TOLERANCE))))
-    if count>128:raise ValueError('Spiral trace exceeds the section budget; reduce width or spiral angle.')
-    return [inner]+[inner+(outer-inner)*j/count for j in range(1,count)]+[outer]
+    """Rust trace subdivision with the original conservative chord bound."""
+    from rust_geometry import call
+    data={key:q[key] for key in ('cone_distance','side_cone_angle','side_pitch_radius','output_cone_angle','output_pitch_radius')}
+    return call('bevel_cone_stations',dict(values=v,dimensions=data,tolerance=TRACE_CHORD_TOLERANCE))
 
 
 def rates(a, b, side_teeth, output_teeth):
-    """Input signs share world +X; output spin is relative to its +Z carrier."""
-    return dict(input_a=a, input_b=b, carrier=(a+b)/2,
-                output_spin=(b-a)*side_teeth/(2*output_teeth))
+    from rust_geometry import call
+    result=call('differential_rates',dict(a=a,b=b,side_teeth=side_teeth,output_teeth=output_teeth))
+    return {k:float(v) for k,v in result['values'].items()}
 
 
 def classic_rates(carrier,difference,side_teeth,spider_teeth):
-    """Delta=B-A is a prescribed speed boundary, not a second motor input."""
-    return dict(side_a=carrier-difference/2,side_b=carrier+difference/2,carrier=carrier,
-                spider_spin=side_teeth/spider_teeth*difference/2)
+    from rust_geometry import call
+    result=call('differential_rates',dict(a=carrier,b=difference,side_teeth=side_teeth,output_teeth=spider_teeth,classic=True))
+    return {k:float(v) for k,v in result['values'].items()}
 
 
 def dimensions(v):
-    classic=v['configuration']=='classic'
-    side = v['module']*v['side_teeth']/2
-    output = v['module']*v['output_teeth']/2
-    distance = hypot(side, output)
-    if v['width'] > distance/3:
-        raise ValueError('Bevel face width must not exceed one third of the pitch cone distance.')
-    if v['backlash'] >= .7*v['module']:
-        raise ValueError('Backlash too large for the bevel module.')
-    scale = 1-v['width']/distance
-    beta=v['spiral_angle'] if v['variant']=='spiral' else 0
-    side_profile=bevel_parameters(v['side_teeth'],v['output_teeth'],v['module'],v['pressure'],v['backlash'],beta,v['spiral_hand'])
-    output_profile=bevel_parameters(v['output_teeth'],v['side_teeth'],v['module'],v['pressure'],v['backlash'],beta,-v['spiral_hand'])
-    contact=engagement(side_profile,output_profile,v['width'])
-    if contact['contact_phase_span_teeth']<=1+1e-8:
-        raise ValueError('Bevel face width/addendum leaves a gap in ideal tooth engagement; increase face width or adjust tooth counts / pressure angle.')
-    transverse_bore=v['spider_pin_diameter']+2*v['spider_clearance'] if classic else v['output_shaft']
-    for profile, shaft in ((side_profile, v['input_shaft']), (output_profile, transverse_bore)):
-        root = distance*cos(profile.delta)*tan(profile.root)*scale
-        if shaft/2+.8 >= root:
-            raise ValueError('Shaft too large for the small end of the bevel gear; reduce its diameter or face width.')
-    t = v['plate'];c = v['assembly_clearance'];r = v['input_shaft' if classic else 'output_shaft']/2
-    bolt = v['bolt_diameter']/2;flange = v['flange_radius'];pitch = (r+flange)/2
-    if v['output_interface']=='flange':
-        if pitch-bolt <= r+.8 or pitch+bolt >= flange-.8:
-            raise ValueError('Output flange holes leave too little material around the shaft or flange edge.')
-        if 2*bolt+.8 >= 2*pitch*sin(pi/v['bolt_count']):
-            raise ValueError('Output flange mounting holes overlap or leave too little material.')
-    if v['output_interface']=='hollow' and r-v['passage_diameter']/2<1:
-        raise ValueError('The hollow output shaft requires at least 1 mm radial wall around its passage.')
-    if v['carrier_style']=='split' and (t-c)/2<1:
-        raise ValueError('Split carrier lap layers require at least 1 mm thickness each: increase carrier thickness or reduce assembly clearance.')
-    if classic and side*scale-c-min(1.5,t/2)<=0:
-        raise ValueError('Spider axial retainer reaches the cone apex; reduce clearance or increase the gear dimensions.')
-    return dict(cone_distance=distance, side_pitch_radius=side, output_pitch_radius=output,
-                side_cone_angle=atan2(side, output), output_cone_angle=atan2(output, side),
-                inner_scale=scale, flange_hole_radius=pitch,transverse_bore=transverse_bore,
-                side_profile=side_profile,output_profile=output_profile,engagement=contact)
+    from rust_geometry import call
+    from bevel_geometry import SphericalProfile
+    result=call('bevel_assembly_dimensions',dict(values=v))
+    for key in ('side_profile','output_profile'):
+        result[key]=SphericalProfile(**result[key])
+    return result
 
 
 def split_cheek(half_y, low, high, seat, gap, positive=True):
     """One extruded cheek half with a genuinely open circular bearing seat."""
-    edge=gap/2;angle=acos(edge/seat);height=sqrt(seat*seat-edge*edge)
-    loop=[(edge,low),(half_y,low),(half_y,high),(edge,high),(edge,height)]
-    loop.extend((seat*cos(angle-2*angle*j/64),seat*sin(angle-2*angle*j/64)) for j in range(1,65))
-    if not positive:loop=[(-x,y) for x,y in reversed(loop)]
-    return loop
+    from rust_geometry import call
+    return [tuple(p) for p in call('bevel_split_cheek',dict(half_y=half_y,low=low,high=high,seat=seat,gap=gap,positive=positive))]
 
 
 def split_bridge(span, half_y, seat, gap, bolt_radius, positive=True, inside_span=None):
-    """Half bridge with two crossing lap tabs and coaxial joining holes.
-
-    The two halves occupy separate Z layers. Their tabs overlap only in XY;
-    the axial clearance between layers remains real shared geometry.
-    """
-    edge=gap/2;wall=1.2;half_tab=bolt_radius+wall
-    inside_span=span if inside_span is None else inside_span
-    center=(inside_span+seat)/2;depth=bolt_radius+wall
-    if inside_span-(center+half_tab)<wall or center-half_tab-seat<wall:
-        raise ValueError('Split carrier joining holes leave insufficient material beside the bearing seat or bridge ends.')
-    if half_y-bolt_radius<wall or depth-bolt_radius<wall-1e-9:
-        raise ValueError('Split carrier joining holes leave insufficient bridge edge material.')
-    loop=[(-span,edge),(-span,half_y),(span,half_y),(span,edge),
-          (center+half_tab,edge),(center+half_tab,-depth),
-          (center-half_tab,-depth),(center-half_tab,edge)]
-    if seat:
-        a=acos(edge/seat)
-        loop.append((sqrt(seat*seat-edge*edge),edge))
-        loop.extend((seat*sin(a-2*a*j/64),seat*cos(a-2*a*j/64)) for j in range(1,65))
-    loop.extend([(-center+half_tab,edge),(-center+half_tab,-depth),
-                 (-center-half_tab,-depth),(-center-half_tab,edge)])
-    if not positive:loop=[(x,-y) for x,y in reversed(loop)]
-    return loop,[circle(bolt_radius,48,(x,0)) for x in (-center,center)]
+    """Rust open bridge/lap contours and their actual coaxial joining holes."""
+    from rust_geometry import call
+    args=dict(span=span,half_y=half_y,seat=seat,gap=gap,bolt_radius=bolt_radius,positive=positive)
+    if inside_span is not None:args['inside_span']=inside_span
+    outer,holes=call('bevel_split_bridge',args)
+    return [tuple(p) for p in outer],[[tuple(p) for p in loop] for loop in holes]
 
 
 def build(d):
@@ -247,10 +182,11 @@ def build(d):
         if v['variant']=='spiral':
             hand=-v['spiral_hand'] if group in ('output','spider') else v['spiral_hand']
             if v['spiral_angle']:
-                p.stations=[dict(z=0 if distance==distances[0] else (distance/q['cone_distance'])*heel-toe,
-                    outer=transformed([(x*distance/q['cone_distance'],y*distance/q['cone_distance']) for x,y in outer],
-                                      angle=spiral_trace(distance,q['cone_distance'],angle,v['spiral_angle'],hand)),
-                    holes=holes) for distance in distances]
+                from rust_geometry import call_geometry
+                stations=call_geometry('bevel_spiral_stations',dict(outer=outer,distances=distances,
+                    cone_distance=q['cone_distance'],cone_angle=angle,heel=heel,toe=toe,
+                    beta=v['spiral_angle'],hand=hand))
+                p.stations=[dict(z=s['z'],outer=[tuple(q) for q in s['outer']],holes=holes) for s in stations]
             p.profile_metadata['bevel_profile'].update(spiral_angle_deg=v['spiral_angle'],local_spiral_hand=hand,
                 trace='theta = hand * tan(beta) / sin(delta) * ln(R / R_outer)',
                 trace_chord_tolerance_mm=TRACE_CHORD_TOLERANCE,cone_stations_mm=list(distances),

@@ -12,6 +12,7 @@ class Controller:
         self.language = app.workspace_preferences['language']
         self.bindings = {}
         self.handlers = {}
+        self.pending_buffers = {}
         self.writing = False
         self.choices = {}
         body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
@@ -40,6 +41,10 @@ class Controller:
         app.win.connect('unrealize', self.stop)
 
     def stop(self, *_):
+        for source in self.pending_buffers.values():
+            if GLib.MainContext.default().find_source_by_id(source):
+                GLib.source_remove(source)
+        self.pending_buffers.clear()
         if self.timer:
             if GLib.MainContext.default().find_source_by_id(self.timer):
                 GLib.source_remove(self.timer)
@@ -59,6 +64,9 @@ class Controller:
             if choice.get_active() != (key == code):
                 choice.set_active(key == code)
         self.refresh()
+        help_controller = getattr(self.app, 'parameter_help', None)
+        if help_controller:
+            help_controller.refresh_language()
         try:
             app_paths.save_preferences(legacy_root=self.app.BASE, language=code)
             self.error.set_visible(False)
@@ -69,24 +77,55 @@ class Controller:
         if self.writing or widget not in self.bindings:
             return
         sources = self.bindings.get(widget, {})
-        value = widget.get_property(spec.name)
-        if spec.name not in sources or value != sources[spec.name][1]:
-            sources[spec.name] = (value, value)
-        self._render(widget, spec.name)
+        prop = spec.name if spec else 'text'
+        value = self._read(widget, prop)
+        if prop not in sources or value != sources[prop][1]:
+            sources[prop] = (value, value)
+        if isinstance(widget, Gtk.TextBuffer):
+            # set_text emits changed while GTK still owns an insertion iterator.
+            # Coalesce delete/insert notifications and render after it returns.
+            if widget not in self.pending_buffers:
+                self.pending_buffers[widget] = GLib.idle_add(self._render_buffer, widget, priority=GLib.PRIORITY_DEFAULT)
+            return
+        self._render(widget, prop)
+
+    def _render_buffer(self, buffer):
+        self.pending_buffers.pop(buffer, None)
+        if buffer in self.bindings:
+            current = self._read(buffer, 'text')
+            if current != self.bindings[buffer]['text'][1]:
+                self.bindings[buffer]['text'] = (current, current)
+            self._render(buffer, 'text')
+        return GLib.SOURCE_REMOVE
+
+    @staticmethod
+    def _read(widget, prop):
+        if isinstance(widget, Gtk.TextBuffer):
+            return widget.get_text(widget.get_start_iter(), widget.get_end_iter(), True)
+        return widget.get_property(prop)
 
     def _render(self, widget, prop):
         source, previous = self.bindings[widget][prop]
         value = translate(source, self.language)
+        transform = getattr(widget, '_ratiolab_label_transform', None) if prop == 'label' else None
+        if transform:
+            value = transform(value)
         self.writing = True
         try:
-            if widget.get_property(prop) != value:
-                widget.set_property(prop, value)
+            if self._read(widget, prop) != value:
+                if isinstance(widget, Gtk.TextBuffer):
+                    widget.set_text(value)
+                else:
+                    widget.set_property(prop, value)
             self.bindings[widget][prop] = (source, value)
         finally:
             self.writing = False
 
     def refresh(self):
         app = self.app
+        file_menu = getattr(app, 'file_menu_controller', None)
+        if file_menu is not None:
+            file_menu.refresh_language(self.language)
         if self.language == 'en':
             app.win.remove_css_class('localized-ui')
         else:
@@ -107,9 +146,11 @@ class Controller:
             seen.add(widget)
             skip = skip or widget in excluded or getattr(widget, '_ratiolab_no_translate', False)
             # Editable text, user filenames and report contents are never messages.
-            skip = skip or isinstance(widget, (Gtk.Entry, Gtk.TextView, Gtk.FileChooserWidget))
+            editable = isinstance(widget, (Gtk.Entry, Gtk.SearchEntry, Gtk.TextView, Gtk.FileChooserWidget))
             if not skip:
                 properties = []
+                if isinstance(widget, (Gtk.Entry, Gtk.SearchEntry)):
+                    properties.append('placeholder-text')
                 if isinstance(widget, Gtk.Window) and widget is not app.win:
                     properties.append('title')
                 if isinstance(widget, Gtk.Label):
@@ -123,16 +164,25 @@ class Controller:
                 sources = self.bindings.setdefault(widget, {}) if properties else {}
                 for prop in properties:
                     if prop not in sources:
-                        value = widget.get_property(prop)
+                        value = (getattr(widget, '_ratiolab_source_label', widget.get_property(prop))
+                                 if prop == 'label' else widget.get_property(prop))
                         sources[prop] = (value, value)
                         self.handlers.setdefault(widget, []).append(widget.connect('notify::'+prop, self._changed))
                     self._render(widget, prop)
+                if isinstance(widget, Gtk.TextView) and getattr(widget, '_ratiolab_localize_report', False) and not widget.get_editable():
+                    buffer = widget.get_buffer()
+                    seen.add(buffer)
+                    if buffer not in self.bindings:
+                        value = self._read(buffer, 'text')
+                        self.bindings[buffer] = {'text': (value, value)}
+                        self.handlers[buffer] = [buffer.connect('changed', lambda current: self._changed(current, None))]
+                    self._render(buffer, 'text')
             child = widget.get_first_child()
             while child:
                 # Read the sibling before updating labels: a notification may
                 # unparent/destroy the current popup synchronously.
                 following = child.get_next_sibling()
-                walk(child, skip)
+                walk(child, skip or editable)
                 child = following
         for window in app.get_windows():
             walk(window)

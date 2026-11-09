@@ -38,13 +38,21 @@ def verify(folder):
     resources = {'ratiolab_resources/'+path.relative_to(root/'src/ratiolab_resources').as_posix()
                  for path in (root/'src/ratiolab_resources').rglob('*')
                  if path.is_file() and '__pycache__' not in path.parts and path.suffix != '.pyc'}
+    native_names={'libratiolab_geometry.so','libratiolab_geometry.dylib','ratiolab_geometry.dll'}
+    native=next((p for p in (root/'target/release').glob('*') if p.name in native_names),None)
+    assert native is not None,'Build the native Rust kernel before verifying its wheel'
+    generated={'ratiolab_resources/native/'+native.name:native.read_bytes()}
+    notices=root/'target/ratiolab-rust-notices'
+    assert (notices/'components.json').is_file(),'Rust notices are missing'
+    generated.update({'ratiolab_resources/rust-notices/'+p.relative_to(notices).as_posix():p.read_bytes()
+                      for p in notices.rglob('*') if p.is_file()})
     private_prefixes = {str(Path.home()).encode(), str(root).encode()}
     for artifact in wheels+archives:
         if artifact.suffix == '.whl':
             with zipfile.ZipFile(artifact) as archive:
                 files = set(archive.namelist())
                 payloads = {name: archive.read(name) for name in files if not name.endswith('/')}
-            required = modules | resources | {
+            required = modules | resources | set(generated) | {
                 'ratiolab_resources/INSTALL.md', 'ratiolab_resources/MCP.md',
                 'ratiolab_resources/CHANGELOG.md',
                 'ratiolab_resources/LICENSE', 'ratiolab_resources/COPYRIGHT',
@@ -55,6 +63,11 @@ def verify(folder):
             actual_resources = {name for name in files if name.startswith('ratiolab_resources/')
                                 and not name.endswith('/')}
             assert actual_resources == required-modules, f'{artifact}: unexpected resource inventory'
+            for name,data in generated.items():
+                assert payloads[name]==data, f'{artifact}: changed Rust payload {name}'
+            wheel_metadata=next(name for name in files if name.endswith('.dist-info/WHEEL'))
+            assert b'Root-Is-Purelib: false' in payloads[wheel_metadata]
+            assert not artifact.name.endswith('-any.whl'),'Native Rust wheel requires a platform tag'
             for name in modules | resources:
                 assert payloads[name] == (root/'src'/name).read_bytes(), f'{artifact}: changed payload {name}'
             assert not any(PurePosixPath(name).name in {'ratiolab_build.py', 'build_support.py'} or
@@ -76,10 +89,12 @@ def verify(folder):
                 names = archive.getnames()
                 payloads = {name: archive.extractfile(name).read() for name in names if archive.getmember(name).isfile()}
             files = {'/'.join(PurePosixPath(name).parts[1:]) for name in names}
-            required = {'pyproject.toml', 'build-support/ratiolab_build.py',
+            required = {'Cargo.toml','Cargo.lock','rust-toolchain.toml','scripts/build-rust-engine.py','pyproject.toml', 'build-support/ratiolab_build.py',
                         'docs/installation.md', 'docs/development.md', 'docs/mcp.md',
                         'LICENSE', 'COPYRIGHT', 'CONTRIBUTING.md', 'CHANGELOG.md',
                         'packaging/mcp_entrypoint.py', 'scripts/check-installed-mcp.py'}
+            required |= {p.relative_to(root).as_posix() for p in (root/'rust').rglob('*') if p.is_file()}
+            assert not any(name.startswith('target/') for name in files),'Rust build products must not enter the sdist'
             required |= {'src/'+name for name in modules | resources}
             required |= {'tests/'+path.name for path in (root/'tests').glob('test_*.py')}
             # Include every font payload, licence and provenance record, rather

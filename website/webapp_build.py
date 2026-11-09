@@ -19,7 +19,8 @@ APP_FILES = (
     'fonts/NotoSansCJK-Regular.ttc', 'fonts/NotoSansTamil-Regular.ttf',
     'fonts/LICENSE-NotoCJK.txt', 'fonts/LICENSE-NotoTamil.txt', 'fonts/SOURCE-NOTO.json',
     'viewer.js', 'engine-client.js', 'worker.js', 'engine.zip', 'runtime.json',
-    'LICENSE', 'COPYRIGHT', 'README.txt', 'serve.py', 'source.zip', 'help-illustrations.json',
+    'rust-engine.js', 'ratiolab_geometry.wasm', 'rust-notices.zip',
+    'LICENSE', 'COPYRIGHT', 'README.txt', 'serve.py', 'source.zip', 'source-fonts.zip', 'help-illustrations.json',
     'branding/ratiolab-icon.png', 'branding/ratiolab-logo-dark.png',
     'notices/README.txt', 'notices/provenance.json', 'notices/PYODIDE-LICENSE',
     'notices/CPYTHON-LICENSE', 'notices/CPYTHON-NOTICES',
@@ -35,6 +36,8 @@ HEADERS = '''/app
 /app/*
   Cache-Control: no-store
 /app/runtime/pyodide.asm.wasm
+  Content-Type: application/wasm
+/app/ratiolab_geometry.wasm
   Content-Type: application/wasm
 /app/runtime/pyodide.mjs
   Content-Type: text/javascript; charset=utf-8

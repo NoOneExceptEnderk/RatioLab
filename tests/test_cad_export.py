@@ -130,8 +130,17 @@ class CadExportTests(unittest.TestCase):
         self.assertEqual(text.count('ADVANCED_FACE'),4)
         helical=cad_export.document(generate('helical').parts)[1][0]
         hole=helical['circular_walls'][0]
-        self.assertGreater(hole['max_wall_radial_difference_mm'],hole['max_section_radial_difference_mm'])
+        self.assertGreaterEqual(hole['max_wall_radial_difference_mm'],hole['max_section_radial_difference_mm'])
         self.assertAlmostEqual(helical['sampled_volume_mm3']+helical['volume_difference_mm3'],helical['cad_volume_mm3'])
+        # Refined axial walls may now be as accurate as their section polygon.
+        # A deliberately coarser, explicitly requested sweep still exercises
+        # the independent 3D wall-error path rather than a section-only proxy.
+        coarse=generate('helical').parts[0];coarse.surface_tolerance_mm=.2
+        actual=cad_export.document([coarse])[1][0]
+        hole=actual['circular_walls'][0]
+        self.assertGreater(hole['max_wall_radial_difference_mm'],hole['max_section_radial_difference_mm'])
+        self.assertEqual(actual['profile_geometry']['surface_sampling']['requested_interpolation_mm'],.2)
+        self.assertEqual(coarse.profile_metadata['surface_sampling']['requested_interpolation_mm'],.02)
 
     def test_step_graph_units_names_and_distinct_bodies(self):
         tube=self.tube();tube.name="Ruota Ø #5 'rear'"

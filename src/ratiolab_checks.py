@@ -189,6 +189,75 @@ def _wait_for_frame(canvas, context, timeout=30):
         clock.disconnect(handler)
 
 
+def _surface_suspended(canvas):
+    from gi.repository import Gdk
+    native = canvas.get_native()
+    surface = native.get_surface() if native is not None else None
+    return bool(isinstance(surface, Gdk.Toplevel)
+                and surface.get_state() & Gdk.ToplevelState.SUSPENDED)
+
+
+def _capture_preview_frame(canvas, context, timeout=30):
+    """Prove a fresh render even when the compositor suspends an occluded window.
+
+    A visible workspace still requires a completed GTK frame and uploaded scene.
+    A suspended surface cannot supply frame callbacks: use the same synchronous
+    GL capture as exports, and validate its new image, upload and GL status.
+    Keep _wait_for_frame strict for checks that require completed layout/paint.
+    """
+    import cairo
+    import io
+    clock = canvas.get_frame_clock()
+    if clock is None:
+        raise RuntimeError('The installed preview has no frame clock')
+    initial_frame = clock.get_frame_counter()
+    initial_render = canvas.render_serial
+    painted = False
+    def after_paint(current):
+        nonlocal painted
+        painted = True
+    def rendered():
+        return (painted and canvas.render_serial > initial_render and not canvas.dirty
+                and canvas.render_size == (canvas.get_width()*canvas.get_scale_factor(),
+                                           canvas.get_height()*canvas.get_scale_factor()))
+    def ready():
+        if canvas.failure or canvas.get_error():
+            raise RuntimeError(str(canvas.failure or canvas.get_error()))
+        drawable = (canvas.get_mapped() and canvas.get_width() > 0
+                    and canvas.get_height() > 0 and canvas.gl)
+        return drawable and (rendered() or _surface_suspended(canvas))
+    handler = clock.connect('after-paint', after_paint)
+    try:
+        canvas.queue_render()
+        _wait_for_context(context, ready, timeout=timeout)
+        mode = 'gtk-frame' if rendered() else 'suspended-capture'
+        captured = []
+        canvas.capture_png(lambda data, error: captured.append((data, error)))
+        if not captured or captured[0][1] is not None or not captured[0][0]:
+            raise RuntimeError('Preview capture failed: '+str(captured[0][1] if captured else 'no completed image'))
+        if (canvas.dirty or canvas.failure or canvas.get_error()
+                or canvas.render_serial <= initial_render
+                or canvas.render_size != (canvas.get_width()*canvas.get_scale_factor(),
+                                          canvas.get_height()*canvas.get_scale_factor())):
+            raise RuntimeError('Preview capture did not complete the current scene')
+        if canvas.gl.GetError():
+            raise RuntimeError('OpenGL preview capture reported an error')
+        data = captured[0][0]
+        image = cairo.ImageSurface.create_from_png(io.BytesIO(data))
+        if (image.get_width() != canvas.get_width()*canvas.get_scale_factor()
+                or image.get_height() != canvas.get_height()*canvas.get_scale_factor()):
+            raise RuntimeError('Preview capture has an incorrect framebuffer size')
+        pixels = bytes(image.get_data())
+        if not pixels or not any(pixels[i:i+4] != pixels[:4] for i in range(4, len(pixels), 4)):
+            raise RuntimeError('Preview capture is blank')
+        return data, dict(mode=mode, frame_before=initial_frame,
+                          frame_after=clock.get_frame_counter(),
+                          render_before=initial_render, render_after=canvas.render_serial,
+                          width=image.get_width(), height=image.get_height(), png_bytes=len(data))
+    finally:
+        clock.disconnect(handler)
+
+
 def _canvas_runtime(canvas):
     """Read GL metadata from the same current context that rendered the workspace."""
     import ctypes as C
@@ -225,6 +294,12 @@ def _workspace_check(config, output, runtime=None):
     def wait_for(condition):
         _wait_for_context(context, condition)
 
+    frame_checks = []
+    def capture_frame(phase):
+        data, proof = _capture_preview_frame(application.canvas, context)
+        frame_checks.append(dict(phase=phase, **proof))
+        return data
+
     try:
         application.output_dir = output/'workspace'
         application.load_config_data(config)
@@ -238,15 +313,17 @@ def _workspace_check(config, output, runtime=None):
             raise RuntimeError('Workspace save did not establish a clean document checkpoint')
         if json.loads(project_path.read_text(encoding='utf-8'))['format'] != 'solidcraft-riduttori/1':
             raise RuntimeError('Workspace configuration format changed')
-        for controller in (application.interference, application.combination_search, application.components):
+        for name, controller in (('interference', application.interference),
+                                 ('search', application.combination_search),
+                                 ('components', application.components)):
             controller.open()
             wait_for(lambda: controller.window is not None and controller.window.get_visible())
-            # Visibility changes synchronously; let the native surface finish
-            # its map/unmap frame before advancing to the next tool lifecycle.
-            _wait_for_frame(application.canvas, context)
+            # Prove a fresh preview between tool lifecycles, including when
+            # the compositor has suspended this background workspace.
+            capture_frame('tool-open:'+name)
             controller.window.close()
-            _wait_for_frame(application.canvas, context)
-        _wait_for_frame(application.canvas, context)
+            capture_frame('tool-close:'+name)
+        capture_frame('before-export')
         application.export()
         if not application.busy:
             raise RuntimeError('Workspace export did not start: '+application.status.get_text())
@@ -264,7 +341,6 @@ def _workspace_check(config, output, runtime=None):
         pixels = bytes(image.get_data())
         if not pixels or not any(pixels[i:i+4] != pixels[:4] for i in range(4, len(pixels), 4)):
             raise RuntimeError('Workspace exported a blank preview image')
-        import io
         from geometry import FAMILIES, generate
         previews = []
         for family in FAMILIES:
@@ -275,19 +351,12 @@ def _workspace_check(config, output, runtime=None):
             canvas.set_motion_playing(False)
             canvas.motion_enabled = True
             canvas.motion_phase = 1.25
-            _wait_for_frame(canvas, context)
-            captured = []
-            canvas.capture_png(lambda data, error: captured.append((data, error)))
-            if not captured or captured[0][1] is not None:
-                raise RuntimeError('Animated preview capture failed: '+family)
-            image = cairo.ImageSurface.create_from_png(io.BytesIO(captured[0][0]))
-            pixels = bytes(image.get_data())
-            if not pixels or not any(pixels[i:i+4] != pixels[:4] for i in range(4, len(pixels), 4)):
-                raise RuntimeError('Animated preview is blank: '+family)
+            capture_frame('family:'+family)
             previews.append(family)
         metadata = _canvas_runtime(application.canvas)
         if runtime is not None:
-            runtime.update(metadata, preview='rendered', framebuffer_has_geometry=True)
+            runtime.update(metadata, preview='rendered', framebuffer_has_geometry=True,
+                           preview_frame_checks=frame_checks)
         return previews
     finally:
         for window in application.get_windows():

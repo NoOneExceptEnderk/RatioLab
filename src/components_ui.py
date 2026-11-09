@@ -51,6 +51,7 @@ def component_title(part):
 def selection_snapshot(snapshot):
     """Bind selection to geometry; operating edits still invalidate measurements."""
     snapshot=deepcopy(snapshot)
+    snapshot.pop('quality',None)
     for section in ('values','raw'):
         fields=snapshot.get(section,{}).get(snapshot.get('family'),{})
         for key in SPEED_KEYS:fields.pop(key,None)
@@ -101,7 +102,7 @@ class Controller:
         # geometry and scene remain shared, retaining the same source indices.
         previous=self.design
         return bool(previous and design and same_geometry(previous,design.family,design.values)
-                    and self.scene is not None and self.scene is self.app.canvas.scene
+                    and self.scene is not None and (self.scene is self.app.canvas.scene or getattr(previous,'quality',{})!=getattr(design,'quality',{}))
                     and len(previous.parts)==len(design.parts)
                     and all(a.name==b.name and a.role==b.role
                             and all(getattr(a,key) is getattr(b,key) for key in ('outer','holes','mesh','stations','frame'))

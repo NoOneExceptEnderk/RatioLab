@@ -856,17 +856,6 @@ hr {
   text-align:right;
   overflow-wrap:anywhere
 }
-.recovery-banner {
-  background:#302a20;
-  color:#efbf79;
-  padding:8px 15px;
-  display:flex;
-  gap:12px;
-  align-items:center;
-  border-bottom:1px solid #504534;
-  font-size:.857rem;
-  z-index:4
-}
 .skip-link {
   position:fixed;
   left:12px;
@@ -1141,10 +1130,6 @@ dialog::backdrop {
   .app-footer button {
     font-size:.786rem;
     padding-inline:5px
-  }
-  .recovery-banner {
-    flex-wrap:wrap;
-    gap:6px
   }
   .field {
     grid-template-columns:minmax(0,1fr) 145px
@@ -1454,7 +1439,7 @@ body {height:auto;min-height:100dvh;overflow:auto;}
 @media(min-width:601px) {
   html {height:100%;overflow:hidden;}
   body {height:100vh;height:100dvh;min-height:0;overflow:hidden;}
-  .app-header,.workspace-toolbar,.app-footer,.recovery-banner {max-width:100%;min-width:0;flex-shrink:0;}
+  .app-header,.workspace-toolbar,.app-footer {max-width:100%;min-width:0;flex-shrink:0;}
   .app-header {flex-wrap:wrap;}
   .project-heading {min-width:0;flex:1 1 110px;}
   .header-right {min-width:0;max-width:100%;flex-wrap:wrap;}
@@ -1469,7 +1454,6 @@ body {height:auto;min-height:100dvh;overflow:auto;}
   .metric-cards,.playback-container,.warning-bar {flex-shrink:0;}
   .app-footer {flex-wrap:wrap;padding:4px 10px;gap:3px;max-height:20dvh;overflow:auto;}
   .app-footer .status-line {flex:1 1 120px;min-height:20px;}
-  .recovery-banner {max-height:15dvh;overflow:auto;}
 }
 @media(min-width:601px) and (max-height:650px) {
   .app-header {padding-block:6px;min-height:0;max-height:28dvh;overflow:auto;}
@@ -1525,7 +1509,7 @@ dialog:has(.settings-panel) {width:min(620px,calc(100% - 30px));}
 :root[data-theme=light] button.primary {background:var(--accent);color:#fff;}
 :root[data-theme=light] :is(.tool-dock,.parameter-help-pane) {background:var(--panel);}
 :root[data-theme=light] :is(.view-toolbar button[aria-expanded=true],#play-motion[aria-pressed=true]) {background:#cce4e5;color:#205f62;}
-:root[data-theme=light] :is(.note-warning,.recovery-banner,.stale-banner,.preview-warning) {background:#fff0d9;color:#785014;border-color:#b7904e;}
+:root[data-theme=light] :is(.note-warning,.stale-banner,.preview-warning) {background:#fff0d9;color:#785014;border-color:#b7904e;}
 :root[data-theme=light] :is(.error,.note-error) {background:#ffede8;color:var(--error);}
 :root[data-theme=light] :is(a,.tool-panel-heading,.metric-value) {color:inherit;}
 :root[data-theme=light] :is(.selection-summary,.component-selected) {background:#d5e8ee;color:#263f4b;}

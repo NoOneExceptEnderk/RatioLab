@@ -2,6 +2,8 @@
 
 ![RatioLab](../../src/ratiolab_resources/branding/ratiolab-logo-dark.png)
 
+[![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/X0M22AB2SK)
+
 **Zahnräder und Getriebe entwerfen, ihre Bewegung untersuchen und Modelle für CAD oder den 3D-Druck exportieren.**
 
 [Herunterladen](#download-and-install) · [Benutzerhandbuch (Englisch)](../user-guide.md) · [English](../../README.md) · [Italiano](../../README.it.md) · [Problem melden](https://github.com/NoOneExceptEnderk/RatioLab/issues) · [Discord](https://discord.gg/G8NVHNg6J)
@@ -50,7 +52,10 @@ Dein System zeigt möglicherweise eine Warnung zu einem unbekannten Herausgeber 
 3. Speichere dein Projekt und wähle anschließend **Export…**, um Dateien für CAD oder den Druck zu erzeugen.
 
 Weitere Einzelheiten findest du im [Benutzerhandbuch (Englisch)](../user-guide.md) und in den [Beispielprojekten](../../examples/).
-Die Benutzeroberfläche der Anwendung ist auf Englisch.
+Die Desktop- und Browseroberfläche bietet die neun oben aufgeführten Sprachen.
+Wählen Sie Ihre Sprache unter **Language / Sprache**; die Einstellung wird unabhängig von
+den Projektparametern gespeichert. Das vollständige technische Handbuch und
+die Berechnungsberichte sind auf Englisch. Nicht übersetzte Texte bleiben englisch.
 
 ## Aktuelle Einschränkungen
 

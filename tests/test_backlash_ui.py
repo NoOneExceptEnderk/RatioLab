@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-only
 """Display-backed proposal/history and asynchronous stale callback checks."""
 from copy import deepcopy
+import json
 import os
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -14,8 +15,9 @@ gi.require_version('Gtk','4.0')
 from gi.repository import Gtk, Gdk, Gio, GLib
 import app as module
 import backlash_solver
-from geometry import generate
+from geometry import FAMILIES, generate
 from interference import Analysis
+from precise_numbers import SOURCE_KEY
 
 
 def pump(duration=.08):
@@ -139,12 +141,44 @@ class BacklashUITests(unittest.TestCase):
         a.gear_measurement.calculate()
         self.assertIsNotNone(a.gear_measurement.result)
         applied=deepcopy(a.project_snapshot())
-        a.undo_project();pump()
-        self.assertEqual(a.project_snapshot(),snapshot)
-        self.assertIsNone(c.result);self.assertIsNone(c.preview.design)
-        a.redo_project();pump()
+        sources=deepcopy(applied['values']['parallel'][SOURCE_KEY])
+        for _ in range(3):
+            a.undo_project();pump()
+            self.assertEqual(a.project_snapshot(),snapshot)
+            self.assertIsNone(c.result);self.assertIsNone(c.preview.design)
+            a.redo_project();pump()
+            self.assertEqual(a.project_snapshot(),applied)
+            self.assertEqual(a.config()['parameters'][SOURCE_KEY],sources)
+            self.assertEqual(a.document.index,index+1)
+            self.assertIsNone(c.result)
+
+    def test_applied_decimal_sources_survive_recovery_and_save_reopen(self):
+        a,c=self.app,self.c
+        a.values['spur']=generate('spur').values
+        a.raw_edits['spur']={'module':'unfinished'}
+        a.document.record(a.project_snapshot());a.document.barrier()
+        a.document.mark_saved(Path(self.folder.name)/'before-backlash.json')
+        self.calculate();self.assertTrue(c.apply())
+        applied=deepcopy(a.project_snapshot())
+        expected=deepcopy(a.config()['parameters'])
+        self.assertIn('center_extra',expected[SOURCE_KEY])
+        # This is the on-disk recovery path: JSON has plain numbers plus their
+        # exact source map, rather than live PreciseFloat instances.
+        recovered=a.project_store.read_recovery(a.project_store.session,FAMILIES)
+        a.restore_project_snapshot(recovered.current)
+        a.document=recovered;a.update_document()
         self.assertEqual(a.project_snapshot(),applied)
-        self.assertIsNone(c.result)
+        self.assertEqual(a.config()['parameters'],expected)
+        self.assertEqual(a.raw_edits['spur'],{'module':'unfinished'})
+        a.undo_project();pump();a.redo_project();pump()
+        self.assertEqual(a.project_snapshot(),applied)
+        path=Path(self.folder.name)/'after-backlash.json'
+        self.assertTrue(a.save_project(path=path))
+        saved=json.loads(path.read_text())
+        self.assertEqual(saved['parameters'],expected)
+        a.load_config_data(saved,path);pump()
+        self.assertEqual(a.config()['parameters'],expected)
+        self.assertFalse(a.document.dirty)
 
     def test_raw_edits_replacement_normalization_and_unreachable(self):
         a,c=self.app,self.c
@@ -165,8 +199,17 @@ class BacklashUITests(unittest.TestCase):
         self.assertNotEqual(a.document.token,revision);self.assertIsNone(c.result)
         c.target.set_text('.1');c.start();wait_for(lambda:c.cancel is None)
         self.assertIn('below the reachable',self.text());self.assertFalse(c.apply_button.get_sensitive())
-        c.target.set_text('nan');c.start();wait_for(lambda:c.cancel is None)
-        self.assertIn('finite',self.text())
+        snapshot=a.project_snapshot();revision=a.document.token
+        for target in ('nan','inf','-inf'):
+            with self.subTest(target=target):
+                c.target.set_text(target)
+                self.assertFalse(c.start())
+                self.assertIn('finite',self.text().casefold())
+                self.assertIsNone(c.result);self.assertIsNone(c.preview.design)
+                self.assertFalse(c.apply_button.get_sensitive())
+                self.assertFalse(c.save_button.get_sensitive())
+                self.assertEqual(a.project_snapshot(),snapshot)
+                self.assertEqual(a.document.token,revision)
 
     def test_cancel_target_edit_and_close_reject_delayed_workers(self):
         a,c=self.app,self.c

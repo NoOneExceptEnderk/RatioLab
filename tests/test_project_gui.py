@@ -56,7 +56,7 @@ class ProjectGuiTests(unittest.TestCase):
 
     def answer(self, code):
         dialog=self.app.project_dialog
-        self.assertIsInstance(dialog,Gtk.MessageDialog)
+        self.assertIsInstance(dialog,Gtk.Dialog)
         dialog.response(code)
         pump(.02)
 
@@ -511,6 +511,107 @@ class ProjectGuiTests(unittest.TestCase):
         a.offer_recovery();self.answer(Gtk.ResponseType.REJECT)
         self.assertFalse(destination.exists())
         self.assertFalse(a.document.dirty)
+
+    def test_recovery_popup_close_controls_preserve_record_and_document(self):
+        a=self.app
+        previous=Document(a.project_snapshot(),self.path)
+        changed=previous.current;changed['raw']['helical']['module']='unfinished'
+        previous.record(changed)
+        path=a.project_store.folder/'recovery'/'popup-close.json'
+        atomic_json(path,previous.recovery())
+        source=path.read_bytes();snapshot=a.project_snapshot();token=a.document.token
+        for action in ('button','escape','window'):
+            with self.subTest(action=action):
+                a.offer_recovery();dialog=a.project_dialog;pump(.08)
+                self.assertIsInstance(dialog,Gtk.Dialog)
+                self.assertNotIsInstance(dialog,Gtk.MessageDialog)
+                self.assertTrue(dialog.get_modal())
+                self.assertIs(dialog.get_transient_for(),a.win)
+                if action=='button':
+                    dialog.get_titlebar().get_child().get_last_child().emit('clicked')
+                elif action=='escape':
+                    controllers=dialog.observe_controllers()
+                    keys=next(controllers.get_item(i) for i in range(controllers.get_n_items())
+                              if isinstance(controllers.get_item(i),Gtk.EventControllerKey))
+                    self.assertTrue(keys.emit('key-pressed',Gdk.KEY_Escape,0,Gdk.ModifierType(0)))
+                else:
+                    dialog.close()
+                pump(.03)
+                self.assertIsNone(a.project_dialog)
+                self.assertEqual(path.read_bytes(),source)
+                self.assertEqual(a.project_snapshot(),snapshot)
+                self.assertEqual(a.document.token,token)
+        path.unlink()
+
+    def test_recovery_popup_preserves_decimal_sources_through_restore_and_history(self):
+        from precise_numbers import SOURCE_KEY, attach, from_text
+        a=self.app
+        a.load_config_data(dict(format='solidcraft-riduttori/1',family='helical',parameters={
+            'module':from_text('2.00000000000000000001'),
+            'input_rpm':from_text('1500.00000000000000000001')}),self.path)
+        previous=Document(a.project_snapshot(),self.path)
+        changed=previous.current
+        attach(changed['values']['helical'],'module',from_text('2.00000000000000000002'))
+        changed['raw']['helical']['module']='2.00000000000000000002'
+        changed['values']['spur']=generate('spur').values
+        changed['raw']['spur']={'module':'unfinished'}
+        previous.record(changed)
+        path=a.project_store.folder/'recovery'/'precise-popup.json'
+        atomic_json(path,previous.recovery())
+        a.offer_recovery()
+        self.assertIsInstance(a.project_dialog,Gtk.Dialog)
+        self.assertNotIsInstance(a.project_dialog,Gtk.MessageDialog)
+        self.answer(Gtk.ResponseType.ACCEPT)
+        self.assertFalse(path.exists())
+        self.assertEqual(a.document.path,self.path)
+        expected=json.loads(json.dumps(a.config()['parameters']))
+        self.assertEqual(expected[SOURCE_KEY]['module'],'2.00000000000000000002')
+        self.assertEqual(expected[SOURCE_KEY]['input_rpm'],'1500.00000000000000000001')
+        for _ in range(2):
+            a.undo_project();pump()
+            self.assertEqual(a.config()['parameters'][SOURCE_KEY]['module'],'2.00000000000000000001')
+            a.redo_project();pump()
+            self.assertEqual(a.config()['parameters'],expected)
+            self.assertEqual(a.raw_edits['spur'],{'module':'unfinished'})
+        self.assertTrue(a.save_project(path=self.path))
+        saved=json.loads(self.path.read_text())
+        self.assertEqual(saved['parameters'],expected)
+        a.load_config_data(saved,self.path)
+        self.assertEqual(a.config()['parameters'],expected)
+        self.assertFalse(a.document.dirty)
+
+    def test_recovery_popup_wraps_localized_actions_at_large_text_size(self):
+        a=self.app
+        def descendants(widget):
+            yield widget
+            child=widget.get_first_child()
+            while child:
+                yield from descendants(child);child=child.get_next_sibling()
+        try:
+            for language,scale in (('en',0),('it',2),('ta',2)):
+                a.language.change(language);a.text_size.set_selected(scale)
+                popup=a.recovery_popup('Recover an unsaved design',
+                    'Untitled project\nIncomplete numeric edits are included.',
+                    [('Keep for later',Gtk.ResponseType.CANCEL),
+                     ('Discard recovery',Gtk.ResponseType.REJECT),
+                     ('Restore',Gtk.ResponseType.ACCEPT)],lambda _:None)
+                a.language.refresh();pump(.16)
+                from ui_language import translate
+                labels=[w.get_label() for w in descendants(popup.get_content_area()) if isinstance(w,Gtk.Label)]
+                self.assertIn(translate('\nIncomplete numeric edits are included.',language).lstrip('\n'),labels)
+                buttons=[w for w in descendants(popup.get_content_area()) if isinstance(w,Gtk.Button)]
+                self.assertEqual(len(buttons),3)
+                for button in buttons:
+                    ok,bounds=button.compute_bounds(popup)
+                    self.assertTrue(ok)
+                    self.assertGreater(button.get_width(),0)
+                    self.assertGreaterEqual(bounds.get_x(),0)
+                    self.assertLessEqual(bounds.get_x()+bounds.get_width(),popup.get_width())
+                    self.assertLessEqual(bounds.get_y()+bounds.get_height(),popup.get_height())
+                popup.response(Gtk.ResponseType.CANCEL);pump(.02)
+        finally:
+            if a.project_dialog:a.project_dialog.response(Gtk.ResponseType.CANCEL)
+            a.language.change('en');a.text_size.set_selected(0)
 
     def test_save_as_stale_answer_and_missing_local_path_are_safe(self):
         a=self.app

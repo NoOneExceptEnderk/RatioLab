@@ -9,15 +9,16 @@ inspectable. There is no analytic CAD diameter or surface-distance claim.
 from dataclasses import replace
 from math import cos, sin, sqrt
 from collision_geometry import ray_triangle, sub, add, mul, bounds
-from solid_geometry import faces
+from solid_geometry import faces,iter_faces
 from stl_export import triangulate
-from motion import transform
+from motion import posed_triangles
 
 
 def displayed_part(design, index, exploded=False):
     """Interpolate the established desktop display placement, never export geometry."""
     amount=max(0.,min(1.,float(exploded)))
-    p=design.parts[index]
+    from geometry_quality import part
+    p=part(design,design.parts[index],'preview')
     if not amount:return p
     mid=sum(q.z+q.width/2 for q in design.parts)/len(design.parts)
     offset=(p.z+p.width/2-mid)*1.1
@@ -33,11 +34,12 @@ def explosion_offset(design,index,amount=1.):
 
 
 def triangles(part):
-    return tuple(t for face in faces(part) for t in triangulate(face))
+    from stl_export import triangles as shared_triangles
+    return tuple(shared_triangles(part))
 
 
 def dimensions(part):
-    pts=[q for face in faces(part) for loop in face for q in loop]
+    pts=[q for face in iter_faces(part) for loop in face for q in loop]
     lo,hi=bounds(pts)
     return dict(min_mm=lo,max_mm=hi,size_mm=tuple(b-a for a,b in zip(lo,hi)))
 
@@ -85,7 +87,7 @@ def pick(origin,direction,surfaces,section_y=None,max_distance=None):
 
 def posed(ts,plan,index,phase):
     matrix=plan.matrix(index,phase)
-    return tuple(tuple(transform(matrix,q) for q in t) for t in ts)
+    return tuple(posed_triangles(matrix,ts))
 
 
 def distance(a,b):return sqrt(sum((x-y)**2 for x,y in zip(a,b)))

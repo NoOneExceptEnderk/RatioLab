@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: 2026 NoOneExceptEnderk
 # SPDX-License-Identifier: GPL-3.0-only
 """Finite rack/pinion on world X, pinion +Z. KHK tables4.5/4.13, eq4.2/4.18."""
-from math import pi, sin, cos, tan, atan, radians, degrees, sqrt, ceil, hypot
+from math import pi, hypot, radians, ceil, sqrt
 
 VARIANTS={'spur':'Spur teeth','helical':'Helical teeth','double':'Double helical teeth'}
 SPECS=[('module','Normal module [mm]',2,.5,6,.1),
@@ -17,46 +17,21 @@ CATALOG_REASON=('Rack and pinion generate two blanks. Complete the linear guide,
                 'shaft, bearings, mounting and end stops in CAD; automatic catalog hardware is unavailable.')
 
 
+def validate_dimensions(v):
+    from rust_geometry import call
+    return call('rack_drive_dimensions',v)
+
+
 def dimensions(v):
-    m=v['module'];beta=v.get('helix',0);cb=cos(radians(beta))
-    mt=m/cb;alpha=atan(tan(radians(v['pressure']))/cb);r=mt*v['pinion']/2
-    pitch=pi*mt;ra=r+m;rb=r*cos(alpha);root=r-1.25*m
-    half=pitch/4-v['backlash']/4
-    if half-m*tan(alpha)<=.025*m or half+1.25*m*tan(alpha)>=pitch/2-.025*m:
-        raise ValueError('Rack teeth are pointed or overlap at the roots; adjust pressure / backlash.')
-    if v['backlash']>=.7*m:raise ValueError('Rack backlash must be less than 0.7 normal module.')
-    if v['bore']/2>=root-.5:raise ValueError('Pinion bore leaves insufficient nominal root wall.')
-    # A physical rack tip must meet the forward, usable involute branch.
-    approach=r*sin(alpha)-m/sin(alpha)
-    if approach<=0:raise ValueError('Rack tip reaches below the forward pinion involute; increase pinion teeth / pressure.')
+    """Compatibility API: the pinion and dimensions come from the shared core."""
     from geometry import gear_part
-    phase=-pi/2+(pi/v['pinion'] if v['rack_teeth']%2 else 0)
-    p=gear_part('Rack_pinion',v['pinion'],m,v['pressure'],v['backlash'],v['width'],v['bore'],
-                (0,r),phase,beta)
-    start=p.profile_metadata['tooth_profile']['involute_start_radius_mm']
-    contact_min=hypot(rb,approach)
-    if contact_min<start+1e-6:
-        raise ValueError('Rack tip reaches the trimmed pinion root transition; increase pinion teeth / pressure.')
-    path=sqrt(ra*ra-rb*rb)-r*sin(alpha)+m/sin(alpha)
-    engagement=path/(pitch*cos(alpha))
-    if engagement<=1+1e-8:raise ValueError('Rack transverse ideal engagement must exceed one tooth pitch.')
-    double=v['variant']=='double'
-    if double:
-        if v['gap']>=v['width']-2:raise ValueError('Double rack groove must leave more than 1 mm per helical half.')
-        p.double=True;p.gap=v['gap'];p.core_radius=root*.96
-        if v['bore']/2>=p.core_radius-.25:raise ValueError('Pinion bore reaches the continuous double-helix core.')
-    sweep=tan(radians(beta))*(v['width']-v.get('gap',0))/2 if double else tan(radians(beta))*v['width']
-    footprint=sqrt(max(0,ra*ra-(r-m)**2))
-    travel=v['rack_teeth']*pitch/2-footprint-abs(sweep)-pitch
-    if travel<=pitch/2:raise ValueError('Rack is too short for a complete safe working stroke; add rack teeth or reduce face width / helix.')
-    return p,dict(pitch_radius_mm=r,normal_module_mm=m,transverse_module_mm=mt,
-        normal_pressure_deg=v['pressure'],transverse_pressure_deg=degrees(alpha),
-        transverse_pitch_mm=pitch,travel_per_revolution_mm=2*pi*r,
-        travel_limits_mm=[-travel,travel],pinion_angle_limits_rad=[-travel/r,travel/r],
-        nominal_contact_transverse=engagement,rack_tip_contact_radius_mm=contact_min,
-        usable_pinion_involute_start_mm=start,helix_sweep_mm=sweep,
-        rack_derived_hand=-1 if beta>0 else 1 if beta<0 else 0,
-        reference='KHK Calculation of Gear Dimensions, tables4.5/4.13, equations4.2/4.18')
+    from rust_geometry import call
+    plan=call('nominal_rack_plan',v);c=plan['components'][0];p=dict(c['parameters']);p.pop('double');p.pop('gap')
+    p['z']=int(p['z']);p['name']=c['name'];p['center']=tuple(c['placement']['center_mm']);p['phase']=c['placement']['phase_rad']
+    part=gear_part(**p)
+    if v['variant']=='double':
+        part.double=True;part.gap=v['gap'];part.core_radius=(plan['analysis']['rack']['pitch_radius_mm']-1.25*v['module'])*.96
+    return part,plan['analysis']['rack']
 
 
 def _stations(p):
@@ -83,21 +58,6 @@ def _stations(p):
     return result,working
 
 
-def outline(v,info,shift=0,height=1):
-    m=v['module'];pitch=info['transverse_pitch_mm'];alpha=radians(info['transverse_pressure_deg'])
-    root=-1.25*m;tip=m;half=pitch/4-v['backlash']/4
-    # Fixed rectangular ends enclose all complete swept teeth; no clipped end teeth.
-    sweep=info['helix_sweep_mm'];left=-(v['rack_teeth']+1)*pitch/2+min(0,sweep)
-    right=(v['rack_teeth']+1)*pitch/2+max(0,sweep)
-    top=[]
-    for j in range(v['rack_teeth']):
-        c=(j-(v['rack_teeth']-1)/2)*pitch+shift
-        for x,y in ((c-half+root*tan(alpha),root),(c-half+tip*tan(alpha),tip),
-                    (c+half-tip*tan(alpha),tip),(c+half-root*tan(alpha),root)):
-            top.append((x,root+height*(y-root)))
-    return [(left,root-v['base']),(right,root-v['base']),(right,root)]+list(reversed(top))+[(left,root)]
-
-
 def operating(d):
     """Only operating metadata changes; geometry is shared during RPM edits."""
     v=d.values;q=d.analysis['rack'];rpm=v['input_rpm'];speed=2*pi*q['pitch_radius_mm']*rpm/60
@@ -106,23 +66,17 @@ def operating(d):
         scope='Nominal conversion using assumed efficiency; no guide friction or load rating')
     d.parts[0].port.update(member='pinion',role='input',axis='World +Z',rpm=rpm)
     d.parts[1].port.update(member='rack',role='output',axis='World +X',velocity_mm_s=speed)
-    d.analysis['kinematics']=dict(type='rotary_to_linear',equation='x_mm = pitch_radius_mm * pinion_angle_rad',
+    d.analysis['kinematics']=dict(type='rotary_to_linear',label='Pinion → rack',equation='x_mm = pitch_radius_mm * pinion_angle_rad',
         input='pinion',output='rack',input_rpm=rpm,output_velocity_mm_s=speed,periodic=False)
 
 
 def build(d):
-    from geometry import Part
-    v=d.values;p,info=dimensions(v);p.stations,rows=_stations(p)
-    r=info['pitch_radius_mm'];contours=[outline(v,info,r*angle,height) for z,angle,height in rows]
-    rack=Part('Rack',contours[0],[],v['width'],color=(.23,.75,.65))
-    rack.stations=[dict(z=z,outer=loop,holes=[]) for (z,angle,height),loop in zip(rows,contours)]
-    p.color=(.96,.66,.33)
-    info.update(base_length_mm=contours[0][1][0]-contours[0][0][0],base_below_roots_mm=v['base'],
-                rack_teeth=v['rack_teeth'],section_count=len(rows),refinement_mm=REFINEMENT,
-                end_rule='Complete teeth with fixed end planes and untoothed sweep lands',
-                stroke_rule='Conservative finite stroke excludes active pinion footprint, helix sweep and one rack pitch')
-    for part in (p,rack):part.profile_metadata['rack_pair']=dict(method='Involute pinion / straight transverse rack flanks',reference=info['reference'])
-    d.parts.extend([p,rack]);d.analysis['rack']=info;operating(d)
+    from geometry import part_from_kernel
+    from rust_geometry import call_geometry
+    v=d.values
+    result=call_geometry('construction_rack',dict(values=v))
+    d.parts.extend(part_from_kernel(p['name'],p) for p in result['parts'])
+    info=result['analysis']['rack'];d.analysis['rack']=info;operating(d)
     d.metrics.extend([f"Rack travel per revolution: {info['travel_per_revolution_mm']:.6f} mm/rev",
                       f"Rack base length: {info['base_length_mm']:.6f} mm · {v['rack_teeth']} complete teeth",
                       f"Safe nominal travel: ±{info['travel_limits_mm'][1]:.6f} mm · transverse ideal engagement {info['nominal_contact_transverse']:.6f}"])

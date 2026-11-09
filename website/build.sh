@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Isolated static-site build; no application or native GUI dependencies.
+# Isolated static-site build with the shared Wasm kernel; no native GUI dependencies.
 set -euo pipefail
 
 site_dir=$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
@@ -13,11 +13,14 @@ fi
 # Offline means no network, including dependency installation. Already installed
 # exact requirements are accepted; an unprepared environment fails without fetches.
 site_pip_options=()
+site_rust_options=()
 for site_argument in "$@"; do
   if [[ "$site_argument" == "--offline" ]]; then
     site_pip_options+=(--no-index)
+    site_rust_options+=(--offline)
     break
   fi
 done
 "$site_venv/bin/python" -m pip install --disable-pip-version-check --no-input "${site_pip_options[@]}" -r "$site_dir/requirements.txt"
+"$site_python" "$site_dir/../scripts/build-rust-engine.py" --target wasm "${site_rust_options[@]}"
 exec "$site_venv/bin/python" "$site_dir/build.py" "$@"

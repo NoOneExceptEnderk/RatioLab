@@ -2,6 +2,8 @@
 
 ![RatioLab](../../src/ratiolab_resources/branding/ratiolab-logo-dark.png)
 
+[![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/X0M22AB2SK)
+
 **Diseña engranajes y reductores, explora su movimiento y exporta modelos para CAD o impresión 3D.**
 
 [Descargar](#download-and-install) · [Guía de usuario (en inglés)](../user-guide.md) · [English](../../README.md) · [Italiano](../../README.it.md) · [Informar de un problema](https://github.com/NoOneExceptEnderk/RatioLab/issues) · [Discord](https://discord.gg/G8NVHNg6J)
@@ -50,7 +52,10 @@ Tu sistema puede mostrar una advertencia de editor desconocido o bloquear el ini
 3. Guarda tu proyecto y elige **Export…** para obtener archivos para CAD o impresión.
 
 Consulta la [guía de usuario (en inglés)](../user-guide.md) y los [proyectos de ejemplo](../../examples/) para obtener más detalles.
-La interfaz de la aplicación está en inglés.
+La interfaz de escritorio y del navegador ofrece nueve idiomas: los indicados
+arriba. Elige el tuyo en **Language / Idioma**; la preferencia se guarda por separado de
+los parámetros del proyecto. El manual técnico completo y los informes de
+cálculo están en inglés; los textos sin traducir también se muestran en inglés.
 
 ## Limitaciones actuales
 

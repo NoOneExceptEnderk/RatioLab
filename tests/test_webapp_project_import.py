@@ -81,6 +81,32 @@ class ProjectImportTests(unittest.TestCase):
                 self.assert_roundtrip(dict(format=web.PROJECT_FORMAT, family=family,
                                            parameters=canonical))
 
+    def test_exact_sources_and_independent_quality_survive_import_save_reopen(self):
+        source = '2.00000000000000000001'
+        for family in ('spur', 'helical', 'double'):
+            with self.subTest(family=family):
+                project = dict(format=web.PROJECT_FORMAT, family=family,
+                    parameters=dict(module=2, _decimal_inputs={'module': source}),
+                    quality=dict(preview_mm=.1, export_mm=.005))
+                engine, imported = self.assert_roundtrip(project)
+                saved = engine.call('project', dict(design_id=imported['design_id']))['project']
+                self.assertEqual(saved['parameters']['_decimal_inputs']['module'], source)
+                self.assertEqual(saved['quality'], project['quality'])
+                reopened = web.Engine()
+                reopened.call('import_project', dict(project=json.loads(json.dumps(saved))))
+                self.assertEqual(reopened.design.values['_decimal_inputs']['module'], source)
+                self.assertEqual(reopened.design.quality, project['quality'])
+                for candidate in (engine.design, reopened.design):
+                    values = candidate.parts[0].profile_metadata['analytic_values']
+                    self.assertEqual(values['normal_module_mm'], source)
+
+    def test_invalid_exact_source_is_rejected_instead_of_ignored(self):
+        for sources in ([], {'module': 'nan'}, {'module': {'unexpected': '2'}}, {'module': True}):
+            project = dict(format=web.PROJECT_FORMAT, family='spur',
+                parameters=dict(module=2, _decimal_inputs=sources))
+            with self.subTest(sources=sources), self.assertRaises(ValueError):
+                web.Engine().call('import_project', dict(project=project))
+
 
 if __name__ == '__main__':
     unittest.main()

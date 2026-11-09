@@ -39,7 +39,8 @@ class CatalogVerificationTests(unittest.TestCase):
         previous = [dict(id=key) for key in ('spur','helical','double','planetary',
                     'cycloidal','harmonic','worm','parallel','internal','differential')]
         self.assertEqual(len(previous), 10)
-        for rows in (previous, current+[dict(id='wolfrom')],
+        for rows in (previous, [row for row in current if row['id'] != 'rack'],
+                     [row for row in current if row['id'] != 'wolfrom'],current+[dict(id='wolfrom')],
                      [row for row in current if row['id'] != 'spur']+[dict(id='wolfrom')]):
             with self.subTest(rows=rows), self.assertRaises(RuntimeError):
                 mcp.verify_families(rows)
@@ -59,6 +60,10 @@ class ArtifactVerificationTests(unittest.TestCase):
                  'docs/development.md':'fixture development','CONTRIBUTING.md':'fixture contributing',
                  'build-support/ratiolab_build.py':'# fixture build helper',
                  'packaging/mcp_entrypoint.py':'# fixture entrypoint',
+                 'Cargo.toml':'# fixture workspace', 'Cargo.lock':'# fixture lock',
+                 'rust-toolchain.toml':'# fixture pinned toolchain',
+                 'rust/geometry-kernel/src/lib.rs':'// fixture kernel source',
+                 'scripts/build-rust-engine.py':'# fixture Rust builder',
                  'scripts/check-installed-mcp.py':'# fixture verifier'}
         for name in ('DejaVuSans.ttf','DejaVuSansMono.ttf','DejaVuSans-Bold.ttf',
                      'LICENSE-DejaVu.txt','AUTHORS-DejaVu.txt','SOURCE.json',
@@ -76,6 +81,13 @@ class ArtifactVerificationTests(unittest.TestCase):
                                    ('CHANGELOG.md','CHANGELOG.md')]:
             self.payload['ratiolab_resources/'+destination]=sources[source]
         for name in ('LICENSE','COPYRIGHT'):self.payload['fixture-1.2.3.dist-info/licenses/'+name]=sources[name]
+        self.payload['fixture-1.2.3.dist-info/WHEEL']='Root-Is-Purelib: false\nTag: py3-none-linux_x86_64\n'
+        for source,destination,body in (
+            ('target/release/libratiolab_geometry.so','native/libratiolab_geometry.so',b'fixture Rust native payload'),
+            ('target/ratiolab-rust-notices/components.json','rust-notices/components.json',b'{"format":"fixture"}'),
+            ('target/ratiolab-rust-notices/LICENSE','rust-notices/LICENSE',b'fixture dependency notice')):
+            path=self.root/source;path.parent.mkdir(parents=True,exist_ok=True);path.write_bytes(body)
+            self.payload['ratiolab_resources/'+destination]=body
         self.sdist_payload={name:body.encode() for name,body in sources.items()}
         self.write_sdist(self.sdist_payload)
 
@@ -86,7 +98,7 @@ class ArtifactVerificationTests(unittest.TestCase):
                 archive.addfile(member,io.BytesIO(data))
 
     def verify(self,payload=None):
-        with zipfile.ZipFile(self.out/'fixture-1.2.3-py3-none-any.whl','w') as archive:
+        with zipfile.ZipFile(self.out/'fixture-1.2.3-py3-none-linux_x86_64.whl','w') as archive:
             for name,body in (self.payload if payload is None else payload).items():archive.writestr(name,body)
         with patch.object(artifacts,'__file__',str(self.root/'scripts/verify-artifacts.py')),patch('builtins.print'):
             artifacts.verify(self.out)

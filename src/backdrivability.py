@@ -29,7 +29,7 @@ def physical_inputs(family, supplied):
         raise ValueError('Static worm tooth friction applies only to worm drives.')
     mu = supplied[FRICTION_KEY]
     try:
-        valid = type(mu) in (int, float) and mu >= 0 and isfinite(mu)
+        valid = isinstance(mu,(int,float)) and not isinstance(mu,bool) and mu >= 0 and isfinite(mu)
     except (OverflowError, TypeError):
         valid = False
     if not valid:

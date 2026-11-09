@@ -9,7 +9,7 @@ from math import radians
 from geometry import profile_sections, section_holes
 from cad_export import filename
 from export_transaction import directory
-from solid_geometry import point
+from solid_geometry import point, profile_report
 
 
 def number(value):
@@ -48,6 +48,8 @@ def dxf(loops, description):
 
 
 def write_files(design, folder):
+    from geometry_quality import representation
+    design = representation(design, 'export')
     if not design.parts:raise ValueError('No components to export.')
     folder = Path(folder)
     output = folder/'profiles'
@@ -55,15 +57,15 @@ def write_files(design, folder):
     components = []
     for index, p in zip(getattr(design,'source_indices',range(1,len(design.parts)+1)),design.parts):
         record = dict(index=index, name=p.name, center_mm=list(p.center), z_offset_mm=p.z,
-                      axis_x=p.axis_x, frame=p.frame, profile_geometry=p.profile_metadata, profiles=[])
+                      axis_x=p.axis_x, frame=p.frame, profile_geometry=profile_report(p), profiles=[])
         components.append(record)
         if p.mesh:
             record.update(kind='mesh without parametric planar sections', extrudible=False)
             continue
         distinct = {}
         sections = profile_sections(p)
-        for z, angle, outer in sections:
-            loops = [outer]+section_holes(p,z,outer)
+        for station_index,(z, angle, outer) in enumerate(sections):
+            loops = [outer]+section_holes(p,z,outer,station_index if p.stations else None)
             key = tuple(tuple(tuple(q) for q in loop) for loop in loops)
             if key not in distinct:
                 distinct[key] = dict(loops=loops, occurrences=[])

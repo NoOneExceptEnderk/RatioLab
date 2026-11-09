@@ -9,26 +9,35 @@ import os
 from pathlib import Path
 import sys
 import tempfile
+from copy import deepcopy
+from theme_preferences import defaults as theme_defaults, normalize as normalize_theme
 
 APP_ID = 'local.solidcraft.reducers'
 MIN_GTK = (4, 12, 0)
 PREFERENCES_FILENAME = 'ui-preferences.json'
 LEGACY_PREFERENCES_FILENAME = 'preferenze-ui.json'
 UI_DEFAULTS = dict(theme='dark', language='en', text_scale=1, hover_help=True,
-                   zoom_speed=1, rotation_speed=1, invert_zoom=False)
+                   zoom_speed=1, rotation_speed=1, invert_zoom=False, mouse_navigation='ratiolab',
+                   theme_customizations=theme_defaults())
 
 
 def ui_preferences(data):
     """Validate global UI choices without changing model or unknown preferences."""
-    result = UI_DEFAULTS.copy()
+    result = deepcopy(UI_DEFAULTS)
     if not isinstance(data, dict):
         return result
     for key, default in result.items():
         value = data.get(key, default)
-        if key == 'theme':
+        if key == 'theme_customizations':
+            result[key] = normalize_theme(value)
+            continue
+        elif key == 'theme':
             valid = isinstance(value, str) and value in ('dark', 'light')
         elif key == 'language':
             valid = isinstance(value, str) and value in ('en','it','es','fr','de','pt','ru','zh-CN','ta')
+        elif key == 'mouse_navigation':
+            from mouse_navigation import PROFILES
+            valid = isinstance(value, str) and value in PROFILES
         elif type(default) is bool:
             valid = type(value) is bool
         else:
@@ -71,6 +80,23 @@ def require_gtk_version(gtk):
     error = gtk.check_version(*MIN_GTK)
     if error is not None:
         raise RuntimeError(f'RatioLab requires GTK 4.12 or newer: {error}')
+
+
+def configure_gtk_text(gtk):
+    """Keep Linux font pixels consistent with GTK's partial redraw bounds.
+
+    GTK 4.22 automatic rendering can rasterize DejaVu dots above the declared
+    ink rectangle, leaving pixels from an old label after a text change.
+    Keep unhinted outlines, as in automatic mode, but use pixel-aligned metrics.
+    These overrides are local to RatioLab and require GTK's 4.16 rendering API.
+    """
+    if not sys.platform.startswith('linux'):
+        return
+    settings = gtk.Settings.get_default()
+    if settings is not None and settings.find_property('gtk-font-rendering'):
+        settings.set_property('gtk-font-rendering', gtk.FontRendering.MANUAL)
+        settings.set_property('gtk-xft-hintstyle', 'hintnone')
+        settings.set_property('gtk-hint-font-metrics', True)
 
 
 def _absolute_env(name, fallback):

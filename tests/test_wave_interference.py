@@ -42,14 +42,20 @@ class PrescribedWaveInterferenceTests(unittest.TestCase):
             x,y=map_point(*material,*d.analysis['wave_mapping']['ellipse_axes_mm'],4,0,.73)
             self.assertEqual(first[point],(x+3,y-2,point[2]))
         self.assertEqual(period(plan),1)
-        with patch('interference.Surface',wraps=Surface) as surface:
+        counts=[]
+        original_pose=Surface.posed
+        def observed_pose(source,matrix,deformation=None):
+            posed=original_pose(source,matrix,deformation)
+            counts.append(posed.triangle_count)
+            return posed
+        with patch.object(Surface,'posed',observed_pose),patch('interference.Surface',wraps=Surface) as surface:
             result=analyze(d,Settings(step_degrees=180,max_poses=3,max_seconds=20),plan=plan)
         self.assertTrue(result.coverage_complete,result.issues)
         self.assertEqual((result.completed_poses,result.completed_pairs),(3,3))
         self.assertEqual(result.parts[0]['deformation'],'prescribed pitch-arc/normal map')
-        counts=[len(call.args[0]) for call in surface.call_args_list]
-        self.assertEqual(len(counts),5)
-        self.assertEqual(counts[2:],[counts[0]]*3)
+        self.assertEqual(surface.from_part.call_count,2)
+        self.assertEqual(surface.call_count,0)  # No triangle JSON constructor round trip.
+        self.assertEqual(counts,[result.parts[0]['triangles']]*3)
         self.assertEqual(d,before)
 
     def test_stale_material_or_nominal_geometry_is_explicitly_rejected(self):

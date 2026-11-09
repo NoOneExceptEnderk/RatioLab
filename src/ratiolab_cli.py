@@ -8,7 +8,8 @@ from pathlib import Path
 import sys
 
 from app_paths import (APP_ID, bundle_dir, config_dir, data_dir, default_output_dir,
-                       prepare_native_runtime, require_gtk_version, resource_path)
+                       prepare_native_runtime, require_gtk_version, resource_path,
+                       configure_gtk_text)
 from release_version import RELEASE_VERSION
 
 
@@ -41,6 +42,12 @@ def diagnose(gui=False):
         from gi.repository import Gdk, GLib
         if not Gtk.init_check() or Gdk.Display.get_default() is None:
             raise RuntimeError('A graphical desktop session is required for --diagnose-gui')
+        configure_gtk_text(Gtk)
+        settings = Gtk.Settings.get_default()
+        if settings.find_property('gtk-font-rendering'):
+            result['gtk_font_rendering'] = settings.get_property('gtk-font-rendering').value_nick
+            result['gtk_font_hintstyle'] = settings.get_property('gtk-xft-hintstyle')
+            result['gtk_hint_font_metrics'] = settings.get_property('gtk-hint-font-metrics')
         from geometry import generate
         from preview3d import Preview3D
         loop = GLib.MainLoop()

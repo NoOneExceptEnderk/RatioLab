@@ -72,7 +72,11 @@ contains the same runtime and `install.sh` for alternative installations.
 ## First launch and graphics
 
 Choose a gear/reducer family, adjust dimensions, then use **Save** or **Export…**.
-The interface is in English. See the [user guide](https://github.com/NoOneExceptEnderk/RatioLab/blob/main/docs/user-guide.md) and
+Use **Language** to select one of the supported interface languages. Desktop
+builds with **Settings** also provide appearance and control preferences; see
+the [Settings guide](preferences.md) for the current source behavior. A guide
+can describe changes newer than the downloaded package: check that package's
+release notes when a control is missing. See the [user guide](https://github.com/NoOneExceptEnderk/RatioLab/blob/main/docs/user-guide.md) and
 [example projects](https://github.com/NoOneExceptEnderk/RatioLab/blob/main/examples/) for the available operations and model limits.
 
 The preview needs a working desktop and graphics driver providing desktop

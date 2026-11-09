@@ -12,86 +12,86 @@ from geometry import profile_sections,section_holes,circle_info,circle
 
 PALETTE=[(.23,.68,.82),(.96,.66,.33),(.48,.74,.59),(.69,.59,.86)]
 
-def point(part,xy,z,angle):
-    c,s=cos(angle),sin(angle);x,y=xy
-    x,y=x*c-y*s+part.center[0],x*s+y*c+part.center[1]
-    z+=part.z
-    if part.frame:
-        origin,*basis=part.frame
-        return tuple(origin[i]+sum(q*basis[j][i] for j,q in enumerate((x,y,z))) for i in range(3))
-    if part.axis_x:return (z-part.width/2,y+part.center[1],-x+part.z)
-    return (x,y,z)
+def kernel_part(p):
+    """Only geometric fields cross the ABI; product metadata stays in Python."""
+    return {key:getattr(p,key) for key in ('outer','holes','width','z','center','twist',
+        'axis_x','double','gap','core_radius','internal','stations','mesh','frame','alternate_diagonal','surface_tolerance_mm')}
 
 
-def section_loops(p,outer,z):
-    loops=[]
-    for j,loop in enumerate([outer]+section_holes(p,z,outer)):
-        if not p.stations and (p.double or abs(p.twist)>1e-8):
-            info=circle_info(loop)
-            if info:
-                x,y,r=info;n=max(len(loop),96,ceil(pi/acos(max(-1,min(1,1-.002/r)))))
-                if n>4096:raise ValueError('Circle too large for the required precision.')
-                loop=circle(r,n,(x,y))
-        area=sum(a[0]*b[1]-b[0]*a[1] for a,b in zip(loop,loop[1:]+loop[:1]))
-        loops.append(list(reversed(loop)) if (area>0)!=(j==0) else loop)
-    return loops
-
-
-def rings(p):
-    return [[[point(p,q,z,radians(angle)) for q in loop] for loop in section_loops(p,outer,z)] for z,angle,outer in profile_sections(p)]
-
-
-def faces(p):
-    if p.mesh:return [[[point(p,q[:2],q[2],0) for q in loop] for loop in face] for face in p.mesh]
-    levels=rings(p);result=[]
-    count=sum(2*len(loop) for level in levels[1:] for loop in level)+2
-    if count>250000:raise ValueError('Solid too detailed: reduce tooth count, width or helix angle (250,000 face limit).')
-    for lower,upper in zip(levels,levels[1:]):
-        for a,b in zip(lower,upper):
-            for j in range(len(a)):
-                k=(j+1)%len(a)
-                triangles=([a[j],a[k],b[j]],[a[k],b[k],b[j]]) if p.alternate_diagonal else ([a[j],a[k],b[k]],[a[j],b[k],b[j]])
-                for tri in triangles:
-                    u=[tri[1][i]-tri[0][i] for i in range(3)];v=[tri[2][i]-tri[0][i] for i in range(3)]
-                    n=(u[1]*v[2]-u[2]*v[1],u[2]*v[0]-u[0]*v[2],u[0]*v[1]-u[1]*v[0])
-                    if sum(x*x for x in n)>1e-24:result.append([tri])
-    def cleaned(loops):
-        return [[q for i,q in enumerate(loop) if q!=loop[(i-1)%len(loop)]] for loop in loops]
-    result.extend([cleaned([list(reversed(loop)) for loop in levels[0]]),cleaned(levels[-1])])
+def sampling_report(p):
+    """Bounded interpolation relative to sampled contours, never a gear grade."""
+    from rust_surfaces import surface
+    result=surface(p).sampling_report()
+    profile=p.profile_metadata.get('tooth_profile',{})
+    result['profile_chord_threshold_mm']=profile.get('chord_threshold_mm')
+    result['profile_error_globally_bounded']=False
     return result
 
 
+def profile_report(p):
+    """Keep exported interpolation metadata tied to the live surface snapshot."""
+    result=dict(p.profile_metadata)
+    if 'surface_sampling' in result:result['surface_sampling']=sampling_report(p)
+    return result
+
+
+def point(part,xy,z,angle):
+    from rust_geometry import call
+    placement=dict(outer=[[0,0],[1,0],[0,1]],width=part.width,z=part.z,
+        center=part.center,axis_x=part.axis_x,frame=part.frame)
+    return tuple(call('solid_point',dict(part=placement,xy=xy,z=z,angle=angle)))
+
+
+def points(part,rows):
+    from rust_geometry import call
+    placement=dict(outer=[[0,0],[1,0],[0,1]],width=part.width,z=part.z,
+        center=part.center,axis_x=part.axis_x,frame=part.frame)
+    return [tuple(q) for q in call('solid_points',dict(part=placement,points=rows))]
+
+
+def section_loops(p,outer,z,station_index=None):
+    from rust_surfaces import surface
+    from geometry import resolve_station_index
+    index=resolve_station_index(p,z,outer,station_index) if p.stations else 0
+    return [[tuple(q) for q in loop] for loop in surface(p).call('solid_section_loops',
+        outer=outer,z=z,station_index=index)]
+
+
+def rings(p):
+    from rust_surfaces import surface
+    return [[[tuple(q) for q in loop] for loop in level]
+            for level in surface(p).geometry('solid_rings')]
+
+
+def faces(p):
+    return list(iter_faces(p))
+
+
+def iter_faces(p,check=None):
+    from rust_surfaces import surface
+    yield from surface(p,check).faces(check)
+
+
 def signature(p):
-    fs=faces(p);edges={};volume=0.;pts=[]
-    for face in fs:
-        for loop in face:
-            pts.extend(loop)
-            for a,b in zip(loop,loop[1:]+loop[:1]):
-                key=tuple(sorted((a,b)));count,balance=edges.get(key,(0,0))
-                edges[key]=(count+1,balance+(1 if (a,b)==key else -1))
-            a=loop[0]
-            for b,c in zip(loop[1:],loop[2:]):
-                volume+=(a[0]*(b[1]*c[2]-b[2]*c[1])+a[1]*(b[2]*c[0]-b[0]*c[2])+a[2]*(b[0]*c[1]-b[1]*c[0]))/6
-    if any(n!=2 or balance for n,balance in edges.values()):raise ValueError('Surface is not closed or has inconsistent orientation.')
-    if volume<=0:raise ValueError('Solid volume is not positive.')
-    return {'faces':len(fs),'vertices':len(set(pts)),'volume_mm3':volume,'min':[min(q[i] for q in pts) for i in range(3)],'max':[max(q[i] for q in pts) for i in range(3)]}
+    from rust_surfaces import surface
+    return surface(p).call('solid_signature')
 
 
-def step(p,name):
-    """ISO 10303-21 FACETED_BREP with the same side triangles as the preview."""
-    fs=faces(p);entities=[];points={}
-    def add(value):entities.append(value);return len(entities)
+def faceted_body(p,quoted_name,add):
+    """Write identical shared faces directly into a caller's entity namespace."""
+    from rust_surfaces import surface
+    snapshot=surface(p);points={}
     def ref(i):return '#'+str(i)
     def refs(ids):return '('+','.join(map(ref,ids))+')'
     def num(x):
         text=format(float(x),'.15g')
         return text if '.' in text or 'e' in text else text+'.'
-    for face in fs:
+    for face in snapshot.faces():
         for loop in face:
             for q in loop:
                 if q not in points:points[q]=add("CARTESIAN_POINT('',("+','.join(map(num,q))+"))")
     faceids=[]
-    for face in fs:
+    for face in snapshot.faces():
         bounds=[]
         for j,loop in enumerate(face):
             wire=add("POLY_LOOP('',"+refs(points[q] for q in loop)+")")
@@ -110,7 +110,16 @@ def step(p,name):
         plane=add("PLANE('',"+ref(placement)+")")
         faceids.append(add("FACE_SURFACE('',"+refs(bounds)+","+ref(plane)+",.T.)"))
     shell=add("CLOSED_SHELL('',"+refs(faceids)+")")
-    solid=add("FACETED_BREP('"+name.replace("'","''")+"',"+ref(shell)+")")
+    return add("FACETED_BREP("+quoted_name+","+ref(shell)+")")
+
+
+def step(p,name):
+    """ISO 10303-21 FACETED_BREP with the same side triangles as the preview."""
+    entities=[]
+    def add(value):entities.append(value);return len(entities)
+    def ref(i):return '#'+str(i)
+    def refs(ids):return '('+','.join(map(ref,ids))+')'
+    solid=faceted_body(p,"'"+name.replace("'","''")+"'",add)
     mm=add("(LENGTH_UNIT() NAMED_UNIT(*) SI_UNIT(.MILLI.,.METRE.))")
     rad=add("(NAMED_UNIT(*) PLANE_ANGLE_UNIT() SI_UNIT($,.RADIAN.))")
     sr=add("(NAMED_UNIT(*) SI_UNIT($,.STERADIAN.) SOLID_ANGLE_UNIT())")

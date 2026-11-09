@@ -7,8 +7,14 @@ RatioLab includes a local MCP server and a Python headless service. They use the
 From a source checkout, with Python 3.10 or newer:
 
 ```sh
-PYTHONPATH=src python -m ratiolab_mcp --workspace /absolute/path/to/projects
+python3 scripts/build-rust-engine.py --target native
+PYTHONPATH=src python3 -m ratiolab_mcp --workspace /absolute/path/to/projects
 ```
+
+The first command needs the pinned Rust toolchain and a native linker; it
+builds the shared library used by the Python service. Wheels and native bundles
+already contain that library and need no Rust compiler on the user's computer.
+See the [engine boundary](technical/engine-integration.md).
 
 From an installed Python wheel:
 
@@ -56,7 +62,7 @@ The stable tool names are prefixed with `ratiolab.`. Every project operation use
 
 | Tool | Arguments | Result/purpose |
 | --- | --- | --- |
-| `discover` | optional `family`, `variant`, `double_style`, `parameters` | Nine families and server limits, or contextual numeric fields/defaults, variants, I/O schemes, bearing/hardware options and named presets. |
+| `discover` | optional `family`, `variant`, `double_style`, `parameters` | Catalog families and server limits, or contextual numeric fields/defaults, variants, I/O schemes, bearing/hardware options and named presets. |
 | `project_create` | `family`, optional `parameters` | Generate and validate a new in-memory project. |
 | `project_open` | `path` | Import a complete UTF-8 JSON configuration from the workspace. |
 | `project_list` | none | Refresh live handles, revisions, canonical parameters and save status. |

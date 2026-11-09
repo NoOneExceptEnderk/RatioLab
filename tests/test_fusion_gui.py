@@ -56,6 +56,7 @@ class FusionGuiTests(unittest.TestCase):
     def test_compact_menu_geometry_setup_back_and_reopen_at_all_text_sizes(self):
         from test_interference_gui import wait_until
         from ratiolab_checks import _wait_for_frame
+        from gi.repository import Pango
         a=self.app;a.set_connection(False);a.set_fusion_connection(None)
         popup=a.cad_menu.get_popover()
         def card():
@@ -67,12 +68,18 @@ class FusionGuiTests(unittest.TestCase):
             self.assertFalse(popup.get_has_arrow())
             for scale in (0,1,2):
                 with self.subTest(scale=scale):
+                    factor=(1,1.25,1.5)[scale]
                     a.text_size.set_selected(scale)
                     _wait_for_frame(a.canvas,GLib.MainContext.default())
                     size=(a.canvas.get_width(),a.canvas.get_height());scene=a.canvas.scene
                     a.cad_menu.popup()
                     def footer_inside():
                         if not popup.get_mapped():return False
+                        # The popup has its own frame/style cycle. Its old
+                        # allocation can fit while still using the previous
+                        # font scale; wait for both native styles before sizing.
+                        if a.cad_setup_button.get_pango_context().get_font_description().get_size()/Pango.SCALE!=12*factor:return False
+                        if a.cad_compact_buttons['fusion'].get_pango_context().get_font_description().get_size()/Pango.SCALE!=14*factor:return False
                         # A reopened surface can still expose its allocation
                         # from the previous text scale. Compare heights only
                         # after fit_card's current request has been allocated.
@@ -81,8 +88,6 @@ class FusionGuiTests(unittest.TestCase):
                         return ok and bounds.get_height()>0 and bounds.get_y()+bounds.get_height()<=card().get_y()+card().get_height()-12
                     self.assertTrue(wait_until(footer_inside,3))
                     self.assertEqual(a.cad_stack.get_visible_child_name(),'compact')
-                    from gi.repository import Pango
-                    factor=(1,1.25,1.5)[scale]
                     self.assertEqual(a.cad_setup_button.get_pango_context().get_font_description().get_size()/Pango.SCALE,12*factor)
                     self.assertEqual(a.cad_compact_buttons['fusion'].get_pango_context().get_font_description().get_size()/Pango.SCALE,14*factor)
                     self.assertEqual(round(card().get_width()),292)

@@ -21,12 +21,40 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - name: Install the pinned Rust toolchain
+        shell: bash
+        run: rustup toolchain install 1.99.1 --profile minimal --target wasm32-unknown-unknown --component rustfmt,clippy
       - name: Install native GTK and build dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y python3-venv python3-gi python3-gi-cairo gir1.2-gtk-4.0 libepoxy0 xvfb xauth
           /usr/bin/python3 -m venv --system-site-packages "$RUNNER_TEMP/ratiolab-env"
-          "$RUNNER_TEMP/ratiolab-env/bin/python" -m pip install build 'setuptools>=77' wheel
+          "$RUNNER_TEMP/ratiolab-env/bin/python" -m pip install build 'setuptools>=77' wheel 'mpmath==1.3.0'
+      - name: Build and verify the shared native and WebAssembly kernel
+        run: |
+          python3 scripts/build-rust-engine.py --target all
+          cargo test --workspace --locked
+          cargo clippy --workspace --all-targets --locked -- -D warnings
+      - name: Require native and actual Wasm Python geometry regressions
+        run: |
+          "$RUNNER_TEMP/ratiolab-env/bin/python" scripts/check-rust-engine.py --report "$RUNNER_TEMP/kernel-core.json"
+      - name: Require display-backed kernel and Surface detail regressions
+        env:
+          LIBGL_ALWAYS_SOFTWARE: "1"
+          GSK_RENDERER: cairo
+        run: |
+          dbus-run-session -- xvfb-run -a "$RUNNER_TEMP/ratiolab-env/bin/python" scripts/check-rust-engine.py --gui --report "$RUNNER_TEMP/kernel-gui.json"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ratiolab-kernel-regressions
+          path: |
+            ${{ runner.temp }}/kernel-core.json
+            ${{ runner.temp }}/kernel-gui.json
       - name: Build sdist and wheel from sdist
         run: |
           "$RUNNER_TEMP/ratiolab-env/bin/python" -m build
@@ -67,6 +95,14 @@ jobs:
         shell: msys2 {0}
     steps:
       - uses: actions/checkout@v4
+      - name: Install the pinned Rust toolchain
+        shell: bash
+        run: rustup toolchain install 1.99.1 --profile minimal --target wasm32-unknown-unknown --component rustfmt,clippy
+      - name: Expose native Rust tools to MSYS2 Python
+        shell: pwsh
+        run: |
+          "RATIOLAB_CARGO=$env:USERPROFILE\.cargo\bin\cargo.exe" >> $env:GITHUB_ENV
+          "RUSTC=$env:USERPROFILE\.cargo\bin\rustc.exe" >> $env:GITHUB_ENV
       - uses: msys2/setup-msys2@v2
         with:
           msystem: UCRT64
@@ -121,6 +157,9 @@ jobs:
       GSK_RENDERER: cairo
     steps:
       - uses: actions/checkout@v4
+      - name: Install the pinned Rust toolchain
+        shell: bash
+        run: rustup toolchain install 1.99.1 --profile minimal --target wasm32-unknown-unknown --component rustfmt,clippy
       - name: Select the Homebrew Python that loads GTK
         run: |
           brew install pygobject3 gtk4

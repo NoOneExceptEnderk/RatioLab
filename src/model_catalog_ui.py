@@ -58,7 +58,7 @@ class Catalog:
         header.append(close)
         for setter in (header.set_margin_start,header.set_margin_end,header.set_margin_top,header.set_margin_bottom):setter(12)
         handle=Gtk.WindowHandle();handle.set_child(header);self.window.set_titlebar(handle)
-        self.search = Gtk.SearchEntry(placeholder_text=translate('Search models…',app.language.language), hexpand=True)
+        self.search = Gtk.SearchEntry(placeholder_text='Search models…', hexpand=True)
         root.append(self.search)
         self.empty=Gtk.Label(label='No matching models.',visible=False,css_classes=['muted'])
         root.append(self.empty)

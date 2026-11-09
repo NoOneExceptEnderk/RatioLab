@@ -141,7 +141,11 @@ class PreviewTests(unittest.TestCase):
         self.assertEqual(sections[0][0], 0)
         self.assertEqual(sections[-1][0], 12)
         groove = [(z, outline) for z, angle, outline in sections if outline is not design.parts[0].outer]
-        self.assertEqual([z for z, outline in groove], [5, 7])
+        self.assertIn(5,[z for z,outline in groove])
+        self.assertIn(7,[z for z,outline in groove])
+        # Additional sections refine the real shoulders without moving the
+        # two flat groove endpoints or adding internal cap faces.
+        self.assertTrue(all(4.85<=z<=5 or 7<=z<=7.15 for z,outline in groove))
         self.assertTrue(all((min((hypot(x, y) for x, y in outline)) > 3 for z, outline in groove)))
 
     def test_finite_scene_for_every_family(self):

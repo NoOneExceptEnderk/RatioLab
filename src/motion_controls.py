@@ -4,7 +4,7 @@
 import gi
 gi.require_version('Gtk', '4.0')
 from gi.repository import Gtk, GLib, Gdk
-from math import log1p, expm1, isfinite, copysign
+from math import log1p, expm1, isfinite, copysign, degrees, radians
 from gui_workflow import (set_numeric_value, numeric_value,
                           _track_numeric_entry, _normalize_numeric_entry)
 
@@ -79,12 +79,20 @@ def install(app, container):
     app.motion_reset = reset
     transport.insert_child_after(reset,play)
     reset.connect('clicked', lambda _: app.canvas.reset_motion())
-    status = Gtk.Label(xalign=1, hexpand=True, css_classes=['muted'])
+    status = Gtk.Label(xalign=1, css_classes=['muted'])
     transport.append(status)
     transport.append(button)
     app.playback_hint = status
     app.motion_phase_label = Gtk.Label(xalign=0, css_classes=['muted','motion-phase'])
     transport.insert_child_after(app.motion_phase_label,reset)
+    phase = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, 0, 360, .1)
+    phase.set_draw_value(False)
+    phase.set_hexpand(True)
+    phase.set_size_request(120, -1)
+    phase.set_tooltip_text('Drag to pause and inspect the preview phase. RPM and project data stay unchanged.')
+    phase.add_css_class('motion-phase-scale')
+    transport.insert_child_after(phase, app.motion_phase_label)
+    app.motion_phase = phase
     connections = Gtk.Button(label='I/O', css_classes=['flat','motion-connections'])
     connections.set_tooltip_text('I/O connections')
     app.motion_connections=connections
@@ -107,17 +115,42 @@ def install(app, container):
     app.text_size.connect('notify::selected',adaptive_spacing)
     adaptive_spacing()
     phase_text_time = [0]
+    phase_syncing = False
     def show_phase(*_):
         now = GLib.get_monotonic_time()
         # Text layout need not run at the model's frame rate. Keep the model
         # on every display tick and refresh its readout at most ten times/s.
         if app.canvas.motion_playing and now-phase_text_time[0] < 100000:return True
         phase_text_time[0] = now
-        from math import degrees
         text=(f"Rack travel · {app.canvas.motion_plan.matrix(1,app.canvas.motion_phase)[12]:+.3f} mm"
               if app.canvas.design and app.canvas.design.family=='rack' else f'Reference phase · {degrees(app.canvas.motion_phase)%360:.1f}°')
         if app.motion_phase_label.get_text()!=text:app.motion_phase_label.set_text(text)
+        nonlocal phase_syncing
+        if not phase_syncing:
+            phase_syncing = True
+            try:
+                limits = app.canvas.motion_plan.phase_limits if app.canvas.motion_plan else None
+                low, high = tuple(map(degrees, limits)) if limits and limits[1] > limits[0] else (0, 360)
+                phase.set_range(low, high)
+                value = degrees(app.canvas.motion_phase)
+                phase.set_value(value if limits or 0 <= value <= 360 else value % 360)
+            finally:phase_syncing = False
         return True
+    def seek_phase(widget):
+        nonlocal phase_syncing
+        if phase_syncing:return
+        target = radians(widget.get_value())
+        phase_syncing = True
+        try:app.canvas.seek_motion_phase(target)
+        finally:phase_syncing = False
+        phase_text_time[0] = 0
+        show_phase()
+    phase.connect('value-changed', seek_phase)
+    def phase_accessibility(label, *_):
+        text = label.get_text()
+        phase.update_property([Gtk.AccessibleProperty.LABEL, Gtk.AccessibleProperty.VALUE_TEXT],
+                              [text.split('·')[0].strip(), text])
+    app.motion_phase_label.connect('notify::label', phase_accessibility)
     phase_tick=[0]
     def phase_watch(*_):
         phase_text_time[0] = 0
@@ -308,6 +341,8 @@ def install(app, container):
         reset.set_sensitive(c.design is not None and not app.busy)
         entry.set_sensitive(not app.busy)
         slider.set_sensitive(not app.busy)
+        phase.set_sensitive(available and any(plan.coordinate_rates.values())
+                            and (plan.phase_limits is None or plan.phase_limits[1] > plan.phase_limits[0]))
         play.set_label('Pause' if c.motion_playing else 'Play')
         if c.motion_playing:play.add_css_class('playing')
         else:play.remove_css_class('playing')

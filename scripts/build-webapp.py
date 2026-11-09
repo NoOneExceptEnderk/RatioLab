@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # SPDX-FileCopyrightText: 2026 NoOneExceptEnderk
 # SPDX-License-Identifier: GPL-3.0-only
-"""Build the browser engine without network, native GTK, or third-party build tools.
+"""Bundle the compiled Rust browser engine without network or native GTK.
 
 The runtime is supplied explicitly and verified against webapp/runtime.json.
 An external pinned CDN build requires --external-runtime; there is no automatic
@@ -22,15 +22,15 @@ ROOT = Path(__file__).resolve().parents[1]
 # A new dependency must be reviewed and added explicitly, never collected blindly.
 MODULES = (
     'app_paths', 'assemblies', 'backdrivability', 'backlash_solver', 'bevel_geometry', 'bevel_pair', 'hypoid_geometry', 'rack_geometry', 'face_geometry', 'face_herringbone', 'bom',
-    'cad_export', 'catalog', 'collision_geometry', 'combination_search', 'component_geometry', 'differential_wrist', 'engineering',
-    'export_transaction', 'gear_measurement', 'geartrains', 'geometry', 'hardware',
+    'cad_contract', 'curved_cad', 'curved_cylindrical', 'cylindrical_validation', 'cad_export', 'catalog', 'collision_geometry', 'combination_search', 'component_geometry', 'differential_wrist', 'engineering',
+    'export_transaction', 'gear_measurement', 'geartrains', 'geometry', 'geometry_error_budget', 'geometry_quality', 'hardware',
     'hardware_catalog', 'interference', 'kinematics', 'motion', 'mounting', 'package_export',
     'pair_assembly', 'parallel_multistage', 'parameter_help', 'printed_shaft', 'profile_export',
-    'selected_export', 'solid_geometry', 'special_drives', 'standard_parts',
-    'stl_export', 'tooth_profiles', 'internal_mesh', 'wave_envelope', 'wave_geometry', 'worm_geometry', 'wolfrom',
+    'selected_export', 'solid_geometry', 'special_drives', 'standard_parts', 'theme_preferences', 'mouse_navigation',
+    'stl_export', 'precise_numbers', 'rust_geometry', 'rust_surfaces', 'tooth_profiles', 'tooth_tips', 'internal_mesh', 'wave_envelope', 'wave_geometry', 'worm_geometry', 'wolfrom',
 )
 RESOURCES = ('__init__.py', 'version.json', 'bearing-catalog.json', 'hardware-catalog.json')
-ASSETS = ('engine-client.js', 'worker.js', 'index.html', 'app.css',
+ASSETS = ('rust-engine.js', 'engine-client.js', 'worker.js', 'index.html', 'app.css',
           'app.js', 'model-catalog.js', 'choice-menu.js', 'ui-language.js', 'viewer.js', 'document.js', 'preferences.js', 'tools.js', 'tools.css', 'help-illustrations.json')
 MODEL_IMAGES = tuple('model-catalog/'+key+'.png' for key in ('spur','helical','double','planetary','cycloidal','harmonic','worm','parallel','internal','differential','wolfrom','bevel','hypoid','rack','face'))
 UI_RESOURCES = ('ui-translations.json', *MODEL_IMAGES)
@@ -39,7 +39,8 @@ BRANDING = ('ratiolab-icon.png', 'ratiolab-logo-dark.png')
 LEGAL = ('LICENSE', 'COPYRIGHT')
 NOTICES = ('README.txt', 'provenance.json', 'PYODIDE-LICENSE', 'CPYTHON-LICENSE',
            'CPYTHON-NOTICES', 'EMSCRIPTEN-LICENSE', 'MUSL-COPYRIGHT')
-RECIPES = ('build-webapp.py', 'fetch-web-runtime.py', 'serve-webapp.py')
+RECIPES = ('build-rust-engine.py', 'build-webapp.py', 'fetch-web-runtime.py', 'serve-webapp.py',
+           'prototype-curved-cad.py', 'verify-curved-cad.py', 'validate-cylindrical-mesh.py')
 FORMAT = 'ratiolab-web-bundle/1'
 
 
@@ -141,11 +142,22 @@ def build(output, runtime_dir=None, external_runtime=False, root=ROOT):
     else:
         runtime.update(mode='external', indexURL=runtime['pinned_external_indexURL'], allow_external=True)
     files = engine_files(root)
+    wasm_path = root/'target/wasm32-unknown-unknown/release/ratiolab_geometry.wasm'
+    if not wasm_path.is_file():
+        raise ValueError('Build the Rust kernel with scripts/build-rust-engine.py --target wasm before bundling.')
+    wasm = wasm_path.read_bytes()
     output.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix='.ratiolab-web-', dir=output.parent) as temporary:
         staging = Path(temporary)/'bundle'
         staging.mkdir()
         (staging/'engine.zip').write_bytes(zip_bytes(files))
+        (staging/'ratiolab_geometry.wasm').write_bytes(wasm)
+        rust_notices=root/'target/ratiolab-rust-notices'
+        if not (rust_notices/'components.json').is_file():
+            raise ValueError('Build the Rust kernel and collect its notices before bundling.')
+        (staging/'rust-notices.zip').write_bytes(zip_bytes({
+            p.relative_to(rust_notices).as_posix(): p.read_bytes()
+            for p in rust_notices.rglob('*') if p.is_file()}))
         (staging/'runtime.json').write_bytes(encoded(runtime))
         for name in ASSETS:
             (staging/name).write_bytes((root/'webapp'/name).read_bytes())
@@ -172,7 +184,22 @@ def build(output, runtime_dir=None, external_runtime=False, root=ROOT):
         # Engine source is readable in engine.zip; include web glue and builder too.
         source = {'src/'+name: data for name, data in files.items() if name != 'engine_bridge.py'}
         source.update({'src/ratiolab_resources/'+name: (root/'src/ratiolab_resources'/name).read_bytes() for name in UI_RESOURCES})
-        source.update({'packaging/fonts/'+name: (root/'packaging/fonts'/name).read_bytes() for name in FONTS})
+        font_source = {'packaging/fonts/'+name: (root/'packaging/fonts'/name).read_bytes()
+                       for name in FONTS}
+        # Keep complete corresponding source within the host's per-file limit.
+        # Both ordinary ZIPs extract into the same tree; font bytes are unchanged.
+        (staging/'source-fonts.zip').write_bytes(zip_bytes(font_source))
+        source.update({name: data for name, data in font_source.items()
+                       if not name.endswith(('.ttf', '.ttc'))})
+        source['README-SOURCE.txt'] = (
+            'RatioLab browser corresponding source\n\n'
+            'Download source.zip and source-fonts.zip from the same app bundle.\n'
+            'Extract both into the same directory before rebuilding:\n\n'
+            '  python3 -m zipfile -e source.zip ratiolab-source\n'
+            '  python3 -m zipfile -e source-fonts.zip ratiolab-source\n\n'
+            'See docs/web-app.md for the pinned Rust and browser build recipe.\n'
+            'Font licences and provenance are included in both archives.\n'
+        ).encode('utf-8')
         source['webapp/catalog.json'] = encoded(metadata(root))
         source.update({name: (root/name).read_bytes() for name in LEGAL})
         source.update({'webapp/'+name: (root/'webapp'/name).read_bytes() for name in (*ASSETS, 'runtime.json', 'engine_bridge.py')})
@@ -181,6 +208,19 @@ def build(output, runtime_dir=None, external_runtime=False, root=ROOT):
         source['webapp/README.txt'] = (root/'webapp/README.txt').read_bytes()
         for name in ('scripts/generate-web-help.py', 'src/parameter_help_diagrams.py'):
             source[name] = (root/name).read_bytes()
+        for name in ('Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml'):
+            source[name] = (root/name).read_bytes()
+        source.update({p.relative_to(root).as_posix():p.read_bytes() for p in (root/'rust').rglob('*')
+                       if p.is_file() and (p.suffix=='.rs' or p.name=='Cargo.toml')})
+        source['docs/technical/rust-kernel.md'] = (root/'docs/technical/rust-kernel.md').read_bytes()
+        source['docs/technical/curved-cad-prototype.md'] = (root/'docs/technical/curved-cad-prototype.md').read_bytes()
+        source['docs/technical/curved-cylindrical-cad.md'] = (root/'docs/technical/curved-cylindrical-cad.md').read_bytes()
+        for name in ('mathematical-cad-contract.md','cad-recipe.schema.json','parallel.md','rack.md',
+                     'bevel-pair.md','hypoid.md','face-gears.md','rust-new-families.md','variants.md'):
+            source['docs/technical/'+name]=(root/'docs/technical'/name).read_bytes()
+        for name in ('cad-recipe.py',):source['scripts/'+name]=(root/'scripts'/name).read_bytes()
+        for name in ('solidcraft_recipe.py','connection.py','external_programs.py'):
+            source['src/'+name]=(root/'src'/name).read_bytes()
         source['docs/web-app.md'] = (root/'docs/web-app.md').read_bytes()
         source.update({'webapp/notices/'+name: (root/'webapp/notices'/name).read_bytes() for name in NOTICES})
         (staging/'source.zip').write_bytes(zip_bytes(source))

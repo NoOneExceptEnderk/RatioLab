@@ -134,6 +134,7 @@ class Controller:
         box.append(self.preview)
         box.append(Gtk.Label(label='Proposed geometry only · independent static view; your project view and motion are preserved.', wrap=True, xalign=0))
         self.report = Gtk.TextView(editable=False, monospace=True, wrap_mode=Gtk.WrapMode.WORD_CHAR)
+        self.report._ratiolab_localize_report = True
         scroll = Gtk.ScrolledWindow(vexpand=True, hexpand=True, min_content_height=170)
         scroll.set_child(self.report)
         box.append(scroll)

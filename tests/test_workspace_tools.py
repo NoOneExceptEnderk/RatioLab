@@ -345,8 +345,9 @@ class ToolWorkspaceTests(unittest.TestCase):
         self.assertEqual(round(a.preview_toolbar.get_height()),34)
         snapshot=deepcopy(a.project_snapshot());token=a.document.token
         self.assertIsInstance(a.theme_switch,Gtk.Switch)
-        self.assertIs(a.appearance_button,a.theme_switch)
-        self.assertTrue(a.theme_switch.get_mapped())
+        self.assertIs(a.appearance_button,a.settings_button)
+        self.assertIsNone(a.theme_switch.get_parent())
+        self.assertFalse(a.theme_switch.get_mapped())
         theme=a.theme_switch.get_active();design=a.design
         try:
             a.theme_switch.set_active(not theme);pump(.05)

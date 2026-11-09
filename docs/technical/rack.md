@@ -41,11 +41,18 @@ allowable load or linear-guide friction model.
 ## Tooth and blank construction
 
 Pinion working flanks reuse the existing cylindrical involute and trimmed rounded
-rack-tool root envelope at zero profile shift. The finite rack has straight
+rack-tool root envelope at zero profile shift. With zero tip treatments, the
+finite rack has straight
 transverse flanks with nominal sharp corners, addendum mn, dedendum 1.25mn and
 the specified base thickness below the roots. Reference pair backlash j is split:
 pinion reference tooth arc and rack reference tooth thickness each decrease by j/2.
 Rack tooth half-width at height y is `pt/4 - j/4 - y*tan(alpha_t)`.
+
+Independent [topping and semitopping](../tooth-tips.md) controls are available
+for the pinion and rack. Topping lowers the rack head; its semitopping ramp
+joins the unchanged straight flank. Effective engagement uses the rack's
+remaining working height and the pinion's remaining primary involute, excluding
+chamfer contact. Reference pitch and travel per revolution remain unchanged.
 
 Every requested rack tooth is complete. Fixed rectangular end planes include
 additional untoothed lands accommodating axial sweep; total physical base length
@@ -72,9 +79,10 @@ stay above the pinion's actual trimmed involute start. The nominal transverse
 contact ratio is the available line-of-action length divided by transverse base
 pitch and must exceed one. No strength or elastic-contact result is implied.
 
-The conservative symmetric travel excludes the horizontal active pinion
+The conservative symmetric travel excludes the horizontal reference pinion
 footprint, the full helix sweep and one rack pitch from each end of the reference
 toothed interval. It is a supported preview stroke, not a mechanical end stop.
+Tip treatments remove material but do not expand this established working stroke.
 Both members stop together at its boundary. Reversing RPM continues from the
 same angle/displacement; zero RPM retains the current position. Initial pose
 returns to nominal geometry. Programmatic poses outside the working stroke are
