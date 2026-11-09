@@ -56,7 +56,7 @@ manifest, complete listed file inventory, exact runtime version and native
 dependency check. A failed Setup can reopen the previous version only if its
 original manifest, complete inventory and runtime still validate.
 
-Older Windows copies, including 0.1.13, may need Setup 0.2.1 run manually once
+Older Windows copies, including 0.1.13, may need Setup 0.2.2 run manually once
 in their existing installation folder. Fixes in the 0.1.14 helper do not
 retroactively change an already installed older updater. Once 0.1.14 is installed,
 subsequent eligible updates use the corrected helper.

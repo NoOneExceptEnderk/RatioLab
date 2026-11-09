@@ -1,53 +1,53 @@
 {
   "schema": "ratiolab-website-release/1",
   "repository": "https://github.com/NoOneExceptEnderk/RatioLab",
-  "verified_at": "2026-11-05T12:18:31.502607Z",
+  "verified_at": "2026-11-09T07:18:39.099188Z",
   "release": {
-    "tag_name": "v0.2.1",
-    "html_url": "https://github.com/NoOneExceptEnderk/RatioLab/releases/tag/v0.2.1",
+    "tag_name": "v0.2.2",
+    "html_url": "https://github.com/NoOneExceptEnderk/RatioLab/releases/tag/v0.2.2",
     "draft": false,
     "prerelease": false,
-    "published_at": "2026-11-05T12:18:07Z",
+    "published_at": "2026-11-09T07:15:58Z",
     "assets": [
       {
-        "name": "RatioLab-0.2.1-windows-x86_64-setup.exe",
-        "browser_download_url": "https://github.com/NoOneExceptEnderk/RatioLab/releases/download/v0.2.1/RatioLab-0.2.1-windows-x86_64-setup.exe",
-        "size": 49764299,
+        "name": "RatioLab-0.2.2-windows-x86_64-setup.exe",
+        "browser_download_url": "https://github.com/NoOneExceptEnderk/RatioLab/releases/download/v0.2.2/RatioLab-0.2.2-windows-x86_64-setup.exe",
+        "size": 52002898,
         "state": "uploaded"
       },
       {
-        "name": "RatioLab-0.2.1-macos-arm64.dmg",
-        "browser_download_url": "https://github.com/NoOneExceptEnderk/RatioLab/releases/download/v0.2.1/RatioLab-0.2.1-macos-arm64.dmg",
-        "size": 55734284,
+        "name": "RatioLab-0.2.2-macos-arm64.dmg",
+        "browser_download_url": "https://github.com/NoOneExceptEnderk/RatioLab/releases/download/v0.2.2/RatioLab-0.2.2-macos-arm64.dmg",
+        "size": 61181328,
         "state": "uploaded"
       },
       {
-        "name": "RatioLab-0.2.1-macos-x86_64.dmg",
-        "browser_download_url": "https://github.com/NoOneExceptEnderk/RatioLab/releases/download/v0.2.1/RatioLab-0.2.1-macos-x86_64.dmg",
-        "size": 56095975,
+        "name": "RatioLab-0.2.2-macos-x86_64.dmg",
+        "browser_download_url": "https://github.com/NoOneExceptEnderk/RatioLab/releases/download/v0.2.2/RatioLab-0.2.2-macos-x86_64.dmg",
+        "size": 61578130,
         "state": "uploaded"
       },
       {
-        "name": "RatioLab-0.2.1-linux-x86_64.run",
-        "browser_download_url": "https://github.com/NoOneExceptEnderk/RatioLab/releases/download/v0.2.1/RatioLab-0.2.1-linux-x86_64.run",
-        "size": 69793997,
+        "name": "RatioLab-0.2.2-linux-x86_64.run",
+        "browser_download_url": "https://github.com/NoOneExceptEnderk/RatioLab/releases/download/v0.2.2/RatioLab-0.2.2-linux-x86_64.run",
+        "size": 73149413,
         "state": "uploaded"
       },
       {
-        "name": "ratiolab_0.2.1_amd64.deb",
-        "browser_download_url": "https://github.com/NoOneExceptEnderk/RatioLab/releases/download/v0.2.1/ratiolab_0.2.1_amd64.deb",
-        "size": 51598762,
+        "name": "ratiolab_0.2.2_amd64.deb",
+        "browser_download_url": "https://github.com/NoOneExceptEnderk/RatioLab/releases/download/v0.2.2/ratiolab_0.2.2_amd64.deb",
+        "size": 53772972,
         "state": "uploaded"
       },
       {
-        "name": "RatioLab-0.2.1-linux-x86_64.tar.gz",
-        "browser_download_url": "https://github.com/NoOneExceptEnderk/RatioLab/releases/download/v0.2.1/RatioLab-0.2.1-linux-x86_64.tar.gz",
-        "size": 69793448,
+        "name": "RatioLab-0.2.2-linux-x86_64.tar.gz",
+        "browser_download_url": "https://github.com/NoOneExceptEnderk/RatioLab/releases/download/v0.2.2/RatioLab-0.2.2-linux-x86_64.tar.gz",
+        "size": 73148864,
         "state": "uploaded"
       },
       {
         "name": "SHA256SUMS",
-        "browser_download_url": "https://github.com/NoOneExceptEnderk/RatioLab/releases/download/v0.2.1/SHA256SUMS",
+        "browser_download_url": "https://github.com/NoOneExceptEnderk/RatioLab/releases/download/v0.2.2/SHA256SUMS",
         "size": 591,
         "state": "uploaded"
       }
