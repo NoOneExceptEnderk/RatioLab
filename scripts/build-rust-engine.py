@@ -109,12 +109,12 @@ def notices_lock():
                 fcntl.flock(stream.fileno(),fcntl.LOCK_UN)
 
 
-def collect_notices(cargo,env,offline):
+def collect_notices(cargo,env,offline,build_target='native'):
     with notices_lock():
-        return _collect_notices(cargo,env,offline)
+        return _collect_notices(cargo,env,offline,build_target)
 
 
-def _collect_notices(cargo, env, offline):
+def _collect_notices(cargo, env, offline, build_target='native'):
     command = [cargo, 'metadata', '--locked', '--format-version', '1']
     if offline:
         command.append('--offline')
@@ -177,7 +177,8 @@ def _collect_notices(cargo, env, offline):
                   rustc=subprocess.check_output([rustc, '--version'], env=env, text=True).strip(),
                   cargo_lock_sha256=hashlib.sha256((ROOT/'Cargo.lock').read_bytes()).hexdigest(),
                   scope='Rust standard library and all locked runtime/build dependencies', packages=records)
-    mingw = collect_mingw_notices(env, staging)
+    # Browser corresponding source needs no native C linker or bundle helper.
+    mingw = collect_mingw_notices(env, staging) if build_target == 'native' else []
     if mingw:
         report['native_toolchain_components'] = mingw
     (staging/'components.json').write_text(json.dumps(report, indent=2, sort_keys=True)+'\n', encoding='utf-8')
@@ -196,7 +197,7 @@ def build(target='native', cargo=None, offline=False):
         command += ['--target', 'wasm32-unknown-unknown']
     env = environment(target)
     subprocess.run(command, cwd=ROOT, env=env, check=True)
-    collect_notices(cargo, env, offline)
+    collect_notices(cargo, env, offline, target)
     return (ROOT/'target/wasm32-unknown-unknown/release/ratiolab_geometry.wasm'
             if target == 'wasm' else ROOT/'target/release'/native_name())
 
