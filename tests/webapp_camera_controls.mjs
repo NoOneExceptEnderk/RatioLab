@@ -5,6 +5,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
+import {webModules} from './webapp_modules.mjs';
 import {fileURLToPath} from 'node:url';
 const root=fileURLToPath(new URL('../',import.meta.url));
 class Custom extends Event {constructor(type,{detail}={}){super(type);this.detail=detail;}}
@@ -32,22 +33,21 @@ const parameterTabs=new Element(),tabButtons=['dimensions','motion','assembly'].
 
 globalThis.document=Object.assign(new EventTarget(),{
   getElementById:id=>id.startsWith('viewport-')?null:el(id),
-  createElement:tag=>new Element(tag),querySelectorAll:selector=>selector==='[data-tab]'?tabButtons:selector==='[role=tablist]'?[parameterTabs]:[],body:new Element('body'),documentElement:{dataset:{},clientWidth:1280,style:{setProperty(){}}},
+  querySelector:selector=>selector==='.project-menu'?fileMenu:null,createElement:tag=>new Element(tag),querySelectorAll:selector=>selector==='[data-tab]'?tabButtons:selector==='[role=tablist]'?[parameterTabs]:[],body:new Element('body'),documentElement:{dataset:{},clientWidth:1280,style:{setProperty(){}}},
 });
 globalThis.window=Object.assign(new EventTarget(),{innerHeight:800});
 const preferencesStorage=new Map();let preferenceWrites=0;
 globalThis.localStorage={getItem:key=>preferencesStorage.get(key)??null,setItem:(key,value)=>{preferenceWrites++;preferencesStorage.set(key,value);}};
 globalThis.ResizeObserver=class{observe(){}disconnect(){}};
 globalThis.requestAnimationFrame=()=>0;globalThis.cancelAnimationFrame=()=>{};
-const modules={};
+const fileMenu=new Element('details');fileMenu.append(new Element('summary'));
+const {modules,load}=webModules(root);
+
 const languageModule = new vm.SourceTextModule('export const LANGUAGES={}; export async function initLanguage(){return {setLanguage(){}};}');
 await languageModule.link(()=>{}); await languageModule.evaluate();
 modules['./ui-language.js']=languageModule;
 
-for(const name of ['document','viewer','preferences']){
-  const module=modules['./'+name+'.js']=new vm.SourceTextModule(fs.readFileSync(root+'webapp/'+name+'.js','utf8'));
-  await module.link(()=>{throw Error('Unexpected module dependency');});await module.evaluate();
-}
+for(const name of ['document','viewer','preferences','settings','controls','themes'])await load('./'+name+'.js');
 function dependency(name,value){return new vm.SyntheticModule([name],function(){this.setExport(name,value);});}
 modules['./engine-client.js']=dependency('EngineClient',class{});
 modules['./tools.js']=dependency('initTools',()=>{});
@@ -87,7 +87,7 @@ function custom(){
   assert.equal(el('view-label').textContent,'CUSTOM VIEW');
   for(const [id]of names)assert.equal(el(id).getAttribute('aria-pressed'),'false');
 }
-function key(key){const event=new Event('keydown',{cancelable:true});event.key=key;canvas.dispatchEvent(event);return event;}
+function key(key){const event=new Event('keydown',{cancelable:true});event.key=key;Object.defineProperty(event,'target',{value:canvas});document.dispatchEvent(event);if(!event.defaultPrevented)canvas.dispatchEvent(event);return event;}
 function pointer(type,x,y,button=0){const event=new Event(type);Object.assign(event,{button,pointerId:1,clientX:x,clientY:y});canvas.dispatchEvent(event);}
 function fitted(){assert.equal(viewer.zoom,1);assert.equal(viewer.yaw,-35*Math.PI/180);assert.equal(viewer.pitch,-55*Math.PI/180);named('isometric');}
 
@@ -97,8 +97,8 @@ el('front-view').click();named('front');assert.equal(viewer.zoom,1.15);
 el('isometric-view').click();named('isometric');assert.equal(viewer.zoom,1.15);
 el('top-view').click();el('fit-view').click();fitted();
 
-// Both F variants share Fit's state change, including the visible named view.
-for(const letter of ['f','F']){el('top-view').click();key('+');key(letter);fitted();}
+// F fits the current orientation, matching the desktop command.
+for(const letter of ['f','F']){el('top-view').click();key('+');key(letter);assert.equal(viewer.zoom,1);named('top');}
 
 // Each orbit key revokes TOP and marks the same custom state as pointer drag.
 for(const [arrow,yaw,pitch]of [['ArrowLeft',-.12,0],['ArrowRight',.12,0],['ArrowUp',0,-.12],['ArrowDown',0,.12]]){
@@ -195,8 +195,7 @@ const beforePreferences=structuredClone(globalThis.ratiolab.document.state);
 const beforeCamera={yaw:viewer.yaw,pitch:viewer.pitch,zoom:viewer.zoom};
 const beforeMeshes=viewer.meshes,beforeSelection=[...viewer.selected];
 assert.equal(preferenceWrites,0,'Startup only reads preferences');
-el('theme-toggle').click();
-assert.equal(el('theme-toggle').getAttribute('aria-checked'),'true');
+app.namespace.changePreference('theme','light');
 app.namespace.changePreference('language','it');
 assert.equal(preferenceWrites,2);
 assert.equal(document.documentElement.dataset.theme,'light');
@@ -204,8 +203,7 @@ assert.deepEqual(globalThis.ratiolab.document.state,beforePreferences);
 assert.deepEqual({yaw:viewer.yaw,pitch:viewer.pitch,zoom:viewer.zoom},beforeCamera);
 assert.equal(viewer.meshes,beforeMeshes);assert.deepEqual([...viewer.selected],beforeSelection);
 assert.equal(JSON.parse(preferencesStorage.get('ratiolab.web.preferences.v1')).language,'it');
-localStorage.setItem=()=>{throw Error('Storage full');};el('theme-toggle').click();
-assert.equal(el('theme-toggle').getAttribute('aria-checked'),'false');
+localStorage.setItem=()=>{throw Error('Storage full');};app.namespace.changePreference('theme','dark');
 assert.equal(document.documentElement.dataset.theme,'dark');assert.equal(el('preference-error').hidden,false);
 viewer.dispose();
 console.log('Camera Fit, keyboard orbit and named-view state checks passed.');

@@ -111,6 +111,7 @@ const SAMPLED_OPERATIONS: &[&str] = &[
     "cad_spur_curves",
     "cad_cylindrical_geometry",
     "gear_part",
+    "tooth_tip_preview",
     "curve_point",
     "rack_parameters",
     "rack_point",
@@ -339,6 +340,9 @@ pub fn request(input: &Value) -> Result<Value> {
     if operation == "gear_part" {
         return crate::profiles::gear_part(args);
     }
+    if operation == "tooth_tip_preview" {
+        return crate::tooth_tips::preview(args);
+    }
     if operation == "nominal_parallel_plan" {
         return crate::nominal::parallel(args);
     }
@@ -491,7 +495,7 @@ pub fn dispatch(input: &str) -> String {
     });
     let value = match result {
         Ok(Ok(result)) => json!({"ok":true,"result":result}),
-        Ok(Err(message)) => json!({"ok":false,"error":{"code":"geometry_error","message":message}}),
+        Ok(Err(message)) => json!({"ok":false,"error":crate::diagnostic::record(message)}),
         Err(_) => {
             json!({"ok":false,"error":{"code":"internal_error","message":"Geometry calculation panicked"}})
         }

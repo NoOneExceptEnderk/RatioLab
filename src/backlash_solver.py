@@ -116,6 +116,14 @@ def _source(design):
     return values, meshes[0]
 
 
+def adjustment_limits(design):
+    """Nominal target bracket; contact and sampled-interference checks still apply."""
+    values, mesh = _source(design)
+    low, high = next(spec[3:5] for spec in get_specs('parallel', values['variant']) if spec[0] == 'center_extra')
+    return dict(minimum_mm=working_backlash(mesh['reference_center_mm'], mesh['gear1']['alpha_t'], values['backlash'], low),
+                maximum_mm=working_backlash(mesh['reference_center_mm'], mesh['gear1']['alpha_t'], values['backlash'], high))
+
+
 def _check_candidate(design, values, target):
     if design.values != values:
         raise ValueError('Candidate normalization changed parameters; regenerate the source before solving.')

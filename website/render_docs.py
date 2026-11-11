@@ -41,7 +41,7 @@ DOCUMENTS = (
     Document("updates.md", "Application updates", "Check for RatioLab desktop updates, choose a public stable release and install verified downloads with documented privacy controls.", "GET STARTED"),
     Document("fusion360.md", "Autodesk Fusion", "Send RatioLab designs to Autodesk Fusion: optional bridge setup, STEP transfer, Linux/Wine configuration and failure handling.", "GET STARTED"),
     Document("development.md", "Development and builds", "Build and verify RatioLab from source: Python and GTK dependencies, native installers, development checks and optional CAD bridges.", "DEVELOPMENT"),
-    Document("technical/calculations.md", "Calculations and references", "RatioLab gear calculations: tooth geometry, theoretical metrology, working backlash, kinematics, Wolfrom ratios and analysis limits.", "TECHNICAL REFERENCE"),
+    Document("technical/calculations.md", "Gear geometry, backlash and ratios", "Find the formulas RatioLab uses for involute tooth geometry, centre distance, working backlash and reducer ratios, with assumptions and model limits.", "TECHNICAL REFERENCE"),
     Document("technical/hardware.md", "Hardware and assembly", "Understand RatioLab bearing seats, fits, shafts and standard hardware: generated dimensions, bills of materials and assembly limits.", "TECHNICAL REFERENCE"),
     Document("technical/io-models.md", "Input and output", "Configure reducer input and output connections: generated mounts, member roles, Wolfrom topology and mechanical limitations.", "TECHNICAL REFERENCE"),
     Document("technical/kinematics.md", "Kinematics", "Understand RatioLab kinematics: represented gear and reducer motions, member speed conventions and nominal export coordinates.", "TECHNICAL REFERENCE"),

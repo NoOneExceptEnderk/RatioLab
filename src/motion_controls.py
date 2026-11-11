@@ -3,8 +3,8 @@
 """Single viewport transport bar and a speed-adjustment popover."""
 import gi
 gi.require_version('Gtk', '4.0')
-from gi.repository import Gtk, GLib, Gdk
-from math import log1p, expm1, isfinite, copysign, degrees, radians
+from gi.repository import Gtk, GLib, Gdk, Graphene, Pango
+from math import log1p, expm1, isfinite, copysign, degrees, radians, pi
 from gui_workflow import (set_numeric_value, numeric_value,
                           _track_numeric_entry, _normalize_numeric_entry)
 
@@ -15,6 +15,99 @@ def scale_rpm(value):
 
 def unscale_rpm(value):
     return copysign(expm1(abs(value)), value)
+
+
+class PhaseScale(Gtk.Scale):
+    """Keep stripe position continuous on the display clock, independent of seeking."""
+    def __init__(self):
+        super().__init__(orientation=Gtk.Orientation.HORIZONTAL,
+                         adjustment=Gtk.Adjustment(lower=0, upper=360, step_increment=.1, page_increment=10))
+        self.stripe_offset = 0.
+        self.stripe_speed = 0.
+        self.stripe_playing = False
+        self._stripe_time = None
+        self._stripe_tick = 0
+        self.connect('map', lambda *_: self._watch_stripes())
+        self.connect('unmap', lambda *_: self._stop_stripes())
+
+    def _advance_stripes(self, now):
+        if self._stripe_time is not None:
+            self.stripe_offset = (self.stripe_offset + self.stripe_speed * max(0, now-self._stripe_time)) % 28
+        self._stripe_time = max(now, self._stripe_time) if self._stripe_time is not None else now
+
+    def _stop_stripes(self):
+        if self._stripe_tick:
+            self.remove_tick_callback(self._stripe_tick)
+            self._stripe_tick = 0
+        self._stripe_time = None
+
+    def _watch_stripes(self):
+        # This explicitly requested playback indicator follows Play/RPM,
+        # independently of optional desktop transition animations.
+        active = self.get_mapped() and self.stripe_playing and self.stripe_speed > 0
+        if active and not self._stripe_tick:
+            self._stripe_time = GLib.get_monotonic_time()/1000000
+            self._stripe_tick = self.add_tick_callback(self._stripe_frame)
+        elif not active:
+            self._stop_stripes()
+        self.queue_draw()
+
+    def _stripe_frame(self, widget, clock):
+        self._advance_stripes(clock.get_frame_time()/1000000)
+        self.queue_draw()
+        return True
+
+    def set_stripes(self, playing, rpm):
+        # Integrate the old speed first; changing RPM never resets the pattern.
+        if self._stripe_tick:
+            self._advance_stripes(GLib.get_monotonic_time()/1000000)
+        speed = abs(rpm)
+        # Visible at low RPM, the same 35 px/s at 60 RPM, bounded below 70 px/s.
+        self.stripe_speed = 7+63*speed/(speed+75) if speed else 0
+        self.stripe_playing = playing
+        self._watch_stripes()
+
+    def do_snapshot(self, snapshot):
+        Gtk.Scale.do_snapshot(self, snapshot)
+        if not self.stripe_playing:
+            return
+        rect = self.get_range_rect()
+        x, width = rect.x, rect.width
+        y, height = rect.y+(rect.height-8)/2, 8
+        if width <= 0:
+            return
+        bounds = Graphene.Rect()
+        bounds.init(x, y, width, height)
+        cr = snapshot.append_cairo(bounds)
+        cr.arc(x+width-4, y+4, 4, -pi/2, pi/2)
+        cr.arc(x+4, y+4, 4, pi/2, 3*pi/2)
+        cr.close_path()
+        cr.clip()
+        _, color = self.get_style_context().lookup_color('rl_accent')
+        cr.set_source_rgba(color.red, color.green, color.blue, color.alpha)
+        cr.paint()
+        cr.set_source_rgba(color.red*.8, color.green*.8, color.blue*.8, color.alpha)
+        for start in range(-28, width+28, 28):
+            left = x+start+self.stripe_offset
+            cr.move_to(left, y)
+            cr.line_to(left+14, y)
+            cr.line_to(left+22, y+height)
+            cr.line_to(left+8, y+height)
+            cr.close_path()
+        cr.fill()
+
+
+def _stable_slot(widget, reserves):
+    """Reserve all text states without letting live captions resize the row."""
+    parent, previous = widget.get_parent(), widget.get_prev_sibling()
+    parent.remove(widget)
+    stack = Gtk.Stack(hhomogeneous=True, vhomogeneous=True)
+    stack.add_named(widget, 'value')
+    for index, reserve in enumerate(reserves):
+        stack.add_named(reserve, str(index))
+    stack.set_visible_child_name('value')
+    parent.insert_child_after(stack, previous)
+    return stack
 
 
 def install(app, container):
@@ -54,13 +147,6 @@ def install(app, container):
     unit = Gtk.Label(label='rpm', css_classes=['muted'])
     app.motion_unit = unit
     row.append(unit)
-    button = Gtk.MenuButton(label='Rate info',css_classes=['motion-details-button'])
-    app.motion_button = button
-    popup = Gtk.Popover(css_classes=['motion-palette'])
-    button.set_popover(popup)
-    content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
-    content.set_size_request(290, -1)
-    content.append(Gtk.Label(label='Input speed · progressive scale', xalign=0, css_classes=['step-title']))
     slider_row = Gtk.Box(spacing=8)
     row.append(slider_row)
     slider_row.set_hexpand(True)
@@ -70,28 +156,32 @@ def install(app, container):
     slider.set_hexpand(True)
     app.motion_speed = slider
     slider.add_css_class('motion-scale')
-    info = Gtk.Label(xalign=0, wrap=True, css_classes=['muted'])
-    info.set_max_width_chars(34)
-    content.append(info)
-    app.motion_info = info
-    popup.set_child(content)
     reset = Gtk.Button(label='Initial pose',css_classes=['flat'])
     app.motion_reset = reset
     transport.insert_child_after(reset,play)
     reset.connect('clicked', lambda _: app.canvas.reset_motion())
     status = Gtk.Label(xalign=1, css_classes=['muted'])
     transport.append(status)
-    transport.append(button)
     app.playback_hint = status
+    _stable_slot(status, [Gtk.Label(label='Playing', xalign=1, css_classes=['muted'])])
     app.motion_phase_label = Gtk.Label(xalign=0, css_classes=['muted','motion-phase'])
     transport.insert_child_after(app.motion_phase_label,reset)
-    phase = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, 0, 360, .1)
+    phase_reserves = [Gtk.Label(label='Reference phase · 359.9°', xalign=0, css_classes=['muted','motion-phase'])
+                      for _ in range(2)]
+    digits = Pango.AttrList()
+    digits.insert(Pango.attr_font_features_new('tnum'))
+    for label in (app.motion_phase_label, *phase_reserves):
+        label.set_attributes(digits)
+    phase_readout = _stable_slot(app.motion_phase_label, phase_reserves)
+    phase_reserve_text = None
+    phase_reserve_plan = None
+    phase = PhaseScale()
     phase.set_draw_value(False)
     phase.set_hexpand(True)
     phase.set_size_request(120, -1)
     phase.set_tooltip_text('Drag to pause and inspect the preview phase. RPM and project data stay unchanged.')
     phase.add_css_class('motion-phase-scale')
-    transport.insert_child_after(phase, app.motion_phase_label)
+    transport.insert_child_after(phase, phase_readout)
     app.motion_phase = phase
     connections = Gtk.Button(label='I/O', css_classes=['flat','motion-connections'])
     connections.set_tooltip_text('I/O connections')
@@ -99,7 +189,11 @@ def install(app, container):
     connections.connect('clicked', lambda _: __import__('gui_workflow').show_page(app,'motion'))
     transport.append(connections)
     from workspace_ui import decorate_action
-    decorate_action(play,'play',vector=True)
+    play_wrapper = decorate_action(play,'play',vector=True)
+    play_reserves = [Gtk.Button(label=text, css_classes=['motion-play']) for text in ('Play','Pause')]
+    for reserve in play_reserves:
+        reserve.get_child().set_margin_start(22)
+    _stable_slot(play_wrapper, play_reserves)
     decorate_action(reset,'reset',vector=True)
     decorate_action(connections,'io',vector=True)
     def play_icon(*_):
@@ -117,6 +211,7 @@ def install(app, container):
     phase_text_time = [0]
     phase_syncing = False
     def show_phase(*_):
+        nonlocal phase_reserve_text, phase_reserve_plan
         now = GLib.get_monotonic_time()
         # Text layout need not run at the model's frame rate. Keep the model
         # on every display tick and refresh its readout at most ten times/s.
@@ -124,6 +219,17 @@ def install(app, container):
         phase_text_time[0] = now
         text=(f"Rack travel · {app.canvas.motion_plan.matrix(1,app.canvas.motion_phase)[12]:+.3f} mm"
               if app.canvas.design and app.canvas.design.family=='rack' else f'Reference phase · {degrees(app.canvas.motion_phase)%360:.1f}°')
+        if app.canvas.motion_plan is not phase_reserve_plan and app.canvas.design and app.canvas.design.family=='rack':
+            limit = max(map(abs, app.canvas.design.analysis['rack']['travel_limits_mm']))
+            reserves = (f'Rack travel · {limit:+.3f} mm', f'Rack travel · {-limit:+.3f} mm')
+        elif app.canvas.motion_plan is not phase_reserve_plan:
+            reserves = ('Reference phase · 359.9°',)*2
+        else:
+            reserves = phase_reserve_text
+        if reserves != phase_reserve_text:
+            for label, value in zip(phase_reserves, reserves):label.set_text(value)
+            phase_reserve_text = reserves
+        phase_reserve_plan = app.canvas.motion_plan
         if app.motion_phase_label.get_text()!=text:app.motion_phase_label.set_text(text)
         nonlocal phase_syncing
         if not phase_syncing:
@@ -200,6 +306,8 @@ def install(app, container):
         if not app.motion_rate_editing:
             return
         try:
+            low, high = getattr(app, 'motion_rate_limits', (0, 100000))
+            _normalize_numeric_entry(entry, low=low, high=high)
             try:
                 value = numeric_value(entry)
             except ValueError:
@@ -346,11 +454,13 @@ def install(app, container):
         play.set_label('Pause' if c.motion_playing else 'Play')
         if c.motion_playing:play.add_css_class('playing')
         else:play.remove_css_class('playing')
+        if c.motion_playing:phase.add_css_class('playing')
+        else:phase.remove_css_class('playing')
+        rpm = abs(c.design.values.get('input_rpm', 12*c.motion_speed)) if c.design else 0
+        phase.set_stripes(c.motion_playing, rpm)
         status.set_text('Playing' if c.motion_playing else '' if available else 'Animation unavailable')
         if not app.motion_rate_editing:
             show_value(app.motion_rpm if hasattr(app, 'motion_rpm') else 12*c.motion_speed)
-        info.set_text('Correct the parameters to restart the animation.' if not c.motion_valid
-                      else plan.message if plan else 'Choose a model to see its motion.')
     app.canvas.connect('motion-state', update)
     app.update_motion_controls = app.update_playback_bar = update
     update()

@@ -44,28 +44,29 @@ def dimensions(part):
     return dict(min_mm=lo,max_mm=hi,size_mm=tuple(b-a for a,b in zip(lo,hi)))
 
 
-def orbit(q,yaw,tilt):
-    c,s=cos(yaw),sin(yaw);a,b=cos(tilt),sin(tilt)
-    x,y,z=q;xx,yy=c*x-s*y,s*x+c*y
-    return xx,a*yy-b*z,b*yy+a*z
+def orbit(q,yaw,tilt,roll=0.):
+    from view_navigation import rotate
+    return rotate(q,yaw,tilt,roll)
 
 
-def unorbit(q,yaw,tilt):
+def unorbit(q,yaw,tilt,roll=0.):
     x,y,z=q;a,b=cos(tilt),sin(tilt);c,s=cos(yaw),sin(yaw)
+    if roll:
+        cr,sr=cos(roll),sin(roll);x,y=cr*x+sr*y,-sr*x+cr*y
     yy,zz=a*y+b*z,-b*y+a*z
     return c*x+s*yy,-s*x+c*yy,zz
 
 
-def project(q,center,radius,zoom,yaw,tilt,width,height):
-    p=orbit(sub(q,center),yaw,tilt);aspect=max(width,1)/max(height,1)
+def project(q,center,radius,zoom,yaw,tilt,width,height,roll=0.):
+    p=orbit(sub(q,center),yaw,tilt,roll);aspect=max(width,1)/max(height,1)
     scale=.86/radius*zoom
     return (width*(1+p[0]*scale/max(aspect,1))/2,height*(1-p[1]*scale*min(aspect,1))/2)
 
 
-def ray(x,y,center,radius,zoom,yaw,tilt,width,height):
+def ray(x,y,center,radius,zoom,yaw,tilt,width,height,roll=0.):
     aspect=max(width,1)/max(height,1);scale=.86/radius*zoom
     local=((2*x/max(width,1)-1)*max(aspect,1)/scale,(1-2*y/max(height,1))/(scale*min(aspect,1)),4*radius)
-    return add(center,unorbit(local,yaw,tilt)),unorbit((0,0,-1),yaw,tilt)
+    return add(center,unorbit(local,yaw,tilt,roll)),unorbit((0,0,-1),yaw,tilt,roll)
 
 
 def pick(origin,direction,surfaces,section_y=None,max_distance=None):

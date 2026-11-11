@@ -5,11 +5,33 @@ import json, math, tempfile, unittest
 from pathlib import Path
 from geometry import generate, VARIANTS, profile_sections, section_holes, transformed, circle_info, cycloid
 from engineering import gear_dimensions, mesh, force_components, report_text
+from ratio_display import ratio_parts
 from solid_geometry import signature
 from bom import export, build
 from test_geometry import inside, distance
 
 class EngineeringTests(unittest.TestCase):
+
+    def test_signed_ratio_display_and_its_finite_limits(self):
+        for value, expected in (
+            (3, '+3:1'), (-3, '-3:1'), (1, '+1:1'), (-1, '-1:1'),
+            (1/3, '+1:3'), (-1/3, '-1:3'),
+            (1e-300, '+1:1e+300'), (5e-324, '+4.941e-324:1'),
+        ):
+            with self.subTest(value=value):
+                self.assertEqual(''.join(ratio_parts(value)), expected)
+                self.assertEqual(''.join(ratio_parts(value, signed=False)), expected[1:])
+        self.assertNotEqual(ratio_parts(math.nextafter(1.0, 0.0)), ('+1', ':1'))
+        self.assertNotEqual(ratio_parts(math.nextafter(1.0, math.inf)), ('+1', ':1'))
+
+    def test_report_shows_notation_and_retains_canonical_ratio(self):
+        design = generate('parallel', {'pinion': 20, 'wheel': 60, 'io_scheme': 'reverse'})
+        ratio = design.analysis['signed_ratio']
+        self.assertEqual(ratio, -1/3)
+        text = report_text(design)
+        self.assertIn('Input/output ratio: -1:3 (i = -0.333333333333)', text)
+        self.assertNotIn('Input/output ratio -0.333333:1', text)
+        self.assertEqual(design.analysis['signed_ratio'], ratio)
 
     def test_industrial_helical_example_and_real_tooth_heights(self):
         d = generate('helical', {'module': 4, 'teeth': 30, 'helix': 15})

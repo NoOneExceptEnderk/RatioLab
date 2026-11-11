@@ -6,7 +6,6 @@ Only explicit grids vary. Every accepted candidate is regenerated and checked
 against its normalized locked baseline; ranking has no continuous/global optimum
 claim. Cancellation and time budgets are observed between core operations.
 """
-from parallel_multistage import VARIANTS as PARALLEL_MULTISTAGE_VARIANTS
 from copy import deepcopy
 from parallel_multistage import VARIANTS as PARALLEL_MULTISTAGE_VARIANTS
 from dataclasses import dataclass, field
@@ -15,6 +14,7 @@ from math import isfinite, prod
 from time import monotonic
 from geometry import generate, get_specs, INTEGER
 from solid_geometry import rings, point
+from ratio_display import ratio_parts
 
 FAMILIES = ('parallel', 'internal', 'planetary', 'cycloidal', 'harmonic', 'worm', 'bevel', 'hypoid', 'face')
 COUNT_KEYS = dict(parallel=('pinion', 'wheel', 'pinion2', 'wheel2', 'pinion3', 'wheel3'), internal=('pinion', 'wheel'),
@@ -27,7 +27,8 @@ COUNT_KEYS['face'] = ('pinion', 'wheel')
 
 def variables(family, values):
     """Only these geometrical dimensions can be unlocked. Every other key is fixed."""
-    allowed = set(COUNT_KEYS.get(family, ())) | {'module', 'width', 'width2', 'radius'}
+    allowed = set(COUNT_KEYS.get(family, ())) | {'module', 'width', 'width2', 'radius',
+                                                'pressure', 'helix', 'profile_shift', 'center_extra'}
     if family == 'parallel':
         allowed.update(('module2', 'module3', 'width3'))
     return [s for s in get_specs(family, values.get('variant'), values.get('double_style')) if s[0] in allowed]
@@ -74,8 +75,14 @@ class Settings:
     max_candidates: int = 50000
     max_seconds: float = 30.
     max_results: int = 100
+    ranking: str = 'ratio'
+    min_profile_contact: float = 0.
 
     def validate(self):
+        if self.ranking not in ('ratio', 'compact', 'contact'):
+            raise ValueError('Choose ratio, compact or contact ranking.')
+        if isinstance(self.min_profile_contact, bool) or not isinstance(self.min_profile_contact, (int, float)) or not isfinite(self.min_profile_contact) or self.min_profile_contact < 0:
+            raise ValueError('Minimum usable contact ratio must be finite and nonnegative.')
         if isinstance(self.target, bool) or not isfinite(self.target) or self.target <= 0:
             raise ValueError('Target magnitude |input speed / output speed| must be finite and positive.')
         if not isfinite(self.tolerance_percent) or not 0 <= self.tolerance_percent < 100:
@@ -145,6 +152,7 @@ class Proposal:
     minimum: tuple
     maximum: tuple
     changes: dict
+    comparison: dict = field(default_factory=dict)
 
     @property
     def xyz(self):
@@ -171,6 +179,7 @@ class Result:
     reason: str = ''
     proposals: list = field(default_factory=list)
     revision: object = None
+    exclusions: dict = field(default_factory=dict)
 
     @property
     def complete(self):
@@ -188,11 +197,13 @@ class Result:
                  'Enumerated grids: '+repr(self.axes),
                  f'Budget: {s.max_candidates} candidates, {s.max_seconds:g} s; {s.max_results} retained results.',
                  f'{"Complete finite domain" if self.complete else "PARTIAL search: "+self.reason} · {self.visited}/{self.total} visited · {self.generated} generated · {self.valid} valid · {self.matched} matching · {self.rejected} rejected · {self.elapsed:.3f} s',
-                 'Ranking: ratio error %, then nominal XYZ bounding box volume, then XYZ lengths. No continuous or global optimum claim; only this finite domain.',
+                 f'Ranking: {s.ranking}; minimum usable profile contact ratio: {s.min_profile_contact:g}. Only the visited finite domain is compared; no continuous or global optimum claim.',
+                 'Exclusions: '+repr(self.exclusions),
                  f'{len(self.proposals)} retained proposals'+(' · No results satisfy this finite search.' if not self.proposals else ''),
                  'Generator validation is not a motion interference check or a strength/load rating.']
         for n, p in enumerate(self.proposals, 1):
-            lines.append(f'{n}. i={p.ratio:+.12g}; error={p.error_percent:.9g}%; XYZ={p.xyz} mm; changes={p.changes}')
+            ratio = ''.join(ratio_parts(p.ratio, 10))
+            lines.append(f'{n}. {ratio} (i={p.ratio:+.12g}); error={p.error_percent:.9g}%; XYZ={p.xyz} mm; changes={p.changes}; comparison={p.comparison}')
         return '\n'.join(lines)
 
 
@@ -206,6 +217,8 @@ def search(family, base, axes, settings=None, cancel=None, progress=lambda messa
     settings.validate()
     if family not in FAMILIES:
         raise ValueError('Ratio search requires a single fixed input/output ratio. Select a supported reducer assembly.')
+    if (settings.ranking == 'contact' or settings.min_profile_contact > 0) and family not in ('parallel', 'internal', 'planetary'):
+        raise ValueError('Usable profile contact comparison requires cylindrical parallel, internal or planetary meshes.')
     # Preparation counts toward elapsed time; generation itself is cooperative.
     started = monotonic()
     if cancel is not None and cancel.is_set():
@@ -235,6 +248,8 @@ def search(family, base, axes, settings=None, cancel=None, progress=lambda messa
                 grid.append(int(value) if key in INTEGER else value)
         grids[key] = tuple(grid)
     result = Result(family, base, grids, settings, prod(map(len, grids.values())))
+    def exclude(reason):
+        result.exclusions[reason] = result.exclusions.get(reason, 0)+1
     def check():
         if cancel is not None and cancel.is_set():
             raise Halt('cancelled')
@@ -249,6 +264,7 @@ def search(family, base, axes, settings=None, cancel=None, progress=lambda messa
             result.visited += 1
             progress(f'Evaluating candidate {result.visited}/{result.total} · {result.generated} generated', result.visited/result.total)
             if not matches(estimated_ratio(family, candidate), settings):
+                exclude('ratio')
                 continue
             check()
             result.generated += 1
@@ -257,28 +273,44 @@ def search(family, base, axes, settings=None, cancel=None, progress=lambda messa
                 check()
                 # Derived values are locked too: no silent module/bore/width/option changes.
                 if any(design.values.get(k) != v for k, v in base.items() if k not in grids):
+                    exclude('locked parameters')
                     result.rejected += 1
                     continue
                 if any(design.values.get(k) != v for k, v in zip(grids, numbers)):
+                    exclude('normalized grid values')
                     result.rejected += 1
                     continue
                 ratio = design.analysis['signed_ratio']
                 result.valid += 1
                 if not matches(ratio, settings):
+                    exclude('ratio')
                     continue
                 minimum, maximum = nominal_bounds(design, check)
                 xyz = tuple(b-a for a, b in zip(minimum, maximum))
                 if any(length > limit for length, limit in zip(xyz, settings.max_xyz)):
+                    exclude('size limits')
                     continue
+                contacts = [m.get('profile_contact_total') for m in design.analysis.get('meshes', [])]
+                contact = min(contacts) if contacts and all(isinstance(v, (int, float)) and isfinite(v) for v in contacts) else None
+                if (settings.min_profile_contact > 0 and (contact is None or contact < settings.min_profile_contact)
+                        or settings.ranking == 'contact' and contact is None):
+                    exclude('usable contact ratio')
+                    continue
+                from engineering import geometry_warnings
+                comparison = dict(min_profile_contact=contact,
+                                  warning_count=len(geometry_warnings(design)),
+                                  envelope_volume_mm3=prod(xyz))
                 changes = {k: (base[k], design.values[k]) for k in grids if base[k] != design.values[k]}
                 # Grid values are deduplicated and every enumerated value must
                 # survive generation unchanged, so distinct tuples cannot alias.
                 result.matched += 1
-                proposal = Proposal(deepcopy(design.values), ratio, abs(abs(ratio)-settings.target)/settings.target*100, minimum, maximum, changes)
+                proposal = Proposal(deepcopy(design.values), ratio, abs(abs(ratio)-settings.target)/settings.target*100, minimum, maximum, changes, comparison)
                 result.proposals.append(proposal)
-                result.proposals.sort(key=lambda p: p.sort_key)
+                result.proposals.sort(key=lambda p: ((p.comparison['envelope_volume_mm3'], p.sort_key) if settings.ranking == 'compact' else
+                                                    (-p.comparison['min_profile_contact'], p.sort_key) if settings.ranking == 'contact' else p.sort_key))
                 del result.proposals[settings.max_results:]
             except (ValueError, KeyError, OverflowError, ZeroDivisionError):
+                exclude('invalid geometry')
                 result.rejected += 1
             finally:
                 # Few expensive candidates still report each generator return;

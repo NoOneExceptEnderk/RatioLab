@@ -5,6 +5,7 @@ import re
 import gi
 gi.require_version('Gtk','4.0')
 from gi.repository import Gtk
+from ratio_display import ratio_parts
 
 
 def label(value, style):
@@ -62,7 +63,8 @@ def items(design):
         return [('Pitch diameter', f'{2*gear["pitch_radius"]:.3f}', 'mm', 'Reference pitch circle'),
                 ('Tooth count', str(v['teeth']), '', f'Normal module {v["module"]:g} mm'),
                 ('Face width', f'{v["width"]:g}', 'mm', 'Axial gear width')]
-    result = [('Effective ratio', f'{ratio:+.4g}', ':1',
+    ratio_value, ratio_unit = ratio_parts(ratio)
+    result = [('Effective ratio', ratio_value, ratio_unit,
                'Same rotation direction' if ratio>0 else 'Opposite rotation direction'),
               ('Output speed', f'{output["rpm"]:.2f}', 'rpm',
                f'At {a["input"]["rpm"]:g} rpm input')]
@@ -70,15 +72,15 @@ def items(design):
     match = re.search(r'housing (?:diameter |Ø )([0-9.]+) mm', ' · '.join(design.metrics), re.I)
     if design.family == 'bevel':
         q=a['bevel_pair']
-        result[0]=('Effective ratio', f'{ratio:+.4g}', ':1', 'Signs about pinion +X and wheel +Z')
+        result[0]=('Effective ratio', ratio_value, ratio_unit, 'Signs about pinion +X and wheel +Z')
         result.append(('Pitch cone angles', f'{q["pinion_pitch_angle_deg"]:.3f} / {q["wheel_pitch_angle_deg"]:.3f}', '°', 'Shaft angle 90°'))
     elif design.family == 'face':
-        q=a['face_gear'];result[0]=('Effective ratio',f'{ratio:+.4g}',':1','Signs about pinion +X and face wheel +Z')
+        q=a['face_gear'];result[0]=('Effective ratio',ratio_value,ratio_unit,'Signs about pinion +X and face wheel +Z')
         result.append(('Tooth-band width',f"{v['width']:g}",'mm','Along pinion shaft · shaft angle 90°'))
         if v['offset']:
             result[-1]=('Shaft offset',f"{v['offset']:+g}",'mm','Skew axes · directions 90°')
     elif design.family == 'hypoid':
-        result[0]=('Effective ratio', f'{ratio:+.4g}', ':1', 'Signs about offset pinion +X and wheel +Z')
+        result[0]=('Effective ratio', ratio_value, ratio_unit, 'Signs about offset pinion +X and wheel +Z')
         result.append(('Shaft offset',f'{v["offset"]:+g}','mm','90° shaft directions · offset along world Y'))
     elif match:
         result.append(('Housing diameter', match.group(1), 'mm',

@@ -115,20 +115,46 @@ reports and a checksum inventory. Keep downloaded JSON files: recent projects
 and unsaved draft recovery are local to this browser/origin, and private browsing
 or cleared site data can remove them. Undo/Redo preserve document edits.
 
-**Theme** is an on/off switch: on selects light, off selects dark. **Language** changes the
-interface text using the same nine languages as the documentation. Both are
-saved for this browser and site, independently of projects, history and numeric
-precision. Technical parameter explanations, model limits and on-screen reports
-also use the selected language; schematics have numbered references and translated
-legends. Downloaded reports and structured model data keep their canonical content.
+The export dialog starts with **Complete assembly**, matching desktop. Choose
+**Selected components** explicitly and review its count and source indices/names;
+an empty or changed selection cannot fall back to a complete export. Project
+JSON always saves the complete editable configuration. The format description
+identifies section profiles and sampled geometry, and shows applicable export
+interpolation separately from preview detail. Package previews include the
+chosen scope even when parts are hidden, without section, explosion or motion.
+The browser controls the download location; **Last export** retains the prepared
+archive name, file inventory and component list. Preparing a download does not
+verify that the browser saved it to disk.
 
-Custom palette import/export, desktop Settings and customizable keyboard/mouse
-CAD presets are desktop features. Browser light/dark and language preferences
-remain local to this site; opening a desktop project does not import desktop
-appearance or control preferences.
+**File** is the upper-left dropdown for New, Open, Recent, recovery, Save,
+Save As and Reset defaults. RatioLab branding is centered; the original CAD and
+Export icons stay on the right. **Settings** in the toolbar (Ctrl+,) opens the
+shared **Appearance**, **Controls**, **Model precision**, **General** sidebar.
+The theme switch now lives under Appearance, with editable palettes and portable
+`ratiolab-theme/1` import/export. CAD presets set both keyboard and mouse controls;
+browser-reserved shortcuts have available equivalents displayed in the editor.
+See [workspace preferences](preferences.md#browser-differences).
+
+**Language** also remains available in the toolbar. Settings are saved for this
+browser origin independently of projects, history and numeric precision.
+Technical help and on-screen reports use the selected language; downloads retain
+canonical content. Model precision belongs to the project and uses **Apply**,
+with separate preview/export thresholds and model-specific error bounds. Unknown
+complete bounds are explicit. These describe approximation, not elastic
+deformation, manufacturing tolerances or file-conversion accuracy.
 
 Tools include component surface measurements, theoretical gear metrology,
 finite combination search, discrete interference and working-backlash proposals.
+Tools follow generated construction capabilities, and metrology uses the current
+single compatible component selection. Search starts with local tooth-count
+ranges and keeps other dimensions under **More dimensions**. Ratio, compact
+envelope and usable-contact ranking share the desktop query implementation;
+advanced fields include the optional minimum usable-contact constraint. Results
+show named current/proposed values; Apply remains unavailable for an unchanged
+candidate. Interference filters affect only the displayed findings, retaining
+coverage and the full report. Backlash shows its nominal target bracket before
+the separate contact and interference checks, and compares current/proposed
+centre distance and working backlash. Run/Cancel/Apply controls stay together.
 Search results require explicit Apply; a changed source invalidates old results.
 Cancel terminates the busy worker, restarts the engine and regenerates the latest
 current parameters. Retry restarts a failed load after missing/blocked bundle
@@ -199,6 +225,7 @@ pane. A horizontal **Dimensions**, **Motion**, **Assembly** bar below those sele
 chooses the parameter section. Changing section retains the current design and
 parameter drafts.
 
-**Theme** is a direct on/off switch; **Language** is a separate compact menu in the toolbar. Their
-choices apply immediately; storage failures keep the session choice and show a
-notice. Neither menu changes the generated geometry or project recovery.
+**Settings > Appearance** contains color mode and theme editing; **Language**
+remains a compact toolbar menu and is also available under General. Workspace
+preferences apply immediately; storage failures retain the session choice and
+show a notice. They do not edit the model or its recovery.

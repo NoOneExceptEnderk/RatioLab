@@ -33,6 +33,7 @@ class ComponentGuiTests(unittest.TestCase):
         a.load_config_data(dict(format='solidcraft-riduttori/1',family='parallel',parameters=generate('parallel',dict(input_rpm=60)).values));pump(.08)
         for key in ('support','housing','exploded','section'):a.view_options[key].set_active(False)
         a.components.open();self.c=a.components;self.c.measure.set_active(False);a.canvas.view('top');pump(.08)
+        self.assertTrue(wait_until(lambda:a.canvas.camera_transition is None,3))
         a.output_dir=Path(self.temp.name)/f'exports-{self.id().split(".")[-1]}'
 
     def xy(self,q):
@@ -58,6 +59,7 @@ class ComponentGuiTests(unittest.TestCase):
         self.click((10,0,10));self.click((0,10,10));self.assertEqual(len(c.points),2)
         for got,expected in zip(c.points[0][1],(10,0,10)):self.assertAlmostEqual(got,expected,places=7)
         self.assertIn('14.142136 mm',c.measure_text.get_text());self.assertIn('Nominal assembly pose',c.measure_text.get_text())
+        self.assertIn('ΔXYZ',c.measure_text.get_text())
         oldpoints=list(c.points);oldxy=self.xy(c.points[0][1]);events=[]
         handler=a.canvas.connect('view-changed',lambda _,name:events.append(name))
         a.canvas.scroll(None,0,-1);pump();a.canvas.disconnect(handler)
@@ -93,8 +95,15 @@ class ComponentGuiTests(unittest.TestCase):
 
     def test_revision_identity_raw_invalid_refresh_and_undo(self):
         a=self.app;c=self.c;c.select((0,));token=a.document.token;a.refresh();self.assertEqual(c.selected,(0,));self.assertEqual(a.document.token,token)
+        accepted = a.design
+        preview = a.canvas.design
+        self.assertIsNotNone(accepted)
         a.inputs['module'].set_text('-');self.assertFalse(c.selected);self.assertIsNone(c.revision)
-        pump(.15);self.assertIsNone(a.design);self.assertFalse(c.export_buttons[0].get_sensitive())
+        pump(.15)
+        self.assertIs(a.design, accepted)
+        self.assertIs(a.canvas.design, preview)
+        self.assertFalse(a.export_menu.get_sensitive())
+        self.assertFalse(c.export_buttons[0].get_sensitive())
         a.undo_project();pump(.08);self.assertIsNotNone(a.design);self.assertFalse(c.selected)
         c.select((0,));old=a.document.token;a.load_config_data(a.config());self.assertNotEqual(a.document.token[0],old[0]);self.assertFalse(c.selected)
 

@@ -52,6 +52,7 @@ def selection_snapshot(snapshot):
     """Bind selection to geometry; operating edits still invalidate measurements."""
     snapshot=deepcopy(snapshot)
     snapshot.pop('quality',None)
+    snapshot.pop('component_sheets',None)
     for section in ('values','raw'):
         fields=snapshot.get(section,{}).get(snapshot.get('family'),{})
         for key in SPEED_KEYS:fields.pop(key,None)
@@ -158,6 +159,11 @@ class Controller:
         buttons=actions(body)
         self.isolate_button=Gtk.Button(label='Isolate');self.isolate_button.connect('clicked',lambda _:self.isolate());buttons.append(self.isolate_button)
         self.restore_button=Gtk.Button(label='Restore view');self.restore_button.connect('clicked',lambda _:self.restore());buttons.append(self.restore_button)
+        self.teeth_button=Gtk.Button(label='View teeth',tooltip_text='Select one supported gear to view its teeth.')
+        self.teeth_button.connect('clicked',lambda _:self.view_teeth());buttons.append(self.teeth_button)
+        self.metrology_button=Gtk.Button(label='Gear metrology…')
+        self.metrology_button.connect('clicked',lambda _:self.app.gear_measurement.open())
+        buttons.append(self.metrology_button)
         clear=Gtk.Button(label='Clear');clear.connect('clicked',lambda _:self.select(()));buttons.append(clear)
         self.detail=label();self.detail.set_selectable(True);detail_scroll=Gtk.ScrolledWindow(min_content_height=45,max_content_height=115,propagate_natural_height=True);detail_scroll.set_child(self.detail);details(body,'Component details · nominal bounds in mm',detail_scroll)
         measure_row=actions(measure_body)
@@ -173,7 +179,10 @@ class Controller:
         body.append(Gtk.Separator());self.export_text=label();body.append(self.export_text)
         exports=actions(body);self.export_buttons=[]
         for kind,title in [('step','STEP'),('stl','STL'),('profiles','DXF / SVG'),('package','Package')]:
-            b=Gtk.Button(label=title);b.connect('clicked',lambda _,k=kind:self.export(k));exports.append(b);self.export_buttons.append(b)
+            b=Gtk.Button(label=title);b.connect('clicked',lambda _,k=kind:self.app.open_export(k, selected=True));exports.append(b);self.export_buttons.append(b)
+        self.sheets_button=Gtk.Button(label='PDF sheets…',tooltip_text='Production / inspection sheets…')
+        self.sheets_button.connect('clicked',lambda _:self.open_sheets())
+        exports.append(self.sheets_button)
         win.connect('close-request',self.window_closed)
         self.populate();self.update();win.present();self.list.grab_focus()
 
@@ -240,6 +249,13 @@ class Controller:
         if not self.window:return
         self.isolate_button.set_sensitive(current and n>0);self.restore_button.set_sensitive(self.saved_filters is not None)
         for button in self.export_buttons:button.set_sensitive(current and n>0 and not self.app.busy)
+        self.sheets_button.set_sensitive(current and n==1 and not self.app.busy)
+        from tooth_tip_preview import supported
+        self.teeth_button.set_sensitive(current and n==1 and not self.app.busy
+            and supported(self.app.design.parts[self.selected[0]]))
+        from tool_capabilities import gauge_components
+        self.metrology_button.set_sensitive(current and n==1 and self.selected[0] in gauge_components(self.app.design) and not self.app.busy)
+        self.sheets_button.set_tooltip_text('Production / inspection sheets…' if current and n==1 else 'Sheets require exactly one selected component.')
         descriptions=[]
         if current:
             import bom
@@ -257,6 +273,11 @@ class Controller:
 
     @staticmethod
     def xyz(q):return '('+', '.join(f'{v:.6f}' for v in q)+') mm'
+
+    def open_sheets(self):
+        if not self.current() or len(self.selected)!=1 or self.app.busy:return None
+        from component_sheets_ui import open_editor
+        return open_editor(self.app,self.selected[0])
 
     def visible_indices(self):
         c=self.app.canvas
@@ -344,7 +365,10 @@ class Controller:
             if len(self.points)==2:self.clear_points()
             self.points.append((index,q));self.pose=self.pose_key()
             lines=[f'{"AB"[j]} · {i+1:03d} {self.app.design.parts[i].name} · XYZ {self.xyz(p)}' for j,(i,p) in enumerate(self.points)]
-            if len(self.points)==2:lines.append(f'A–B straight distance: {geometry.distance(self.points[0][1],self.points[1][1]):.6f} mm')
+            if len(self.points)==2:
+                a,b=self.points[0][1],self.points[1][1]
+                lines.append(f'A–B straight distance: {geometry.distance(a,b):.6f} mm')
+                lines.append('B − A · ΔXYZ: '+self.xyz(tuple(y-x for x,y in zip(a,b))))
             lines.append(('Displayed exploded pose' if canvas.exploded else 'Displayed motion / inspection pose' if plan else 'Nominal assembly pose')+f' · phase {phase*180/pi:.6g}° · sampled surfaces')
             self.measure_text.set_text('\n'.join(lines));self.markers.queue_draw()
         else:
@@ -355,7 +379,7 @@ class Controller:
 
     def draw(self,area,cr,width,height):
         c=self.app.canvas
-        if not self.points or not c.scene:return
+        if not self.points or not c.scene or c.tooth_detail is not None:return
         coords=[geometry.project(q,c.camera_center,c.scene.radius,c.zoom,c.yaw,c.tilt,width,height) for _,q in self.points]
         def stroke():
             cr.set_source_rgb(.035,.045,.06);cr.set_line_width(6);cr.stroke_preserve()
@@ -367,6 +391,32 @@ class Controller:
             cr.set_source_rgb(.035,.045,.06);cr.set_line_width(4);cr.stroke_preserve()
             cr.set_source_rgb(1,.96,.5);cr.fill()
 
+    def capture_export_preview(self, indices=None):
+        """Capture exactly the export scope without changing the user's view state."""
+        from preview3d import build_scene
+        canvas=self.app.canvas
+        # Do not emit view/motion signals: temporary export state must not clear
+        # measurements, selection, tooth detail or the current camera session.
+        keys=('scene','isolated_indices','motion_enabled','motion_phase','inspection_phase',
+              'inspection_indices','exploded','section','tooth_detail','selected_indices')
+        saved={key:getattr(canvas,key) for key in keys}
+        try:
+            canvas.scene=build_scene(self.app.design,True,True,frame_explosion=True)
+            canvas.isolated_indices=indices
+            canvas.motion_enabled=False;canvas.motion_phase=0.;canvas.inspection_phase=None
+            canvas.inspection_indices=();canvas.selected_indices=();canvas.exploded=0.;canvas.section=False
+            canvas.tooth_detail=None;canvas.dirty=True
+            captured=[]
+            canvas.capture_png(lambda data,error:captured.append((data,error)))
+            if not captured:
+                canvas.capture_callback=None
+                raise RuntimeError('Preview is not ready. Try exporting again.')
+            if captured[0][1]:raise RuntimeError(str(captured[0][1]))
+            return captured[0][0]
+        finally:
+            for key,value in saved.items():setattr(canvas,key,value)
+            canvas.dirty=True;canvas.queue_render()
+
     def export(self,kind):
         app=self.app
         if app.busy or not self.current() or not self.selected:return
@@ -377,27 +427,9 @@ class Controller:
             app.export_feedback.failed('The selected components changed. Select current components before exporting.');return
         design=deepcopy(app.design);config=deepcopy(app.config());png=None
         if kind=='package':
-            canvas=app.canvas
-            saved=dict(options=app.view_state(),isolated=canvas.isolated_indices,
-                enabled=canvas.motion_enabled,phase=canvas.motion_phase,plan=canvas.inspection_motion_plan or canvas.motion_plan,inspection=canvas.inspection_phase,inspection_indices=canvas.inspection_indices,playing=canvas.motion_playing,points=deepcopy(self.points),pose=self.pose,measurement=self.measure_text.get_text() if self.window else '')
-            try:
-                canvas.reset_motion()
-                for key in ('support','housing'):app.view_options[key].set_active(True)
-                for key in ('exploded','section'):app.view_options[key].set_active(False)
-                canvas.isolated_indices=indices
-                captured=[];canvas.capture_png(lambda data,error:captured.append((data,error)))
-                if not captured or captured[0][1]:raise RuntimeError('Selected preview capture failed')
-                png=captured[0][0]
+            try:png=self.capture_export_preview(indices)
             except Exception as error:
                 app.status_text(str(error));app.export_feedback.failed(str(error));return
-            finally:
-                app.restore_view_state(saved['options'])
-                canvas.isolated_indices=saved['isolated'];canvas.motion_phase=saved['phase'];canvas.motion_enabled=saved['enabled'];canvas.motion_plan=saved['plan']
-                if saved['inspection'] is not None:canvas.show_inspection(saved['inspection'],saved['inspection_indices'])
-                if saved['playing']:canvas.set_motion_playing(True)
-                self.points=saved['points'];self.pose=saved['pose']
-                if self.window:self.measure_text.set_text(saved['measurement'])
-                self.markers.queue_draw();canvas.queue_render()
         if not self.current() or self.revision!=token:return
         target=Path(app.output_dir).absolute()/f'{design.family}-{datetime.now():%Y%m%d-%H%M%S-%f}.selected-{kind}'
         def work():
@@ -405,3 +437,6 @@ class Controller:
             return ExportResult('Selected '+{'step':'STEP','stl':'STL','profiles':'SVG / DXF profiles','package':'package'}[kind],
                                 (folder,),f'Selected components only · {len(indices)} source positions · nominal mm · {folder}')
         app.background(work,export_job=True)
+    def view_teeth(self):
+        if not self.current() or len(self.selected)!=1 or self.app.busy:return
+        self.app.tooth_tips.focus_component(self.selected[0])

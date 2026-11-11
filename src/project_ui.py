@@ -93,6 +93,7 @@ class ProjectActions:
         result=deepcopy(dict(family=self.family, values=self.values, raw=self.raw_edits,
                              automatic=self.automatic_edits))
         if getattr(self,'quality',None):result['quality']=deepcopy(self.quality)
+        if getattr(self,'component_sheets',None):result['component_sheets']=deepcopy(self.component_sheets)
         return result
 
     def project_changed(self, group=None):
@@ -160,6 +161,8 @@ class ProjectActions:
             from geometry_quality import normalize
             from precise_numbers import restore
             self.quality = normalize(snapshot.get('quality'))
+            from component_sheets import normalize as normalize_sheets
+            self.component_sheets = normalize_sheets(snapshot.get('component_sheets'))
             self.family = snapshot['family']
             # JSON recovery has plain floats plus an exact source map. Rebuild
             # their numeric backing before creating any entry or RPM control.
@@ -239,7 +242,11 @@ class ProjectActions:
         from geometry_quality import project,with_quality
         current=getattr(self,'design',None)
         checked=with_quality(current,getattr(self,'quality',{})) if current and current.family==self.family and current.values==values else generate(self.family,values,quality=getattr(self,'quality',{}))
-        return project(checked)
+        result = project(checked)
+        from component_sheets import normalize as normalize_sheets
+        metadata = normalize_sheets(getattr(self, 'component_sheets', {}))
+        if metadata:result['component_sheets'] = metadata
+        return result
 
     def checked_config(self, obj):
         if not isinstance(obj, dict) or obj.get('format') != 'solidcraft-riduttori/1':
@@ -249,6 +256,8 @@ class ProjectActions:
             raise ValueError('Unsupported reducer: '+str(family))
         if not isinstance(obj.get('parameters'), dict):
             raise ValueError('Configuration parameters must be an object')
+        from component_sheets import normalize as normalize_sheets
+        normalize_sheets(obj.get('component_sheets'))
         return generate(family, obj['parameters'],quality=obj.get('quality'))
 
     def load_config_data(self, obj, path=None):
@@ -256,6 +265,7 @@ class ProjectActions:
         old = self.project_snapshot() if hasattr(self, 'document') else None
         snapshot = dict(family=checked.family, values={checked.family: checked.values}, raw={})
         if checked.quality:snapshot['quality']=checked.quality
+        if obj.get('component_sheets'):snapshot['component_sheets']=deepcopy(obj['component_sheets'])
         try:
             self.restore_project_snapshot(snapshot)
         except Exception:

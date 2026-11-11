@@ -48,8 +48,6 @@ def gauge_report_lines(result):
 def measurement_query(design, source_index, diameter_mm, gauge_type='ball', revision=None):
     """Read-only query on a generated, explicitly selected cylindrical member."""
     from copy import deepcopy
-    if design.family not in ('spur', 'helical', 'double', 'parallel', 'internal', 'planetary'):
-        raise ValueError('This family has no supported cylindrical gauge measurement.')
     if isinstance(source_index, bool) or not isinstance(source_index, int) or not 0 <= source_index < len(design.parts):
         raise ValueError('Select an existing source component.')
     part = design.parts[source_index]
@@ -60,15 +58,22 @@ def measurement_query(design, source_index, diameter_mm, gauge_type='ball', revi
     return dict(format='ratiolab-gauge-measurement/1', family=design.family,
                 source_position=source_index+1, part=part.name, revision=revision,
                 parameters=deepcopy(design.values), geometry=deepcopy(profile['measurement_geometry']),
-                result=result)
+                span=deepcopy(profile.get('wildhaber_span', {})),
+                tooth_thickness=deepcopy(profile.get('tooth_thickness', {})), result=result)
 
 
 def measurement_query_text(query):
-    return '\n'.join(['RatioLab theoretical gauge measurement',
+    lines = ['RatioLab theoretical gauge measurement',
                       f"Family: {query['family']} · source component {query['source_position']}: {query['part']}",
                       f"Document revision: {query['revision']}",
-                      'Read-only query; project parameters have not been changed.', '']+
-                     gauge_report_lines(query['result']))+'\n'
+                      'Read-only query; project parameters have not been changed.', ''] + gauge_report_lines(query['result'])
+    span = query.get('span', {})
+    if span.get('status') == 'ok':
+        lines += ['', 'Wildhaber span · symmetric flat jaws · external spur only']
+        for row in span['usable_spans']:
+            lines.append(f"k={row['k']}: W_k {row['span_mm']:.6f} mm · contact R {row['contact_radius_mm']:.6f} mm"
+                         + (' · recommended' if row['k'] == span['recommended_k'] else ''))
+    return '\n'.join(lines)+'\n'
 
 
 def export_measurement(query, target):

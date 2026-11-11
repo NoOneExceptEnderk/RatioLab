@@ -5,7 +5,7 @@ from copy import deepcopy
 from gi.repository import Gdk
 import unittest
 import test_workspace_theme_preferences as fixtures
-from test_interference_gui import pump
+from test_interference_gui import pump,wait_until
 from component_geometry import project
 
 
@@ -21,7 +21,7 @@ class NavigationCubeTests(unittest.TestCase):
 
     def test_right_drag_pan_picking_and_display_preserve_document(self):
         app=self.launch();c=app.canvas;before=deepcopy(app.project_snapshot())
-        app.components.open();c.view('top');pump()
+        app.components.open();c.view('top');self.assertTrue(wait_until(lambda:c.camera_transition is None))
         class Gesture:
             def get_current_button(self):return 3
             def get_current_event_state(self):return Gdk.ModifierType(0)
@@ -32,7 +32,7 @@ class NavigationCubeTests(unittest.TestCase):
         c.emit('component-click',*xy,False);self.assertEqual(app.components.selected,(0,))
         for direction in ((1,0,0),(0,0,-1),(1,-1,1)):
             c.orient(direction);pump();self.assertIsNone(c.failure)
-        c.view('iso');self.assertEqual(c.pan_offset,(0.,0.,0.))
+        c.view('iso');self.assertTrue(wait_until(lambda:c.camera_transition is None));self.assertEqual(c.pan_offset,(0.,0.,0.))
         app.view_menu.set_active(True);pump();self.assertTrue(app.view_panel.get_visible())
         self.assertEqual((app.navigation_cube.get_width(),app.navigation_cube.get_height()),(116,116))
         app.view_options['section'].set_active(True);app.explode_slider.set_value(.5);pump()

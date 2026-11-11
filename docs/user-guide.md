@@ -29,6 +29,12 @@ declared export/prototype limits.
 
 ## Workspace
 
+For company-entered production data and printable inspection records, see
+[component production and inspection sheets](component-sheets.md). The desktop
+action is in **Tools → Components / measure…**, after selecting one part.
+
+For complete worked examples with screenshots and ready-to-open projects, see the [illustrated Tools walkthroughs (nine languages)](tutorials/tools.md).
+
 The application uses the **Technical workspace**: a compact parameter panel on the left with paired primary dimensions and expandable advanced parameters, a dominant 3D preview, a prominent results band below the model and a single motion bar beneath it. **Tools** opens a translucent panel over the preview. The orientation cube and its compact navigation controls stay in the upper-right corner; the sliders icon opens Display options without resizing the preview. The window displays the RatioLab name and RL icon.
 
 ![RatioLab technical workspace](../assets/screenshots/workspace.png)
@@ -114,6 +120,16 @@ The **Explode** slider in **View** moves continuously from the assembled pose at
 
 Invalid input remains visible, with a field message when the generator identifies the cause. Geometry actions are blocked immediately while a geometry update is pending. Invalid geometry stops motion; the last valid model of the same family remains visible with an explicit warning that it does not match the current parameters. An incomplete or unconfirmed RPM entry keeps motion at the last valid speed. Pressing Enter, leaving the speed field or requesting a save/export confirms the entry; failed confirmation shows a field error and blocks geometry exports and CAD transfers until the speed is corrected, while prior motion continues. No automatic correction replaces an invalid numeric entry on focus loss.
 
+Desktop and browser highlight all identified dimensions involved in a shared
+constraint, independently of the message language. For example, equal planet
+spacing involves the sun and planet tooth counts and the number of planets;
+the second stage identifies its own tooth fields. The accompanying remedy
+explains which dimensions can change. Apply one of the suggested changes and
+recheck the model; suggestions do not silently edit other parameters. Errors
+without field metadata remain general messages, and internal calculation
+failures are reported separately from invalid input. These are geometric
+construction constraints, not strength or manufacturing checks.
+
 Numeric fields omit unnecessary leading and trailing zeros when you press Enter or leave a completed entry. Automatically displayed values use up to six decimal places (scientific notation for very small values), while calculations and saved projects retain their full precision. Explicitly entered decimal places are preserved, apart from redundant zeros; no additional decimal rounding is applied to typed input.
 
 Projects preserve extra decimal sources in `_decimal_inputs`; keep those sources
@@ -151,7 +167,7 @@ These fifteen families are available, in this order:
 | Helical gear | Adjustable helix angle and hand |
 | Double helical gear | Joined helices or separated by a groove |
 | Planetary gearbox | Spur, helical, double helical, one or two stages |
-| Cycloidal reducer | Single or dual disc with opposing eccentrics |
+| Cycloidal reducer | Single or dual disc with opposing eccentrics. See the [15:1 worked example](tutorials/cycloidal-drive-generator.md). |
 | Strain wave reducer | Cup, flat cup, silk hat; generated matching ring |
 | Worm and wheel | Cylindrical ZA / ZI with generated wheel |
 | Parallel shaft reducer | One, two or three stages; spur, helical or double helical teeth |
@@ -303,8 +319,7 @@ preview-only; pan and orientation do not edit the project or nominal exports.
 
 Use the motion controls below the results: **Start motion / Pause**, **Initial
 pose**, a precise RPM entry, the progressive RPM slider and ±1 controls.
-**Rate info** opens the current motion convention; **I/O connections** opens
-the Motion parameters. Press Enter or leave the RPM entry to apply; decimal
+**I/O connections** opens the Motion parameters. Press Enter or leave the RPM entry to apply; decimal
 points and commas are accepted. All inputs at zero freeze the phase. Changing
 only valid RPM preserves the displayed pose.
 
@@ -322,9 +337,9 @@ applied speed. Release the slider to apply the final value as one Undo step.
 Keyboard adjustments apply on key release; Save/Export also confirms a pending
 slider choice. Cancelling the gesture leaves the applied speed unchanged.
 
-Closing Rate info does not stop playback. Starting motion returns from exploded view to the assembly pose. At high speeds, video sampling may cause visual aliasing.
+Starting motion returns from exploded view to the assembly pose. At high speeds, video sampling may cause visual aliasing.
 
-Animation illustrates kinematics. It does not verify continuous contact, collisions, force, fatigue or usable travel. CAD and STL exports use the nominal assembly pose; a complete export resets the preview before saving the PNG.
+Animation illustrates kinematics. It does not verify continuous contact, collisions, force, fatigue or usable travel. CAD and STL exports use the nominal assembly pose; package previews use the nominal pose and chosen export scope while preserving the displayed view.
 
 The preview panel shows geometry warnings for single-gear undercut and gear-pair interference. They update from calculation data when dimensions change; full warnings remain available in the calculation report and model notes.
 
@@ -389,13 +404,13 @@ source names/indices, selective BOM quantities and explicit subset metadata;
 view explosion, section and motion never become export geometry. Selected
 packages include portable CAD scripts/assets and checksums. Their parameter
 JSON and calculation report describe the source configuration; replay the CAD
-script to recreate the subset. The header's existing complete exports continue
-to include every component, regardless of selection or isolation.
+script to recreate the subset. These shortcuts open the same export choices as the header, with Selected components
+chosen. Confirm the scope, source indices/names, format and destination before exporting.
 
 ## Find geometric combinations
 
 **Find combinations…** searches the selected parallel, internal, planetary,
-cycloidal, strain wave or worm assembly. A single gear has no independent
+cycloidal, strain wave, worm, bevel, hypoid or face-gear assembly. A single gear has no independent
 transmission ratio. Enter the target magnitude **|input speed / output speed|**,
 relative tolerance in percent, and either sign, same (+), or opposite (−)
 direction. The current I/O connection and each planetary stage remain fixed.
@@ -403,8 +418,28 @@ direction. The current I/O connection and each planetary stage remain fixed.
 The Search dock guides you through **Desired ratio**, **Parameters to explore**
 and **Compare results**. The ratio example and accepted interval update as you
 enter the target and relative tolerance. A ratio below 1 describes an output
-speed greater than the input speed. Direction follows the selected members and
+speed greater than the input speed. For a displayed ratio of **1:3**, enter
+approximately **0.333333** with a suitable relative tolerance and choose the
+direction separately. Direction follows the selected members and
 their displayed axes, rather than an assumed reducer direction.
+
+**Compare results by** selects closest ratio, smallest nominal XYZ envelope,
+or highest minimum usable profile contact ratio. Compact/contact ranking first
+requires the requested ratio and size limits to pass. Contact comparison uses
+the lowest generated `profile_contact_total` across the cylindrical meshes;
+it is available for parallel, internal and planetary constructions. Other
+constructions report this criterion as unavailable. **Advanced** can require a
+minimum usable contact ratio; zero leaves this filter off. Neither contact
+ranking nor envelope volume is a strength or continuous-clearance assessment.
+The report records exclusion counts for ratio, geometry, normalization, size
+and contact constraints, so a search with no matches can be diagnosed.
+
+**More dimensions** includes the current construction's module, width and any
+supported pressure angle, helix angle, balanced profile shift or centre-distance
+increase. These start locked; only explicitly varied fields are explored.
+The original generator validates every combination and preserves all locked
+parameters. Closing and reopening a desktop search in the same document and
+construction retains request drafts, but never makes old results current.
 
 For each available tooth/roller count, planet count, module, width or cycloidal
 pitch radius, choose **Keep current** or **Vary**. Set **From**, **To** and **Step**
@@ -445,11 +480,12 @@ sampled bound. No interference, strength or load rating is inferred.
 
 Proposals show ratio, error, overall XYZ size in mm and human-readable parameter
 changes as **Current → Proposed**, with ratio magnitude and rotation direction
-shown separately. Results and Apply stay visible while comparing. Open **Edit
+shown separately. Speed increases use the **1:x** form on the result card
+and in search proposals. Results and Apply stay visible while comparing. Open **Edit
 search settings** to return to the form; **Results** returns to the existing
 comparison until an edit invalidates it. Search and Cancel remain at the bottom
 of the dock.
-Ranking uses ratio error, bounding box volume, then XYZ lengths; at most 100
+The default ranking uses ratio error, bounding box volume, then XYZ lengths; at most 100
 best proposals from the visited domain are retained. Equivalent parameter sets
 are deduplicated; equal ratios with different geometry remain separate. Select
 a proposal and press **Apply selected** to change the current
@@ -596,7 +632,22 @@ Ctrl+Shift+S (Save As), Ctrl+Z (Undo), Ctrl+Shift+Z or Ctrl+Y (Redo), Ctrl+W
 [Settings → Controls](keyboard-shortcuts.md); the browser retains its existing
 bindings. File actions and close wait for an active export or CAD operation.
 
-**Export…** remembers the destination folder and provides:
+**Export…** starts with **Complete assembly**. Choose **Selected components**
+explicitly for a subset. The count and expandable component list identify source
+indices and names, including duplicate names. An empty or invalidated selection
+cannot export; select current components in Tools → Components. Selection alone,
+hiding components, isolation, explosion, section and animation do not change the
+export scope or nominal geometry.
+
+Choose the format, review its description and destination, then press **Export**.
+The export interpolation request is independent of preview detail; procedural
+surfaces use it while existing profiles and explicit meshes keep their sampling.
+**Surface detail…** edits these project settings. Project Save/Save As always
+retains the complete editable model. A selected package's configuration and
+calculations describe the source model, with explicit subset metadata; they do
+not become a new editable subset mechanism.
+
+The destination folder is remembered. Available formats are:
 
 - **STL for 3D printing:** a binary assembly STL and a `.stl-parts/` folder with one STL per component.
 - **STEP for CAD:** a `.step-export/` folder with `assembly.step`, one STEP per component in `step-parts/`, and approximation details in `step-info.json`. All catalog families and their variants are supported without a SolidCraft installation.
@@ -610,13 +661,15 @@ choose a different folder for future exports. **Dismiss** closes the confirmatio
 Failures and cancellations appear there too; a previous successful result is
 labelled **Last export**. The same feedback applies to selected-component exports.
 
-STL coordinates are in **millimetres**; select mm in the importer because STL has no unit field. The header export actions include all parts, including hidden supports, housing and nominal commercial components; use the component window for an explicit subset. Individual parts retain assembly coordinates and can be arranged on the slicer bed. STL export does not require SolidCraft.
+STL coordinates are in **millimetres**; select mm in the importer because STL has no unit field. Complete assembly includes all parts, including hidden supports, housing and nominal commercial components. Selected components includes only the listed source positions; hidden selected parts are included. Individual parts retain assembly coordinates and can be arranged on the slicer bed. STL export does not require SolidCraft.
 
 STEP declares millimetres and retains distinct named bodies in their nominal assembly positions. Proven circular constructions with constant radius and axis become true cylindrical surfaces, including invariant bores in twisted parts. Tooth contours retain their sampled segments; helical, grooved and deformed surfaces keep their shared planar geometry where a whole cylindrical wall cannot represent them. `step-info.json` reports the measured radial difference from the sampled wall triangles, sampled and theoretical CAD volumes, and their difference. This is a limited circular-surface improvement, not an analytical reconstruction of tooth flanks or freeform geometry. CAD reader mass properties can introduce their own numerical approximation.
 
 SVG uses physical `mm` dimensions and a one-to-one coordinate scale. DXF declares `$INSUNITS=4` (mm), with closed `OUTER` and `HOLES` polylines. Both retain the sampled section contours. Their XY coordinates are local to each section; apply the occurrence transform in `profiles.json` when positioning them in an assembly. A section through a deformed flexspline is not its undeformed manufacturing shape.
 
-STEP, profile and complete-package folders are published only after every file succeeds. Existing exports are preserved; failed operations clean their temporary output. The complete package waits for a finished PNG before publication. STL assembly/component exports also preserve existing results and remove newly created files if publication fails. An interrupted process can leave a hidden staging directory or reservation file; these do not represent a completed export.
+STEP, profile and complete-package folders are published only after every file succeeds. Existing exports are preserved; failed operations clean their temporary output. The complete package waits for a finished PNG before publication. Its preview shows the chosen export scope in nominal coordinates with the current camera, including hidden exported components; the displayed view and selection are restored even if capture fails. STL assembly/component exports also preserve existing results and remove newly created files if publication fails. An interrupted process can leave a hidden staging directory or reservation file; these do not represent a completed export.
+
+Standalone desktop BOM and calculation export describes the complete source model; selected geometry exports include a selective BOM and source calculations.
 
 BOM and calculation windows support text search, previous/next matches and **Copy all**. Invalid configurations prevent geometry exports and CAD creation.
 
@@ -647,6 +700,12 @@ For a complete package, run this command from **inside the package directory**. 
 
 ## Theoretical gear metrology
 
+Selecting one compatible component in **Components** and choosing **Gear
+metrology…** carries that component into the query. Reopening from Tools also
+uses the current single selection when compatible. The result names its source
+component; opening a tool does not change the project or its export selection.
+The same cylindrical-profile query is available for compatible Wolfrom members.
+
 Open **Tools → Gear metrology…** to select a cylindrical gear component,
 enter a gauge diameter in mm and choose **Balls** or **Axial rollers**. Click
 **Calculate** to see the theoretical dimension over external gauges or between
@@ -661,6 +720,13 @@ Unavailable solutions explain root/blend or beyond-tip contacts, inability to
 seat, or conservative gauge/jaw-clearance limits. Conservative root/tip-circle
 checks may exclude usable gauges. Axial instrument access, finite roller length,
 tolerances and elastic contact are not calculated.
+
+**Tooth span measurement** exposes the generated external-spur Wildhaber spans
+directly, including the recommended tooth count, selectable usable counts and
+their contact radii. The exported query report includes these same spans.
+Internal and helical flat-jaw spans remain unsupported; a missing usable span
+is not replaced by a guessed value. Desktop gauge diameter/type drafts survive
+closing and reopening against the same document geometry.
 
 **Export selected report · TXT + JSON** saves the query and its source component,
 revision, parameters and actual involute geometry in a new folder under the
@@ -747,3 +813,22 @@ removal, a vanished top land or insufficient effective contact is rejected.
 In the browser, expand **All model parameters** to reach the per-member groups.
 See the [step-by-step guide, examples and report interpretation](tooth-tips.md)
 and [construction equations and supported domains](technical/variants.md#cylindrical-topping-and-semitopping).
+
+
+## Empty numeric fields on desktop
+
+Confirm an empty model field with Enter or by moving focus elsewhere. The app
+uses zero if the current construction accepts it. Otherwise it searches upward
+from the declared lower bound, checking the actual geometry. Discrete counts
+are scanned in order; continuous fields refine the first feasible boundary to
+one millionth of the input unit, rather than stopping at the input step. Other entered values
+and their decimal sources are preserved. For example, the minimum module depends
+on the existing bore; an enabled semitopping ramp must also respect the working
+pressure angle. The current accepted off-grid value is included as an upper
+bound. A search limit or an incompatible remaining draft keeps export blocked
+and the last accepted preview visible; it never substitutes an unverified value.
+Typing a replacement number cancels an obsolete search.
+
+Desktop orientation commands, the navigation cube, tooth focus, reset cam and
+return to the model animate for about 0.35 seconds. Manual camera gestures
+interrupt the transition and retain control of the displayed view.

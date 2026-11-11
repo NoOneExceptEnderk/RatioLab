@@ -19,11 +19,12 @@ class NavigationCube(Gtk.DrawingArea):
         drag=Gtk.GestureDrag.new();drag.set_button(1);drag.connect('drag-begin',self.begin);drag.connect('drag-update',self.drag);drag.connect('drag-end',self.end);self.add_controller(drag)
         keys=Gtk.EventControllerKey.new();keys.connect('key-pressed',self.key);self.add_controller(keys)
         canvas.connect('view-changed',lambda *_:self.queue_draw())
-    def patches(self):return cube_patches(self.canvas.yaw,self.canvas.tilt,self.get_width())
+    def patches(self):return cube_patches(self.canvas.yaw,self.canvas.tilt,self.get_width(),getattr(self.canvas,'roll',0.))
     def motion(self,controller,x,y):
         self.hover=hit_cube(self.patches(),x,y);self.queue_draw()
     def leave(self,*_):self.hover=None;self.queue_draw()
     def begin(self,gesture,x,y):
+        self.canvas.cancel_camera_transition()
         self.grab_focus();self.start=(x,y);self.orbit=(self.canvas.yaw,self.canvas.tilt);self.distance=0
         self.set_cursor_from_name('grabbing')
     def drag(self,gesture,x,y):
@@ -47,6 +48,7 @@ class NavigationCube(Gtk.DrawingArea):
             if key and len(key)==1 and key in '123456':self.canvas.orient(directions[int(key)-1]);return True
             if key=='Home':self.canvas.view('iso');return True
         if key in ('Left','Right','Up','Down'):
+            self.canvas.cancel_camera_transition()
             self.canvas.yaw+=.12*((key=='Right')-(key=='Left'))
             self.canvas.tilt=max(-pi,min(pi,self.canvas.tilt+.12*((key=='Down')-(key=='Up'))))
             self.canvas.queue_render();self.canvas.emit('view-changed','custom');return True

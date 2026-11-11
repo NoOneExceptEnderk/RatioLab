@@ -6,6 +6,8 @@ Sources, conventions and formula domains are in docs/technical/calculations.md.
 No ISO/AGMA strength verification or elastic load-distribution analysis.
 """
 from math import pi, sin, cos, tan, atan, acos, sqrt, radians, degrees
+from ratio_display import ratio_parts
+
 LOAD_FIELDS = [('input_rpm', 'Input speed [rpm]', 1500, 0, 100000, 50), ('input_torque', 'Input torque [N·m]', 1, 0, 10000, 0.1), ('efficiency', 'Assumed overall efficiency [%]', 90, 1, 100, 1)]
 
 def gear_dimensions(z, m, pressure=20, beta=0, x=0, ha=1, hf=1.25, backlash=0.15, internal=False, topping_mm=0):
@@ -118,7 +120,8 @@ def attach_report(d):
 def report_text(d):
     r = d.analysis
     lines = ['NOMINAL CALCULATION REPORT · SOLIDCRAFT REDUCERS', d.family, '']
-    lines += d.metrics + ['']
+    lines.extend(metric for metric in d.metrics if not metric.startswith('Input/output ratio '))
+    lines.append('')
     for item in r.get('tooth_tip_treatments',[]):
         lines.append(f"{item['part']}: topping {item['topping_mm']:.6g} mm; semitopping height {item['semitopping_mm']:.6g} mm, normal ramp angle {item['semitopping_angle_deg']:.6g} deg; finished tip radius {item['finished_tip_radius_mm']:.9g} mm; primary involute tip limit {item['active_tip_radius_mm']:.9g} mm.")
     if r.get('rack',{}).get('rack_tip_treatment'):
@@ -132,7 +135,9 @@ def report_text(d):
     if 'rpm' in load:
         lines.append(f"Input: {load['rpm']:g} rpm · {load['torque_Nm']:g} N·m · {load['power_W']:.3f} W")
     if 'signed_ratio' in r:
-        lines.append(f"Ratio i = input speed / output speed = {r['signed_ratio']:.6g}; negative = opposite rotation.")
+        ratio = r['signed_ratio']
+        notation = ''.join(ratio_parts(ratio, 10))
+        lines.append(f"Input/output ratio: {notation} (i = {ratio:+.12g}); negative = opposite rotation.")
     if d.family=='rack':
         q=r['rack'];out=r['linear_output']
         lines.append(f"Rack output: {out['velocity_mm_s']:+.6f} mm/s along world +X; nominal force magnitude {out['nominal_force_magnitude_N']:.6f} N using assumed efficiency.")

@@ -237,6 +237,10 @@ def _normalize_numeric_entry(widget, *, low=None, high=None, integer=False):
     if numeric_is_automatic(widget):
         return
     original = widget.get_text()
+    if not original.strip():
+        value=0 if (low is None or low<=0) and (high is None or high>=0) else low if low is not None else high
+        _set_explicit_numeric_text(widget,str(value))
+        return
     compact = normalized_numeric_text(original, low=low, high=high, integer=integer)
     if compact != original:
         _set_explicit_numeric_text(widget, compact)
@@ -274,6 +278,12 @@ def bind_numeric_spin(widget, *, low=None, high=None, integer=False, app=None):
         # GTK's default parser rounds to set_digits(). Parse ourselves and reject
         # that native conversion, leaving invalid/incomplete text untouched.
         original = spin.get_text()
+        if not original.strip():
+            if app is not None and hasattr(app,'empty_fields'):
+                app.empty_fields.request(spin)
+                return Gtk.INPUT_ERROR
+            _normalize_numeric_entry(spin,low=low,high=high,integer=integer)
+            original=spin.get_text()
         compact = normalized_numeric_text(original, low=low, high=high, integer=integer)
         try:
             number = numeric_value(spin)
@@ -294,6 +304,9 @@ def bind_numeric_spin(widget, *, low=None, high=None, integer=False, app=None):
     widget.connect('input', input_value)
     widget.connect('output', output)
     widget.connect('activate', lambda spin: spin.update())
+    focus=Gtk.EventControllerFocus()
+    focus.connect('leave',lambda *_:widget.update() if not widget.get_text().strip() else None)
+    widget.add_controller(focus)
 
 
 def text(value, style='muted'):
@@ -653,6 +666,8 @@ def geometry_groups(app, specs):
     help_controller.reset()
     import re
     old_groups=getattr(app,'geometry_group_boxes',{})
+    if hasattr(app,'tooth_tips'):
+        app.tooth_tips.step_inputs.clear()
     group_open={key:box._section.get_expanded() for key,box in old_groups.items() if hasattr(box,'_section')}
     groups = {}
     def group(key, title):
@@ -776,6 +791,7 @@ def geometry_groups(app, specs):
         set_numeric_value(spin, value)
         spin.connect('value-changed', app.changed)
         spin.connect('changed', app.changed)
+        if hasattr(app,'tooth_tips'):app.tooth_tips.bind(spin,key)
         name.set_mnemonic_widget(spin)
         binding = help_controller.bind(name, spin, key, row)
         row.remove(binding.button)
@@ -801,8 +817,24 @@ def geometry_groups(app, specs):
         stepping.connect('enter',stepping_focus)
         stepping.connect('leave',stepping_focus)
         spin.add_controller(stepping)
-        container.append(row)
-        container.append(field)
+        if tips and hasattr(app,'tooth_tips'):
+            name.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
+            step_name = Gtk.Label(label='Step size', xalign=0, valign=Gtk.Align.END,
+                                  wrap=True, wrap_mode=Pango.WrapMode.WORD_CHAR,
+                                  css_classes=['field-label'])
+            step_input = app.tooth_tips.step_control(spin, key, step)
+            step_name.set_mnemonic_widget(step_input)
+            step_input.update_property([Gtk.AccessibleProperty.LABEL], [label+' · Step size'])
+            pair = Gtk.Grid(column_homogeneous=True, column_spacing=6, row_spacing=5,
+                            hexpand=True)
+            pair.attach(row, 0, 0, 1, 1)
+            pair.attach(step_name, 1, 0, 1, 1)
+            pair.attach(field, 0, 1, 1, 1)
+            pair.attach(step_input, 1, 1, 1, 1)
+            container.append(pair)
+        else:
+            container.append(row)
+            container.append(field)
         feedback = text('', 'error')
         feedback.set_visible(False)
         container.append(feedback)
@@ -902,34 +934,27 @@ def reveal_source(app, key):
     section.grab_focus()
 
 
-def show_parameter_error(app, message):
-    """Use a field when the generator identifies one; leave shared errors explicit."""
-    key = getattr(app, 'error_field', None)
-    if key not in app.inputs and key!='input_rpm':
-        lower = message.lower()
-        if 'equally spaced' in lower:
-            key = 'sun'
-            message += ' Choose sun / planet teeth compatible with the selected planet count.'
-        elif 'eccentric' in lower or 'eccessiva' in lower:
-            key = 'eccentric'
-            if 'eccessiva' in lower:
-                message = ('Eccentricity is too large: eccentricity × roller count / pitch radius '
-                           'must be below 0.90. Reduce eccentricity or increase the pitch radius.')
-        else:
-            key = next((k for k, label in app.input_labels.items()
-                        if lower.startswith(label.lower()+':') or lower.startswith(k.lower()+':')), None)
-    app.error_field = key
+def show_parameter_error(app, error):
+    """Render producer-owned field identities; prose and language are irrelevant."""
+    from parameter_errors import record, compact
+    diagnostic = record(error)
+    message = compact(error)
+    if diagnostic['kind']=='internal':
+        message = 'Calculation failed.\n'+message
+    keys = tuple(key for key in diagnostic['fields'] if key in app.inputs or key=='input_rpm')
+    app.error_fields = keys
+    app.error_field = keys[0] if keys else None
     for field, feedback in app.field_feedback.items():
-        active = field==key
+        active = field in keys
         feedback.set_visible(active)
         if active:
-            feedback.set_text(message)
+            feedback.set_text(compact(error,field))
             app.inputs[field].add_css_class('field-error')
         else:
             app.inputs[field].remove_css_class('field-error')
     app.parameter_error.set_text(message)
-    app.parameter_error.set_visible(key not in app.inputs and key!='input_rpm')
-    app.error_reveal.set_visible(key in app.inputs or key=='input_rpm')
+    app.parameter_error.set_visible(not keys)
+    app.error_reveal.set_visible(bool(keys))
 
 def show_page(app, key):
     app.fields.set_visible_child_name(key)
@@ -1052,57 +1077,98 @@ def install_exports(app):
     body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
     for setter in (body.set_margin_start, body.set_margin_end, body.set_margin_top, body.set_margin_bottom):
         setter(12)
-    popup.set_child(body)
-    scroll = Gtk.ScrolledWindow(max_content_height=620, propagate_natural_height=True)
+    layout = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+    popup.set_child(layout)
+    scroll = Gtk.ScrolledWindow(max_content_height=390, propagate_natural_height=True)
     scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
-    popup.set_child(scroll)
+    layout.append(scroll)
     scroll.set_child(body)
     app.export_menu.set_popover(popup)
-    body.append(text('Export scope', 'step-title'))
+    scope_label = text('Export scope', 'step-title')
+    body.append(scope_label)
     app.export_scope = choice_dropdown(['Complete assembly', 'Selected components'])
+    scope_label.set_mnemonic_widget(app.export_scope)
     body.append(app.export_scope)
     app.export_count = text('')
     body.append(app.export_count)
     body.append(text('Nominal assembly coordinates · visibility does not change scope.'))
     from quality_ui import open_quality
-    action(body,'Surface detail…','Independent preview and export interpolation in mm.',lambda *_:(popup.popdown(),open_quality(app)))
-    export_actions = []
-    for kind, title, description, fn in [
+    quality_button = Gtk.Button(label='Surface detail…')
+    quality_button.connect('clicked', lambda *_:(popup.popdown(),open_quality(app)))
+    formats = [
         ('step', 'STEP for CAD', 'Combined model and component solids · mm.', app.export_step),
         ('stl', 'STL for 3D printing', 'Combined model and component meshes · mm.', app.export_stl),
         ('profiles', 'SVG / DXF profiles', 'Planar contours · deformed/helical parts are sections.', app.export_profiles),
         ('package', 'Export package', 'Geometry, preview, parameters, BOM and calculations.', app.export),
-        ('bom', 'BOM and calculations', 'TXT, CSV and JSON · nominal source calculations.', app.export_bom)]:
-        def run(_, kind=kind, fn=fn):
-            popup.popdown()
-            if app.export_scope.get_selected() == 1:
-                app.components.export(kind)
-            else:
-                fn()
-        b = action(body, title, description, run)
-        export_actions.append((kind, b))
-        app.file_buttons.append(b)
+        ('bom', 'BOM and calculations', 'TXT, CSV and JSON · nominal source calculations.', app.export_bom)]
+    format_label = text('Export format', 'field-label')
+    body.append(format_label)
+    app.export_format = choice_dropdown([item[1] for item in formats])
+    format_label.set_mnemonic_widget(app.export_format)
+    body.append(app.export_format)
+    app.export_description = text('')
+    body.append(app.export_description)
+    app.export_quality = text('')
+    body.append(app.export_quality)
+    body.append(quality_button)
+    names = Gtk.Label(xalign=0, selectable=True, wrap=True, wrap_mode=Pango.WrapMode.WORD_CHAR, max_width_chars=40)
+    names_scroll = Gtk.ScrolledWindow(min_content_height=40, max_content_height=120,
+                                     propagate_natural_height=True)
+    names_scroll.set_child(names)
+    names_box = Gtk.Expander(label='Components')
+    names_box.set_child(names_scroll)
+    body.append(names_box)
+    app.export_names = names
+    names._ratiolab_no_translate = True
     def update_scope(*_):
         c = getattr(app, 'components', None)
-        selected = c and c.current() and c.selected
-        count = len(selected) if selected else 0
+        selected = tuple(c.selected) if c and c.current() else ()
         total = len(app.design.parts) if app.design else 0
         subset = app.export_scope.get_selected() == 1
-        app.export_count.set_text(f'{count} selected / {total} components · BOM included with geometry exports' if subset else f'All {total} components · complete assembly')
-        for kind, button in export_actions:
-            enabled = bool(app.design and not app.busy and (not subset or count and kind != 'bom'))
-            button.set_sensitive(enabled)
-            button.set_tooltip_text('Selected BOM is included in each selected geometry export or package.' if subset and kind=='bom'
-                                    else 'Select current components in Tools → Components.' if subset and not count else None)
+        indices = selected if subset else range(total)
+        kind, title, description, fn = formats[app.export_format.get_selected()]
+        count = len(indices)
+        app.export_count.set_text(f'{count} selected / {total} components' if subset else f'All {total} components · complete assembly')
+        names.set_text('\n'.join(f'{i+1:03d} · {app.design.parts[i].name}' for i in indices))
+        if not count:app.export_count.set_text('Select current components in Tools → Components.')
+        app.export_description.set_text(description + ('\nSource project and calculations remain complete.' if kind == 'package' and subset else ''))
+        quality = (getattr(app.design, 'quality', None) or {}).get('export_mm') if app.design else None
+        app.export_quality.set_text((f'Export interpolation: {quality} mm' if quality else 'Export interpolation: component defaults') + '\nProcedural surfaces; existing profiles and meshes retain their sampling.')
+        app.export_quality.set_visible(kind != 'bom')
+        quality_button.set_visible(kind != 'bom')
+        supported = not subset or kind != 'bom'
+        if not supported:app.export_description.set_text('Selected BOM is included in each selected geometry export or package.')
+        app.export_confirm.set_sensitive(bool(app.design and not app.busy and supported and count))
+        app.export_confirm.set_tooltip_text('Selected BOM is included in each selected geometry export or package.' if not supported else None)
+    def run(*_):
+        # Validate again at confirmation; never turn a lost selection into a full export.
+        update_scope()
+        if not app.export_confirm.get_sensitive():return
+        kind, title, description, fn = formats[app.export_format.get_selected()]
+        popup.popdown()
+        if app.export_scope.get_selected() == 1:app.components.export(kind)
+        else:fn()
+    app.export_confirm = Gtk.Button(label='Export', css_classes=['suggested-action'])
+    app.export_confirm.connect('clicked', run)
     app.update_export_scope = update_scope
+    app.export_scope.connect('notify::selected', lambda *_: names_box.set_expanded(app.export_scope.get_selected() == 1))
     app.export_scope.connect('notify::selected', update_scope)
-    popup.connect('show', update_scope)
-    body.append(Gtk.Separator())
-    body.append(text('Destination folder', 'field-label'))
+    app.export_format.connect('notify::selected', update_scope)
+    popup.connect('show', lambda *_:(app.export_scope.set_selected(0), update_scope()))
+    def open_export(kind='step', selected=False):
+        app.export_menu.popup()
+        app.export_scope.set_selected(1 if selected else 0)
+        app.export_format.set_selected(next(i for i, item in enumerate(formats) if item[0] == kind))
+        update_scope()
+    app.open_export = open_export
+    footer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8, margin_start=12, margin_end=12, margin_bottom=12)
+    layout.append(footer)
+    footer.append(Gtk.Separator())
+    footer.append(text('Destination folder', 'field-label'))
     app.output_label = text(str(app.output_dir))
-    body.append(app.output_label)
+    footer.append(app.output_label)
     folders = Gtk.Box(spacing=6)
-    body.append(folders)
+    footer.append(folders)
     choose = Gtk.Button(label='Change folder…')
     choose.connect('clicked', lambda _: choose_output(app))
     folders.append(choose)
@@ -1110,6 +1176,7 @@ def install_exports(app):
     open_button = Gtk.Button(label='Open folder')
     open_button.connect('clicked', lambda _: open_output(app))
     folders.append(open_button)
+    footer.append(app.export_confirm)
     app.file_buttons.append(app.export_menu)
 
 def choose_output(app):

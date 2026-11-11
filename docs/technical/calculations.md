@@ -482,6 +482,8 @@ The profile remains the inward normal offset of the roller-centre trajectory. **
 
 Adaptive sampling compares the midpoint and quarter points of each interval with the chord. This is a numerical threshold, not a manufacturing tolerance or a proven global bound. The curvature check uses at least 4096 samples and a 2% margin against offset cusps; it is not an analytical proof of cusp absence for every parameter. The ratio is −(N rollers − 1).
 
+Apply that formula to the [15:1 cycloidal drive generator example](../tutorials/cycloidal-drive-generator.md), which includes a downloadable project with 16 ring rollers and a 15-lobe disc.
+
 The separation of clearances is motivated by [Chen et al., ASME Journal of Mechanical Design, 2017, Analysis of a Cycloid Speed Reducer Considering Tooth Profile Modification and Clearance-Fit Output Mechanism](https://doi.org/10.1115/1.4035541). Normal profile modifications are discussed in [A New Tooth Profile Modification Method of Cycloidal Gears in Precision Reducers for Robots, Applied Sciences 2020](https://www.mdpi.com/2076-3417/10/4/1266). Their optimisation and elastic load-sharing model are not implemented: clearance alone does not allow stress or accuracy under load to be estimated.
 
 <a id="vite-e-strain-wave"></a>

@@ -82,6 +82,10 @@ class ReducerApp(ProjectActions, Gtk.Application):
         self.workspace_preferences = app_paths.ui_preferences(app_paths.load_preferences(legacy_root=BASE))
         self.families = FAMILIES
         workspace_ui.build(self, LABELS)
+        from tooth_tip_ui import Controller as ToothTips
+        self.tooth_tips = ToothTips(self)
+        from empty_fields import Controller as EmptyFields
+        self.empty_fields=EmptyFields(self)
         from language_ui import Controller as Language
         self.language = Language(self)
         if hasattr(self, 'parameter_help'):
@@ -169,7 +173,9 @@ class ReducerApp(ProjectActions, Gtk.Application):
         for key,spin in self.inputs.items():
             try:attach(result,key,gui_workflow.numeric_value(spin))
             except ValueError:
-                self.error_field=key;spin.add_css_class('field-error');raise ValueError('Complete the numeric value: '+self.input_labels[key])
+                self.error_field=key;spin.add_css_class('field-error')
+                from parameter_errors import ParameterError
+                raise ParameterError('number.incomplete', (key,), 'Complete the numeric value: '+self.input_labels[key], kind='input')
             else:spin.remove_css_class('field-error')
         if hasattr(self,'motion_rpm'):
             from math import isfinite
@@ -179,7 +185,9 @@ class ReducerApp(ProjectActions, Gtk.Application):
                 low,high=self.motion_rate_limits
                 if not isfinite(rpm) or not low<=rpm<=high:raise ValueError()
             except ValueError:
-                self.error_field='input_rpm';raise ValueError('Complete a valid input speed.')
+                self.error_field='input_rpm'
+                from parameter_errors import ParameterError
+                raise ParameterError('number.incomplete', ('input_rpm',), 'Complete a valid input speed.', kind='input')
             attach(result,'input_rpm',rpm)
             if not self.motion_rate_editing:self.motion_input_invalid=False
             if self.motion_input_invalid:self.error_field='input_rpm'
@@ -250,6 +258,8 @@ class ReducerApp(ProjectActions, Gtk.Application):
         if self.building:return
         self.remember();self.family=list(FAMILIES)[self.selector.get_selected()];self.make_fields()
     def make_fields(self):
+        if hasattr(self,'empty_fields'):self.empty_fields.discard()
+        if hasattr(self,'tooth_tips'):self.tooth_tips.close()
         self.building=True
         self.hardware_warning_labels={}
         advanced_open=getattr(self,'advanced_expander',None) and self.advanced_expander.get_expanded()
@@ -484,6 +494,7 @@ class ReducerApp(ProjectActions, Gtk.Application):
     def changed(self,*args):
         if self.building or getattr(self,'_settling_motion_inputs',False) or args and getattr(args[0], '_numeric_setting', False):
             return
+        if hasattr(self,'empty_fields'):self.empty_fields.changed()
         if args and ',' in args[0].get_text():
             widget = args[0]
             position = widget.get_position()
@@ -493,6 +504,7 @@ class ReducerApp(ProjectActions, Gtk.Application):
         key=next((key for key,w in self.inputs.items() if args and w is args[0]),'input_rpm')
         if io_controls.reject_forbidden_edit(self,key):return
         if io_controls.defer_empty_physical_text(self,key):return
+        if hasattr(self,'tooth_tips'):self.tooth_tips.edited(key)
         if key in SPEED_KEYS and self.design is not None:
             try:
                 values=self.read_values()
@@ -635,6 +647,7 @@ class ReducerApp(ProjectActions, Gtk.Application):
     def apply_design(self,design,values,reconcile_token,*,reuse_scene=False,prepared_scene=None):
         self.canvas.set_design(design,reuse_scene=reuse_scene,prepared_scene=prepared_scene)
         self.design = design
+        if hasattr(self,'tooth_tips'):self.tooth_tips.refreshed()
         # Returning an invalid draft to the accepted values can reuse the same
         # Design instance. Canvas identity alone therefore cannot distinguish a
         # redraw from this successful validation. Restore validity here, at the
@@ -717,6 +730,8 @@ class ReducerApp(ProjectActions, Gtk.Application):
         for feedback in self.field_feedback.values():feedback.set_visible(False)
         self.error_reveal.set_visible(False)
         operating_valid=not getattr(self,'motion_input_invalid',False)
+        self.error_fields=() if operating_valid else ('input_rpm',)
+        self.error_field=None if operating_valid else 'input_rpm'
         self.export_menu.set_sensitive(not self.busy and operating_valid)
         self.empty.set_visible(False)
         self.empty.remove_css_class('invalid')
@@ -735,6 +750,9 @@ class ReducerApp(ProjectActions, Gtk.Application):
         return operating_valid
 
     def refresh_failed(self,error):
+        from parameter_errors import compact
+        message=compact(error)
+        if hasattr(self,'tooth_tips'):self.tooth_tips.invalid()
         self.building = False
         # Wolfrom rejection retains the accepted document geometry. The
         # invalid values/raw text remain editable recovery drafts, while
@@ -756,22 +774,25 @@ class ReducerApp(ProjectActions, Gtk.Application):
         self.empty.set_text('! Last valid model · parameters do not match'
                             if retained else 'Invalid configuration')
         self.empty.set_visible(True)
-        gui_workflow.show_parameter_error(self, str(error))
+        gui_workflow.show_parameter_error(self, error)
         self.warning_bar.set_visible(True)
         self.warning_bar.add_css_class('invalid')
         self.warning_details.set_visible(False)
         self.study.set_text('! Export blocked · preview and results show the last valid configuration.' if retained else '! Export blocked · correct the configuration.')
         self.study.set_visible(True)
-        self.study.set_tooltip_text(str(error))
+        self.study.set_tooltip_text(message)
         self.empty.add_css_class('invalid')
         self.hidden_hint.set_visible(False)
         self.metric_cards.set_sensitive(False)
         for label in self.geometry_derived.values():label.set_text('—')
-        self.metrics.set_text('Results out of date · ' + str(error))
+        self.metrics.set_text('Results out of date · ' + message)
         self.send_btn.set_sensitive(False)
         self.live_label.set_text('● Update required')
         self.status.add_css_class('error')
-        self.status_text('! Invalid configuration · export blocked')
+        from parameter_errors import record
+        if record(error)['kind']=='internal':
+            self.status_text('Calculation failed · export blocked')
+        else:self.status_text('! Invalid configuration · export blocked')
         return False
 
     def reset_defaults(self,*args):
@@ -792,19 +813,9 @@ class ReducerApp(ProjectActions, Gtk.Application):
         try:
             target=Path(self.output_dir).absolute()/f'{self.family}-{datetime.now():%Y%m%d-%H%M%S-%f}.package'
             design=self.design;config=self.config()
-            captured=threading.Event();preview={}
-            def capture_done(data,error):
-                preview.update(data=data,error=error);captured.set()
-            self.canvas.reset_motion()
-            self.view_options['exploded'].set_active(False)
-            self.view_options['section'].set_active(False)
-            self.canvas.capture_png(capture_done)
+            png=self.components.capture_export_preview()
             def work():
-                if not captured.wait(30):
-                    GLib.idle_add(setattr,self.canvas,'capture_callback',None)
-                    raise RuntimeError('Preview capture timed out; no complete package was published.')
-                if preview['error']:raise RuntimeError(f'Preview capture failed: {preview["error"]}')
-                folder=package_export.export(design,config,target,preview['data'])
+                folder=package_export.export(design,config,target,png)
                 return ExportResult('Package',(folder,),f'Complete STEP, STL, SVG/DXF, configuration, CAD script, preview and reports package saved: {folder}')
             self.background(work,export_job=True)
         except Exception as e:
@@ -857,7 +868,7 @@ class ReducerApp(ProjectActions, Gtk.Application):
         if export_job:self.export_feedback.begin()
         self.busy=True;self.spinner.start();self.update_playback_bar()
         self.components.update()
-        self.send_btn.set_sensitive(False); self.connect_btn.set_sensitive(False); self.selector.set_sensitive(False); self.fields.set_sensitive(False);self.variant_box.set_sensitive(False);self.motion_button.set_sensitive(False);self.io_frame.set_sensitive(False)
+        self.send_btn.set_sensitive(False); self.connect_btn.set_sensitive(False); self.selector.set_sensitive(False); self.fields.set_sensitive(False);self.variant_box.set_sensitive(False);self.io_frame.set_sensitive(False)
         self.fusion_install_btn.set_sensitive(False);self.fusion_connect_btn.set_sensitive(False);self.fusion_send_btn.set_sensitive(False);self.export_menu.set_sensitive(False)
         for button in self.file_buttons: button.set_sensitive(False)
         self.status_text('Operation in progress… please wait.');self.live_label.set_text('● Working')
@@ -883,7 +894,7 @@ class ReducerApp(ProjectActions, Gtk.Application):
             self.components.update()
             for button in self.file_buttons: button.set_sensitive(True)
             self.fusion_install_btn.set_sensitive(True);self.fusion_connect_btn.set_sensitive(True);self.fusion_send_btn.set_sensitive(self.design is not None)
-            self.connect_btn.set_sensitive(True); self.selector.set_sensitive(True); self.fields.set_sensitive(True);self.variant_box.set_sensitive(True);self.motion_button.set_sensitive(True);self.io_frame.set_sensitive(True);self.live_label.set_text('● Live update'); self.send_btn.set_sensitive(self.design is not None); self.export_menu.set_sensitive(self.design is not None); self.status_text(message); self.update_document(); return False
+            self.connect_btn.set_sensitive(True); self.selector.set_sensitive(True); self.fields.set_sensitive(True);self.variant_box.set_sensitive(True);self.io_frame.set_sensitive(True);self.live_label.set_text('● Live update'); self.send_btn.set_sensitive(self.design is not None); self.export_menu.set_sensitive(self.design is not None); self.status_text(message); self.update_document(); return False
         threading.Thread(target=run,daemon=True).start()
     def send(self,*args):
         if self.busy or not self.refresh():return

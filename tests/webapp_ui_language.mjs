@@ -30,4 +30,6 @@ for (const code of Object.keys(LANGUAGES)) {
 assert.equal(translate('A↔ Language','it',data),'A↔ Lingua');
 assert.equal(translate('☀ Theme','it',data),'☀ Tema');
 assert.equal(translate('Face width\u2009·\u2009mm','it',data),'Larghezza dentatura\u2009·\u2009mm');
+const toolSummary=translate('Usable contact ratio: 1.64876 · Geometry warnings: 0. Apply changes parameters; run an interference check separately.','it',data);
+assert.match(toolSummary,/Avvisi geometrici: 0/);assert.match(toolSummary,/1\.64876/);assert.doesNotMatch(toolSummary,/Geometry warnings/);
 console.log('Nine-language catalog and unchanged engineering values PASS');

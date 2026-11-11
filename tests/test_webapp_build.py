@@ -81,7 +81,7 @@ class BuildTests(unittest.TestCase):
             self.assertEqual(runtime['indexURL'], 'https://cdn.jsdelivr.net/pyodide/v314.0.7/full/')
             self.assertNotIn('runtime/pyodide.mjs', manifest['files'])
             self.assertTrue({'LICENSE', 'COPYRIGHT', 'source.zip', 'source-fonts.zip', 'engine.zip'} <= set(first))
-            self.assertEqual(set(builder.ASSETS), {'rust-engine.js', 'engine-client.js', 'worker.js', 'index.html', 'app.css', 'app.js', 'model-catalog.js', 'choice-menu.js', 'ui-language.js', 'viewer.js', 'document.js', 'preferences.js', 'tools.js', 'tools.css', 'help-illustrations.json'})
+            self.assertEqual(set(builder.ASSETS), {'rust-engine.js', 'engine-client.js', 'worker.js', 'index.html', 'app.css', 'app.js', 'model-catalog.js', 'choice-menu.js', 'ui-language.js', 'viewer.js', 'document.js', 'preferences.js', 'settings.js', 'themes.js', 'controls.js', 'ui-catalog.js', 'tools.js', 'ratio-display.js', 'tools.css', 'help-illustrations.json'})
             self.assertEqual(set(builder.BRANDING), {'ratiolab-icon.png', 'ratiolab-logo-dark.png'})
             for name in builder.ASSETS:
                 self.assertEqual(first[name], (ROOT/'webapp'/name).read_bytes())

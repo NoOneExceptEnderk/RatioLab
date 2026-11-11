@@ -10,9 +10,9 @@ import gi
 gi.require_version('Gtk','4.0')
 from gi.repository import Gtk, GLib, Gio
 from project_document import equivalent
-from workspace_tools import actions, details
+from workspace_tools import actions, details, heading, model_text
 from interference import analyze, Settings
-from gui_workflow import bind_numeric_spin, numeric_value, set_numeric_value
+from gui_workflow import bind_numeric_spin, numeric_value, set_numeric_value, choice_dropdown
 
 
 def label(text):
@@ -47,7 +47,9 @@ class Controller:
     def refreshed(self,design):
         key=self.key(design)
         if self.design_key is not None and key!=self.design_key:self.invalidate('Geometry changed · run a new check')
-        if hasattr(self,'run_button'):self.run_button.set_sensitive(design is not None and self.cancel is None)
+        if self.window:
+            self.context.set_text(model_text(design))
+            self.run_button.set_sensitive(design is not None and self.cancel is None)
 
     def invalidate(self,message='Results out of date · run a new check'):
         self.serial+=1
@@ -56,6 +58,11 @@ class Controller:
         self.restore_view();self.summary.set_text(message)
         if self.window:
             self.coverage.set_visible(False)
+            self.finding_summary.set_visible(False)
+            self.finding_summary.set_text('')
+            self.findings.set_visible(False)
+            self.inspection.set_visible(False)
+            self.report_details.set_visible(False)
             self.status.set_text(message);self.report.get_buffer().set_text(message);self.clear_rows()
             self.cancel_button.set_sensitive(False);self.run_button.set_sensitive(self.app.design is not None)
             self.save_button.set_sensitive(False)
@@ -69,7 +76,11 @@ class Controller:
         win=self.app.tools.panel('interference')
         self.window=win
         box=Gtk.Box(orientation=Gtk.Orientation.VERTICAL,spacing=10,margin_top=14,margin_bottom=14,margin_start=14,margin_end=14);win.set_child(box)
+        heading(box, 'Model examined')
+        self.context = label(model_text(self.app.design))
+        box.append(self.context)
         box.append(label('Check all components, including hidden supports and housing. Distances use shared preview/STL facets in mm. Discrete sampling can miss collisions between poses.'))
+        heading(box, 'Analysis settings')
         controls=Gtk.Grid(column_spacing=8,row_spacing=8);self.setup=details(box,'Check settings',controls);self.setup.set_expanded(True)
         controls.attach(label('Phase step [°]'),0,0,1,1);self.step=Gtk.SpinButton.new_with_range(.1,180,.5);self.step.set_digits(1);self.step.set_value(30);controls.attach(self.step,1,0,1,1)
         controls.attach(label('Boundary tolerance [mm]'),0,1,1,1);self.tolerance=Gtk.SpinButton.new_with_range(.000001,1,.001);self.tolerance.set_digits(6);self.tolerance.set_value(.01);controls.attach(self.tolerance,1,1,1,1)
@@ -82,22 +93,35 @@ class Controller:
         self.cancel_button=Gtk.Button(label='Cancel');self.cancel_button.connect('clicked',lambda _:self.stop());buttons.append(self.cancel_button)
         self.cancel_button.set_sensitive(self.cancel is not None);self.run_button.set_sensitive(self.cancel is None)
         run_actions=buttons
-        self.coverage=label('');self.coverage.set_visible(False);box.append(self.coverage)
+        heading(box, 'Results')
         self.status=label(self.summary.get_text());box.append(self.status)
+        self.coverage=label('');self.coverage.set_visible(False);box.append(self.coverage)
         self.progress=Gtk.ProgressBar();box.append(self.progress)
-        box.append(label('Select a finding to show its phase: orange / magenta parts. Boundary contact / unresolved is a potential interference, even at an expected interface.'))
+        self.finding_summary=label('');self.finding_summary.set_visible(False);box.append(self.finding_summary)
+        self.findings = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6, visible=False)
+        box.append(self.findings)
+        self.inspection = label('')
+        self.inspection.set_visible(False)
+        self.findings.append(self.inspection)
+        self.finding_filter=choice_dropdown(['All findings', 'Potential interference', 'Unresolved contacts', 'Separated'])
+        self.finding_filter.connect('notify::selected',lambda *_:self.filter_changed())
+        self.findings.append(self.finding_filter)
+        self.filtered_empty=label('No findings match this filter. Full report retains all classes.')
+        self.filtered_empty.set_visible(False);self.findings.append(self.filtered_empty)
+        self.findings.append(label('Select a finding to show its phase: orange / magenta parts. Boundary contact / unresolved is a potential interference, even at an expected interface.'))
         self.list=Gtk.ListBox(selection_mode=Gtk.SelectionMode.SINGLE);self.list.connect('row-selected',self.selected)
-        scroll=Gtk.ScrolledWindow(vexpand=True);scroll.set_policy(Gtk.PolicyType.AUTOMATIC,Gtk.PolicyType.AUTOMATIC);scroll.set_min_content_height(180);scroll.set_child(self.list);box.append(scroll)
-        buttons=actions(box)
+        scroll=Gtk.ScrolledWindow(vexpand=True);scroll.set_policy(Gtk.PolicyType.NEVER,Gtk.PolicyType.AUTOMATIC);scroll.set_min_content_height(145);scroll.set_max_content_height(190);scroll.set_propagate_natural_height(True);scroll.set_child(self.list);self.findings.append(scroll)
+        buttons=actions(self.findings)
         previous=Gtk.Button(label='Previous');previous.connect('clicked',lambda _:self.change_page(-1));buttons.append(previous)
         following=Gtk.Button(label='Next');following.connect('clicked',lambda _:self.change_page(1));buttons.append(following)
         self.page_label=label('');buttons.append(self.page_label)
         restore=Gtk.Button(label='Restore preview');restore.connect('clicked',lambda _:self.restore_view());buttons.append(restore)
-        self.save_button=Gtk.Button(label='Save report…');self.save_button.connect('clicked',lambda _:self.save());buttons.append(self.save_button);self.save_button.set_sensitive(self.result is not None)
+        self.save_button=Gtk.Button(label='Save report…');self.save_button.connect('clicked',lambda _:self.save());run_actions.append(self.save_button);self.save_button.set_sensitive(self.result is not None)
         self.report=Gtk.TextView(editable=False,monospace=True,wrap_mode=Gtk.WrapMode.WORD_CHAR);self.report.set_cursor_visible(False)
         self.report._ratiolab_localize_report = True
-        report_scroll=Gtk.ScrolledWindow();report_scroll.set_min_content_height(150);report_scroll.set_child(self.report);details(box,'Full interference report',report_scroll)
+        report_scroll=Gtk.ScrolledWindow();report_scroll.set_min_content_height(150);report_scroll.set_child(self.report);self.report_details = details(box,'Full interference report',report_scroll);self.report_details.set_visible(False)
         def close(*_):
+            self.draft = (self.step.get_text(), self.tolerance.get_text(), self.seconds.get_text())
             self.restore_view()
             if self.cancel:self.stop()
             self.window=None
@@ -108,7 +132,17 @@ class Controller:
         status_row,self.status_badge=status_actions(self.status,run_actions)
         win.pin(status_row,self.progress)
         self.tolerance.set_width_chars(11)
+        for field in (self.step, self.tolerance, self.seconds):
+            field.connect('changed', lambda *_: self.invalidate('Check settings changed · run a new check'))
         win.present()
+        from precise_numbers import from_text
+        for field, value in zip((self.step, self.tolerance, self.seconds), getattr(self, 'draft', ())):
+            try:
+                parsed = from_text(value)
+            except ValueError:
+                field.set_text(value)
+            else:
+                set_numeric_value(field, parsed)
         self.run_button.grab_focus()
 
     def clear_rows(self):
@@ -171,8 +205,17 @@ class Controller:
         if error:
             self.invalidate(error);return False
         self.result=result
-        problems=sum(r['kind']!='Separated' for r in result.rows)
-        message=('Sampled coverage complete' if result.coverage_complete else 'INCOMPLETE check')+f' · {problems} potential interference/contact classes · {result.completed_poses} poses'
+        plan = self.app.canvas.motion_plan
+        if result.cancelled:
+            message = 'Check cancelled\nINCOMPLETE coverage'
+        elif plan is not None and not plan.supported:
+            message = 'Motion check unsupported'
+        else:
+            message = 'Complete sampled coverage' if result.coverage_complete else 'INCOMPLETE coverage'
+        if result.issues:
+            message += '\n' + result.issues[0]
+        elif result.coverage_complete and not result.pairs_per_pose:
+            message += '\nNo component pairs to check.'
         self.summary.set_text(message)
         if self.window:
             self.run_button.set_sensitive(True);self.cancel_button.set_sensitive(False);self.save_button.set_sensitive(True)
@@ -182,10 +225,16 @@ class Controller:
     def present_result(self):
         if not self.window or not self.result:return
         result=self.result
-        self.coverage.set_text(('Complete sampled coverage' if result.coverage_complete else 'INCOMPLETE coverage')+f' · {result.completed_poses}/{result.planned_poses} poses · step ≤ {result.settings["step_degrees"]:g}°')
-        self.coverage.set_visible(True)
+        self.coverage.set_text(f'{result.completed_poses}/{result.planned_poses} poses · step ≤ {result.settings["step_degrees"]:g}°')
+        self.coverage.set_visible(result.planned_poses > 0)
+        self.findings.set_visible(bool(result.rows))
+        self.report_details.set_visible(True)
         self.clear_rows();self.report.get_buffer().set_text(self.result.text())
-        rows=self.result.rows;start=self.page*100
+        counts = {kind:sum(row['kind']==kind for row in result.rows) for kind in ('Intersection','Containment','Boundary contact / unresolved','Separated')}
+        self.finding_summary.set_visible(bool(result.rows))
+        self.finding_summary.set_text(f"Potential interference: {counts['Intersection']+counts['Containment']} · unresolved contacts: {counts['Boundary contact / unresolved']} · separated: {counts['Separated']}")
+        rows=self.filtered_rows();start=self.page*100
+        self.filtered_empty.set_visible(not rows)
         self.page_label.set_text(f'{start+1 if rows else 0}–{min(len(rows),start+100)} / {len(rows)} classes')
         for result in rows[start:start+100]:
             row=Gtk.ListBoxRow();row.finding=result
@@ -193,8 +242,22 @@ class Controller:
             text=f'{result["index_a"]+1} {result["part_a"]} ↔ {result["index_b"]+1} {result["part_b"]}\n{result["kind"]}{expected} · surface {result["distance"]:.6g} mm · phase {result["phase_degrees"]:.6g}° · {result["samples"]} samples'
             row.set_child(label(text));self.list.append(row)
 
+    def filtered_rows(self):
+        if not self.result:
+            return []
+        selected = self.finding_filter.get_selected()
+        return [row for row in self.result.rows if selected == 0
+                or selected == 1 and row['kind'] in ('Intersection', 'Containment')
+                or selected == 2 and row['kind'] == 'Boundary contact / unresolved'
+                or selected == 3 and row['kind'] == 'Separated']
+
+    def filter_changed(self):
+        self.page = 0
+        if self.result:
+            self.present_result()
+
     def change_page(self,delta):
-        if self.result:self.page=max(0,min((len(self.result.rows)-1)//100,self.page+delta));self.present_result()
+        if self.result:self.page=max(0,min(max(0,(len(self.filtered_rows())-1)//100),self.page+delta));self.present_result()
 
     def selected(self,_,row):
         if row is None or not self.result or not self.current(self.serial):return
@@ -206,10 +269,13 @@ class Controller:
         for key in ('support','housing'):app.view_options[key].set_active(True)
         result=row.finding
         app.canvas.show_inspection(result['phase_degrees']*pi/180,(result['index_a'],result['index_b']))
-        self.status.set_text(f'Inspection phase {result["phase_degrees"]:.6g}° · {result["part_a"]} (orange) / {result["part_b"]} (magenta).')
+        self.inspection.set_visible(True)
+        self.inspection.set_text(f'Inspection phase {result["phase_degrees"]:.6g}° · {result["part_a"]} (orange) / {result["part_b"]} (magenta).')
 
     def restore_view(self):
         self.app.canvas.clear_inspection()
+        if self.window and hasattr(self, 'inspection'):
+            self.inspection.set_visible(False)
         saved=self.saved_view;self.saved_view=None
         if saved:self.app.restore_view_state(saved)
 
@@ -224,6 +290,6 @@ class Controller:
             if file and self.current(serial):
                 try:
                     from export_transaction import write_text
-                    write_text(Path(file.get_path()),text);self.status.set_text('Interference report saved')
-                except (OSError,TypeError,ValueError) as exc:self.status.set_text(f'Report could not be saved: {exc}')
+                    write_text(Path(file.get_path()),text);self.app.status_text('Interference report saved')
+                except (OSError,TypeError,ValueError) as exc:self.app.status_text(f'Report could not be saved: {exc}')
         dialog.connect('response',response);dialog.show()

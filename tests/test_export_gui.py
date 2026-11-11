@@ -57,17 +57,19 @@ class ExportGuiTests(unittest.TestCase):
 
     def setUp(self):
         a=self.app
+        a.export_scope.set_selected(0)
         a.output_dir=self.root/self._testMethodName;a.output_dir.mkdir()
         a.output_label.set_text(str(a.output_dir))
         a.load_config_data(dict(format='solidcraft-riduttori/1',family='helical',parameters=generate('helical').values))
         pump_until(lambda:not a.pending and not a.busy)
 
     def click(self,title):
-        choices=[w for w in widgets(self.app.export_menu.get_popover()) if isinstance(w,Gtk.Button) and
-                 any(isinstance(child,Gtk.Label) and child.get_text()==title for child in widgets(w))]
-        self.assertEqual(len(choices),1)
+        titles=['STEP for CAD','STL for 3D printing','SVG / DXF profiles','Export package','BOM and calculations']
+        self.app.export_format.set_selected(titles.index(title))
+        self.app.update_export_scope()
+        self.assertTrue(self.app.export_confirm.get_sensitive())
         with patch.object(module,'Client',side_effect=AssertionError('Standalone export connected to CAD')):
-            choices[0].emit('clicked')
+            self.app.export_confirm.emit('clicked')
             pump_until(lambda:not self.app.busy)
 
     def test_background_completion_runs_with_continuously_ready_default_sources(self):
@@ -112,8 +114,8 @@ class ExportGuiTests(unittest.TestCase):
         self.assertTrue(png.endswith(b'IEND\xaeB`\x82'))
         self.assertGreater(len(png),1000)
         self.assertTrue(json.loads((folder/'manifest.json').read_text())['complete'])
-        self.assertFalse(a.canvas.exploded)
-        self.assertFalse(a.canvas.section)
+        self.assertTrue(a.canvas.exploded)
+        self.assertTrue(a.canvas.section)
         self.assertTrue((folder/'assembly.step').is_file())
 
     def test_failed_background_export_publishes_nothing_and_restores_actions(self):
@@ -130,6 +132,7 @@ class ExportGuiTests(unittest.TestCase):
         class EmptyChooser:
             response=Gtk.ResponseType.CANCEL
             def __init__(self,**kwargs):pass
+            def get_property(self,key):return ''
             def set_current_folder(self,*args):pass
             def connect(self,event,callback):self.callback=callback
             def show(self):self.callback(self,self.response)
@@ -141,6 +144,63 @@ class ExportGuiTests(unittest.TestCase):
         with patch.object(gui_workflow.Gtk,'FileChooserNative',EmptyChooser):gui_workflow.choose_output(a)
         self.assertEqual(a.output_dir,previous)
         self.assertFalse(list(previous.iterdir()))
+
+    def test_explicit_subset_matches_displayed_source_names_and_empty_never_falls_back(self):
+        a=self.app;c=a.components
+        self.assertEqual(a.export_scope.get_selected(),0)
+        a.export_scope.set_selected(1);a.update_export_scope()
+        self.assertFalse(a.export_confirm.get_sensitive())
+        with patch.object(a,'export_step') as complete:
+            a.export_confirm.emit('clicked');complete.assert_not_called()
+        self.assertFalse(list(a.output_dir.iterdir()))
+        c.select((0,));a.update_export_scope()
+        self.assertIn('001 · '+a.design.parts[0].name,a.export_names.get_text())
+        self.click('STEP for CAD')
+        folder=next(a.output_dir.glob('*.selected-step'))
+        selection=json.loads((folder/'selection.json').read_text())
+        self.assertEqual(selection['components'],[dict(source_index=1,name=a.design.parts[0].name)])
+        self.assertEqual(len(list((folder/'step-parts').glob('*.step'))),1)
+        c.invalidate();a.update_export_scope()
+        self.assertFalse(a.export_confirm.get_sensitive())
+        a.export_confirm.emit('clicked')
+        self.assertEqual(len(list(a.output_dir.iterdir())),1)
+
+    def test_selected_bom_is_explained_and_component_shortcut_opens_same_flow(self):
+        a=self.app;c=a.components;c.open();c.select((0,))
+        with patch.object(a,'open_export') as open_export:
+            c.export_buttons[0].emit('clicked')
+            open_export.assert_called_once_with('step',selected=True)
+        a.export_scope.set_selected(1);a.export_format.set_selected(4);a.update_export_scope()
+        self.assertFalse(a.export_confirm.get_sensitive())
+        self.assertIn('Selected BOM',a.export_description.get_text())
+        a.export_format.set_selected(0);a.update_export_scope()
+        self.assertTrue(a.export_confirm.get_sensitive())
+
+    def test_package_capture_uses_all_hidden_parts_and_restores_view_even_on_failure(self):
+        a=self.app
+        d=generate('parallel',dict(bearing_mode='shaft',hardware_mode='standard'))
+        a.load_config_data(dict(format='solidcraft-riduttori/1',family='parallel',parameters=d.values))
+        pump_until(lambda:not a.pending and not a.busy)
+        a.view_options['support'].set_active(False);a.view_options['housing'].set_active(False)
+        a.canvas.isolated_indices=(0,);a.set_explosion(.5);a.view_options['section'].set_active(True)
+        a.canvas.motion_phase=.7
+        scene=a.canvas.scene;token=a.document.token;capture=a.canvas.capture_png;observed=[]
+        def check(callback):
+            observed.append(tuple(p.source_index for p in a.canvas.scene.parts))
+            self.assertIsNone(a.canvas.isolated_indices)
+            self.assertFalse(a.canvas.section);self.assertFalse(a.canvas.exploded)
+            self.assertFalse(a.canvas.motion_enabled);self.assertIsNone(a.canvas.inspection_phase)
+            capture(callback)
+        with patch.object(a.canvas,'capture_png',check):png=a.components.capture_export_preview()
+        self.assertTrue(png.startswith(b'\x89PNG'))
+        self.assertEqual(set(observed[0]),set(range(len(d.parts))))
+        self.assertIs(a.canvas.scene,scene);self.assertEqual(a.canvas.isolated_indices,(0,))
+        self.assertEqual(a.canvas.motion_phase,.7);self.assertEqual(a.canvas.exploded,.5)
+        self.assertTrue(a.canvas.section);self.assertEqual(a.document.token,token)
+        with patch.object(a.canvas,'capture_png',side_effect=RuntimeError('Injected capture failure')):
+            with self.assertRaisesRegex(RuntimeError,'Injected'):a.components.capture_export_preview()
+        self.assertIs(a.canvas.scene,scene);self.assertEqual(a.canvas.isolated_indices,(0,))
+        self.assertTrue(a.canvas.section);self.assertEqual(a.canvas.exploded,.5)
 
 
 if __name__=='__main__':unittest.main()

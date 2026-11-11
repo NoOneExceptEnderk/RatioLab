@@ -7,7 +7,7 @@ from unittest.mock import patch
 import unittest
 import gi
 gi.require_version('Gtk','4.0')
-from gi.repository import Gtk
+from gi.repository import Gtk, GLib
 import app as app_module
 import preview3d
 import test_workspace_theme_preferences as fixtures
@@ -89,6 +89,82 @@ class PhaseSliderGuiTests(unittest.TestCase):
                         self.assertLessEqual(bounds.get_y()+bounds.get_height(),a.win.get_height()+1)
                     self.assertGreaterEqual(a.motion_phase.get_width(),120)
         self.assertEqual(a.motion_phase.get_accessible_role(),Gtk.AccessibleRole.SLIDER)
+
+    def test_phase_track_keeps_its_bounds_across_digits_play_pause_and_wrap(self):
+        a=self.model(input_rpm=60)
+        for language in ('en','it','ta'):
+            a.language.change(language)
+            for scale in (0,2):
+                a.text_size.set_selected(scale);pump(.2)
+                bounds=[]
+                for angle in (0,9.9,10,99.9,100,359.9):
+                    a.canvas.seek_motion_phase(radians(angle));pump(.04)
+                    for playing in (False,True):
+                        a.canvas.set_motion_playing(playing);pump(.04)
+                        ok,rect=a.motion_phase.compute_bounds(a.win);self.assertTrue(ok)
+                        bounds.append((rect.get_x(),rect.get_y(),rect.get_width(),rect.get_height()))
+                    a.canvas.set_motion_playing(False)
+                for column in zip(*bounds):
+                    self.assertLessEqual(max(column)-min(column),.5,(language,scale,bounds))
+
+    def test_stripes_keep_their_position_when_rates_change_and_stop_at_zero(self):
+        a=self.model(input_rpm=60);phase=a.motion_phase
+        a.canvas.set_motion_playing(True);pump(.2)
+        original=phase.set_stripes
+        def check_update(playing,rpm):
+            before,speed,stamp=phase.stripe_offset,phase.stripe_speed,phase._stripe_time
+            now=GLib.get_monotonic_time()
+            expected=(before+speed*max(0,now/1000000-stamp))%28 if stamp is not None else before
+            with patch('motion_controls.GLib.get_monotonic_time',return_value=now):
+                original(playing,rpm)
+            self.assertAlmostEqual(phase.stripe_offset,expected,places=5)
+        for rpm in (600,6,100000,0,60):
+            old_speed=phase.stripe_speed
+            tick=phase._stripe_tick
+            with patch.object(phase,'set_stripes',side_effect=check_update):
+                a.motion_speed_text.set_text(str(rpm));a.commit_motion_rate()
+            if rpm:
+                self.assertGreater(phase.stripe_speed,7)
+                self.assertLess(phase.stripe_speed,70)
+            else:self.assertEqual(phase.stripe_speed,0)
+            if rpm==60:self.assertAlmostEqual(phase.stripe_speed,35)
+            if rpm and old_speed:self.assertEqual(phase._stripe_tick,tick)
+            pump(.12)
+            if not rpm:
+                offset=phase.stripe_offset;pump(.1)
+                self.assertEqual(phase.stripe_offset,offset);self.assertEqual(phase._stripe_tick,0)
+        a.canvas.set_motion_playing(False)
+        self.assertEqual(phase._stripe_tick,0)
+
+    def test_rack_keeps_track_width_when_input_is_zero_or_reversed(self):
+        a=self.model('rack',input_rpm=60);pump(.1)
+        bounds=[]
+        for rpm in (60,0,-60,60):
+            a.motion_speed_text.set_text(str(rpm));a.commit_motion_rate();pump(.08)
+            for playing in (False,True):
+                a.canvas.set_motion_playing(playing);pump(.05)
+                ok,rect=a.motion_phase.compute_bounds(a.win);self.assertTrue(ok)
+                bounds.append((rect.get_x(),rect.get_width(),rect.get_height()))
+            a.canvas.set_motion_playing(False)
+        for values in zip(*bounds):
+            self.assertLessEqual(max(values)-min(values),.5,bounds)
+
+    def test_play_indicator_repaints_at_low_rpm_with_desktop_animations_disabled(self):
+        a=self.model(input_rpm=2);phase=a.motion_phase;settings=phase.get_settings()
+        previous=settings.get_property('gtk-enable-animations')
+        self.addCleanup(settings.set_property,'gtk-enable-animations',previous)
+        settings.set_property('gtk-enable-animations',False)
+        def capture():
+            snapshot=Gtk.Snapshot()
+            Gtk.WidgetPaintable.new(phase).snapshot(snapshot,phase.get_width(),phase.get_height())
+            return a.win.get_renderer().render_texture(snapshot.to_node(),None).save_to_png_bytes().get_data()
+        a.canvas.set_motion_playing(True);pump(.15)
+        self.assertTrue(phase._stripe_tick)
+        self.assertGreater(phase.stripe_speed,7)
+        first=capture();pump(.3);self.assertNotEqual(capture(),first)
+        a.motion_speed_text.set_text('0');a.commit_motion_rate();pump(.1)
+        self.assertEqual(phase._stripe_tick,0)
+        first=capture();pump(.2);self.assertEqual(capture(),first)
 
 
 if __name__=='__main__':unittest.main()

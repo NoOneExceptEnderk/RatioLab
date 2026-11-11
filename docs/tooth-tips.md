@@ -39,6 +39,56 @@ For the illustrated gear, topping 0.2 mm changes the tip radius from 26 to
 at radius 25.55 mm; the head above that point uses the secondary profile.
 These example amounts explain the controls and are not production defaults.
 
+## Inspect the removal on the desktop
+
+Starting a component's tooth-tip session automatically frames the teeth of that
+component, including the selected stage or compound-planet rim. The camera looks
+perpendicularly at its local tooth-profile plane, with the tooth pointing up,
+and pauses playback at the nominal pose. The view follows the component's actual
+placement, including rotated axes. Orange transparent material shows what
+topping and semitopping remove from three nearby tooth
+heads, compared with the same untreated construction. At zero removal the
+close-up remains available without an orange overlay. Small amounts are shown
+at their actual size; scroll to zoom further if necessary.
+
+The overlay covers an **upper working band**, following the actual helix or
+explicit rack sections and avoiding a double helix's central groove. It is a
+local geometric comparison, not the total removed volume, an axial end-face
+chamfer, or a cutter simulation. The full finished member remains opaque.
+The other visible components remain in the view. Components whose real surfaces
+obstruct the focused tooth area use **opacity 0.25** (1 is solid, 0 is invisible).
+Parts behind the viewed working band or clear of that area retain their normal appearance;
+holes are respected. This comparison is prepared for the nominal view, rather
+than tracking an animated or exploded pose.
+
+**Components → Parts → View teeth** opens the same view for one selected
+supported component. This also works for straight, spiral and Zerol-style bevel
+pairs and the gears of wrist/classic differentials, using their individual shaft
+orientations. For those families it is a viewing action: no topping/semitopping
+controls or material-removal construction are added. Face and hypoid gears are
+not supported by this viewing action.
+
+Topping removal, semitopping height and semitopping angle share one session for
+the component. Switching between them or clicking outside an input preserves
+your current rotation, pan and zoom. Geometry updates also retain that camera.
+Each field has its own **Step size** input on the right, controlling its +/− buttons
+and arrow keys. Steps must be positive and no larger than the field range.
+They are saved as interface preferences, independently for each family/member
+field, and do not change project parameters or Undo history.
+The **reset cam** button at the upper left of the viewport smoothly restores
+the perpendicular tooth view. It is shown only for this treatment session.
+
+**Home** returns to the full model in the isometric view. Fit, playback, phase
+scrubbing or inspection also leaves a treatment close-up. A view
+opened through **View teeth** follows accepted dimensional edits of its selected
+component. Returning to the model restores the normal component visibility.
+The view does
+not add parts to the project, history, STL or STEP. Invalid drafts retain the
+last valid preview, show the existing parameter warning and keep normal export blocked. Obsolete
+background previews cannot replace the current document or reopen a closed
+detail. This automatic close-up is currently a native desktop feature; browser
+tooth-tip geometry and ordinary orbit/zoom controls remain available.
+
 Open the complete [spur example](../examples/spur-tooth-tips.config.json) to
 compare the combined treatment with zero values. The
 [helical rack example](../examples/rack-tooth-tips.config.json) applies independent

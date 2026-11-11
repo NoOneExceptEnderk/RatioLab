@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-only
 """Fixed-axis cylindrical reducers: involute geometry and nominal shafts."""
 from math import pi, hypot
+from parameter_errors import ParameterError
 from geometry import gear_part, Part, circle
 from engineering import mesh
 from tooth_tips import parameters as tip_parameters
@@ -21,9 +22,9 @@ def build_train(d):
     j = v['backlash']
     gap = v.get('gap', 0)
     if double and gap >= min(w, v.get('width2', w)) - 1:
-        raise ValueError('The groove must leave at least 1 mm of teeth in each stage.')
+        raise ParameterError('groove.width', ('gap','width'), 'The groove must leave at least 1 mm of teeth in each stage.', 'Reduce the groove or increase the face width.')
     if v['wheel'] <= v['pinion']:
-        raise ValueError('For a reducer, choose more driven wheel teeth than pinion teeth.')
+        raise ParameterError('parallel.reduction', ('pinion','wheel'), 'For a reducer, choose more driven wheel teeth than pinion teeth.', 'Increase the wheel tooth count or reduce the pinion tooth count.', limits={'pinion':dict(upper=v['wheel']-1),'wheel':dict(lower=v['pinion']+1)})
     internal_plan = None
     if d.family == 'internal':
         from internal_mesh import plan_fixed_internal_pair

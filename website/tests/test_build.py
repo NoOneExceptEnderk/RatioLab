@@ -201,7 +201,7 @@ class ComposedSiteFixture(unittest.TestCase):
         (cls.web_root / 'packaging').symlink_to(REPO / 'packaging', target_is_directory=True)
         (cls.web_root / 'src').symlink_to(REPO / 'src', target_is_directory=True)
         (cls.web_root / 'scripts').mkdir()
-        for name in ('build-rust-engine.py', 'build-webapp.py', 'fetch-web-runtime.py',
+        for name in ('build-rust-engine.py', 'build-webapp.py', 'sync-web-settings.py', 'fetch-web-runtime.py',
                      'serve-webapp.py', 'generate-web-help.py', 'prototype-curved-cad.py',
                      'verify-curved-cad.py', 'validate-cylindrical-mesh.py', 'cad-recipe.py'):
             shutil.copyfile(REPO / 'scripts' / name, cls.web_root / 'scripts' / name)

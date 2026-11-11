@@ -43,10 +43,10 @@ def _templates(language):
             position = field.end()
         chunks.append(re.escape(source[position:]))
         prefix = source[:fields[0].start()]
-        entry = (prefix, re.compile(''.join(chunks), re.DOTALL), target)
+        entry = (prefix, re.compile(''.join(chunks), re.DOTALL), target, len(_PLACEHOLDER.sub('', source)))
         buckets.setdefault(prefix[:1], []).append(entry)
     for entries in buckets.values():
-        entries.sort(key=lambda item: len(item[0]), reverse=True)
+        entries.sort(key=lambda item: (len(item[0]), item[3]), reverse=True)
     return buckets
 
 
@@ -63,7 +63,7 @@ def translate(text, language='en'):
     if text in messages:
         return messages[text]
     templates = _templates(language)
-    for prefix, pattern, target in (*templates.get(text[:1], ()), *templates.get('', ())):
+    for prefix, pattern, target, _ in (*templates.get(text[:1], ()), *templates.get('', ())):
         if prefix and not text.startswith(prefix):
             continue
         match = pattern.fullmatch(text)

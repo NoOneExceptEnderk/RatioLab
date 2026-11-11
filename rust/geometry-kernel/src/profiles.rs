@@ -877,7 +877,12 @@ pub fn cycloid_profile(a: &Value) -> Result<Value> {
         return Err("Invalid cycloidal profile parameters".into());
     }
     if e * count >= r * 0.9 {
-        return Err("Eccentricity eccessiva: usare e × N / R < 0,90.".into());
+        return Err(crate::diagnostic::constraint(
+            "cycloidal.eccentricity",
+            &["eccentricity", "n", "radius"],
+            "Eccentricity × roller count / pitch radius must be below 0.90.",
+            "Reduce eccentricity or roller count, or increase the pitch radius.",
+        ));
     }
     let evaluate = |t: f64| -> (Point, f64) {
         let (x, y) = (
@@ -910,10 +915,20 @@ pub fn cycloid_profile(a: &Value) -> Result<Value> {
         }
     }
     if pin + clearance >= curvature * 0.98 {
-        return Err("Cycloidal offset has cusps: reduce roller radius or eccentricity.".into());
+        return Err(crate::diagnostic::constraint(
+            "cycloidal.cusps",
+            &["pin", "clearance", "eccentricity", "n", "radius"],
+            "Cycloidal offset has cusps.",
+            "Reduce roller radius, clearance or eccentricity, then check the profile again.",
+        ));
     }
     if 2. * pin >= 2. * r * (PI / count).sin() {
-        return Err("Ring rollers overlap.".into());
+        return Err(crate::diagnostic::constraint(
+            "cycloidal.rollers_overlap",
+            &["pin", "radius", "n"],
+            "Ring rollers overlap.",
+            "Reduce roller radius or roller count, or increase the pitch radius.",
+        ));
     }
     let samples = n(a, "samples", 0.)? as usize;
     let mut points = Vec::new();
@@ -1007,7 +1022,12 @@ pub fn gear_part(a: &Value) -> Result<Value> {
     };
     Ok(
         json!({"outer":outer,"holes":holes,"width":n(a,"width",10.)?,"z":n(a,"zoff",0.)?,"center":crate::precision::sampled_arguments(&a["center"])?,"twist":scalar("twist_deg")?,"internal":internal,
-        "profile_metadata":{"tooth_profile":generated["metadata"],"analytic_values":values,"analytic_precision":dimensions["precision"]},
+        "profile_metadata":{"tooth_profile":generated["metadata"],"analytic_values":values,"analytic_precision":dimensions["precision"],
+            "tip_preview_source":{"kind":"radial","parameters":{
+                "depth":args["depth"],"mt":args["mt"],"normal_pressure":args["normal_pressure"],
+                "topping_mm":crate::nominal::raw(&args,"topping_mm",0.),
+                "semitopping_mm":crate::nominal::raw(&args,"semitopping_mm",0.),
+                "semitopping_angle_deg":crate::nominal::raw(&args,"semitopping_angle_deg",45.)},"phase_rad":phase}},
         "outer_circle_radius":if internal{Some(outer_radius)}else{None},"bore_circle_radius":if !internal&&bore>0.{Some(bore/2.)}else{None}}),
     )
 }

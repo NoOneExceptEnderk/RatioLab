@@ -24,9 +24,9 @@ function templatesFor(messages) {
     chunks.push(escapePattern(source.slice(position)));
     const prefix=source.slice(0,fields[0].index), key=prefix.slice(0,1);
     if (!buckets.has(key)) buckets.set(key,[]);
-    buckets.get(key).push({prefix,pattern:new RegExp('^'+chunks.join('')+'$','su'),target});
+    buckets.get(key).push({prefix,pattern:new RegExp('^'+chunks.join('')+'$','su'),target,literalLength:source.replace(placeholder,'').length});
   }
-  for (const entries of buckets.values()) entries.sort((a,b)=>b.prefix.length-a.prefix.length);
+  for (const entries of buckets.values()) entries.sort((a,b)=>b.prefix.length-a.prefix.length||b.literalLength-a.literalLength);
   templateCache.set(messages,buckets); return buckets;
 }
 

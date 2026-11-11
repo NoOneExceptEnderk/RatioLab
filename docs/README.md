@@ -20,7 +20,9 @@ app. The [changelog](../CHANGELOG.md) keeps pending changes under Unreleased.
 | Use CAD-style mouse gestures or assign keys | [Keyboard and mouse controls](keyboard-shortcuts.md) |
 | Set speeds, scrub a pose or inspect motion | [Preview and motion](user-guide.md#preview-and-motion) · [Input/output connections](user-guide.md#input-and-output-connections) |
 | Save projects, recover drafts or choose an export | [Save, load and export](user-guide.md#save-load-and-export) |
+| Follow illustrated Tools exercises in all nine interface languages | [Step-by-step Tools guides](tutorials/tools.md) |
 | Measure surfaces or export selected components | [Components and measurements](user-guide.md#components-and-surface-measurements) |
+| Prepare production and inspection PDFs for a part | [Component sheets](component-sheets.md) |
 | Inspect tooth thickness, spans or gauge dimensions | [Theoretical gear metrology](user-guide.md#theoretical-gear-metrology) |
 | Search a finite set of geometric combinations | [Combination search](user-guide.md#find-geometric-combinations) |
 | Propose a centre distance for working backlash | [Working-backlash solver](user-guide.md#solve-working-backlash) |

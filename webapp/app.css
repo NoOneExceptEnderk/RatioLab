@@ -1699,3 +1699,176 @@ dialog:has(.settings-panel) {width:min(620px,calc(100% - 30px));}
 :root[data-theme=light] .motion-controls #play-motion[aria-pressed=true] {background:var(--drive-selected);color:var(--accent);}
 
 .app-header svg.cad-connection-icon {width:19px;height:19px;margin-left:-3px;margin-top:-1.5px;margin-bottom:-1.5px;overflow:visible;}
+
+/* Shared desktop palette and workspace header. */
+:root {
+  --floating-panel:var(--rl-surface,var(--background));
+  --button:var(--rl-surface,#242b34);
+  --button-hover:var(--rl-hover,#303a46);
+  --choice-selected:var(--rl-selected,#263c42);
+  --drive-selected:var(--rl-selected,#263c42);
+}
+:root[data-theme=light] {--floating-panel:var(--rl-surface);--button:var(--rl-surface);--button-hover:var(--rl-hover);--choice-selected:var(--rl-selected);--drive-selected:var(--rl-selected);}
+:root :is(button,select,.popover>summary) {background:var(--button);color:var(--text);}
+:root :is(button,.popover>summary):hover {background:var(--button-hover);}
+:root button.flat {background:transparent;}
+:root :is(button.primary,#export-document.primary,.motion-controls #play-motion) {background:var(--accent);border-color:var(--accent);color:var(--rl-on-accent);}
+:root .motion-controls #play-motion[aria-pressed=true] {background:var(--rl-selected);color:var(--accent);}
+:root :is(input[type=text],input[type=number],select,textarea,.choice-select,.model-picker .catalog-opener) {background:var(--entry);color:var(--text);border-color:var(--line);}
+:root :is(.app-header,.workspace-toolbar,.parameter-panel,.app-footer,.metric-cards,.playback-container,dialog,.parameter-help,.help-pane) {background:var(--background);color:var(--text);border-color:var(--line);}
+:root :is(.tool-dock,.popover-body,.choice-popup,.view-panel,.parameter-section,.section-heading) {background:var(--rl-surface);color:var(--text);border-color:var(--line);}
+:root :is(.selection-summary,.component-selected,[aria-selected=true].parameter-tab) {background:var(--rl-selected);color:var(--text);}
+:root :is(.muted,.tool-note,.tool-range label,.parameter-help p) {color:var(--muted);}
+:root a {color:var(--accent);}
+:root :is(button,input,select,summary,a,[tabindex]):focus-visible {outline-color:var(--rl-focus);}
+:root .stage {background:var(--preview);}
+:root :is(.preview-caption,.preview-hint,.navigation-controls,.cube-actions button) {color:var(--rl-preview-text);}
+:root #viewport-cube text {fill:var(--view-axes);}
+:root .candidate-preview canvas {background:var(--preview);border-color:var(--line);}
+:root .tool-result[aria-pressed=true] {background:var(--rl-selected);border-color:var(--accent);}
+:root .analysis-tool progress {accent-color:var(--accent);}
+
+.app-header {display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);align-items:center;gap:10px;min-height:56px;padding:7px 14px;}
+.header-left {display:flex;align-items:center;gap:14px;min-width:0;}
+.header-left .project-heading {flex:1 1 100px;min-width:0;overflow:hidden;}
+.header-left .project-heading>span {display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.app-header .brand {justify-self:center;gap:7px;pointer-events:none;}
+.app-header .brand img {width:20px;height:20px;}
+.app-header .header-right {width:auto;justify-self:end;flex-wrap:nowrap;gap:7px;}
+.app-header .desktop-download {flex:0 1 auto;white-space:nowrap;font-size:.86rem;}
+.app-header .header-right button {height:34px;}
+.project-menu {flex:none;}
+.project-menu>summary {display:block;min-width:44px;border-color:transparent;padding:5px 9px;}
+.project-menu>summary::-webkit-details-marker {display:none;}
+.project-menu>.popover-body {left:0;right:auto;min-width:min(310px,calc(100vw - 24px));padding:5px;}
+.file-menu button {display:flex;align-items:center;justify-content:space-between;gap:25px;width:100%;text-align:left;border:0;background:transparent;min-height:32px;}
+.file-menu kbd {font:inherit;font-size:.85em;color:var(--muted);white-space:nowrap;}
+.file-menu hr {border:0;border-top:1px solid var(--line);margin:5px 3px;}
+#open-settings {display:inline-flex;gap:6px;align-items:center;border-color:transparent;background:transparent;}
+#open-settings svg {width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round;}
+.phase-controls {flex-wrap:nowrap;}
+.phase-controls label {min-width:0;max-width:55%;white-space:normal;line-height:1.3;}
+.phase-controls input[type=range] {min-width:60px;flex:1 1 90px;width:90px;}
+.phase-controls #motion-io {flex:none;}
+.phase-readout {display:inline-grid;font-variant-numeric:tabular-nums;}
+.phase-readout>span {grid-area:1/1;}
+.phase-readout>.phase-measure {visibility:hidden;}
+/* Fill the entire phase track during playback; keep the range interactive. */
+#phase-range {height:20px;border:6px solid transparent;border-radius:10px;}
+#phase-range[data-playing=true] {
+  appearance:none;
+  background-clip:padding-box;
+  background-color:var(--accent);
+  background-image:linear-gradient(45deg, #0003 25%, transparent 25%, transparent 50%, #0003 50%, #0003 75%, transparent 75%, transparent);
+  background-size:28px 28px;
+  animation:motion-phase-stripes .8s linear infinite;
+}
+#phase-range[data-playing=true][data-stationary=true] {animation-play-state:paused;}
+#phase-range[data-playing=true]::-webkit-slider-thumb {appearance:none;width:16px;height:16px;background:transparent;border:0;}
+#phase-range[data-playing=true]::-moz-range-thumb {width:16px;height:16px;background:transparent;border:0;}
+#phase-range[data-playing=true]::-moz-range-track,
+#phase-range[data-playing=true]::-moz-range-progress {background:transparent;border:0;}
+@keyframes motion-phase-stripes {from {background-position:0 0;}to {background-position:28px 0;}}
+/* This playback indicator follows the explicitly selected Play/RPM state. */
+
+/* A modal with one scrollable content area and persistent actions. */
+dialog.settings-panel {width:min(1020px,calc(100vw - 32px));height:min(710px,calc(100dvh - 32px));max-width:none;max-height:none;padding:0;border:1px solid var(--line);border-radius:10px;overflow:hidden;}
+.settings-panel[open] {display:flex;flex-direction:column;}
+.settings-panel::backdrop {background:#080d1590;}
+.settings-heading {display:flex;align-items:center;justify-content:space-between;padding:12px 17px;border-bottom:1px solid var(--line);flex:none;}
+.settings-heading h2 {font-size:1.05rem;}
+.settings-heading button {font-size:1.4rem;min-width:34px;}
+.settings-layout {display:flex;flex:1;min-height:0;min-width:0;}
+.settings-tabs {display:flex;flex-direction:column;gap:3px;width:180px;flex:none;padding:12px 8px;background:var(--rl-surface);border-right:1px solid var(--line);overflow:auto;}
+.settings-tabs button {min-height:36px;text-align:left;white-space:normal;border-color:transparent;background:transparent;}
+.settings-tabs button[aria-selected=true] {background:var(--rl-selected);color:var(--text);border-left:2px solid var(--accent);}
+.settings-pages {flex:1;min-width:0;overflow:auto;overscroll-behavior:contain;scrollbar-gutter:stable;}
+.settings-page {padding:18px 22px;min-width:0;}
+.settings-page[hidden] {display:none;}
+.settings-page h2 {margin:0 0 18px;}
+.settings-page h3 {margin:22px 0 12px;font-size:1rem;}
+.settings-page p {line-height:1.5;font-size:.9rem;}
+.settings-row {display:flex;align-items:center;justify-content:space-between;gap:14px;margin:12px 0;min-height:34px;}
+.settings-row>span:first-child {flex:1;min-width:0;overflow-wrap:anywhere;}
+.settings-row>select,.settings-row>input[type=text] {flex:0 1 265px;width:46%;min-width:90px;}
+.settings-row>input[type=checkbox] {width:18px;height:18px;flex:none;}
+.settings-row>input[type=text] {text-align:left;}
+.settings-buttons {display:flex;flex-wrap:wrap;gap:8px;margin:16px 0;align-items:center;}
+.settings-buttons>select {flex:1 1 180px;}
+.theme-cards {display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin:18px 0;}
+.theme-card {padding:6px;text-align:left;display:flex;flex-direction:column;gap:7px;min-width:0;}
+.theme-card[aria-pressed=true] {border-color:var(--accent);box-shadow:0 0 0 1px var(--accent);}
+.theme-card>span:last-child {padding:0 2px;overflow-wrap:anywhere;}
+.theme-swatch {width:100%;height:54px;padding:8px;display:flex;gap:4px;border-radius:3px;}
+.theme-swatch i {flex:1;border-radius:2px;}
+.theme-colors {padding:8px 0;border-top:1px solid var(--line);}
+.theme-colors>summary {padding:5px 0;color:var(--text);}
+.theme-color-controls {display:flex;gap:7px;align-items:center;flex:none;}
+.theme-color-controls input[type=color] {width:34px;height:30px;padding:2px;background:var(--entry);border:1px solid var(--line);border-radius:4px;cursor:pointer;}
+.theme-color-controls .theme-hex {width:87px;text-align:left;min-height:30px;}
+.theme-color-controls button {padding:2px 7px;min-height:30px;}
+.shortcut-controls {display:flex;align-items:center;gap:6px;max-width:65%;}
+.shortcut-binding {min-width:125px;white-space:normal;overflow-wrap:anywhere;}
+.shortcut-recorder {padding:12px;border:1px solid var(--accent);background:var(--rl-surface);border-radius:5px;}
+.shortcut-recorder h3 {margin:0;}
+.shortcut-recorder output {display:block;padding:12px;border:1px solid var(--line);border-radius:4px;}
+.shortcut-recorder .error {color:var(--error);}
+.precision-table {width:100%;min-width:470px;border-collapse:collapse;table-layout:fixed;font-size:.88rem;margin-bottom:16px;}
+.precision-table th,.precision-table td {padding:10px 8px;border-bottom:1px solid var(--line);text-align:left;overflow-wrap:anywhere;vertical-align:middle;}
+.precision-table th {font-weight:500;color:var(--muted);}
+.precision-table th:first-child {width:21%;}
+.precision-table td {font-variant-numeric:tabular-nums;}
+.precision-table button {padding:4px 7px;min-height:29px;white-space:normal;}
+.precision-table+details {font-size:.9rem;}
+.settings-footer {display:flex;align-items:center;gap:9px;padding:12px 17px;border-top:1px solid var(--line);flex:none;}
+.settings-footer>div {flex:1;min-width:0;font-size:.85rem;color:var(--muted);line-height:1.4;}
+.settings-footer>div>span {display:block;}
+#settings-apply {background:var(--accent);color:var(--rl-on-accent);border-color:var(--accent);}
+.settings-footer button {flex:none;}
+@media(max-width:1000px) {
+  .app-header {row-gap:5px;}
+  .app-header .header-right {grid-column:1/-1;justify-self:end;}
+  .app-header .brand {grid-column:2;grid-row:1;}
+  .header-left {grid-column:1;grid-row:1;gap:6px;}
+}
+@media(max-width:600px) {
+  .app-header {padding:6px 10px;gap:5px;}
+  .header-left .project-heading {font-size:.8rem;}
+  .header-left .document-state {display:none;}
+  .app-header .header-right {width:100%;justify-content:flex-end;}
+  dialog.settings-panel {width:calc(100vw - 12px);height:calc(100dvh - 12px);}
+  .settings-layout {flex-direction:column;}
+  .settings-tabs {width:100%;padding:6px;flex-direction:row;border:0;border-bottom:1px solid var(--line);}
+  .settings-tabs button {flex:none;text-align:center;max-width:48%;min-height:36px;}
+  .settings-tabs button[aria-selected=true] {border-left:0;border-bottom:2px solid var(--accent);}
+  .settings-page {padding:14px 12px;}
+  .settings-heading,.settings-footer {padding:8px 12px;}
+  .theme-cards {grid-template-columns:repeat(2,minmax(0,1fr));}
+  .theme-color-controls {gap:3px;}
+  .settings-row {gap:7px;}
+  .settings-row>select {max-width:55%;}
+  .shortcut-binding {min-width:90px;}
+  .settings-footer>div {font-size:.75rem;}
+}
+/* Enhanced selects retain the same width as their source field. */
+.settings-row>.choice-select {flex:0 1 265px;width:46%;min-width:90px;}
+.settings-row>.choice-select>span:first-child {min-width:0;white-space:normal;}
+.settings-row>.choice-source {display:none;}
+@media(max-width:600px) {.settings-row>.choice-select {max-width:55%;}}
+.app-header {z-index:30;overflow:visible;max-height:none;}
+.file-menu {overflow-x:hidden;}
+.file-menu hr {width:auto;align-self:stretch;}
+.settings-buttons>.choice-select {flex:1 1 180px;width:auto;}
+.precision-table {min-width:calc(500px * var(--text-scale));}
+@media(max-width:600px) {
+  .header-left .project-heading {display:none;}
+  .app-header .desktop-download {white-space:normal;overflow-wrap:anywhere;}
+}
+@media(max-width:600px) {
+  dialog.settings-panel {position:fixed;inset:6px;margin:0;width:auto;height:auto;}
+  .settings-footer {display:grid;grid-template-columns:minmax(0,1fr) auto auto;}
+  .settings-footer>div {grid-column:1/-1;overflow-wrap:anywhere;}
+  #settings-apply {grid-column:2;}
+  #settings-done {grid-column:3;}
+}
+.app-header .brand {margin:0;}

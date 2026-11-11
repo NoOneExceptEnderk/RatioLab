@@ -8,6 +8,7 @@ See README.md and docs/technical/calculations.md for model limits.
 """
 from dataclasses import dataclass, field
 from rust_geometry import call as rust_call
+from parameter_errors import ParameterError, field_context
 from math import sin, cos, tan, acos, atan, atan2, sqrt, pi, radians, degrees, hypot, isfinite, ceil
 import uuid
 TAU = 2 * pi
@@ -247,20 +248,29 @@ def validate(family, supplied):
     for key, label, default, low, high, step in get_specs(family, variant, style):
         v = supplied.get(key, default)
         if isinstance(v, bool):
-            raise ValueError(f'{label}: a numeric value is required')
-        if isinstance(v,str):v=from_text(v)
+            raise ParameterError('number.required', (key,), f'{label}: a numeric value is required', kind='input')
+        if isinstance(v,str):
+            try:v=from_text(v)
+            except ValueError as error:
+                raise ParameterError('number.required', (key,), f'{label}: a numeric value is required', kind='input') from error
         exact=v if isinstance(v,PreciseFloat) else precise.get(key)
         if exact is not None and float(exact)!=float(v):exact=None
         if exact is not None:
             try:rust_call('validate_number',dict(value=exact.expression,lower=low,upper=high,
                 integer=key in INTEGER,compatibility_value=float(v)))
-            except ValueError as error:raise ValueError(label+': '+str(error)) from error
-        v = float(v)
+            except ValueError as error:
+                number=float(v)
+                violation='lower' if number<low else 'upper' if number>high else None
+                limits={key:dict(lower=low,upper=high,violation=violation)} if violation and isfinite(number) else {}
+                raise ParameterError('number.domain', (key,), label+': '+str(error), kind='input', limits=limits) from error
+        try:v = float(v)
+        except (ValueError,TypeError,OverflowError) as error:
+            raise ParameterError('number.required', (key,), f'{label}: a numeric value is required', kind='input') from error
         if not isfinite(v) or not low <= v <= high:
-            raise ValueError(f'{label}: must be between {low} and {high}')
+            raise ParameterError('number.bounds', (key,), f'{label}: must be between {low} and {high}', kind='input', limits={key:dict(lower=low,upper=high,violation='lower' if v<low else 'upper' if v>high else None)})
         if key in INTEGER:
             if v != int(v):
-                raise ValueError(f'{label}: an integer is required')
+                raise ParameterError('number.integer', (key,), f'{label}: an integer is required', kind='input')
             v = int(v)
         attach(values,key,PreciseFloat(v,exact.expression) if exact is not None and key not in INTEGER else v)
     if family in ('differential', 'bevel') and 'spiral_hand' in values and values['spiral_hand'] not in (-1,1):
@@ -270,7 +280,7 @@ def validate(family, supplied):
         if style == 'joined':
             values['gap'] = 0
         elif values['gap'] <= 0:
-            raise ValueError('Separate helices require a groove greater than zero.')
+            raise ParameterError('groove.positive', ('gap',), 'Separate helices require a groove greater than zero.', 'Increase the groove or select joined helices.')
         if family == 'parallel' and variant in PARALLEL_MULTISTAGE_VARIANTS:
             from parallel_multistage import count, stage_key
             for stage in range(2, count(values)+1):
@@ -278,7 +288,7 @@ def validate(family, supplied):
                 if style == 'joined':
                     values[key] = 0
                 elif values[key] <= 0:
-                    raise ValueError(f'Stage {stage}: separate helices require a groove greater than zero.')
+                    raise ParameterError('groove.positive', (key,), 'Separate helices require a groove greater than zero.', 'Increase the groove or select joined helices.')
     if family == 'harmonic':
         output = supplied.get('harmonic_output', 'flex')
         if output not in HARMONIC_OUTPUTS:
@@ -304,34 +314,36 @@ def validate(family, supplied):
         else:
             root = m * (z / 2 - 1.25)
         if family not in ('parallel', 'internal', 'worm') and values['bore'] / 2 >= root - 0.25:
-            raise ValueError('The bore is too large for the tooth root diameter.')
+            raise ParameterError('bore.root', ('bore', 'module', 'teeth', 'pressure', 'profile_shift', 'dedendum', 'helix') if family in ('spur','helical','double') else ('bore','module','sun' if family=='planetary' else 'teeth'), 'The bore is too large for the tooth root diameter.', 'Reduce the bore or increase the module or tooth count.', limits={'bore':dict(upper=2*(root-.25),upper_exclusive=True)})
         if values['backlash'] >= m * 0.7:
-            raise ValueError('Backlash too large for the module.')
+            raise ParameterError('backlash.module', ('backlash','module'), 'Backlash too large for the module.', 'Reduce backlash or increase the module.', limits={'backlash':dict(upper=m*.7,upper_exclusive=True)})
     if family == 'double' and values['gap'] >= values['width'] - 1:
-        raise ValueError('The groove must leave at least 1 mm of teeth.')
+        raise ParameterError('groove.width', ('gap','width'), 'The groove must leave at least 1 mm of teeth.', 'Reduce the groove or increase the face width.', limits={'gap':dict(upper=values['width']-1,upper_exclusive=True)})
     if family == 'planetary':
         stages = [(values['sun'], values['planet'])]
         if variant in ('two_stage', 'two_stage_double'):
             stages.append((values['sun2'], values['planet2']))
-        for zs, zp in stages:
+        for stage, (zs, zp) in enumerate(stages, 1):
+            sun_key='sun' if stage==1 else 'sun2'
+            planet_key='planet' if stage==1 else 'planet2'
             n = values['planets']
             zr = zs + 2 * zp
             if (zs + zr) % n:
-                raise ValueError('Equally spaced assembly: (sun teeth + ring teeth) must be divisible by the planet count in each stage.')
+                raise ParameterError('planetary.spacing', (sun_key,planet_key,'planets'), 'Equally spaced assembly: (sun teeth + ring teeth) must be divisible by the planet count in each stage.', 'Change the sun or planet tooth count, or the number of planets, to satisfy the divisibility rule.')
             if m * (zs + zp) * sin(pi / n) <= m * (zp + 2) + values['backlash']:
-                raise ValueError('I satelliti si sovrappongono: ridurne numero o dimensione.')
+                raise ParameterError('planetary.overlap', (sun_key,planet_key,'planets','module','backlash'), 'Planet envelopes overlap.', 'Reduce the number of planets or the planet tooth count, or increase the sun tooth count. Recheck equal spacing.')
             if values['bore'] < 2:
-                raise ValueError('The assembly requires a bore of at least 2 mm for shafts and pins.')
+                raise ParameterError('planetary.bore_minimum', ('bore',), 'The assembly requires a bore of at least 2 mm for shafts and pins.', 'Increase the bore.', limits={'bore':dict(lower=2)})
             if values['bore'] / 2 >= m * (min(zs, zp) / 2 - 1.25) - 0.5:
-                raise ValueError('Bores too large for the sun or planets.')
+                raise ParameterError('planetary.bore_root', ('bore','module',sun_key,planet_key), 'Bores too large for the sun or planets.', 'Reduce the bore or increase the module or tooth count.')
     if family == 'planetary' and variant in ('double', 'two_stage_double'):
         if values['gap'] >= min(values['width'], values.get('width2', values['width'])) - 1:
-            raise ValueError('Groove too wide for the teeth.')
+            raise ParameterError('groove.width', ('gap','width','width2') if 'width2' in values else ('gap','width'), 'Groove too wide for the teeth.', 'Reduce the groove or increase the face width.')
     if family == 'harmonic':
         if values['teeth'] % 2:
-            raise ValueError('Use an even tooth count for the two lobe flexspline.')
+            raise ParameterError('harmonic.even_teeth', ('teeth',), 'Use an even tooth count for the two lobe flexspline.')
         if values['wall'] >= m * (z / 2 - 1.25) - values['bore'] / 2:
-            raise ValueError('Flexspline wall too thick.')
+            raise ParameterError('harmonic.wall', ('wall','module','teeth','bore'), 'Flexspline wall too thick.', 'Reduce the wall thickness or bore, or increase the module or tooth count.')
     if family == 'worm' and values['worm_hand'] == 0:
         raise ValueError('Worm handedness must be −1 or +1.')
     if family == 'wolfrom':
@@ -465,8 +477,9 @@ def involute(z, m, pressure=20, backlash=0.15, internal=False, samples=4, depth_
 
 def cycloid(n, R, e, pin, clearance=0, samples=None, tolerance=0.01):
     from rust_geometry import call
-    result = call('cycloid_profile', dict(n=n, radius=R, eccentricity=e, pin=pin,
-        clearance=clearance, samples=samples, tolerance=tolerance))
+    with field_context(dict(n='pins',radius='radius',eccentricity='eccentric',pin='pin_radius',clearance='clearance')):
+        result = call('cycloid_profile', dict(n=n, radius=R, eccentricity=e, pin=pin,
+            clearance=clearance, samples=samples, tolerance=tolerance))
     return [tuple(p) for p in result['points']]
 
 @dataclass
@@ -551,6 +564,7 @@ class Design:
     requirements: list = field(default_factory=list)
     analysis: dict = field(default_factory=dict)
     quality: dict = field(default_factory=dict)
+    component_sheets: dict = field(default_factory=dict)
 
     def asset_folder(self, asset_dir=None):
         from pathlib import Path
@@ -707,7 +721,7 @@ def generate(family, supplied=None, *, quality=None):
             p.gap = v['gap']
             p.core_radius = min((hypot(x, y) for x, y in p.outer)) * 0.96
             if bore / 2 >= p.core_radius - 0.25:
-                raise ValueError('Bore too large for the continuous hub below the groove.')
+                raise ParameterError('bore.hub', ('bore','module','teeth','pressure','profile_shift','dedendum','helix'), 'Bore too large for the continuous hub below the groove.', 'Reduce the bore or increase the module or tooth count.')
         d.metrics = [f'Pitch diameter: {m * z / cos(radians(beta)):.3f} mm', f'Teeth: {z} · normal module: {m:g} mm', f'Total twist: {p.twist:.2f}°']
         from engineering import gear_dimensions, force_components, gear_warnings
         g = gear_dimensions(z, m, pa, beta, v['profile_shift'], v['addendum'], v['dedendum'], backlash=b, topping_mm=v['topping_mm'])

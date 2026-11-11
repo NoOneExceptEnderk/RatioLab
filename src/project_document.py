@@ -142,10 +142,12 @@ class Document:
 def validate_snapshot(value, families):
     if (not isinstance(value, dict)
             or not {'family','values','raw'} <= set(value)
-            or set(value)-{'family','values','raw','automatic','quality'}):
+            or set(value)-{'family','values','raw','automatic','quality','component_sheets'}):
         raise ValueError('Invalid recovery snapshot')
     from geometry_quality import normalize
     normalize(value.get('quality'))
+    from component_sheets import normalize as normalize_sheets
+    normalize_sheets(value.get('component_sheets'))
     if value['family'] not in families:
         raise ValueError('Unsupported recovery family')
     if not isinstance(value['values'], dict) or not isinstance(value['raw'], dict):

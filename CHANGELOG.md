@@ -6,6 +6,66 @@ published packages and their verification results.
 
 ## Unreleased
 
+## 0.2.3 — 2026-11-11
+
+### Added
+
+- **Illustrated Tools guides** in nine languages with localized screenshots,
+  expected results and three example projects.
+- **Component production and inspection PDFs** with saved company fields, nominal
+  dimensions, localized headings and checks, custom checks and geometry review.
+- **Combination search** across supported pressure angles, helix angles, balanced
+  profile shifts and centre distances, with ratio, envelope and contact rankings,
+  an optional contact filter and exclusion counts.
+- **Independent tooth-tip increments** remembered for each topping and
+  semitopping field.
+- **Automatic tooth focus** and a transparent preview of material removed by
+  topping or semitopping.
+
+### Changed
+
+- **Analysis panels** share a model, settings and results layout across desktop
+  and browser, with explicit search coverage and contextual report actions.
+- **Input/output ratios** use signed **1:x** for nonzero magnitudes below one
+  across search, results and reports, with equivalent decimal search targets.
+- **Export scope** uses a common desktop and browser chooser with part names,
+  counts, detail, destination and confirmation. Component shortcuts use the
+  desktop chooser and browser downloads retain an inventory.
+- **Package previews** reflect the selected nominal parts, including hidden
+  components, while preserving the view and keeping editable projects separate.
+- **Field diagnostics** use short messages and precise inclusive or strict
+  limits in all nine interface languages.
+- **Constraint diagnostics** highlight related fields, suggest remedies and
+  distinguish incomplete input from calculation failures.
+- **Metrology** follows the selected component, shows theoretical tooth spans
+  and availability, and remembers desktop request drafts.
+- **Interference filters** keep sampled coverage and complete reports intact.
+  Incomplete settings invalidate the current results.
+- **Working backlash** shows target bounds and current and proposed geometry,
+  with an explicit Apply action on desktop and web.
+- **Blank desktop fields** confirm a compatible zero or search for a compatible
+  lower bound, with six decimal places for continuous fields and other inputs
+  preserved.
+- **Tooth inspection** faces the profile plane and fades foreground obstructions
+  to 25% opacity. Inspection also covers bevel and differential teeth.
+- **Tooth camera** keeps its position across field edits and focus changes, with
+  smooth transitions and a **reset cam** action.
+- **Home** returns from tooth details to the full model after removal of the
+  information overlay and its Back button.
+- **Animated phase stripes** follow playback speed smoothly on desktop and web,
+  stay visible at low RPM on desktop, and yield to the slider on Pause.
+- **Input speed controls** omit the desktop **Rate info** pop-up and contextual
+  help.
+- **Browser workspace and Settings** match the desktop layout with File,
+  centered branding, custom themes, CAD control presets and precision bounds.
+- **Gear calculation guides** have clearer search metadata and link to the
+  cycloidal drive example from the calculations, user and kinematics guides.
+
+### Fixed
+
+- **Browser numeric steppers** put **+ above −** and retain their step sizes.
+- **Python wheels** include the structured parameter diagnostics module.
+
 ## 0.2.2 — 2026-11-09
 
 ### Added

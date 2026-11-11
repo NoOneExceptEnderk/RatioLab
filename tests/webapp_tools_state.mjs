@@ -5,14 +5,24 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
+import {webModules} from './webapp_modules.mjs';
 import {fileURLToPath} from 'node:url';
 const root=fileURLToPath(new URL('../',import.meta.url));
-const viewerModule=new vm.SourceTextModule(fs.readFileSync(root+'webapp/viewer.js','utf8'));
-await viewerModule.link(()=>{throw Error('Unexpected viewer import');});await viewerModule.evaluate();
-const toolsModule=new vm.SourceTextModule(fs.readFileSync(root+'webapp/tools.js','utf8'));
-await toolsModule.link(()=>viewerModule);await toolsModule.evaluate();
-const {preciseNumber,axisGrid,QueryState,initTools}=toolsModule.namespace;
+const graph=webModules(root);
+const viewerModule=await graph.load('./viewer.js');
+const toolsModule=await graph.load('./tools.js');
+const {preciseNumber,axisGrid,gridCount,QueryState,initTools}=toolsModule.namespace;
 const {cameraRay,ModelViewer,identityMatrix}=viewerModule.namespace;
+const {ratioParts}=(await graph.load('./ratio-display.js')).namespace;
+for (const [value,expected] of [
+  [3,'+3:1'],[-3,'-3:1'],[1,'+1:1'],[-1,'-1:1'],
+  [1/3,'+1:3'],[-1/3,'-1:3'],[1e-300,'+1:1e+300'],[Number.MIN_VALUE,'+4.941e-324:1']
+]) {
+  assert.equal(ratioParts(value).join(''),expected);
+  assert.equal(ratioParts(value,4,{signed:false}).join(''),expected.slice(1));
+}
+assert.notEqual(ratioParts(1-Number.EPSILON/2).join(''),'+1:1');
+assert.notEqual(ratioParts(1+Number.EPSILON).join(''),'+1:1');
 for(const raw of ['','-','+','1e','1e-','NaN','Infinity','1,2,3','4x'])assert.throws(()=>preciseNumber(raw));
 assert.equal(preciseNumber('31,1234567890123'),31.1234567890123);
 assert.equal(preciseNumber('1.25e-3'),.00125);assert.throws(()=>preciseNumber('1.5','Count',true));
@@ -20,6 +30,9 @@ const draft={mode:'range',range:['60','62','2'],custom:'55,57'};
 assert.equal(axisGrid(draft),'60:62:2');draft.mode='custom';assert.equal(axisGrid(draft),'55,57');draft.mode='range';assert.equal(axisGrid(draft),'60:62:2');
 assert.throws(()=>axisGrid({mode:'range',range:['0','1000','1']}),/1000/);
 assert.equal(axisGrid({mode:'locked'}),null);
+assert.equal(gridCount({mode:'custom',custom:'18,20:24:2,20'}),4);
+assert.equal(gridCount({mode:'range',range:['18','26','2']}),5);
+assert.throws(()=>gridCount({mode:'custom',custom:'20,not-a-number'}));
 let token={identity:'A',revision:1,operation:2,designId:3};
 const matches=t=>JSON.stringify(t)===JSON.stringify(token),lease=new QueryState(matches);
 const old=lease.begin('search','search',token);token.operation++;assert.equal(lease.finish(old,{query_id:'stale'}),false);
@@ -66,7 +79,7 @@ let guideAccess=0;
 globalThis.document={createElement:tag=>new Element(tag),getElementById:id=>{if(id==='viewport-grid'||id==='viewport-axes')guideAccess++;return documentNodes.get(id)||null;}};
 globalThis.ResizeObserver=class{observe(){}disconnect(){}};
 const events=new EventTarget(),engine=new EventTarget(),registry=new Map();
-let valid=true,analysis=false,paused=0,cancelled=0,transaction=null,downloads=0,workerQuery=0,calls=[],pending=null,delayedApply=null,incompleteBacklash=false,applyError=null;
+let valid=true,analysis=false,paused=0,cancelled=0,transaction=null,downloads=0,workerQuery=0,calls=[],pending=null,delayedApply=null,incompleteBacklash=false,applyError=null,supportedMetrology=false;
 const rawEntries={module:{text:'2.0000000000000000',exact:2,typed:true},input_rpm:{text:'31.123456789012300',exact:31.1234567890123,typed:true}};
 const originalRawEntries=structuredClone(rawEntries);
 let snapshot={token:{identity:'doc',revision:1,operation:1,designId:7},phase:0,family:'parallel',parameters:{variant:'double',double_style:'joined',wheel:60,gap:0},design:{design_id:7,analysis:{signed_ratio:-3},parts:[{index:0,name:'Pinion'},{index:1,name:'Wheel'}]}};
@@ -84,7 +97,7 @@ const api={events,engine,viewer:source,pickMode:'navigate',snapshot:()=>valid?st
     if(method==='query_export')return {name:'query.txt',mime:'text/plain',buffer:0,buffers:[new Uint8Array([65]).buffer]};
     if(pending)return pending.promise;
     if(method==='search')return searchResult();
-    if(method==='metrology')return result(method,{status:'unsupported'},'Unsupported canonical theory');
+    if(method==='metrology')return result(method,supportedMetrology?{part:'Pinion',result:{status:'ok',dimension_kind:'over gauges',dimension_mm:22.29409294937739,gauge_diameter_mm:1.7,contact_radius_mm:10}}:{status:'unsupported'},'Unsupported canonical theory');
     if(method==='interference')return result(method,{coverage_complete:false,completed_poses:1,planned_poses:2,completed_pairs:1,issues:['Limit reached'],rows:[{part_a:'Pinion',part_b:'Wheel',index_a:0,index_b:1,kind:'boundary',distance:.01,phase_degrees:30}]});
     if(method==='backlash'){const f=new Float32Array([123,0,0,0,1,0,0,0,1]);return {...result(method,{status:incompleteBacklash?'incomplete':'ready',reason:incompleteBacklash?'Pose limit':'Canonical check complete',applicable:!incompleteBacklash,proposal_id:'proposal',interference:{coverage_complete:!incompleteBacklash}}),candidate:{motion:{},parts:[{index:0,color:[1,1,1],role:'gear',bounds_mm:{minimum:[0,0,0],maximum:[123,1,1]},mesh:{positions:0,normals:1,vertex_count:3}}]},buffers:[f.buffer,new Float32Array(9).buffer]};}
     throw Error('Unexpected method '+method);
@@ -95,7 +108,8 @@ const formEdit=panel=>panel.form.dispatchEvent(new Event('input'));
 const defer=()=>{let resolve,reject;const promise=new Promise((yes,no)=>{resolve=yes;reject=no;});return {promise,resolve,reject};};
 
 await registry.get('search').open();const search=p.get('search');
-assert.equal(search.axes.get('wheel').mode,'locked');
+assert.equal(search.axes.get('wheel').mode,'range');
+assert.match(search.scope.textContent,/9 finite candidates/);
 search.axes.get('wheel').mode='range';search.axes.get('wheel').range=['60','62','2'];
 search.run.click();await settle();assert.match(search.summary.textContent,/PARTIAL/);assert.match(search.summary.textContent,/1\/2/);assert.equal(search.apply.disabled,true);
 search.rows.children[0].click();assert.equal(search.apply.disabled,false);search.downloads[0].click();await settle();assert.equal(downloads,1);
@@ -115,16 +129,36 @@ search.axes.get('wheel').custom='61,63';search.axes.get('wheel').mode='custom';f
 // Cancel hard-terminates, rebuilds current drafts and permits retry, with no Apply.
 pending=defer();search.run.click();await settle();assert.equal(analysis,true);assert.equal(search.cancel.disabled,false);search.fields.x.input.value='999';formEdit(search);await settle();assert.equal(cancelled,1);assert.equal(analysis,false);assert.equal(search.apply.disabled,true);assert.equal(search.run.disabled,false);assert.equal(transaction.wheel,62);
 search.run.click();await settle();assert.equal(search.downloads[0].disabled,false);
+// Explicit cancellation stays visible during the worker restart and after recovery.
+pending=defer();search.run.click();await settle();search.cancel.click();
+assert.match(search.summary.textContent,/Cancelled/);await settle();
+assert.equal(search.summary.textContent,'Operation cancelled.');assert.equal(search.apply.disabled,true);
+// A subsequent model edit owns the status even if cancellation recovery finishes.
+pending=defer();search.run.click();await settle();search.cancel.click();emit('invalidate');await settle();
+assert.match(search.summary.textContent,/Model changed/);assert.equal(search.downloadActions.hidden,true);
 // A result arriving after source invalidation cannot reinstall stale UI.
 pending=defer();const late=pending;search.run.click();await settle();valid=false;emit('invalidate');late.resolve(searchResult());pending=null;await settle();assert.equal(tools.state.result,null);assert.equal(search.apply.disabled,true);assert.ok(search.downloads.every(b=>b.disabled));valid=true;emit('design');await settle();
 // Revalidation returning after form edit cannot make a document transaction.
 search.run.click();await settle();search.rows.children[0].click();delayedApply={};search.apply.click();await settle();const originalTransaction=transaction;formEdit(search);delayedApply.resolve({values:{wheel:999},changes:{wheel:999}});delayedApply=null;await settle();assert.equal(transaction,originalTransaction);
 // Canonical unsupported metrology is shown and remains downloadable.
-await registry.get('metrology').open();const metrology=p.get('metrology');assert.equal(metrology.fields.source_index.input.options.length,2);metrology.run.click();await settle();assert.match(metrology.summary.textContent,/Unsupported canonical theory/);assert.equal(metrology.downloads[0].disabled,false);
+await registry.get('metrology').open();const metrology=p.get('metrology');assert.equal(metrology.fields.source_index.input.options.length,2);assert.equal(metrology.fields.source_index.input.value,'1');metrology.run.click();await settle();assert.match(metrology.summary.textContent,/Unsupported canonical theory/);assert.equal(metrology.downloads[0].disabled,false);
+// The disabled default diameter must show its actual recommendation, never a
+// leftover explicit value; both modes retain their independent drafts.
+supportedMetrology=true;metrology.run.click();await settle();
+assert.equal(metrology.fields.gauge_diameter.input.value,'1.7');
+const gaugeMode=metrology.fields.gauge_mode.input;
+gaugeMode.value='explicit';gaugeMode.dispatchEvent(new Event('change'));
+assert.equal(metrology.fields.gauge_diameter.input.value,'3');
+metrology.fields.gauge_diameter.input.value='2.75123456789';
+gaugeMode.value='default';gaugeMode.dispatchEvent(new Event('change'));
+assert.equal(metrology.fields.gauge_diameter.input.value,'1.7');
+gaugeMode.value='explicit';gaugeMode.dispatchEvent(new Event('change'));
+assert.equal(metrology.fields.gauge_diameter.input.value,'2.75123456789');
+supportedMetrology=false;
 // Starting a different query immediately revokes the previous query's downloads.
 emit('querybegin',{method:'documents'});assert.ok(metrology.downloads.every(b=>b.disabled));
-await registry.get('interference').open();const check=p.get('interference');check.run.click();await settle();assert.match(check.summary.textContent,/INCOMPLETE/);assert.equal(check.rows.children[0].dataset.sourcePair,'0,1');
-const priorFrame=structuredClone(source.frame);check.rows.children[0].click();await settle();assert.equal(snapshot.phase,Math.PI/6);assert.deepEqual([...source.selected],[0,1]);assert.equal(source.section,false);assert.equal(source.explosion,0);assert.equal(source.supports,true);assert.equal(source.hidden.size,0);
+await registry.get('interference').open();const check=p.get('interference');check.run.click();await settle();assert.match(check.summary.textContent,/INCOMPLETE/);assert.equal(check.rows.children[1].dataset.sourcePair,'0,1');
+const priorFrame=structuredClone(source.frame);check.rows.children[1].click();await settle();assert.equal(snapshot.phase,Math.PI/6);assert.deepEqual([...source.selected],[0,1]);assert.equal(source.section,false);assert.equal(source.explosion,0);assert.equal(source.supports,true);assert.equal(source.hidden.size,0);
 check.rows.children.at(-1).click();assert.equal(snapshot.phase,0);assert.deepEqual(source.frame,priorFrame);assert.deepEqual([...source.selected],[1]);assert.deepEqual([...source.hidden],[1]);assert.equal(source.section,true);assert.equal(source.explosion,.37);
 // Candidate uses its own transferred channels, never replaces source, and frees
 // every uploaded buffer on invalidation. Its render never touches global guides.

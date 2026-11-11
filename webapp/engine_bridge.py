@@ -328,7 +328,9 @@ class Engine:
         from geometry_quality import project
         return project(self.design)
 
-    def generate(self, family, parameters, quality=None):
+    def generate(self, family, parameters, quality=None, component_sheets=None):
+        from component_sheets import normalize as normalize_sheets
+        metadata = normalize_sheets(component_sheets)
         # Wolfrom edits are transactional; browser document tokens still block
         # exports for an invalid draft. Other families keep their invalidation.
         transactional = family == 'wolfrom' or family == 'parallel' and isinstance(parameters, dict) and parameters.get('variant') in geometry.PARALLEL_MULTISTAGE_VARIANTS
@@ -338,11 +340,13 @@ class Engine:
             self.design_id += 1
         values = parameters_check(family, parameters)
         design = geometry.generate(family, values, quality=quality)
+        design.component_sheets = metadata
         plan = motion.build_plan(design)
         if transactional:
             self.invalidate_queries()
             self.design_id += 1
         result = self.pack_design(design, plan)
+        if metadata:result['component_sheets'] = deepcopy(metadata)
         self.design, self.plan = design, plan
         return result
 
@@ -358,12 +362,40 @@ class Engine:
         self.design = candidate
         return result
 
+    def precision_bounds(self, args):
+        """Read-only UI comparison; retain the active construction and lease."""
+        from decimal import Decimal, ROUND_CEILING
+        from geometry_quality import PRESETS, normalize, with_quality, deviation
+        source = self.require(args)
+        quality = normalize(args.get('quality', {}))
+        rows = [(name, dict(preview_mm=value, export_mm=value), 'export') for name, value in PRESETS]
+        rows += [('Part default', {}, 'export'), ('Preview', quality, 'preview'), ('Export', quality, 'export')]
+        result = {}
+        cache = {}
+        def text(value):
+            if value is None:return None
+            number = Decimal.from_float(value)
+            if number:number = number.quantize(Decimal(1).scaleb(number.adjusted()-3), rounding=ROUND_CEILING)
+            def plain(number):
+                value = format(number, 'f')
+                return value.rstrip('0').rstrip('.') if '.' in value else value
+            return '≤ '+plain(number)+' mm · '+plain(number*1000)+' µm'
+        for name, requested, purpose in rows:
+            key = (tuple(sorted(requested.items())), purpose)
+            if key not in cache:
+                try:cache[key] = deviation(with_quality(source, requested), purpose)
+                except ValueError as error:cache[key] = dict(interpolation_mm=None, model_mm=None, error=str(error))
+            record = cache[key]
+            result[name] = dict(record, interpolation_text=text(record['interpolation_mm']), model_text=text(record['model_mm']))
+        return dict(design_id=self.design_id, rows=result)
+
     def pack_design(self, design, plan):
         """Pack an independent assembly without replacing the active source."""
         import stl_export
         from solid_geometry import PALETTE,profile_report,sampling_report
         from engineering import geometry_warnings
         from geometry_quality import summary
+        from tool_capabilities import capabilities
         values = design.values
         if len(design.parts) > 256:
             raise BridgeError('resource_limit', 'The browser supports at most 256 components.')
@@ -400,6 +432,7 @@ class Engine:
         return dict(design_id=self.design_id, family=design.family, values=design.values, metrics=design.metrics,
                     notes=design.notes, warnings=geometry_warnings(design), requirements=design.requirements,
                     analysis=design.analysis, quality=design.quality, representation=summary(design), parts=parts, triangle_count=triangles,
+                    tool_capabilities=capabilities(design),
                     bounds_mm=dict(minimum=lower, maximum=upper), motion=self.motion_metadata(design, plan), limitations=LIMITATIONS)
 
     def motion_metadata(self, design=None, plan=None):
@@ -526,6 +559,10 @@ class Engine:
                 or any(b-a > limit for a, b, limit in zip(lo, hi, settings.max_xyz))
                 or tuple(lo) != tuple(row['minimum']) or tuple(hi) != tuple(row['maximum'])):
             raise BridgeError('invalid_proposal', 'Fresh candidate no longer matches the finite search proposal.')
+        if settings.min_profile_contact > 0:
+            contact = [m.get('profile_contact_total') for m in checked.analysis.get('meshes', [])]
+            if not contact or any(v is None or v < settings.min_profile_contact for v in contact):
+                raise BridgeError('invalid_proposal', 'Fresh candidate does not meet the usable contact ratio limit.')
         # Canonical values can contain hidden fields (joined helices retain
         # gap=0). Apply only freshly checked unlocked changes to the editor,
         # preserving locked raw entries and their original precision.
@@ -694,6 +731,7 @@ class Engine:
         else:
             design = original
         config = self.project()
+        files = []
         if kind == 'project':
             if indices is not None:
                 raise BridgeError('invalid_arguments', 'A desktop project always describes the full source configuration. Use a selected geometry export.')
@@ -728,10 +766,11 @@ class Engine:
                         (folder/'selection.json').write_text(json_text(design.export_scope)+'\n', encoding='utf-8')
                     # Project parameters describe the source assembly, including for a subset.
                     (folder/'model.config.json').write_text(json_text(dict(config, selected_export=design.export_scope) if hasattr(design, 'export_scope') else config)+'\n', encoding='utf-8')
+                files = sorted(str(p.relative_to(folder)) for p in folder.rglob('*') if p.is_file())
                 data = archive(folder)
             filename, mime = 'ratiolab-'+kind+'.zip', 'application/zip'
         return dict(design_id=self.design_id, name=filename, mime=mime, bytes=len(data), buffer=self.add_buffer(data),
-                    scope=getattr(design, 'export_scope', None))
+                    scope=getattr(design, 'export_scope', None), files=files, component_count=len(design.parts))
 
     def call(self, method, args):
         # Preserve the accepted Wolfrom source and its query leases on rejection.
@@ -756,7 +795,7 @@ class Engine:
             raise
 
     def _call(self, method, args, transactional=False):
-        self.buffers.clear()
+        if method != 'precision_bounds':self.buffers.clear()
         if method in ('generate', 'import_project') and not transactional:
             self.design = self.plan = None
             self.invalidate_queries()
@@ -765,8 +804,9 @@ class Engine:
         if method == 'catalog': return catalog()
         if method == 'schema': return schema(args.get('family'), args.get('parameters'))
         if method == 'validate': return dict(family=family_check(args.get('family')), values=parameters_check(args['family'], args.get('parameters', {})))
-        if method == 'generate': return self.generate(args.get('family'), args.get('parameters', {}), args.get('quality'))
+        if method == 'generate': return self.generate(args.get('family'), args.get('parameters', {}), args.get('quality'), args.get('component_sheets'))
         if method == 'quality': return self.set_quality(args)
+        if method == 'precision_bounds': return self.precision_bounds(args)
         if method == 'import_project':
             project = args.get('project')
             if not isinstance(project, dict) or project.get('format') != PROJECT_FORMAT or 'selected_export' in project:
@@ -783,7 +823,7 @@ class Engine:
                     raise BridgeError('invalid_parameters', 'Unsupported Wolfrom parameter(s): '+', '.join(sorted(unsupported)))
             from precise_numbers import SOURCE_KEY
             known = numeric_parameter_keys(family) | option_definitions(family).keys() | {SOURCE_KEY}
-            result = self.generate(family, {key: value for key, value in parameters.items() if key in known}, project.get('quality'))
+            result = self.generate(family, {key: value for key, value in parameters.items() if key in known}, project.get('quality'), project.get('component_sheets'))
             result['ignored_parameters'] = sorted(parameters.keys() - known)
             return result
         if method == 'project':
@@ -826,9 +866,10 @@ def dispatch(method, payload, preview=None):
             args['preview_png'] = preview
         result = _engine.call(method, args)
         return json_text(dict(ok=True, result=result, buffer_count=len(_engine.buffers)))
-    except (ValueError, TypeError, KeyError, OverflowError) as error:
+    except (ValueError, TypeError, KeyError, OverflowError, RuntimeError) as error:
         _engine.buffers.clear()
-        return json_text(dict(ok=False, error=dict(code=getattr(error, 'code', 'invalid_parameters'), message=str(error))))
+        from parameter_errors import record
+        return json_text(dict(ok=False, error=record(error)))
 
 
 def buffer(index):

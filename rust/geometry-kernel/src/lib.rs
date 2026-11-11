@@ -8,6 +8,7 @@ pub mod cad_curves;
 mod cad_splines;
 mod cad_sweeps;
 pub mod cylindrical;
+mod diagnostic;
 mod enclosure;
 mod error_budget;
 pub mod exact;

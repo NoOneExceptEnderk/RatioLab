@@ -10,7 +10,8 @@ gi.require_version('Gtk', '4.0')
 from gi.repository import Gtk, GLib
 from backlash_solver import solve, revalidate, export_proposal
 from interference import Settings
-from gui_workflow import bind_numeric_entry, bind_numeric_spin, numeric_value, set_numeric_value
+from workspace_tools import actions, heading, model_text
+from gui_workflow import bind_numeric_entry, bind_numeric_spin, numeric_value, numeric_snapshot_text, set_numeric_value
 
 
 class Controller:
@@ -27,8 +28,8 @@ class Controller:
         app.win.connect('unrealize', lambda *_: self.close())
 
     def supported(self):
-        d = self.app.design
-        return d is not None and d.family == 'parallel'
+        from tool_capabilities import backlash_supported
+        return backlash_supported(self.app.design)
 
     def current(self, serial):
         app = self.app
@@ -46,6 +47,11 @@ class Controller:
         self.result = self.snapshot = self.revision = self.source_design = None
         self.summary.set_text(message)
         if self.window:
+            self.outcome.set_text(message)
+            self.comparison.set_visible(False)
+            self.preview.set_visible(False)
+            self.preview_note.set_visible(False)
+            self.report_details.set_visible(False)
             self.preview.reset_motion()
             self.preview.set_design(None)
             self.report.get_buffer().set_text(message)
@@ -69,10 +75,14 @@ class Controller:
 
     def context_text(self):
         if not self.supported():
-            return 'Select a parallel external pair. Internal, planetary and individual gears do not support this adjustment.'
+            return model_text(self.app.design) + '\n' + 'Select a parallel external pair. Internal, planetary and individual gears do not support this adjustment.'
         mesh = self.app.design.analysis['meshes'][0]
-        return (f'Current centre {mesh["center_distance_mm"]:.9g} mm · working transverse backlash '
-                f'{mesh["working_pair_backlash_mm"]:.9g} mm · {self.app.design.values["variant"]}')
+        from backlash_solver import adjustment_limits
+        limits = adjustment_limits(self.app.design)
+        return (model_text(self.app.design) + '\n'
+                + f'Current centre {mesh["center_distance_mm"]:.9g} mm · working transverse backlash '
+                f'{mesh["working_pair_backlash_mm"]:.9g} mm\n'
+                f'Nominal target range: {limits["minimum_mm"]:.6g}–{limits["maximum_mm"]:.6g} mm. Contact checks still apply.')
 
     def close(self):
         self.invalidate('Backlash tool closed')
@@ -82,6 +92,10 @@ class Controller:
             self.window = None
 
     def window_closed(self, *_):
+        self.draft = dict(key=(self.app.document.token[0], self.app.family, self.app.field_values.get('variant')),
+                          target=numeric_snapshot_text(self.target),
+                          fields=[numeric_snapshot_text(widget) for widget in (self.step, self.seconds, self.poses)],
+                          advanced=self.advanced.get_expanded())
         self.invalidate('Backlash window closed')
         self.window = None
         return False
@@ -96,9 +110,10 @@ class Controller:
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8,
                       margin_start=14, margin_end=14, margin_top=14, margin_bottom=14)
         self.window.set_child(box)
-        box.append(Gtk.Label(label='Preview an exact centre-distance solution. The project changes only when you click Apply.', wrap=True, xalign=0))
+        heading(box, 'Model examined')
         self.context = Gtk.Label(label=self.context_text(), wrap=True, xalign=0)
         box.append(self.context)
+        heading(box, 'Analysis settings')
         row = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         row.append(Gtk.Label(label='Desired working transverse tangential backlash [mm]', wrap=True, xalign=0))
         initial = self.app.design.analysis['meshes'][0]['working_pair_backlash_mm'] if self.supported() else .3
@@ -109,6 +124,7 @@ class Controller:
         row.append(self.target)
         box.append(row)
         advanced = Gtk.Expander(label='Discrete interference settings')
+        self.advanced = advanced
         settings = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
         advanced.set_child(settings)
         controls = Gtk.Grid(column_spacing=8, row_spacing=6)
@@ -128,19 +144,28 @@ class Controller:
         settings.append(controls)
         settings.append(Gtk.Label(label='Boundary tolerance 0.01 mm; limits 128 parts / 300,000 triangles. Stop is cooperative. Same-member boundary contacts remain unresolved; intersections always block Apply. Sparse samples do not prove continuous clearance.', wrap=True, xalign=0))
         box.append(advanced)
+        heading(box, 'Results')
+        self.outcome = Gtk.Label(xalign=0, wrap=True, selectable=True)
+        box.append(self.outcome)
+        self.comparison = Gtk.Label(xalign=0, wrap=True, selectable=True)
+        box.append(self.comparison)
         self.preview = Preview3D()
         self.preview.set_size_request(-1, 210)
         self.preview.set_vexpand(True)
         box.append(self.preview)
-        box.append(Gtk.Label(label='Proposed geometry only · independent static view; your project view and motion are preserved.', wrap=True, xalign=0))
+        self.preview_note = Gtk.Label(label='Proposed geometry only · independent static view; your project view and motion are preserved.', wrap=True, xalign=0)
+        box.append(self.preview_note)
         self.report = Gtk.TextView(editable=False, monospace=True, wrap_mode=Gtk.WrapMode.WORD_CHAR)
         self.report._ratiolab_localize_report = True
         scroll = Gtk.ScrolledWindow(vexpand=True, hexpand=True, min_content_height=170)
         scroll.set_child(self.report)
-        box.append(scroll)
+        self.report_details = Gtk.Expander(label='Full report')
+        self.report_details.set_child(scroll)
+        box.append(self.report_details)
         self.progress = Gtk.ProgressBar()
         box.append(self.progress)
-        buttons = Gtk.FlowBox(selection_mode=Gtk.SelectionMode.NONE, max_children_per_line=2, column_spacing=6, row_spacing=6)
+        buttons = actions(box)
+        buttons.set_max_children_per_line(2)
         self.run_button = Gtk.Button(label='Calculate & preview')
         self.run_button.connect('clicked', lambda _: self.start())
         self.cancel_button = Gtk.Button(label='Cancel / clear preview')
@@ -151,9 +176,21 @@ class Controller:
         self.save_button.connect('clicked', lambda _: self.export())
         for button in (self.run_button, self.cancel_button, self.apply_button, self.save_button):
             buttons.append(button)
-        self.window.pin(buttons)
+        self.window.pin(buttons, self.progress)
         self.invalidate('Review the target and sampling settings, then Calculate & preview.')
         self.window.present()
+        draft = getattr(self, 'draft', None)
+        if draft and draft['key'] == (self.app.document.token[0], self.app.family, self.app.field_values.get('variant')):
+            self.advanced.set_expanded(draft['advanced'])
+            self.target.set_text(draft['target'])
+            from precise_numbers import from_text
+            for widget, value in zip((self.step, self.seconds, self.poses), draft['fields']):
+                try:
+                    parsed = from_text(value)
+                except ValueError:
+                    widget.set_text(value)
+                else:
+                    set_numeric_value(widget, parsed)
         self.target.grab_focus()
 
     def stop(self):
@@ -215,7 +252,7 @@ class Controller:
     def progress_update(self, serial, message, fraction):
         if self.current(serial):
             self.summary.set_text(message)
-            self.report.get_buffer().set_text(message)
+            self.outcome.set_text(message)
             self.progress.set_fraction(fraction)
         return False
 
@@ -231,7 +268,18 @@ class Controller:
             self.invalidate(error)
             return False
         self.result = result
-        self.summary.set_text(result.reason)
+        self.comparison.set_visible(result.center_distance_mm is not None)
+        if result.center_distance_mm is not None:
+            self.comparison.set_text(f'Current → Proposed\nCentre distance: {result.source_center_mm:.6g} → {result.center_distance_mm:.6g} mm\nWorking backlash: {result.source_backlash_mm:.6g} → {result.working_backlash_mm:.6g} mm\nUsable contact ratio: {result.usable_contact_total:.6g}')
+        outcome = result.reason
+        if result.interference and not result.interference['coverage_complete'] and result.status != 'cancelled':
+            issues = result.interference.get('issues', ())
+            outcome = 'INCOMPLETE coverage\n' + (issues[0] if issues else outcome)
+        self.outcome.set_text(outcome)
+        self.summary.set_text(outcome)
+        self.report_details.set_visible(True)
+        self.preview.set_visible(result.design is not None)
+        self.preview_note.set_visible(result.design is not None)
         self.report.get_buffer().set_text(result.text())
         self.progress.set_fraction(1 if result.interference and result.interference['coverage_complete'] else 0)
         if result.design is not None:
@@ -265,7 +313,9 @@ class Controller:
                 raise ValueError('Rebuilt model differs from the validated proposal.')
         except Exception as error:
             app.restore_project_snapshot(previous)
-            self.summary.set_text('Proposal not applied: '+str(error))
+            message = 'Proposal not applied: '+str(error)
+            self.summary.set_text(message)
+            self.outcome.set_text(message)
             return False
         app.document.record(app.project_snapshot())
         app.components.refreshed(app.design)
@@ -282,7 +332,10 @@ class Controller:
         self.revision = app.document.token
         self.source_design = app.design
         self.report.get_buffer().set_text(result.text())
-        self.summary.set_text('Centre distance applied · one Undo restores previous parameters')
+        message = 'Centre distance applied · one Undo restores previous parameters'
+        self.summary.set_text(message)
+        self.outcome.set_text(message)
+        self.report_details.set_visible(True)
         self.apply_button.set_sensitive(False)
         self.save_button.set_sensitive(True)
         self.context.set_text(self.context_text())

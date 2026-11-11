@@ -278,6 +278,14 @@ window.reducers { background: @rl_window; color: @rl_text; font-size: 14px; }
 .reducers .playback-bar scale trough { min-height: 4px; background: @rl_trough; border: 0; box-shadow: none; }
 .reducers .playback-bar scale highlight { background: @rl_accent; border-color: @rl_accent; box-shadow: none; }
 .reducers .playback-bar scale slider { min-width: 18px; min-height: 18px; margin: -7px 0; padding: 0; background: @rl_accent; border-color: @rl_accent; box-shadow: none; }
+/* The playing phase is an activity cue, filled independently of its value. */
+.reducers .playback-bar scale.motion-phase-scale trough { min-height: 8px; border-radius: 5px; }
+.reducers .playback-bar scale.motion-phase-scale slider { margin-top: -5px; margin-bottom: -5px; }
+.reducers .playback-bar scale.motion-phase-scale.playing trough {
+  background: transparent;
+}
+.reducers .playback-bar scale.motion-phase-scale.playing highlight { background: transparent; border-color: transparent; }
+.reducers .playback-bar scale.motion-phase-scale.playing slider { opacity: 0; }
 .reducers .explode-control scale trough { min-height: 4px; background: @rl_trough; border-color: @rl_trough; box-shadow: none; }
 .reducers .explode-control scale highlight { background: @rl_accent; border-color: @rl_accent; box-shadow: none; }
 .reducers .explode-control scale slider { min-width: 18px; min-height: 18px; margin: -7px 0; padding: 0; background: @rl_slider; border-color: @rl_slider; box-shadow: none; }

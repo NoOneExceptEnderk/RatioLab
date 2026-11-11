@@ -6,7 +6,7 @@ Only procedural-sweep interpolation is adjustable here. Transverse profiles and
 explicit stations/meshes retain their construction and separately stated limits.
 An absent override preserves each Part's existing interpolation policy.
 """
-from copy import copy
+from copy import copy, deepcopy
 from dataclasses import replace
 from math import isfinite
 
@@ -68,6 +68,8 @@ def project(design):
     result = dict(format='solidcraft-riduttori/1', family=design.family, parameters=design.values)
     if settings(design):
         result['quality'] = settings(design)
+    if getattr(design, 'component_sheets', None):
+        result['component_sheets'] = deepcopy(design.component_sheets)
     return result
 
 

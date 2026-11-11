@@ -23,15 +23,15 @@ ROOT = Path(__file__).resolve().parents[1]
 MODULES = (
     'app_paths', 'assemblies', 'backdrivability', 'backlash_solver', 'bevel_geometry', 'bevel_pair', 'hypoid_geometry', 'rack_geometry', 'face_geometry', 'face_herringbone', 'bom',
     'cad_contract', 'curved_cad', 'curved_cylindrical', 'cylindrical_validation', 'cad_export', 'catalog', 'collision_geometry', 'combination_search', 'component_geometry', 'differential_wrist', 'engineering',
-    'export_transaction', 'gear_measurement', 'geartrains', 'geometry', 'geometry_error_budget', 'geometry_quality', 'hardware',
+    'export_transaction', 'parameter_errors', 'component_sheets', 'gear_measurement', 'geartrains', 'geometry', 'geometry_error_budget', 'geometry_quality', 'hardware',
     'hardware_catalog', 'interference', 'kinematics', 'motion', 'mounting', 'package_export',
     'pair_assembly', 'parallel_multistage', 'parameter_help', 'printed_shaft', 'profile_export',
     'selected_export', 'solid_geometry', 'special_drives', 'standard_parts', 'theme_preferences', 'mouse_navigation',
-    'stl_export', 'precise_numbers', 'rust_geometry', 'rust_surfaces', 'tooth_profiles', 'tooth_tips', 'internal_mesh', 'wave_envelope', 'wave_geometry', 'worm_geometry', 'wolfrom',
+    'stl_export', 'precise_numbers', 'ratio_display', 'rust_geometry', 'rust_surfaces', 'tool_capabilities', 'tooth_profiles', 'tooth_tips', 'view_navigation', 'internal_mesh', 'wave_envelope', 'wave_geometry', 'worm_geometry', 'wolfrom',
 )
 RESOURCES = ('__init__.py', 'version.json', 'bearing-catalog.json', 'hardware-catalog.json')
 ASSETS = ('rust-engine.js', 'engine-client.js', 'worker.js', 'index.html', 'app.css',
-          'app.js', 'model-catalog.js', 'choice-menu.js', 'ui-language.js', 'viewer.js', 'document.js', 'preferences.js', 'tools.js', 'tools.css', 'help-illustrations.json')
+          'app.js', 'model-catalog.js', 'choice-menu.js', 'ui-language.js', 'viewer.js', 'document.js', 'preferences.js', 'settings.js', 'themes.js', 'controls.js', 'ui-catalog.js', 'tools.js', 'ratio-display.js', 'tools.css', 'help-illustrations.json')
 MODEL_IMAGES = tuple('model-catalog/'+key+'.png' for key in ('spur','helical','double','planetary','cycloidal','harmonic','worm','parallel','internal','differential','wolfrom','bevel','hypoid','rack','face'))
 UI_RESOURCES = ('ui-translations.json', *MODEL_IMAGES)
 FONTS = ('NotoSansCJK-Regular.ttc', 'NotoSansTamil-Regular.ttf', 'LICENSE-NotoCJK.txt', 'LICENSE-NotoTamil.txt', 'SOURCE-NOTO.json')
@@ -39,7 +39,7 @@ BRANDING = ('ratiolab-icon.png', 'ratiolab-logo-dark.png')
 LEGAL = ('LICENSE', 'COPYRIGHT')
 NOTICES = ('README.txt', 'provenance.json', 'PYODIDE-LICENSE', 'CPYTHON-LICENSE',
            'CPYTHON-NOTICES', 'EMSCRIPTEN-LICENSE', 'MUSL-COPYRIGHT')
-RECIPES = ('build-rust-engine.py', 'build-webapp.py', 'fetch-web-runtime.py', 'serve-webapp.py',
+RECIPES = ('build-rust-engine.py', 'build-webapp.py', 'sync-web-settings.py', 'fetch-web-runtime.py', 'serve-webapp.py',
            'prototype-curved-cad.py', 'verify-curved-cad.py', 'validate-cylindrical-mesh.py')
 FORMAT = 'ratiolab-web-bundle/1'
 
@@ -200,6 +200,7 @@ def build(output, runtime_dir=None, external_runtime=False, root=ROOT):
             'See docs/web-app.md for the pinned Rust and browser build recipe.\n'
             'Font licences and provenance are included in both archives.\n'
         ).encode('utf-8')
+        source['src/keyboard_shortcuts.py'] = (root/'src/keyboard_shortcuts.py').read_bytes()
         source['webapp/catalog.json'] = encoded(metadata(root))
         source.update({name: (root/name).read_bytes() for name in LEGAL})
         source.update({'webapp/'+name: (root/'webapp'/name).read_bytes() for name in (*ASSETS, 'runtime.json', 'engine_bridge.py')})

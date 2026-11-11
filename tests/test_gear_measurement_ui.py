@@ -96,7 +96,7 @@ class GearMeasurementUITests(unittest.TestCase):
         self.assertEqual(a.project_snapshot(),snapshot)
         self.assertEqual(a.document.token,token);self.assertEqual(len(a.document.states),states)
         c.diameter.set_text('nan');c.calculate()
-        self.assertIn('positive finite',self.text())
+        self.assertIn('finite',self.text().lower())
         self.assertFalse(c.save_button.get_sensitive())
 
     def test_raw_edit_and_replacement_reject_stale_result(self):

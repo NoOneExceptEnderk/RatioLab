@@ -1,0 +1,113 @@
+{
+  "format": "solidcraft-riduttori/1",
+  "family": "spur",
+  "parameters": {
+    "module": 2.0,
+    "width": 10.0,
+    "bore": 6.0,
+    "pressure": 20.0,
+    "backlash": 0.15,
+    "teeth": 24,
+    "profile_shift": 0.0,
+    "addendum": 1.0,
+    "dedendum": 1.25,
+    "topping_mm": 0.0,
+    "semitopping_mm": 0.0,
+    "semitopping_angle_deg": 45.0,
+    "input_rpm": 1500.0,
+    "input_torque": 1.0,
+    "bearing_mode": "manual",
+    "bearing": "626",
+    "fit": "nominal",
+    "seat_allowance": 0.0,
+    "shaft_allowance": 0.0,
+    "shoulder": 1.0,
+    "hardware_mode": "none",
+    "hardware_screw": "M3",
+    "hardware_shim": ".5",
+    "hardware_retaining": true,
+    "hardware_keys": true,
+    "hardware_bolts": true,
+    "hardware_shims": true
+  },
+  "component_sheets": {
+    "format": "ratiolab-component-sheets/1",
+    "company": {
+      "company": "EXAMPLE WORKSHOP - DEMONSTRATION",
+      "customer": "Example customer",
+      "order": "DEMO-2026-001",
+      "author": "Technical office"
+    },
+    "components": {
+      "[\"spur\", \"Gear\"]": {
+        "fingerprint": "15fc1d9a9bbbfcb15dad7ddb2edbf5bb31fa2040c3190f62d9dcbb89132e987c",
+        "fields": {
+          "code": "G-001",
+          "revision": "A",
+          "drawing": "Company drawing to be completed",
+          "lot": "DEMO-001",
+          "quantity": "10",
+          "operations": "Company to define machining operations and inspection stages.",
+          "notes": "Example only. Limits entered for the axial length illustrate company-supplied specifications."
+        },
+        "checks": [
+          {
+            "id": "auto:width",
+            "label": "Axial length (local Z)",
+            "nominal": "10",
+            "unit": "mm",
+            "lower": "9.95",
+            "upper": "10.05",
+            "method": "Measure between end faces",
+            "instrument": "MIC-01",
+            "datum": "Drawing G-001, section A-A"
+          },
+          {
+            "id": "auto:hole:0",
+            "label": "Circular hole 1 diameter",
+            "nominal": "6",
+            "unit": "mm",
+            "lower": "",
+            "upper": "",
+            "method": "",
+            "instrument": "",
+            "datum": ""
+          },
+          {
+            "id": "auto:tip",
+            "label": "Tooth tip diameter",
+            "nominal": "52",
+            "unit": "mm",
+            "lower": "",
+            "upper": "",
+            "method": "",
+            "instrument": "",
+            "datum": ""
+          },
+          {
+            "id": "auto:span",
+            "label": "Wildhaber span over 3 teeth",
+            "nominal": "15.3624461217",
+            "unit": "mm",
+            "lower": "",
+            "upper": "",
+            "method": "Symmetric flat jaws; k = 3",
+            "instrument": "",
+            "datum": ""
+          },
+          {
+            "id": "auto:gauges",
+            "label": "Dimension over / between gauges",
+            "nominal": "52.8265349789",
+            "unit": "mm",
+            "lower": "",
+            "upper": "",
+            "method": "ball; diameter 3.51399614993 mm; over gauges",
+            "instrument": "",
+            "datum": ""
+          }
+        ]
+      }
+    }
+  }
+}

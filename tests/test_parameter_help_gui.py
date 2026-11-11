@@ -195,7 +195,7 @@ class ParameterHelpGuiTests(unittest.TestCase):
         self.assertNotIn('variant', owner.bindings)  # Variants now live in the illustrated catalog.
         self.assertIs(owner.section_binding.control,a.catalog_button)
         self.assertIs(owner.bindings['helix'].control,a.inputs['helix'])
-        self.assertIn('input_rpm', owner.bindings)
+        self.assertNotIn('input_rpm', owner.bindings)
         self.assertTrue(set(a.inputs) <= set(owner.bindings))
 
     def test_help_tracks_actual_allocation_and_text_scale(self):

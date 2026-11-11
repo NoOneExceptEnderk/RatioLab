@@ -291,6 +291,7 @@ class AgentService:
                 raise AgentError('resource_limit', 'Close a project before opening another.', maximum=self.limits.projects)
             snapshot=dict(family=design.family, values={design.family:design.values}, raw={})
             if design.quality:snapshot['quality']=deepcopy(design.quality)
+            if design.component_sheets:snapshot['component_sheets']=deepcopy(design.component_sheets)
             document = Document(snapshot, path)
             project = Project(document, design, digest)
             self.projects[document.identity] = project
@@ -385,9 +386,12 @@ class AgentService:
         except (ValueError, UnicodeError, RecursionError) as error:
             raise AgentError('invalid_json', 'Invalid UTF-8 JSON configuration.') from error
         _object(obj, 'configuration')
-        if not {'format','family','parameters'} <= set(obj) or set(obj)-{'format','family','parameters','quality'} or obj.get('format') != CONFIG_FORMAT:
+        if not {'format','family','parameters'} <= set(obj) or set(obj)-{'format','family','parameters','quality','component_sheets'} or obj.get('format') != CONFIG_FORMAT:
             raise AgentError('invalid_format', 'Expected a full solidcraft-riduttori/1 configuration; subset/script/recovery imports are not accepted.')
         design = self._generate(obj['family'], obj['parameters'], budget, obj.get('quality'))
+        from component_sheets import normalize as normalize_sheets
+        try:design.component_sheets = normalize_sheets(obj.get('component_sheets'))
+        except ValueError as error:raise AgentError('invalid_format',str(error)) from error
         return self._add(design, target, hashlib.sha256(data).hexdigest(), budget)
 
     def project_list(self, cancel=None):
@@ -407,11 +411,13 @@ class AgentService:
             from geometry_quality import with_quality
             design=with_quality(source,requested)
         else:design = self._generate(family, values, budget, requested)
+        design.component_sheets = deepcopy(source.component_sheets)
         with self.lock:
             project = self._get(handle, revision)
             budget.check()
             state=dict(family=family, values={family:design.values}, raw={})
             if design.quality:state['quality']=deepcopy(design.quality)
+            if design.component_sheets:state['component_sheets']=deepcopy(design.component_sheets)
             project.document.record(state)
             project.design = design
             return self._summary(project)
@@ -431,6 +437,7 @@ class AgentService:
             from geometry_quality import with_quality
             design=with_quality(project.design,snapshot.get('quality'))
         else:design = self._generate(snapshot['family'], snapshot['values'][snapshot['family']], budget, snapshot.get('quality'))
+        design.component_sheets = deepcopy(snapshot.get('component_sheets', {}))
         with self.lock:
             project = self._get(handle, revision)
             budget.check()

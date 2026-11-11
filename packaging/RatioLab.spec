@@ -21,7 +21,7 @@ a = Analysis(
     binaries=[(str(rust_library),'ratiolab_resources/native')], datas=datas,
     hiddenimports=['app', 'ratiolab_checks', 'ratiolab_resources', 'cairo', 'gi._gi_cairo',
                    'gi.repository.Gtk', 'gi.repository.Gdk', 'gi.repository.Gio',
-                   'gi.repository.GLib', 'gi.repository.GObject'],
+                   'gi.repository.GLib', 'gi.repository.GObject', 'gi.repository.Pango', 'gi.repository.PangoCairo'],
     hookspath=[str(root/'packaging/hooks')],
     hooksconfig={'gi': {'module-versions': {'Gtk': '4.0', 'Gdk': '4.0'},
                        'icons': ['Adwaita', 'hicolor'], 'themes': [], 'languages': []}},

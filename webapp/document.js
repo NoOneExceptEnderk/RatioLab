@@ -144,10 +144,11 @@ export class BrowserDocument extends EventTarget {
     this.past.push(clone(this.state)); this.state = this.future.pop();
     ++this.revision; this.coalesce = null; this.changed(); return true;
   }
-  replace(family, schema, values = {}, name = 'Untitled design', {recovery, quality} = {}) {
+  replace(family, schema, values = {}, name = 'Untitled design', {recovery, quality, component_sheets} = {}) {
     this.identity = id(); ++this.revision; this.name = name;
     this.state = recovery ? clone(recovery.state) : {family, families: {}};
     if (!recovery && quality && Object.keys(quality).length) this.state.quality=clone(quality);
+    if (!recovery && component_sheets && Object.keys(component_sheets).length) this.state.component_sheets=clone(component_sheets);
     this.ensure(schema, values); this.past = []; this.future = []; this.coalesce = null;
     this.saved = recovery ? recovery.saved : fingerprint(this.state); this.changed();
   }

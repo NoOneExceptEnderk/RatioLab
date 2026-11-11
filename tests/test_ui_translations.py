@@ -10,6 +10,13 @@ from ui_language import catalog, translate
 
 
 class LanguageCatalogTests(unittest.TestCase):
+    def test_specific_tool_summary_is_not_swallowed_by_a_shorter_template(self):
+        value='Usable contact ratio: 1.64876 · Geometry warnings: 0. Apply changes parameters; run an interference check separately.'
+        translated=translate(value,'it')
+        self.assertIn('Avvisi geometrici: 0',translated)
+        self.assertIn('1.64876',translated)
+        self.assertNotIn('Geometry warnings',translated)
+
     def test_documentation_languages_have_the_same_messages_and_safe_placeholders(self):
         data = catalog()
         self.assertEqual(list(data['languages']), ['en','it','es','fr','de','pt','ru','zh-CN','ta'])

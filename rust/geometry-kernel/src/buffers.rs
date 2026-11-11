@@ -118,7 +118,14 @@ fn execute(input: &[u8]) -> Result<Vec<u8>> {
 pub fn dispatch(input: &[u8]) -> Vec<u8> {
     match std::panic::catch_unwind(|| execute(input)) {
         Ok(Ok(result)) => result,
-        Ok(Err(message)) => [vec![1], message.into_bytes()].concat(),
-        Err(_) => b"\x01Geometry calculation panicked".to_vec(),
+        Ok(Err(message)) => [
+            vec![1],
+            crate::diagnostic::record(message).to_string().into_bytes(),
+        ]
+        .concat(),
+        Err(_) => {
+            b"\x01{\"code\":\"internal_error\",\"message\":\"Geometry calculation panicked\"}"
+                .to_vec()
+        }
     }
 }

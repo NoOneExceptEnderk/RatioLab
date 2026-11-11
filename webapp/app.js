@@ -6,8 +6,12 @@ import {EngineClient} from './engine-client.js';
 import {BrowserDocument, automaticText, clone, downloadBlob, numberValue, storage} from './document.js';
 import {ModelViewer} from './viewer.js';
 import {initTools} from './tools.js';
+import {ratioParts} from './ratio-display.js';
 import {LANGUAGES, initLanguage} from './ui-language.js';
 import {readPreferences, savePreferences} from './preferences.js';
+import {SettingsPanel} from './settings.js';
+import {ShortcutController,shortcutLabel,MOUSE_SUMMARIES,COMMANDS as COMMAND_LABELS} from './controls.js';
+import {themePalette,viewPalette,hexColor} from './themes.js';
 
 const defaultPageTitle = document.title;
 const $ = id => document.getElementById(id);
@@ -21,6 +25,7 @@ const mainOrder = ['teeth','side_teeth','output_teeth','sun','planet','planets',
 const doc = new BrowserDocument();
 const preferences = readPreferences();
 let languageUI;
+let settingsUI,shortcuts,qualityCompletion=Promise.resolve(),resetRevision=null;
 const events = new EventTarget();
 let engine, viewer, catalog, schema, design = null, validToken = null, tab = 'dimensions', inspection = 'components';
 let startup = true, generationRunning = false, generationTimer, schemaSerial = 0, operationSerial = 0, busy = false;
@@ -64,14 +69,21 @@ function updateActions() {
   if (analysisActive) for (const id of ['save-document','save-as-document','export-document','show-bom','show-report','reset-motion']) $(id).disabled = true;
   $('show-notes').disabled = !design;
   for (const [id,source] of [['tool-bom','show-bom'],['tool-report','show-report'],['tool-notes','show-notes']]) $(id).disabled = $(source).disabled;
+  for(const button of $('tools-menu-extension').querySelectorAll('[data-tool]')){
+    const capability=design?.tool_capabilities?.[button.dataset.tool];
+    button.title=valid?(capability?.reason??''):'Complete the model fields and wait for valid geometry.';
+    button.dataset.available=String(valid&&capability?.available!==false);
+  }
   $('play-motion').disabled = analysisActive || !motionAvailable() || !design?.motion.supported || viewer?.lost;
   $('reset-motion').disabled = analysisActive || !valid || viewer?.lost;
   $('phase-range').disabled = analysisActive || !motionAvailable() || !design?.motion.supported || viewer?.lost;
+  syncPhaseStripes();
   $('undo').disabled = !doc.past.length || busy; $('redo').disabled = !doc.future.length || busy;
   $('family').disabled = !catalog || busy; $('model-catalog-open').disabled = !catalog || busy; $('reset-family').disabled = !catalog || busy;
   for (const id of ['new-document','open-document','recent-documents']) $(id).disabled = !catalog || busy || actionConfirmation;
   $('recover-document').hidden = !recovery;
   $('recover-document').disabled = !catalog || busy || actionConfirmation;
+  $('undo-reset').hidden=resetRevision!==doc.revision||!doc.past.length;
   for (const button of document.querySelectorAll('[data-export-kind]')) button.disabled = !documentReady;
   $('cancel-generation').hidden = !generationRunning;
   const title = doc.name === 'Untitled design' ? 'Untitled' : doc.name;
@@ -86,6 +98,8 @@ function setPlaying(value) {
   $('play-motion').setAttribute('aria-pressed',String(playing));
   $('play-motion').textContent = playing ? 'Pause' : phase ? 'Resume motion' : 'Start motion';
   $('playback-hint').textContent = playing ? 'Playing' : '';
+  $('phase-range').dataset.playing = String(playing);
+  syncPhaseStripes();
   lastTick = 0;
   if (playing) { viewer.explosion = 0; $('explosion').value = '0'; viewer.render(); if (!animationFrame) animationFrame = requestAnimationFrame(tick); }
   else { cancelAnimationFrame(animationFrame); animationFrame = 0; }
@@ -333,7 +347,7 @@ function makeField(spec, {top = false} = {}) {
     input.addEventListener('input',() => { doc.editNumber(key,input.value); applyFieldErrors(); });
     input.addEventListener('keydown',event => { if (event.key === 'Enter') { event.preventDefault(); clearTimeout(generationTimer); scheduleGeneration(0); } });
     const wrap = node('div',null,'field-input'), spin = node('div',null,'numeric-control'); spin.append(input);
-    if (!linked) for (const delta of [-1,1]) {
+    if (!linked) for (const delta of [1,-1]) {
       const button = node('button',delta < 0 ? '−' : '+'); button.type = 'button';
       button.setAttribute('aria-label',`${delta < 0 ? 'Decrease' : 'Increase'} ${caption}`); button.disabled = busy || schemaPending;
       button.addEventListener('click',() => {
@@ -541,7 +555,7 @@ async function generateCurrent() {
     // Wolfrom rejection retains the accepted worker source; document tokens
     // keep the rejected draft stale while its source snapshot remains usable.
     if (family !== 'wolfrom' && !(family === 'parallel' && isParallelMultistage(doc.draft.options.variant))) sourceParameters = null;
-    const result = await engine.request('generate',{family,parameters:parsed.values,quality:doc.state.quality || {}});
+    const result = await engine.request('generate',{family,parameters:parsed.values,quality:doc.state.quality || {},component_sheets:doc.state.component_sheets || {}});
     if (serial !== operationSerial || !isCurrent(token)) return;
     generationRunning = false; fatal = false; rateEditing = false; rateSource = null; nominalFrame = null; doc.normalize(result.values,schema);
     const changedFamily = lastFamily !== family;
@@ -560,10 +574,11 @@ async function generateCurrent() {
   } catch (error) {
     if (serial !== operationSerial || !isCurrent(token) || error.name === 'AbortError') return;
     generationRunning = false; validToken = null; setPlaying(false);
-    status(error.message+' Export is blocked.','error');
-    const spec = [...schema.fields,...schema.options].find(f => error.message.toLowerCase().includes(f.key.toLowerCase()) || f.label && error.message.toLowerCase().includes(f.label.toLowerCase()));
-    if (spec) { errors[spec.key] = error.message; applyFieldErrors(); }
-    if (!design) stageMessage('This configuration needs attention',error.message,{retry:!!engine.failure});
+    status((error.kind === 'internal' ? 'Calculation failed.\n' : '')+error.message+'\nExport is blocked.','error');
+    const known = new Set([...schema.fields,...schema.options].map(f => f.key));
+    for (const key of error.fields || []) if (known.has(key)) errors[key] = error.fieldMessages?.[key] || error.message;
+    applyFieldErrors();
+    if (!design) stageMessage(error.kind === 'internal' ? 'Calculation failed.' : 'This configuration needs attention',error.message,{retry:!!engine.failure});
     $('stale-banner').hidden = !design; handleFatal(error); updateActions();
   }
 }
@@ -578,7 +593,7 @@ async function onDocumentChange() {
   updateActions(); saveRecovery();
   if (doc.revision === previousRevision || startup) return;
   previousRevision = doc.revision; initialClean = false;
-  if (!analysisActive && isQualityEdit()) { await applyQuality(); return; }
+  if (!analysisActive && isQualityEdit()) { qualityCompletion=applyQuality();await qualityCompletion;return; }
   if (!analysisActive && isSpeedEdit()) {
     clearTimeout(generationTimer); validToken = null; rateEditing = true; rateSource = design; ++operationSerial;
     events.dispatchEvent(new CustomEvent('invalidate',{detail:{token:currentToken()}}));
@@ -614,15 +629,39 @@ async function requestPose(nextPhase) {
     return false;
   } finally { if (poseCompletion === completion) posePending = false; finishPose(); }
 }
+function syncPhaseStripes() {
+  // Retiming the same animation preserves its current position at RPM edits.
+  const rpm = Math.abs(design?.values.input_rpm ?? 0);
+  $('phase-range').dataset.stationary = String(rpm === 0);
+  for (const animation of $('phase-range').getAnimations()) {
+    if (animation.animationName === 'motion-phase-stripes') {
+      const rate = rpm ? (7+63*rpm/(rpm+75))/35 : 0;
+      if (animation.playbackRate !== rate) animation.updatePlaybackRate(rate);
+    }
+  }
+}
 function syncPhaseControl() {
-  $('motion-phase').textContent = `${phase.toFixed(2)} rad`;
+  const degrees=phase*180/Math.PI;
+  const rack=viewer?.frame?.parts?.find(part=>part.index===1)?.matrix?.[12]??0;
+  const text=design?.family==='rack'?`Rack travel · ${rack>=0?'+':''}${rack.toFixed(3)} mm`:`Reference phase · ${(((degrees%360)+360)%360).toFixed(1)}°`;
+  if($('motion-phase').textContent!==text)$('motion-phase').textContent=text;
+  const travelLimits = design?.analysis?.rack?.travel_limits_mm;
+  const travel = travelLimits ? Math.max(...travelLimits.map(Math.abs)) : Math.abs(rack);
+  const reserves = design?.family === 'rack'
+    ? [`Rack travel · +${travel.toFixed(3)} mm`,`Rack travel · -${travel.toFixed(3)} mm`]
+    : ['Reference phase · 359.9°','Reference phase · 359.9°'];
+  for (const [index,sample] of reserves.entries()) {
+    const label = $('phase-measure-'+index);
+    if (label.dataset.sample !== sample) {label.dataset.sample=sample;label.textContent=sample;}
+  }
   const limits = design?.motion.phase_limits;
-  $('phase-range').step = limits ? 'any' : '0.001';
-  $('phase-range').min = String(limits ? limits[0] : 0); $('phase-range').max = String(limits ? limits[1] : 2*Math.PI);
-  if (scrubTarget === null) $('phase-range').value = String(limits ? phase : ((phase % (2*Math.PI)) + 2*Math.PI) % (2*Math.PI));
+  $('phase-range').step = limits ? 'any' : '0.1';
+  $('phase-range').min=String(limits?limits[0]*180/Math.PI:0);$('phase-range').max=String(limits?limits[1]*180/Math.PI:360);
+  $('phase-range').setAttribute('aria-valuetext',text);
+  if(scrubTarget===null)$('phase-range').value=String(limits||degrees>=0&&degrees<=360?degrees:((degrees%360)+360)%360);
 }
 function scrubPreviewPhase() {
-  setPlaying(false); scrubTarget = Number($('phase-range').value);
+  setPlaying(false); scrubTarget = Number($('phase-range').value)*Math.PI/180;
   if (scrubCompletion) return scrubCompletion;
   const source = design, token = currentToken();
   scrubCompletion = (async () => {
@@ -692,23 +731,7 @@ async function applyQuality() {
   }
 }
 async function qualityDialog() {
-  if (!design || busy || generationRunning || schemaPending) return;
-  const body=node('div'), entries={};
-  body.append(node('p','Choose independent surface interpolation thresholds in millimetres. Blank fields retain each part’s default. Lower values request more detail.'));
-  for (const [key,title] of [['preview_mm','Preview'],['export_mm','Export']]) {
-    const row=node('label',null,'dialog-field'),input=node('input');input.type='text';input.inputMode='decimal';input.id='quality-'+key;
-    input.value=String(doc.state.quality?.[key] ?? '');input.placeholder='Part default (normally 0.02 mm)';row.append(node('span',title),input);body.append(row);entries[key]=input;
-    const presets=node('div',null,'camera-buttons');
-    for (const [label,value] of [['Fast','0.1'],['Standard','0.02'],['Fine','0.005'],['Part default','']]) { const b=node('button',label);b.type='button';b.addEventListener('click',()=>{input.value=value;});presets.append(b); }
-    body.append(presets);
-  }
-  body.append(node('p','These thresholds cover procedural sweep interpolation. The 2D tooth profile and explicit mesh/station constructions retain their current sampling. Export detail is generated when exporting.','muted'));
-  const token=currentToken();
-  if (await dialog('Surface detail',body,[{label:'Cancel',value:false},{label:'Apply',value:true,primary:true}])) {
-    if (!isCurrent(token)) {status('The document changed. Open Surface detail again.','error');return;}
-    try {const value={};for(const [key,input] of Object.entries(entries)) {const text=input.value.trim();if(text) {const parsed=numberValue({text,typed:true},{type:'number'});if(parsed.error)throw Error(parsed.error);value[key]=parsed.value;}}doc.setQuality(value);}
-    catch(error){status(error.message,'error');}
-  }
+  settingsUI?.open('precision');
 }
 
 function isSpeedEdit() {
@@ -1065,7 +1088,8 @@ function renderMetrics() {
   } else if (a.signed_ratio == null) {
     items = [['Pitch diameter',(2*a.gear.pitch_radius).toFixed(3),'mm','Reference pitch circle'],['Tooth count',String(v.teeth),'',`Normal module ${automaticText(v.module)} mm`],['Face width',automaticText(v.width),'mm','Axial gear width']];
   } else {
-    items = [['Effective ratio',signed(a.signed_ratio,4),':1',a.signed_ratio > 0 ? 'Same rotation direction' : 'Opposite rotation direction'],['Output speed',a.output.rpm.toFixed(2),'rpm',`At ${automaticText(a.input.rpm)} rpm input`]];
+    const [ratioValue, ratioUnit] = ratioParts(a.signed_ratio);
+    items = [['Effective ratio',ratioValue,ratioUnit,a.signed_ratio > 0 ? 'Same rotation direction' : 'Opposite rotation direction'],['Output speed',a.output.rpm.toFixed(2),'rpm',`At ${automaticText(a.input.rpm)} rpm input`]];
     const housing = design.metrics.join(' · ').match(/housing (?:diameter |Ø )([0-9.]+) mm/i);
     if (design.family === 'bevel') {
       items[0][3] = 'Signs about pinion +X and wheel +Z';
@@ -1106,7 +1130,16 @@ function analysisTree(value, depth = 0) {
       details.addEventListener('toggle',() => { if (details.open && !expanded) { expanded = true; details.append(analysisTree(item,depth+1)); } });
       root.append(details);
     }
-    else { const row = node('div',null,'analysis-row'); row.append(node('span',displayKey(key)),node('span',typeof item === 'number' ? automaticText(item) : String(item ?? '—'))); root.append(row); }
+    else {
+      const row = node('div',null,'analysis-row');
+      const text = typeof item === 'number' ? automaticText(item) : String(item ?? '—');
+      if (key === 'signed_ratio' && typeof item === 'number') {
+        row.append(node('span','Ratio (input/output):'),node('span',`${ratioParts(item, 10).join('')} (i = ${item})`));
+      } else {
+        row.append(node('span',displayKey(key)),node('span',text));
+      }
+      root.append(row);
+    }
   }
   return root;
 }
@@ -1150,7 +1183,15 @@ function renderInspection() {
   } else if (inspection === 'results') {
     const content = node('div',null,'results-list');
     if (!currentValid()) content.append(node('p','These calculations describe the last valid preview.','note-warning'));
-    content.append(node('h3','Canonical calculation results')); const list = node('ul'); for (const metric of design.metrics) list.append(node('li',metric)); content.append(list);
+    content.append(node('h3','Canonical calculation results'));
+    const list = node('ul');
+    for (const metric of design.metrics) {
+      const ratio = design.analysis.signed_ratio;
+      const text = ratio != null && metric.startsWith('Input/output ratio ')
+        ? `Ratio (input/output): ${ratioParts(ratio, 10).join('')}` : metric;
+      list.append(node('li',text));
+    }
+    content.append(list);
     const details = node('details'); details.append(node('summary','Detailed calculation data'),analysisTree(design.analysis)); content.append(details);
     const button = node('button','Download calculation report'); button.dataset.exportKind = 'report'; button.disabled = !currentValid(); button.addEventListener('click',() => runExport('report')); content.append(button); panel.append(content);
   } else {
@@ -1179,34 +1220,70 @@ function dialog(title, body, actions = [{label:'Close',value:null}], {dismiss = 
 function applyPreferences() {
   document.documentElement.style.setProperty('--text-scale',String(preferences.text_scale));
   document.documentElement.dataset.theme = preferences.theme;
-  $('theme-toggle').setAttribute('aria-checked',String(preferences.theme === 'light'));
-  $('theme-toggle').title = preferences.theme === 'light' ? 'Light' : 'Dark';
+  const colors=themePalette(preferences.theme,preferences.theme_customizations),view=viewPalette(preferences.theme,preferences.theme_customizations);
+  for(const [key,value]of Object.entries(colors))document.documentElement.style.setProperty('--rl-'+key.replaceAll('_','-'),value);
+  for(const [name,key]of Object.entries({background:'window',entry:'input',text:'text',muted:'muted',line:'line',accent:'accent',error:'error',button:'surface','button-hover':'hover'}))document.documentElement.style.setProperty('--'+name,colors[key]);
+  for(const[key,value]of Object.entries(view))document.documentElement.style.setProperty('--view-'+key,`rgb(${value.map(x=>x*255).join(' ')})`);
+  document.documentElement.style.setProperty('--preview',`rgb(${view.background.map(x=>x*255).join(' ')})`);
   for (const input of document.querySelectorAll('input[name="language"]')) input.checked = input.value === preferences.language;
   if (languageUI) languageUI.setLanguage(preferences.language);
-  viewer.render();
   viewer.zoomSpeed = preferences.zoom_speed;
   viewer.rotationSpeed = preferences.rotation_speed;
   viewer.invertZoom = preferences.invert_zoom;
+  viewer.mouseNavigation=preferences.mouse_navigation;viewer.gridColor=hexColor(view.grid);viewer.selectionColor=view.selection;viewer.managedShortcuts=true;viewer.render();
+  const hint=document.querySelector('.preview-hint');if(hint)hint.textContent=MOUSE_SUMMARIES[preferences.mouse_navigation];
+  $('model-canvas').setAttribute('aria-label','Model preview');
+  $('model-canvas').setAttribute('aria-description',MOUSE_SUMMARIES[preferences.mouse_navigation]+' · '+COMMAND_LABELS['view-fit']+' · '+shortcutLabel(preferences.keyboard_shortcuts.bindings['view-fit']));
+  $('pan-view').title='Pan · drag with the left button when enabled';
+  for(const element of document.querySelectorAll('[data-keyshortcut]'))element.textContent=shortcutLabel(preferences.keyboard_shortcuts.bindings[element.dataset.keyshortcut]??[]);
+  for(const [id,command]of [['new-document','new'],['open-document','open'],['save-document','save'],['save-as-document','save-as'],['undo','undo'],['redo','redo'],['export-document','export'],['open-settings','settings']])$(id).title=(id==='open-settings'?'Settings':COMMAND_LABELS[command])+' · '+shortcutLabel(preferences.keyboard_shortcuts.bindings[command]);
   if (!preferences.hover_help) { clearTimeout(helpOpenTimer); if (helpActivation === 'pointer') closeParameterHelp(); }
   scheduleOverlayPlacement();
+}
+function initSettings() {
+  settingsUI=new SettingsPanel({preferences,languages:LANGUAGES,change:changePreference,
+    translate:()=>languageUI?.setLanguage(preferences.language),download:downloadBlob,quality:()=>doc.state.quality||{},
+    async bounds(quality){
+      if(!currentValid())throw Error('Wait for a valid current model.');
+      const source=design,token=currentToken(),result=await engine.request('precision_bounds',{design_id:source.design_id,quality});
+      if(design!==source||!isCurrent(token))throw new DOMException('The document changed.','AbortError');return result.rows;
+    },
+    async applyQuality(value){
+      if(!design||busy||generationRunning||schemaPending||fatal||rateEditing)throw Error('Wait for a valid current model.');
+      if(JSON.stringify(doc.state.quality||{})===JSON.stringify(value)&&currentValid())return;
+      doc.setQuality(value);const token=currentToken();await qualityCompletion;
+      if(!isCurrent(token))throw new DOMException('The document changed.','AbortError');
+      if(!currentValid())throw Error($('status-text').textContent);
+    }});
+  shortcuts=new ShortcutController({preferences,blocked:()=>$('app-dialog').open||settingsUI.modal.open||viewer.captureBusy,
+    viewport:target=>target===$('model-canvas'),changed:()=>changePreference('keyboard_shortcuts',preferences.keyboard_shortcuts),
+    run:command=>{
+      if(command==='view-fit'){viewer.fitCurrent();return;}
+      if(command.startsWith('view-')){selectView(command==='view-iso'?'isometric':command.slice(5));return;}
+      const id={new:'new-document',open:'open-document',save:'save-document','save-as':'save-as-document',undo:'undo',redo:'redo',export:'export-document',settings:'open-settings'}[command];if(id&&!$(id).disabled)$(id).click();
+    }});
+  settingsUI.api.shortcuts=shortcuts;
+  // A model may finish loading while the modal is already open.
+  events.addEventListener('design',()=>{if(settingsUI.modal.open&&settingsUI.page==='precision')settingsUI.scheduleBounds();});
+  $('open-settings').addEventListener('click',()=>settingsUI.open());
+  const fileMenu=document.querySelector('.project-menu'),summary=fileMenu.querySelector('summary');
+  summary.setAttribute('aria-haspopup','menu');
+  fileMenu.addEventListener('toggle',()=>summary.setAttribute('aria-expanded',String(fileMenu.open)));
+  fileMenu.addEventListener('keydown',event=>{
+    const items=[...fileMenu.querySelectorAll('[role=menuitem]')].filter(item=>!item.hidden&&!item.disabled);
+    if(event.key==='Escape'){event.preventDefault();event.stopPropagation();fileMenu.open=false;summary.focus();}
+    else if(['ArrowDown','ArrowUp','Home','End'].includes(event.key)&&items.length){
+      event.preventDefault();fileMenu.open=true;
+      const index=items.indexOf(document.activeElement),next=event.key==='Home'?0:event.key==='End'?items.length-1:index<0?(event.key==='ArrowUp'?items.length-1:0):(index+(event.key==='ArrowUp'?-1:1)+items.length)%items.length;
+      items[next].focus();
+    }
+  });
 }
 function changePreference(key, value) {
   preferences[key] = value;
   applyPreferences();
   $('preference-error').hidden = savePreferences(preferences);
-}
-function documentShortcut(event) {
-  if (!(event.ctrlKey || event.metaKey) || $('app-dialog').open) return;
-  const key = event.key.toLowerCase();
-  if (key === 's') { event.preventDefault(); saveProject({saveAs:event.shiftKey}); }
-  if (key === 'n') { event.preventDefault(); newDocument(); }
-  if (key === 'o') { event.preventDefault(); if (!busy && !actionConfirmation && catalog) $('project-file').click(); }
-  if (key === 'z' || key === 'y') {
-    // Let text controls keep the browser's own text-edit undo history.
-    const target = event.target;
-    if (target?.isContentEditable || target?.tagName === 'TEXTAREA' || target?.tagName === 'INPUT' && !['button','checkbox','radio','range','submit'].includes(target.type)) return;
-    event.preventDefault(); if (!busy && !actionConfirmation) { if (event.shiftKey || key === 'y') doc.redo(); else doc.undo(); }
-  }
+  $('settings-error').hidden=$('preference-error').hidden;
 }
 async function protectChanges() {
   if (!doc.dirty) return true;
@@ -1233,13 +1310,13 @@ async function openProject(project, name) {
     if (!isCurrent(token) || serial !== operationSerial) return false;
     const nextSchema = await engine.request('schema',{family:result.family,parameters:result.values});
     if (!isCurrent(token) || serial !== operationSerial) return false;
-    startup = true; schema = nextSchema; doc.replace(result.family,schema,result.values,name,{quality:result.quality}); previousRevision = doc.revision; initialClean = false; startup = false;
+    startup = true; schema = nextSchema; doc.replace(result.family,schema,result.values,name,{quality:result.quality,component_sheets:result.component_sheets}); previousRevision = doc.revision; initialClean = false; startup = false;
     rateEditing = false; rateSource = null; nominalFrame = null; viewer.supports = result.family === 'differential'; viewer.housing = false; viewer.setDesign(result,{fit:true}); design = result; lastFamily = result.family; phase = 0; validToken = currentToken(); rememberSourceParameters();
     viewer.supports = result.family === 'differential'; viewer.housing = false; $('show-supports').checked = viewer.supports; $('show-housing').checked = false;
     busy = false; schemaPending = false; updateFamilyHeader(); renderFields(); renderMetrics(); renderInspection(); updateActions();
     $('stage-message').hidden = true; $('stale-banner').hidden = true; $('motion-summary').textContent = result.motion.message;
     $('model-meta').textContent = `${result.triangle_count.toLocaleString()} triangles · preview mesh · mm`;
-    doc.markSaved(); storage.remember(name,{format:catalog.project_format,family:result.family,parameters:clone(result.values),...(result.quality && Object.keys(result.quality).length ? {quality:clone(result.quality)} : {})}); status(`Opened ${name}${result.ignored_parameters?.length ? ` · ignored ${result.ignored_parameters.length} obsolete or unknown settings` : ''}`); events.dispatchEvent(new CustomEvent('design',{detail:{design,token:currentToken()}})); if (await requestPose(0)) nominalFrame = clone(viewer.frame); return true;
+    doc.markSaved(); storage.remember(name,{format:catalog.project_format,family:result.family,parameters:clone(result.values),...(doc.state.component_sheets ? {component_sheets:clone(doc.state.component_sheets)} : {}),...(result.quality && Object.keys(result.quality).length ? {quality:clone(result.quality)} : {})}); status(`Opened ${name}${result.ignored_parameters?.length ? ` · ignored ${result.ignored_parameters.length} obsolete or unknown settings` : ''}`); events.dispatchEvent(new CustomEvent('design',{detail:{design,token:currentToken()}})); if (await requestPose(0)) nominalFrame = clone(viewer.frame); return true;
   } catch (error) {
     if (serial !== operationSerial || !isCurrent(token)) return false;
     busy = false; schemaPending = false; handleFatal(error);
@@ -1304,45 +1381,83 @@ async function saveProject({saveAs = false} = {}) {
       name = input.value.trim(); if (!name) return false; if (!name.endsWith('.json')) name += '.config.json';
     }
     downloadBlob(new Blob([result.buffers[result.buffer]],{type:result.mime}),name);
-    const project = {format:catalog.project_format,family:current.family,parameters:clone(current.values),...(current.quality && Object.keys(current.quality).length ? {quality:clone(current.quality)} : {})};
+    const project = {format:catalog.project_format,family:current.family,parameters:clone(current.values),...(doc.state.component_sheets ? {component_sheets:clone(doc.state.component_sheets)} : {}),...(current.quality && Object.keys(current.quality).length ? {quality:clone(current.quality)} : {})};
     doc.markSaved(name); storage.remember(name,project); status('Project download prepared · keep the file to reopen it later.'); return true;
   } catch (error) { if (isCurrent(token) && error.name !== 'AbortError') { status(error.message,'error'); handleFatal(error); } return false; }
   finally { busy = false; renderFields(); updateActions(); }
 }
+let lastExport = null;
 async function exportDialog() {
   const snapshot = await confirmDocumentAction(); if (!snapshot || busy || !documentSnapshotMatches(snapshot)) return;
   const body = node('div'), group = node('label',null,'dialog-field'), format = node('select');
-  format.id = 'export-format'; group.htmlFor = format.id; group.append(node('span','Export format'),format);
+  format.id = 'export-format'; format.setAttribute('aria-label','Export format'); group.htmlFor = format.id; group.append(node('span','Export format'),format);
   for (const [key,label] of [['step','STEP · CAD solids + metadata'],['stl','STL · printable meshes + metadata'],['profiles','SVG + DXF · planar profiles'],['bom','Component list · CSV + JSON'],['report','Calculation report · TXT + JSON'],['package','Complete package · all formats + preview'],['project','Project · editable RatioLab JSON']]) { const option = node('option',label); option.value = key; format.append(option); }
   body.append(group);
-  const detail=node('button','Surface detail…');detail.type='button';detail.addEventListener('click',()=>{$('app-dialog').finish?.(null);qualityDialog();});body.append(detail);
-  const selection = selectedIndices(), scope = node('label',null,'check-control'), checkbox = node('input'); checkbox.id = 'export-selection'; checkbox.type = 'checkbox'; checkbox.checked = !!selection.length; checkbox.disabled = !selection.length;
-  scope.append(checkbox,node('span',`Export selected components only (${selection.length} selected)`)); body.append(scope);
-  const note = node('p',`The project format always saves the complete source configuration. Geometry and calculation exports can describe an explicit component subset. Exports use nominal coordinates, independently of section, explosion and playback.`,'export-scope'); body.append(note);
-  const packageNote = node('p','Complete packages capture your real nominal preview using this camera and visible components. Selected packages capture only the selected subset.','dialog-warning'); body.append(packageNote);
-  format.addEventListener('change',() => { checkbox.disabled = format.value === 'project' || !selection.length; if (format.value === 'project') checkbox.checked = false; });
-  const choice = await dialog('Export your design',body,[{label:'Cancel',value:null},{label:'Download export',value:'export',primary:true}]);
-  if (choice && documentSnapshotMatches(snapshot) && !busy) await runExport(format.value,checkbox.checked ? selection : null);
+  const selection = selectedIndices(), scopeGroup = node('label',null,'dialog-field'), scope = node('select');
+  scope.id = 'export-scope'; scope.setAttribute('aria-label','Export scope'); scopeGroup.htmlFor = scope.id; scopeGroup.append(node('span','Export scope'),scope);
+  for (const [key,title] of [['all','Complete assembly'],['selected','Selected components']]) { const option=node('option',title);option.value=key;scope.append(option); }
+  scope.value='all'; body.append(scopeGroup);
+  const count=node('p'), names=node('details'), nameList=node('pre',null,'document-text');
+  names.append(node('summary','Components'),nameList);nameList.dataset.noI18n='';body.append(count,names);
+  const note=node('p','Nominal assembly coordinates · visibility does not change scope.','export-scope');body.append(note);
+  const quality=node('p'), detail=node('button','Surface detail…');detail.type='button';
+  detail.addEventListener('click',()=>{$('app-dialog').finish?.(null);qualityDialog();});body.append(quality,detail);
+  const formatNote=node('p',null,'dialog-warning');body.append(formatNote);
+  body.append(node('p','Browser download · the browser chooses the destination.'));
+  const update=()=>{
+    const project=format.value==='project'; scope.disabled=project;
+    if(project)scope.value='all';
+    const subset=scope.value==='selected', parts=design.parts.filter(p=>!subset||selection.includes(p.index));
+    count.textContent=subset?`${parts.length} selected / ${design.parts.length} components`:`All ${parts.length} components · complete assembly`;
+    nameList.textContent=parts.length?parts.map(p=>`${String(p.index+1).padStart(3,'0')} · ${p.name}`).join('\n'):'Select current components in Tools → Components.';
+    names.open=subset;
+    const geometric=['step','stl','profiles','package'].includes(format.value), threshold=doc.state.quality?.export_mm;
+    quality.hidden=detail.hidden=!geometric;
+    quality.textContent=(threshold?`Export interpolation: ${threshold} mm`:'Export interpolation: component defaults')+'\nProcedural surfaces; existing profiles and meshes retain their sampling.';
+    formatNote.textContent=project?'The project format always saves the complete source configuration.':format.value==='profiles'?'Planar contours · deformed/helical parts are sections.':format.value==='package'&&subset?'Source project and calculations remain complete.':format.value==='step'||format.value==='stl'?'Sampled geometry · independent of preview detail.':'';
+    formatNote.hidden=!formatNote.textContent;
+    const confirm=$('dialog-actions').children[1];if(confirm)confirm.disabled=subset&&!parts.length;
+  };
+  scope.addEventListener('change',update);format.addEventListener('change',update);
+  const choicePromise=dialog('Export your design',body,[{label:'Cancel',value:null},{label:'Download export',value:'export',primary:true}]);update();
+  const choice=await choicePromise;
+  if (choice && documentSnapshotMatches(snapshot) && !busy) {
+    if(scope.value==='selected'&&JSON.stringify(selection)!==JSON.stringify(selectedIndices())) { status('The selected components changed. Select current components before exporting.','error');return; }
+    await runExport(format.value,scope.value==='selected'?selection:null);
+  }
 }
 async function runExport(kind, indices = null) {
+  if(kind==='project'&&indices!==null) { status('The project format always saves the complete source configuration.','error');return false; }
+  if(indices!==null&&(!Array.isArray(indices)||!indices.length||indices.some(i=>!Number.isInteger(i)||!design?.parts.some(p=>p.index===i)))) { status('Select at least one current component.','error');return false; }
+  const source=design;
   if (kind === 'project') return saveProject();
   const snapshot = await confirmDocumentAction(); if (!snapshot || busy || !documentSnapshotMatches(snapshot)) return false;
+  if(indices!==null&&source!==snapshot.current) { status('The selected components changed. Select current components before exporting.','error');return false; }
   const {token,current} = snapshot; busy = true; setPlaying(false); updateActions(); renderFields(); status(`Preparing ${kind} export…`,'warning');
   try {
-    const payload = {design_id:current.design_id,kind}; if (indices?.length) payload.indices = indices;
+    const payload = {design_id:current.design_id,kind}; if (indices!==null) payload.indices = indices;
     if (kind === 'package') {
       // Rates can add phase offsets. Preserve the generation-time construction
       // frame rather than mistaking the updated plan's phase zero for nominal.
       if (!nominalFrame) throw Error('Wait for the initial model frame before capturing a package.');
-      payload.preview_png = await viewer.captureNominal(nominalFrame,indices);
+      payload.preview_png = await viewer.captureNominal(nominalFrame,indices ?? current.parts.map(p=>p.index));
       if (!documentSnapshotMatches(snapshot)) return false;
     }
     const result = await engine.request('export',payload);
     if (!documentSnapshotMatches(snapshot)) return false;
     downloadBlob(new Blob([result.buffers[result.buffer]],{type:result.mime}),result.name);
+    lastExport={name:result.name,files:result.files??[],components:current.parts.filter(p=>indices===null||indices.includes(p.index)).map(p=>`${p.index+1} · ${p.name}`)};
+    $('last-export').hidden=false;
     status(`${result.name} · ${(result.bytes/1024).toFixed(1)} KiB · ${indices?.length ? indices.length+' selected components' : 'complete design'} download prepared.`); return true;
   } catch (error) { if (isCurrent(token) && error.name !== 'AbortError') { status(error.message,'error'); handleFatal(error); } return false; }
   finally { busy = false; renderFields(); updateActions(); renderInspection(); }
+}
+function showLastExport() {
+  if(!lastExport)return;
+  const body=node('div');body.append(node('p','Download prepared · check your browser downloads.'));
+  const files=node('pre',[lastExport.name,...lastExport.files].join('\n'),'document-text');files.dataset.noI18n='';body.append(files,node('h3','Components'));
+  const components=node('pre',lastExport.components.join('\n'),'document-text');components.dataset.noI18n='';body.append(components);
+  dialog('Last export',body,[{label:'Close',value:null}]);
 }
 async function recentDialog() {
   const items = recent(), body = node('div');
@@ -1392,6 +1507,7 @@ function setup() {
   try { viewer = new ModelViewer($('model-canvas')); }
   catch (error) { stageMessage('3D preview unavailable',error.message); status(error.message,'error'); return; }
   applyPreferences();
+  initSettings();
   viewer.addEventListener('context',({detail}) => {
     if (detail.lost) { setPlaying(false); stageMessage('Graphics context lost','The browser will try to restore the preview.'); }
     else { $('stage-message').hidden = !!design; status('Graphics context restored.'); }
@@ -1399,6 +1515,7 @@ function setup() {
   });
   viewer.addEventListener('error',({detail}) => { setPlaying(false); stageMessage('Preview unavailable',detail.message); status(detail.message,'error'); });
   viewer.addEventListener('camera',({detail}) => {
+    if(detail?.fitOnly)return;
     const name = detail?.view;
     $('view-label').textContent = name ? name.toUpperCase() : 'CUSTOM VIEW';
     for (const [id,key] of [['isometric-view','isometric'],['top-view','top'],['front-view','front']]) $(id).setAttribute('aria-pressed',String(key === name));
@@ -1440,12 +1557,14 @@ function setup() {
     try { const project = JSON.parse(await file.text()); if (isCurrent(token)) await openProject(project,file.name); }
     catch (error) { if (isCurrent(token)) await dialog('Project could not be opened',error.message); }
   });
-  $('save-document').addEventListener('click',() => saveProject()); $('save-as-document').addEventListener('click',() => saveProject({saveAs:true})); $('export-document').addEventListener('click',exportDialog); $('recent-documents').addEventListener('click',recentDialog);
+  $('save-document').addEventListener('click',() => saveProject()); $('save-as-document').addEventListener('click',() => saveProject({saveAs:true})); $('export-document').addEventListener('click',exportDialog); $('last-export').addEventListener('click',showLastExport); $('recent-documents').addEventListener('click',recentDialog);
   $('undo').addEventListener('click',() => { if (!busy) doc.undo(); }); $('redo').addEventListener('click',() => { if (!busy) doc.redo(); });
   $('reset-family').addEventListener('click',async () => {
     if (await dialog('Reset this model?','Restore this model’s default dimensions and construction. Other model drafts are kept. You can Undo this change.',[{label:'Cancel',value:null},{label:'Reset model',value:'reset',primary:true}]) !== 'reset') return;
     doc.checkpoint(); delete doc.state.families[doc.family]; schema = familyDefinition(); doc.ensure(schema); doc.changed();
+    resetRevision=doc.revision;updateActions();
   });
+  $('undo-reset').addEventListener('click',()=>{if(resetRevision===doc.revision&&!busy){resetRevision=null;doc.undo();}});
   $('retry-engine').addEventListener('click',() => boot({retry:true}));
   $('cancel-generation').addEventListener('click',cancelOperations);
   $('recover-document').addEventListener('click',recoverDocument);
@@ -1479,7 +1598,6 @@ function setup() {
     label.lang = code; label.append(input,document.createTextNode(' '+name));
     $('language-options').append(label);
   }
-  $('theme-toggle').addEventListener('click',() => changePreference('theme',preferences.theme === 'dark' ? 'light' : 'dark'));
   initLanguage(preferences.language).then(ui => { languageUI = ui; ui.setLanguage(preferences.language); }).catch(error => {
     $('language-menu').hidden = true; status(error.message,'error');
   });
@@ -1516,17 +1634,17 @@ function setup() {
   },true);
   document.addEventListener('scroll',scheduleOverlayPlacement,true);
   window.addEventListener('resize',scheduleOverlayPlacement);
-  document.addEventListener('keydown',event => { if (event.key === 'Escape' && !$('app-dialog').open) { if (helpAnchor) { const binding = helpBindings.get(helpAnchor), trigger = binding?.focusTarget ?? binding?.trigger; const focused = helpPane?.contains(document.activeElement); closeParameterHelp({dismiss:true}); if (focused) trigger?.focus({preventScroll:true}); return; } closeToolDock(); for (const menu of document.querySelectorAll('.popover[open]')) menu.open = false; } });
+  document.addEventListener('keydown',event => { if (event.key === 'Escape' && !$('app-dialog').open && !$('settings-dialog').open) { if (helpAnchor) { const binding = helpBindings.get(helpAnchor), trigger = binding?.focusTarget ?? binding?.trigger; const focused = helpPane?.contains(document.activeElement); closeParameterHelp({dismiss:true}); if (focused) trigger?.focus({preventScroll:true}); return; } closeToolDock(); for (const menu of document.querySelectorAll('.popover[open]')) menu.open = false; } });
   $('playback-speed').addEventListener('change',() => { lastTick = 0; });
   document.addEventListener('visibilitychange',() => { if (document.hidden) setPlaying(false); });
   window.addEventListener('beforeunload',event => { saveRecovery(); if (doc.dirty) { event.preventDefault(); event.returnValue = ''; } });
   window.addEventListener('pagehide',() => { saveRecovery(); setPlaying(false); });
-  document.addEventListener('keydown',documentShortcut);
+  // Global project/view bindings are owned by the same configurable controller.
   // W3 extension boundary. Callers must retain the snapshot token and recheck
   // matches() after every await. No analysis result may outlive invalidation.
   const api = {
     events, engine, viewer, document:doc,
-    snapshot() { return currentValid() ? {token:{...currentToken(),operation:operationSerial,designId:design.design_id},design,phase,parameters:clone(design.values),family:doc.family,indices:selectedIndices()} : null; },
+    snapshot() { return currentValid() ? {token:{...currentToken(),operation:operationSerial,designId:design.design_id},design,phase,parameters:clone(design.values),family:doc.family,modelLabel:$('family-variant-chip').textContent,indices:selectedIndices()} : null; },
     matches(token) { return currentValid() && isCurrent(token) && (token.operation == null || token.operation === operationSerial) && (token.designId == null || token.designId === design.design_id); },
     async request(method,payload = {}) { const snapshot = this.snapshot(); if (!snapshot) throw Error('Wait for a valid current model.'); if (['documents','metrology','search','interference','backlash'].includes(method)) events.dispatchEvent(new CustomEvent('querybegin',{detail:{method}})); const result = await engine.request(method,{design_id:snapshot.design.design_id,...payload}); if (!this.matches(snapshot.token)) throw new DOMException('The document changed.','AbortError'); return result; },
     applyParameters(values) {

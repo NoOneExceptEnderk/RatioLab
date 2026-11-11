@@ -4,23 +4,23 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
+import {webModules} from './webapp_modules.mjs';
 import {fileURLToPath} from 'node:url';
 const root=fileURLToPath(new URL('../',import.meta.url));
 class Custom extends Event {constructor(type,{detail}={}){super(type);this.detail=detail;}}
 globalThis.CustomEvent=Custom;
 class Element {
-  constructor(){this.value='';this.dataset={};this.disabled=false;this.hidden=false;this.className='';}
+  constructor(){this.value='';this.dataset={};this.style={setProperty(key,value){this[key]=value;}};this.disabled=false;this.hidden=false;this.className='';}
   setAttribute(){}
+  getAnimations(){return [];}
+  querySelectorAll(){return [];}
 }
 const nodes=new Map();const el=id=>{if(!nodes.has(id))nodes.set(id,new Element());return nodes.get(id);};
 globalThis.document=Object.assign(new EventTarget(),{getElementById:el,querySelectorAll:()=>[],activeElement:null});
 globalThis.localStorage={getItem:()=>null};
 let nextFrame=0;globalThis.requestAnimationFrame=()=>++nextFrame;globalThis.cancelAnimationFrame=()=>{};
-const modules={};
-for(const name of ['document','preferences']){
-  const m=modules['./'+name+'.js']=new vm.SourceTextModule(fs.readFileSync(root+'webapp/'+name+'.js','utf8'));
-  await m.link(()=>{throw Error('Unexpected dependency');});await m.evaluate();
-}
+const {modules,load}=webModules(root);
+for(const name of ['document','preferences','settings','controls','themes'])await load('./'+name+'.js');
 const stub=values=>new vm.SyntheticModule(Object.keys(values),function(){for(const [key,value] of Object.entries(values))this.setExport(key,value);});
 Object.assign(modules,{
   './engine-client.js':stub({EngineClient:class{}}),'./viewer.js':stub({ModelViewer:class{}}),
@@ -66,9 +66,9 @@ const draining=a.commitRates();release();await settle();assert.equal(gates.lengt
 release();await draining;assert.equal(a.state().design.values.input_rpm,45);assert.equal(a.state().rateEditing,false);assert.equal(gates.length,0);
 a.tick(performance.now()+1000/60);assert.equal(gates.length,1);release();await settle();
 // A delayed phase reply must never overwrite the newest scrub target.
-a.initialize(engine);el('phase-range').value='0.5';const scrub=a.scrubPreviewPhase();await settle();
-el('phase-range').value='1.5';a.scrubPreviewPhase();release();await settle();assert.equal(gates.length,1);assert.equal(gates[0].payload.phases[0],1.5);
-el('phase-range').value='2.5';a.scrubPreviewPhase();release();await settle();assert.equal(gates[0].payload.phases[0],2.5);
+a.initialize(engine);el('phase-range').value=String(.5*180/Math.PI);const scrub=a.scrubPreviewPhase();await settle();
+el('phase-range').value=String(1.5*180/Math.PI);a.scrubPreviewPhase();release();await settle();assert.equal(gates.length,1);assert.equal(gates[0].payload.phases[0],1.5);
+el('phase-range').value=String(2.5*180/Math.PI);a.scrubPreviewPhase();release();await settle();assert.equal(gates[0].payload.phases[0],2.5);
 release();await scrub;assert.equal(a.state().phase,2.5);assert.equal(gates.length,0);
 // Returning a typed draft to the same RPM through the slider still confirms it.
 a.initialize(engine);a.doc.editNumber('input_rpm','60');assert.equal(a.state().rateEditing,true);

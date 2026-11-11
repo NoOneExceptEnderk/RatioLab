@@ -84,12 +84,22 @@ fn worm(v: &Value) -> Result<Construction> {
         .to_degrees();
     let root = diameter / 2. - 1.25 * m;
     if root <= bore / 2. + 0.5 {
-        return Err("Bore too large for the worm root diameter.".into());
+        return Err(crate::diagnostic::constraint(
+            "worm.bore_root",
+            &["bore", "diameter", "module"],
+            "Bore too large for the worm root diameter.",
+            "Reduce the bore or module, or increase the worm diameter.",
+        ));
     }
     let journal = n(v, "journal_length", 0.)?;
     let jr = n(v, "journal_diameter", 0.)? / 2.;
     if journal < 0. || journal > 0. && (jr > root || jr <= bore / 2. + 0.5) {
-        return Err("Journals must fit between the bore and thread root, with at least 0.5 mm wall thickness.".into());
+        return Err(crate::diagnostic::constraint(
+            "worm.journal",
+            &["journal_diameter", "bore", "diameter", "module"],
+            "Journals must fit between the bore and thread root, with at least 0.5 mm wall thickness.",
+            "Choose a journal diameter between the bore and the thread root limits.",
+        ));
     }
     let (pa, j) = if variant == "za" {
         (pressure, backlash)
@@ -185,7 +195,12 @@ fn worm(v: &Value) -> Result<Construction> {
                 .map(|p| crate::profiles::radius(*p))
                 .fold(f64::INFINITY, f64::min)
     }) {
-        return Err("Wheel bore too large for the generated tooth root.".into());
+        return Err(crate::diagnostic::constraint(
+            "worm.wheel_bore",
+            &["wheel_bore", "teeth", "module"],
+            "Wheel bore too large for the generated tooth root.",
+            "Reduce the wheel bore or increase the module or wheel tooth count.",
+        ));
     }
     let outer = sections
         .iter()
@@ -236,7 +251,12 @@ fn harmonic(v: &Value) -> Result<Construction> {
         return Err("Invalid strain-wave construction domain".into());
     }
     if diaphragm >= length - 1. {
-        return Err("Diaphragm/flange too thick for the flexible body length.".into());
+        return Err(crate::diagnostic::constraint(
+            "harmonic.diaphragm",
+            &["diaphragm", "cup_length"],
+            "Diaphragm/flange too thick for the flexible body length.",
+            "Reduce diaphragm thickness or increase the body length.",
+        ));
     }
     let axes = crate::planar::call(
         "planar_ellipse_axes",
@@ -245,7 +265,20 @@ fn harmonic(v: &Value) -> Result<Construction> {
     let [a, b]: [f64; 2] = serde_json::from_value(axes).map_err(|e| e.to_string())?;
     let wave = Wave::new(a, b, rp)?;
     if b - 1.25 * m - n(v, "wall", 1.)? - bearing - 2. * clearance <= bore / 2. + 0.5 {
-        return Err("Bore/bearing too large for the wave generator; reduce bore, deformation or thicknesses.".into());
+        return Err(crate::diagnostic::constraint(
+            "harmonic.wave_clearance",
+            &[
+                "bore",
+                "module",
+                "teeth",
+                "wave_factor",
+                "wall",
+                "bearing_thickness",
+                "wave_clearance",
+            ],
+            "Bore/bearing too large for the wave generator; reduce bore, deformation or thicknesses.",
+            "Reduce the bore, deformation, wall or bearing thickness, then check the geometry again.",
+        ));
     }
     let gear_args = |backlash: Value, cutter: bool| json!({"name":"Flexspline","z":z,"m":v["module"],"pressure":v["pressure"],"backlash":backlash,"width":v["width"],"bore":0.,"center":[0.,0.],"phase":0.,"helix":0.,"internal":false,"rim":5.,"zoff":0.,"shift":0.,"ha":1.,"hf":1.25,"cutter_allowance":cutter});
     let gear = crate::profiles::gear_part(&gear_args(v["backlash"].clone(), false))?;
@@ -286,7 +319,12 @@ fn harmonic(v: &Value) -> Result<Construction> {
     } else {
         let output = n(v, "output_bore", 0.)?;
         if output / 2. >= inner - 0.5 {
-            return Err("Output bore too large for the cup diaphragm.".into());
+            return Err(crate::diagnostic::constraint(
+                "harmonic.output_bore",
+                &["output_bore", "wall", "module", "teeth"],
+                "Output bore too large for the cup diaphragm.",
+                "Reduce the output bore or wall thickness, or increase the module or tooth count.",
+            ));
         }
         if output <= 0. {
             return Err(

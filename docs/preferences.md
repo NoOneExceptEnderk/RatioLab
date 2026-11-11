@@ -1,4 +1,4 @@
-# Desktop preferences
+# Workspace preferences
 
 Open **Settings** in the toolbar or press **Ctrl+,**. The left sidebar contains
 **Appearance**, **Controls**, **Model precision** and **General**. Workspace
@@ -6,9 +6,11 @@ preferences apply immediately and belong to the user profile. Model precision
 belongs to the current project and requires **Apply**; closing before applying
 leaves the project's accepted precision unchanged.
 
-This page describes the desktop Settings editor in the current source tree.
-The browser has its own [theme/language controls](web-app.md#use-the-workspace)
-and does not offer the desktop theme-file editor or customizable CAD presets.
+Desktop and browser share this Settings layout, theme files, CAD control presets
+and model precision policy. Each keeps workspace preferences in its own user
+profile. Opening a model project does not import another profile's preferences.
+The browser adapts reserved keys and keeps CAD connections and application
+updates in the desktop program; see the platform differences below.
 
 ## Appearance
 
@@ -134,3 +136,35 @@ A write failure keeps accepted settings usable for the current session and
 shows a save notice. Closing Settings does not roll back those session choices.
 Save a model with the normal project commands; exporting a theme does not save
 the current design.
+
+## Browser differences
+
+The browser header has **File** on the left, centered RatioLab branding, and the
+existing CAD/Export icons on the right. **Settings** replaces the toolbar theme
+switch. Appearance offers the same presets, interface/viewport colors, text size
+and `ratiolab-theme/1` import/export as desktop. Color and control choices are
+saved for this browser origin independently of models and recovery.
+
+**Controls** applies keyboard and mouse presets together. Browser-reserved keys
+use available alternatives displayed beside each command: **Alt+N/O/E** for
+New/Open/Export, plain number keys for CAD view shortcuts otherwise using
+Ctrl+numbers, and **F** or **0** in place of reserved F6. Save/history/settings
+also accept the corresponding Cmd key on macOS. View commands require focus in
+the 3D canvas; editable text keeps its own undo shortcuts. The recorder rejects
+browser reservations and duplicate/prefix conflicts. **Fit model** retains the
+current orientation. Physical multibutton gestures still depend on browser,
+input-device and window-manager delivery.
+
+**Model precision** uses the shared model-specific error-budget functions, not
+preset labels as a claim of total accuracy. Reading comparisons does not alter
+nominal construction, accepted precision, motion, project history or active mesh
+buffers. Preview/export drafts require **Apply**; closing leaves accepted values
+intact. A failed regeneration keeps the last valid browser preview and blocks
+source export until the draft is corrected. **Surface detail** opens this same
+page from the display/export actions. The phase slider displays degrees (rack
+travel in millimetres), while canonical worker poses continue to use radians.
+
+Browser **General** offers language and parameter hover help. Release notes open
+the public release page; CAD bridges and native automatic updating remain desktop
+features. File operations use browser downloads/uploads and the existing recovery
+and dirty-document protections.

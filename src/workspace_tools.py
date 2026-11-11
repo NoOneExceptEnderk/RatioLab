@@ -6,6 +6,21 @@ gi.require_version('Gtk', '4.0')
 from gi.repository import Gtk, GObject, Gdk, Pango
 
 
+def heading(parent, title):
+    label = Gtk.Label(label=title, xalign=0, wrap=True, css_classes=['heading'])
+    parent.append(label)
+    return label
+
+
+def model_text(design):
+    from geometry import FAMILIES, VARIANTS
+    if design is None:
+        return 'Generate a valid model first.'
+    family = FAMILIES[design.family]
+    variant = VARIANTS.get(design.family, {}).get(design.values.get('variant'))
+    return f'{family} / {variant}' if variant else family
+
+
 def details(parent, title, child):
     expander = Gtk.Expander(label=title)
     if isinstance(child, str):
@@ -27,14 +42,13 @@ def actions(parent):
 def status_actions(status, controls):
     """Keep actions and a concise actual status visible; full text stays in body."""
     row=Gtk.Box(spacing=6)
-    controls.set_min_children_per_line(3)
     parent=controls.get_parent()
     if parent:parent.remove(controls)
     row.append(controls)
     badge=Gtk.Label(xalign=0,hexpand=True,ellipsize=Pango.EllipsizeMode.END,
                     width_chars=1,max_width_chars=14,css_classes=['muted'])
     def update(*_):
-        badge.set_text(status.get_text())
+        badge.set_text(status.get_text().partition('\n')[0])
         badge.set_tooltip_text(status.get_text())
     status.connect('notify::label',update)
     update();row.append(badge)
@@ -162,6 +176,10 @@ class Dock:
         toolbar.append(self.expand_button)
         self.commands = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=5, css_classes=['tool-chooser'],
                                 margin_start=14, margin_end=14, margin_top=14, margin_bottom=14)
+        self.context = Gtk.Label(xalign=0, wrap=True, max_width_chars=32, css_classes=['muted'])
+        self.box.append(self.context)
+        for side in ('start', 'end', 'bottom'):
+            getattr(self.context, 'set_margin_'+side)(14)
         self.command_buttons=[]
         self.chooser = Gtk.ScrolledWindow(vexpand=True, hscrollbar_policy=Gtk.PolicyType.NEVER)
         self.chooser.set_child(self.commands)
@@ -258,6 +276,18 @@ class Dock:
         self.active = None
         self.stack.set_visible_child_name('chooser')
         self.title.set_text('Tools')
+        from tool_capabilities import capabilities
+        ready = getattr(self.app, 'design', None) if not self.app.pending and not self.app.busy else None
+        caps = capabilities(ready)
+        unavailable = []
+        for key, controller in self.controllers.items():
+            info = caps['metrology' if key == 'gear_measurement' else key]
+            controller.button.set_tooltip_text(info['reason'])
+            if not info['available']:
+                unavailable.append(controller.button.get_label().rstrip('…'))
+        self.context.set_text('Available tools follow the current model.' if not unavailable else
+                              'Unavailable for this model: '+', '.join(unavailable)+'. Open a tool to see its requirements.')
+        self.context.set_visible(True)
         self.back_button.set_visible(False)
         self.expand_button.set_visible(False)
         self.box.set_visible(True)
@@ -284,6 +314,7 @@ class Dock:
         return panel
 
     def show(self, key):
+        self.app.canvas.clear_tooth_detail()
         self.app.view_menu.set_active(False)
         self._set_menu_active(True)
         self.back_button.set_visible(True)
@@ -293,6 +324,7 @@ class Dock:
             if parent:parent.remove(self.back_button)
             body.prepend(self.back_button)
         self.active = key
+        self.context.set_visible(False)
         self.box.set_visible(True)
         self.expand_button.set_visible(True)
         self.stack.set_visible_child_name(key)

@@ -24,7 +24,7 @@ CORE=(
     'test_engine_reuse','test_collision_reuse','test_surface_snapshots',
     'test_bulk_geometry','test_engine_report_regressions','test_geometry_quality','test_model_precision',
     'test_internal_pair_correction','test_cylindrical_validation',
-    'test_tooth_profiles','test_tooth_thickness','test_tooth_tips','test_engineering',
+    'test_tooth_profiles','test_tooth_thickness','test_tooth_tips','test_tooth_tip_preview','test_tooth_view_geometry','test_qol_fields_camera','test_engineering',
     'test_motion','test_motion_rates','test_stl_export',
     'test_parallel_multistage','test_rack_geometry','test_project_document','test_backlash_solver',
     'test_webapp_project_import',
@@ -34,7 +34,8 @@ GUI=('test_geometry_quality_gui','test_geometry_refresh_gui','test_window_remap_
      'test_bevel_pair_gui','test_hypoid_gui','test_face_gears_gui','test_tooth_tips_gui',
      'test_model_precision_gui','test_settings_gui','test_custom_themes_gui',
      'test_keyboard_shortcuts_gui','test_mouse_navigation_gui','test_phase_slider_gui',
-     'test_header_layout_gui','test_text_rendering_gui')
+     'test_header_layout_gui','test_text_rendering_gui',
+     'test_tooth_tip_preview_gui','test_tooth_view_gui','test_qol_fields_camera_gui')
 
 
 def preflight():

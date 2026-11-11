@@ -182,7 +182,7 @@ pub(crate) fn plan(v: &Value) -> Result<Value> {
     )
 }
 
-fn outline(v: &Value, info: &Value, shift: f64, height: f64) -> Result<Vec<Point>> {
+pub(crate) fn outline(v: &Value, info: &Value, shift: f64, height: f64) -> Result<Vec<Point>> {
     let m = n(v, "module", 2.)?;
     let pitch = n(info, "transverse_pitch_mm", 0.)?;
     let alpha = n(info, "transverse_pressure_deg", 0.)?.to_radians();
@@ -353,7 +353,25 @@ pub(crate) fn build(a: &Value) -> Result<Construction> {
     let mut rack = Part::new("Rack", initial, vec![], source.width);
     rack.stations = rack_stations;
     rack.extra["color"] = json!([0.23, 0.75, 0.65]);
-    rack.extra["profile_metadata"] = json!({"rack_pair":metadata});
+    let mut preview_parameters = json!({});
+    for (key, default) in [
+        ("module", 2.),
+        ("pressure", 20.),
+        ("backlash", 0.15),
+        ("base", 6.),
+        ("rack_teeth", 24.),
+        ("helix", 0.),
+        ("rack_topping_mm", 0.),
+        ("rack_semitopping_mm", 0.),
+        ("rack_semitopping_angle_deg", 45.),
+    ] {
+        preview_parameters[key] = raw(v, key, default);
+    }
+    rack.extra["profile_metadata"] = json!({"rack_pair":metadata,
+        "tip_preview_source":{"kind":"linear","parameters":preview_parameters,"dimensions":{
+            "transverse_pitch_mm":info["transverse_pitch_mm"],
+            "transverse_pressure_deg":info["transverse_pressure_deg"],
+            "helix_sweep_mm":info["helix_sweep_mm"]}}});
     Ok(Construction {
         parts: vec![pin, rack],
         extra: json!({"analysis":{"rack":info}}),

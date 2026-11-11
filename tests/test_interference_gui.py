@@ -75,7 +75,7 @@ class InterferenceGuiTests(unittest.TestCase):
         a.inputs['module'].set_text('-')
         self.assertIsNone(c.result);self.assertIsNone(a.canvas.inspection_phase)
         self.assertIn('changed',c.summary.get_text())
-        pump(.15);self.assertIsNone(a.design);c.start();self.assertIsNone(c.result);self.assertIn('Invalid',c.summary.get_text())
+        self.assertTrue(wait_until(lambda:a.design is None,3));c.start();self.assertIsNone(c.result);self.assertIn('Invalid',c.summary.get_text())
 
     def test_identical_replacement_and_late_callback_rejected(self):
         a=self.app;c=self.c;self.run_check();old=c.result;serial=c.serial;oldtoken=a.document.token;obj=a.config()

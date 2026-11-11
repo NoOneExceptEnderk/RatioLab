@@ -172,3 +172,164 @@ impl Treatment {
         }
     }
 }
+
+/// Local removed head sections for the viewer. Reuse the generating curves and
+/// the rack's constructed vertices; this operation never changes a design.
+pub fn preview(a: &Value) -> Result<Value> {
+    use crate::profiles::{Point, clean, polar, rotate, sample};
+    use std::f64::consts::{PI, TAU};
+    let source = &a["source"];
+    let p = &source["parameters"];
+    let linear = source["kind"] == "linear";
+    if !linear && source["kind"] != "radial" {
+        return Err("Tooth detail needs its original profile construction.".into());
+    }
+    let settings = if linear { member(p, "rack") } else { p.clone() };
+    let treatment = Treatment::read(&settings)?;
+    let m = if linear {
+        n(p, "module", 2.)?
+    } else {
+        n(p, "depth", 2.)?
+    };
+    if m <= 0. {
+        return Err("Tooth detail needs a positive normal module.".into());
+    }
+    let mut polygons: Vec<Vec<Point>> = Vec::new();
+    let mut add = |points: Vec<Point>| {
+        let mut points = clean(points);
+        let area = points
+            .iter()
+            .zip(points.iter().cycle().skip(1))
+            .take(points.len())
+            .map(|(a, b)| a[0] * b[1] - a[1] * b[0])
+            .sum::<f64>()
+            / 2.;
+        if points.len() >= 3 && area.abs() > m * m * 1e-14 {
+            if area < 0. {
+                points.reverse();
+            }
+            polygons.push(points);
+        }
+    };
+    let (target, direction);
+    if linear {
+        let info = &source["dimensions"];
+        let count = n(p, "rack_teeth", 24.)?;
+        if !(8. ..=200.).contains(&count) || count.fract() != 0. {
+            return Err("Tooth detail needs a valid finite rack tooth count.".into());
+        }
+        let count = count as usize;
+        let mut original = p.clone();
+        original["rack_topping_mm"] = json!(0.);
+        original["rack_semitopping_mm"] = json!(0.);
+        let before = crate::rack_drive::outline(&original, info, 0., 1.)?;
+        let after = crate::rack_drive::outline(p, info, 0., 1.)?;
+        let height = m - treatment.topping;
+        let join = height - treatment.height;
+        let center = count / 2;
+        let middle = 3 + 4 * (count - 1 - center);
+        target = [(before[middle + 1][0] + before[middle + 2][0]) / 2., height];
+        direction = [0., 1.];
+        if treatment.enabled() {
+            let size = if treatment.height > 0. { 6 } else { 4 };
+            for j in center - 1..=center + 1 {
+                let b = 3 + 4 * (count - 1 - j);
+                let c = 3 + size * (count - 1 - j);
+                let right = before[b + 1];
+                let left = before[b + 2];
+                let at_join = |root: Point, tip: Point| {
+                    let f = (join - root[1]) / (tip[1] - root[1]);
+                    [root[0] + f * (tip[0] - root[0]), join]
+                };
+                let rj = at_join(before[b], right);
+                let lj = at_join(before[b + 3], left);
+                let ri = if size == 6 { c + 2 } else { c + 1 };
+                let li = ri + 1;
+                if treatment.topping > 0. {
+                    add(vec![lj, left, right, rj, after[ri], after[li]]);
+                } else {
+                    add(vec![lj, left, after[li]]);
+                    add(vec![rj, right, after[ri]]);
+                }
+            }
+        }
+    } else {
+        let profile = &a["profile"];
+        let g = &profile["measurement_geometry"];
+        let z = n(g, "teeth", 0.)?;
+        let rp = n(g, "reference_radius_mm", 0.)?;
+        let rb = n(g, "base_radius_mm", 0.)?;
+        let half = n(g, "reference_half_angle_rad", 0.)?;
+        if z < 3. || rp <= 0. || rb <= 0. {
+            return Err("Incomplete tooth detail provenance.".into());
+        }
+        let internal = g["internal"].as_bool().unwrap_or(false);
+        let sign = if internal { -1. } else { 1. };
+        let tip = n(profile, "tip_radius_mm", 0.)?;
+        let nominal = n(&profile["tip_treatment"], "nominal_tip_radius_mm", tip)?;
+        let join = tip - sign * treatment.height;
+        let primary = Chamfer {
+            join,
+            base: rb,
+            half,
+            pitch: rp,
+            internal,
+        };
+        let cb = m / n(p, "mt", m)?;
+        let secondary = treatment.chamfer(
+            rp,
+            rb,
+            half,
+            tip,
+            n(p, "normal_pressure", 20.)?,
+            cb,
+            internal,
+        )?;
+        let finished = secondary.as_ref().unwrap_or(&primary);
+        let phase = n(source, "phase_rad", 0.)?;
+        let pitch = TAU / z;
+        let focus = phase + ((PI / 2. - phase) / pitch).round() * pitch;
+        target = polar(tip, focus);
+        direction = [sign * focus.cos(), sign * focus.sin()];
+        if treatment.enabled() {
+            if primary.angle(nominal) <= 0. {
+                return Err(
+                    "Original tooth has no top land for a removed-material preview.".into(),
+                );
+            }
+            let tol = (m * 0.0001)
+                .min((treatment.topping + treatment.height) / 30.)
+                .max(m * 1e-9);
+            let old = sample(&|r| polar(r, primary.angle(r)), join, nominal, tol, false)?;
+            let new = sample(&|r| polar(r, finished.angle(r)), join, tip, tol, false)?;
+            let mirror = |q: Point| [q[0], -q[1]];
+            let arc =
+                |r: f64, start: f64, end: f64| sample(&|t| polar(r, t), start, end, tol, false);
+            for angle in [focus - pitch, focus, focus + pitch] {
+                if treatment.topping > 0. {
+                    let mut chip = old.clone();
+                    chip.extend(arc(
+                        nominal,
+                        primary.angle(nominal),
+                        -primary.angle(nominal),
+                    )?);
+                    chip.extend(old.iter().rev().copied().map(mirror));
+                    chip.extend(new.iter().copied().map(mirror));
+                    chip.extend(arc(tip, -finished.angle(tip), finished.angle(tip))?);
+                    chip.extend(new.iter().rev().copied());
+                    add(chip.into_iter().map(|q| rotate(q, angle)).collect());
+                } else {
+                    let mut chip = old.clone();
+                    chip.extend(arc(tip, primary.angle(tip), finished.angle(tip))?);
+                    chip.extend(new.iter().rev().copied());
+                    add(chip.iter().copied().map(|q| rotate(q, angle)).collect());
+                    add(chip.into_iter().map(|q| rotate(mirror(q), angle)).collect());
+                }
+            }
+        }
+    }
+    Ok(
+        json!({"polygons":polygons,"target_xy":target,"direction_xy":direction,
+        "normal_module_mm":m,"scope":"three tooth heads; nominal removed material in the upper working band"}),
+    )
+}

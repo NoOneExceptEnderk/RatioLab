@@ -5,6 +5,7 @@ Reference geometry only; catalog bearings are applied by standard_parts.
 No structural sizing is performed.
 """
 from math import pi,sin,cos,hypot,radians
+from parameter_errors import ParameterError
 from geometry import Part,circle,polar,transformed,gear_part,cycloid,TAU,batch_circles
 
 SILVER=(.65,.72,.8);BEARING=(.42,.49,.59);HOUSING=(.32,.39,.49)
@@ -61,7 +62,7 @@ def planetary(d):
     beta=v.get('helix',0);variant=v['variant'];layout=_planetary_dimensions(v)
     stages=layout['stages'];rshaft=layout['rshaft']
     outside=layout['outside'];bolt=layout['bolt'];rbearing=layout['rbearing'];ratio=1
-    if v['rim']<2:raise ValueError('The assembly with fasteners requires a ring at least 2 mm thick.')
+    if v['rim']<2:raise ParameterError('planetary.rim', ('rim',), 'The assembly with fasteners requires a ring at least 2 mm thick.', 'Increase the ring thickness.')
     pair_plans=[]
     from internal_mesh import plan_planetary_internal_pair, validate_axial_pair
     from tooth_tips import parameters as tip_parameters
@@ -148,13 +149,13 @@ def cycloidal(d):
     v=d.values;n=v['pins'];R=v['radius'];e=v['eccentric'];r=v['pin_radius'];c=v['clearance'];w=v['width'];k=v['output_count'];ro=v['output_pin'];outR=v['output_radius'];bore=v['bore'];t=v['plate'];ax=v['assembly_clearance']
     count=2 if v['variant']=='dual' else 1;disc_gap=v.get('disc_gap',ax);span=count*w+(count-1)*disc_gap
     pts=cycloid(n,R,e,r,c,tolerance=v['profile_tolerance']);minr=min(hypot(x,y) for x,y in pts);hole_r=ro+e+v['output_clearance']
-    if outR+hole_r>minr-.8 or outR-hole_r<bore/2+.8:raise ValueError('Output holes leave no material between the eccentric seat and disc edge.')
-    if 2*hole_r>=2*outR*sin(pi/k)-.5:raise ValueError('Output holes overlap.')
+    if outR+hole_r>minr-.8 or outR-hole_r<bore/2+.8:raise ParameterError('cycloidal.output_material', ('output_radius', 'output_pin', 'eccentric', 'output_clearance', 'bore', 'radius', 'pins', 'pin_radius', 'clearance'), 'Output holes leave no material between the eccentric seat and disc edge.', 'Reduce the output hole size or adjust the output pitch radius to leave material on both sides.')
+    if 2*hole_r>=2*outR*sin(pi/k)-.5:raise ParameterError('cycloidal.output_overlap', ('output_pin', 'eccentric', 'output_clearance', 'output_radius', 'output_count'), 'Output holes overlap.', 'Reduce the output hole size or pin count, or increase the output pitch radius.')
     rin=v['input_shaft']/2;rout=v['output_shaft']/2;cam=.72*bore/2;radial=min(.08,ax/3)
-    if rin+e+.4>=cam:raise ValueError('Input shaft too large for the eccentricity and seat: reduce shaft diameter/eccentricity or enlarge the eccentric seat.')
-    if bore/2-cam<.6:raise ValueError('Seat too small for the eccentric bearing.')
+    if rin+e+.4>=cam:raise ParameterError('cycloidal.input_shaft', ('input_shaft', 'eccentric', 'bore'), 'Input shaft too large for the eccentricity and seat: reduce shaft diameter/eccentricity or enlarge the eccentric seat.', '')
+    if bore/2-cam<.6:raise ParameterError('cycloidal.bearing_seat', ('bore',), 'Seat too small for the eccentric bearing.', 'Increase the eccentric seat diameter.')
     flangeR=outR+ro+max(2,t*.8)
-    if rout+1.5>=outR-ro or flangeR+ax>=R-r:raise ValueError('Incompatible output flange: reduce shaft/pins or increase ring radius.')
+    if rout+1.5>=outR-ro or flangeR+ax>=R-r:raise ParameterError('cycloidal.output_flange', ('output_shaft', 'output_radius', 'output_pin', 'plate', 'assembly_clearance', 'radius', 'pin_radius'), 'Incompatible output flange: reduce shaft/pins or increase ring radius.', '')
     outside=R+r+v['housing_wall'];inside=R+r+ax
     for j in range(count):
         phase=j*pi;delta=-phase/(n-1);center=polar(e,phase);z=j*(w+disc_gap)

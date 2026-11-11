@@ -6,6 +6,13 @@ export class EngineError extends Error {
     super(error.message);
     this.name = 'EngineError';
     this.code = error.code;
+    this.kind = error.kind;
+    this.constraint = error.constraint;
+    this.fields = Array.isArray(error.fields) ? [...error.fields] : [];
+    this.remedy = error.remedy || '';
+    this.limits = error.limits || {};
+    this.message = error.summary || [error.message, this.remedy].filter(Boolean).join('\n');
+    this.fieldMessages = error.field_messages || {};
   }
 }
 

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // Material map and tangent-frame normal transport follow preview3d.py and
 // website/assets/mechanism.js. All rigid poses come from the canonical worker.
+import {dragMode} from './controls.js';
 const VERTEX = `
 precision highp float;
 attribute vec3 aPosition, aNormal, aMaterial;
@@ -55,12 +56,13 @@ const FRAGMENT = `
 precision mediump float;
 uniform vec3 uColor;
 uniform float uSection, uSectionY, uSelected;
+uniform vec3 uSelectionColor;
 varying vec3 vNormal, vWorld;
 void main(){
  if(uSection>0.5 && vWorld.y>uSectionY)discard;
  vec3 n=normalize(vNormal);
  float d=max(dot(n,normalize(vec3(-0.35,-0.25,1.0))),0.0);
- vec3 color=mix(uColor,vec3(0.98,0.65,0.30),uSelected*0.65);
+ vec3 color=mix(uColor,uSelectionColor,uSelected*0.65);
  gl_FragColor=vec4(color*(0.48+0.52*d),1.0);
 }`;
 export const identityMatrix = () => [1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1];
@@ -116,6 +118,7 @@ export class ModelViewer extends EventTarget {
     this.explosion = 0; this.section = false; this.yaw = -35*Math.PI/180; this.pitch = -55*Math.PI/180; this.zoom = 1; this.panOffset=[0,0,0]; this.panMode=false;
     this.center = [0,0,0]; this.radius = 30; this.lost = false; this.disposed = false; this.captureBusy = false;
     this.zoomSpeed = 1; this.rotationSpeed = 1; this.invertZoom = false;
+    this.mouseNavigation='ratiolab';this.selectionColor=[0.98,0.65,0.30];this.gridColor=null;this.managedShortcuts=false;
     this.events = new AbortController(); const signal = this.events.signal;
     this.gl = canvas.getContext('webgl', {antialias: true, alpha: true, preserveDrawingBuffer: true});
     if (!this.gl) throw Error('WebGL is unavailable. Enable hardware acceleration or use another WebGL-capable browser.');
@@ -129,21 +132,25 @@ export class ModelViewer extends EventTarget {
       catch (error) { this.dispatchEvent(new CustomEvent('error', {detail: error})); }
     }, {signal});
     let drag = null;
-    canvas.addEventListener('pointerdown', event => { if (![0,2].includes(event.button) || this.captureBusy) return; event.preventDefault(); drag = {pan:event.button===2||this.panMode,button:event.button,x:event.clientX,y:event.clientY,startX:event.clientX,startY:event.clientY,moved:false}; if(drag.pan)canvas.style.cursor='grabbing'; canvas.setPointerCapture(event.pointerId); canvas.focus({preventScroll: true}); }, {signal});
+    canvas.addEventListener('pointerdown', event => { if (![0,1,2].includes(event.button) || this.captureBusy) return; event.preventDefault(); const mode=dragMode(this.mouseNavigation,event.buttons??[1,4,2][event.button??drag?.button??0],{shift:event.shiftKey,control:event.ctrlKey,alt:event.altKey,panMode:this.panMode});drag={pan:mode==='pan',button:event.button,x:event.clientX,y:event.clientY,startX:event.clientX,startY:event.clientY,moved:false};if(drag.pan)canvas.style.cursor='grabbing';canvas.setPointerCapture(event.pointerId);canvas.focus({preventScroll:true}); }, {signal});
     canvas.addEventListener('pointermove', event => {
       if (!drag) return;
       if (!drag.moved && Math.hypot(event.clientX-drag.startX,event.clientY-drag.startY)<4) return;
-      if (drag.pan) this.panBy(event.clientX-drag.x,event.clientY-drag.y);
-      else { this.yaw += (event.clientX-drag.x)*0.008*this.rotationSpeed; this.pitch = Math.max(-Math.PI, Math.min(Math.PI, this.pitch+(event.clientY-drag.y)*0.008*this.rotationSpeed)); }
+      const mode=dragMode(this.mouseNavigation,event.buttons??[1,4,2][event.button??drag?.button??0],{shift:event.shiftKey,control:event.ctrlKey,alt:event.altKey,panMode:this.panMode});
+      const dx=event.clientX-drag.x,dy=event.clientY-drag.y;
+      if(mode==='pan')this.panBy(dx,dy);
+      else if(mode==='orbit'){this.yaw+=dx*.008*this.rotationSpeed;this.pitch=Math.max(-Math.PI,Math.min(Math.PI,this.pitch+dy*.008*this.rotationSpeed));}
+      else if(mode==='zoom')this.zoom=Math.max(.12,Math.min(14,this.zoom*Math.exp(-dy*.01*this.zoomSpeed)));
       drag = {...drag,x:event.clientX,y:event.clientY,moved:true}; this.render(); this.dispatchEvent(new Event('camera'));
     }, {signal});
     canvas.addEventListener('pointerup',event => { const click=drag && drag.button===0 && !drag.pan && !drag.moved; drag=null;canvas.style.cursor=''; if (click) this.dispatchEvent(new CustomEvent('surfaceclick',{detail:{clientX:event.clientX,clientY:event.clientY,add:event.ctrlKey||event.metaKey||event.shiftKey}})); },{signal});
     canvas.addEventListener('contextmenu',event=>event.preventDefault(),{signal});
+    canvas.addEventListener('dblclick',event=>{if(!this.captureBusy){event.preventDefault();this.fitCurrent();}},{signal});
     for (const name of ['pointercancel','lostpointercapture']) canvas.addEventListener(name, () => { drag = null;canvas.style.cursor=''; }, {signal});
     canvas.addEventListener('wheel', event => { if (this.captureBusy) return; event.preventDefault(); const delta = Math.max(-20,Math.min(20,-event.deltaY*0.001*this.zoomSpeed*(this.invertZoom ? -1 : 1))); this.zoom = Math.max(0.12, Math.min(14, this.zoom*Math.exp(delta))); this.render(); }, {signal, passive: false});
     canvas.addEventListener('keydown', event => {
       if (this.captureBusy) return;
-      if (event.key.toLowerCase() === 'f') this.fit();
+      if (!this.managedShortcuts && event.key.toLowerCase() === 'f') this.fit();
       else if (event.key === '+' || event.key === '=') { this.zoom = Math.min(14,this.zoom*1.15); this.render(); }
       else if (event.key === '-') { this.zoom = Math.max(.12,this.zoom/1.15); this.render(); }
       else if (event.key.startsWith('Arrow')) { event.preventDefault(); if (event.key === 'ArrowLeft') this.yaw -= .12; if (event.key === 'ArrowRight') this.yaw += .12; if (event.key === 'ArrowUp') this.pitch -= .12; if (event.key === 'ArrowDown') this.pitch += .12; this.pitch = Math.max(-Math.PI,Math.min(Math.PI,this.pitch)); this.render(); this.dispatchEvent(new Event('camera')); }
@@ -163,7 +170,7 @@ export class ModelViewer extends EventTarget {
       this.program = program; this.attributes = {};
       for (const name of ['aPosition','aNormal','aMaterial']) this.attributes[name] = gl.getAttribLocation(program,name);
       this.uniforms = {};
-      for (const name of ['uModel','uCenter','uProjection','uOrbit','uExplode','uColor','uSection','uSectionY','uSelected','uFlexShape','uFlexBody','uArcFirst','uArcSecond','uFlexCenter']) this.uniforms[name] = gl.getUniformLocation(program,name);
+      for (const name of ['uModel','uCenter','uProjection','uOrbit','uExplode','uColor','uSection','uSectionY','uSelected','uSelectionColor','uFlexShape','uFlexBody','uArcFirst','uArcSecond','uFlexCenter']) this.uniforms[name] = gl.getUniformLocation(program,name);
       gl.enable(gl.DEPTH_TEST); gl.disable(gl.CULL_FACE); gl.clearColor(0,0,0,0);
     } catch (error) { if (program) gl.deleteProgram(program); throw error; }
     finally { for (const shader of shaders) gl.deleteShader(shader); }
@@ -234,7 +241,7 @@ export class ModelViewer extends EventTarget {
   fit() { if (this.captureBusy) return; this.zoom=1;this.panOffset=[0,0,0];this.setView('isometric'); }
   fitCurrent() {
     if (this.captureBusy) return;
-    this.zoom=1;this.panOffset=[0,0,0];this.render();this.dispatchEvent(new Event('camera'));
+    this.zoom=1;this.panOffset=[0,0,0];this.render();this.dispatchEvent(new CustomEvent('camera',{detail:{fitOnly:true}}));
   }
   installCube() {
     const cube=document.getElementById('viewport-cube');if (!cube) return;
@@ -320,7 +327,7 @@ export class ModelViewer extends EventTarget {
   updateGuides(width,height) {
     const grid = document.getElementById('viewport-grid');
     if (!grid) return;
-    const cache = JSON.stringify([width,height,this.center,this.panOffset,this.radius,this.yaw,this.pitch,this.zoom,!!this.design]);
+    const cache = JSON.stringify([width,height,this.center,this.panOffset,this.radius,this.yaw,this.pitch,this.zoom,!!this.design,this.gridColor]);
     if (cache === this.guideCache) return; this.guideCache = cache;
     const ns = 'http://www.w3.org/2000/svg', element = (name,attrs) => {
       const el = document.createElementNS(ns,name); for (const [key,value] of Object.entries(attrs)) el.setAttribute(key,String(value)); return el;
@@ -340,7 +347,7 @@ export class ModelViewer extends EventTarget {
           const p=project(a),q=project(b); path+=`M${p[0]},${p[1]}L${q[0]},${q[1]}`;
         }
       }
-      grid.append(element('path',{d:path,fill:'none',stroke:document.documentElement.dataset.theme === 'light' ? '#c6d1d8' : '#1f2934','stroke-width':.7}));
+      grid.append(element('path',{d:path,fill:'none',stroke:this.gridColor??(document.documentElement.dataset.theme === 'light' ? '#c6d1d8' : '#1f2934'),'stroke-width':.7}));
     }
   }
 
@@ -355,6 +362,7 @@ export class ModelViewer extends EventTarget {
     this.renderCube();
     gl.uniform3fv(u.uCenter,nominal ? this.center : this.cameraCenter); gl.uniform2f(u.uOrbit,this.yaw,this.pitch);
     gl.uniform3f(u.uProjection,scale/Math.max(1,aspect),scale*Math.min(1,aspect),1/(this.radius*4));
+    gl.uniform3fv(u.uSelectionColor,this.selectionColor);
     gl.uniform1f(u.uSection, !nominal && this.section ? 1 : 0); gl.uniform1f(u.uSectionY,this.center[1]);
     const selected = indices && new Set(indices);
     for (const mesh of this.meshes) {

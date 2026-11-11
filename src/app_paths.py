@@ -9,6 +9,7 @@ import os
 from pathlib import Path
 import sys
 import tempfile
+from math import isfinite
 from copy import deepcopy
 from theme_preferences import defaults as theme_defaults, normalize as normalize_theme
 
@@ -18,7 +19,7 @@ PREFERENCES_FILENAME = 'ui-preferences.json'
 LEGACY_PREFERENCES_FILENAME = 'preferenze-ui.json'
 UI_DEFAULTS = dict(theme='dark', language='en', text_scale=1, hover_help=True,
                    zoom_speed=1, rotation_speed=1, invert_zoom=False, mouse_navigation='ratiolab',
-                   theme_customizations=theme_defaults())
+                   theme_customizations=theme_defaults(), tooth_tip_steps={})
 
 
 def ui_preferences(data):
@@ -30,6 +31,15 @@ def ui_preferences(data):
         value = data.get(key, default)
         if key == 'theme_customizations':
             result[key] = normalize_theme(value)
+            continue
+        elif key == 'tooth_tip_steps':
+            from tooth_tips import SUPPORTED, KEYS
+            if isinstance(value, dict):
+                result[key] = {name: step for name, step in value.items()
+                    if isinstance(name, str) and len(name) <= 96 and ':' in name
+                    and name.split(':', 1)[0] in SUPPORTED
+                    and name.split(':', 1)[1].endswith(KEYS)
+                    and type(step) in (int, float) and 0 < step <= 100 and isfinite(step)}
             continue
         elif key == 'theme':
             valid = isinstance(value, str) and value in ('dark', 'light')

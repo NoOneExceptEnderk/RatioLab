@@ -9,9 +9,10 @@ from time import monotonic
 import gi
 gi.require_version('Gtk', '4.0')
 from gi.repository import Gtk, GLib, Gio
-from geometry import generate, INTEGER, FAMILIES as FAMILY_TITLES
+from geometry import generate, INTEGER
 from project_document import equivalent
-from workspace_tools import actions, details
+from ratio_display import ratio_parts
+from workspace_tools import actions, details, heading, model_text
 from combination_search import FAMILIES, COUNT_KEYS, Settings, variables, parse_grid, search
 from gui_workflow import choice_dropdown, bind_numeric_entry, numeric_value, numeric_snapshot_text, set_numeric_value
 
@@ -59,7 +60,9 @@ class Controller:
             return
         self.unavailable = ('Invalid current configuration. Complete the model numeric fields first.' if design is None else
                             'Ratio search requires a single fixed input/output ratio. Select a supported reducer assembly.' if design.family not in FAMILIES else None)
-        if design is not None:
+        if design is None:
+            self.context.set_text(model_text(None))
+        else:
             self.update_context(design)
             for name, (locked, custom, _) in self.axes.items():
                 value = design.values[name]
@@ -70,7 +73,11 @@ class Controller:
 
     def update_context(self, design):
         values = design.values
-        self.context.set_text(f'{FAMILY_TITLES[design.family]} · current variant and input/output connection stay fixed.')
+        ratio = design.analysis.get('signed_ratio')
+        context = model_text(design)
+        if ratio is not None:
+            context += '\nRatio (input/output): ' + ''.join(ratio_parts(ratio, 10))
+        self.context.set_text(context)
         self.context.set_tooltip_text(f'{design.family} / {values.get("variant", "standard")} · I/O {values.get("io_scheme", "fixed")}' + (f' / stage 2 {values["io_scheme2"]}' if 'io_scheme2' in values else ''))
 
     def invalidate(self, message='Results out of date · run a new search'):
@@ -84,6 +91,7 @@ class Controller:
         self.summary.set_text(message)
         if self.window:
             self.status.set_text(message)
+            self.selection_summary.set_text(message)
             self.report.get_buffer().set_text(message)
             self.clear_rows()
             self.apply_button.set_sensitive(False)
@@ -108,11 +116,16 @@ class Controller:
         win.set_child(box)
         self.fields = {}
         self.field_errors = {}
+        heading(box, 'Model examined')
+        self.context = label(model_text(self.app.design))
+        box.append(self.context)
+        heading(box, 'Analysis settings')
         setup = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
         self.setup = details(box, 'Edit search settings', setup)
         self.setup.set_expanded(True)
         setup.append(label('1. Desired ratio'))
         setup.append(label('Ratio = |input speed / output speed|'))
+        setup.append(label('For 1:3, enter about 0.333333. Choose the rotation direction separately.'))
         for key, title, value in (('target', 'Desired ratio', '3'), ('tolerance', 'Allowed error ± (%)', '1')):
             self.add_field(setup, key, title, value)
         self.ratio_hint = label('')
@@ -121,6 +134,10 @@ class Controller:
         self.direction = choice_dropdown(['Either direction', 'Same (+)', 'Opposite (−)'])
         setup.append(self.direction)
         self.direction.connect('notify::selected', lambda *_: self.request_changed())
+        setup.append(label('Compare results by'))
+        self.ranking = choice_dropdown(['Closest ratio', 'Smallest envelope', 'Highest usable contact ratio'])
+        self.ranking.connect('notify::selected', lambda *_: self.request_changed())
+        setup.append(self.ranking)
         setup.append(label('Direction uses the current input/output members and their displayed axes.'))
         self.envelope_summary = label('')
         setup.append(self.envelope_summary)
@@ -131,8 +148,6 @@ class Controller:
         envelope.append(label('All components, including hidden supports and housing; world XYZ in the export pose. Sampled preview/STL surfaces, not a motion sweep. Analytic STEP circles may extend slightly beyond these bounds.'))
         setup.append(label('2. Parameters to explore'))
         setup.append(label('Choose Vary, then set From, To and Step. Counts start near the current model; other dimensions stay fixed.'))
-        self.context = label('')
-        setup.append(self.context)
         self.axes_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
         setup.append(self.axes_box)
         self.reload_button = Gtk.Button(label='Reset ranges & ratio to model')
@@ -140,6 +155,7 @@ class Controller:
         setup.append(self.reload_button)
         advanced = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         self.advanced = details(setup, 'Advanced · budgets & technical details', advanced)
+        self.add_field(advanced, 'contact', 'Minimum usable contact ratio (0 = no filter)', '0')
         self.add_field(advanced, 'budget', 'Maximum candidates', '50000')
         self.add_field(advanced, 'seconds', 'Time limit (seconds)', '30')
         advanced.append(label('Finite local search, not a continuous or global optimum. All other dimensions, variants, stages and I/O stay fixed. Every proposal passes the generator; this is not an interference or strength check. Stop is cooperative: one generation or surface section may finish first.'))
@@ -149,7 +165,6 @@ class Controller:
         report_scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
         report_scroll.set_min_content_height(100)
         report_scroll.set_child(self.report)
-        details(advanced, 'Full search report', report_scroll)
         self.scope = label('')
         setup.append(self.scope)
         self.status = label('Choose a ratio and ranges, then Search.')
@@ -169,9 +184,6 @@ class Controller:
         run_actions = buttons
         compare = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=5)
         self.compare = compare
-        compare.append(label('3. Compare results'))
-        self.empty = label('Search to compare generated proposals. Select one to review and apply.')
-        compare.append(self.empty)
         self.list = Gtk.ListBox(selection_mode=Gtk.SelectionMode.SINGLE)
         self.list.connect('row-selected', self.selected)
         self.result_scroll = Gtk.ScrolledWindow()
@@ -193,7 +205,10 @@ class Controller:
         pages.append(self.page_label)
         compare.append(pages)
         self.pages = pages
-        buttons = actions(compare)
+        self.selection_summary = label('Select a proposal to compare it with the current model.')
+        compare.append(self.selection_summary)
+        self.selection_summary.set_visible(False)
+        buttons = actions(box)
         self.apply_button = Gtk.Button(label='Apply selected')
         self.apply_button.connect('clicked', lambda _: self.apply_selected())
         self.apply_button.set_sensitive(False)
@@ -205,17 +220,46 @@ class Controller:
         self.save_button.set_sensitive(False)
         buttons.append(self.save_button)
         def close(*_):
+            self.draft = dict(identity=self.app.document.token[0], key=self.form_key,
+                fields={key: numeric_snapshot_text(entry) for key, entry in self.fields.items()},
+                direction=self.direction.get_selected(), ranking=self.ranking.get_selected(),
+                axes={key: dict(locked=controls[0].get_active(), mode=self.axis_controls[key]['mode'].get_selected(),
+                    inputs=[numeric_snapshot_text(entry) for entry in self.axis_controls[key]['inputs']],
+                    custom=controls[1].get_text()) for key, controls in self.axes.items()})
             self.invalidate('Search window closed')
             self.window = None
             return False
         win.connect('close-request', close)
         self.setup.connect('notify::expanded', lambda *_: self.update_step_view())
+        heading(box, 'Results')
         box.append(self.status)
         box.append(compare)
+        self.report_details = details(box, 'Full search report', report_scroll)
+        self.report_details.set_visible(False)
         self.populate()
+        draft = getattr(self, 'draft', None)
+        if draft and draft['identity'] == self.app.document.token[0] and draft['key'] == self.form_key:
+            self.populating = True
+            try:
+                for key, value in draft['fields'].items():
+                    self.fields[key].set_text(value)
+                self.direction.set_selected(draft['direction'])
+                self.ranking.set_selected(draft['ranking'])
+                for key, row in draft['axes'].items():
+                    if key not in self.axes:
+                        continue
+                    self.axes[key][0].set_active(row['locked'])
+                    self.axes[key][1].set_text(row['custom'])
+                    self.axis_controls[key]['mode'].set_selected(row['mode'])
+                    for entry, value in zip(self.axis_controls[key]['inputs'], row['inputs']):
+                        entry.set_text(value)
+                    self.update_axis_view(key)
+            finally:
+                self.populating = False
+            self.update_domain()
         from workspace_tools import status_actions
         status_row,self.status_badge=status_actions(self.status,run_actions)
-        win.pin(status_row,self.progress)
+        win.pin(status_row, buttons, self.progress)
         win.present()
         self.fields['target'].grab_focus()
 
@@ -272,11 +316,16 @@ class Controller:
             self.update_context(app.design)
             specs = variables(app.family, values)
             specs.sort(key=lambda spec: spec[0] not in COUNT_KEYS[app.family] or spec[0] == 'planets')
+            more = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+            more_expander = Gtk.Expander(label='More dimensions')
+            more_expander.set_child(more)
             for key, title, _, lo, hi, step in specs:
+                if values.get('io_scheme') == 'reverse':
+                    title = {'Input pinion teeth': 'Pinion teeth', 'Driven wheel teeth': 'Wheel teeth'}.get(title, title)
                 self.titles[key] = title
                 value = values[key]
                 row = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
-                self.axes_box.append(row)
+                (self.axes_box if key in COUNT_KEYS[app.family] else more).append(row)
                 row.append(label(title))
                 current = label(f'Current: {value:g} · allowed {lo:g}–{hi:g}')
                 row.append(current)
@@ -334,6 +383,7 @@ class Controller:
                         self.request_changed()
                 custom.connect('changed', custom_changed)
                 self.update_axis_view(key)
+            self.axes_box.append(more_expander)
             ratio = app.design.analysis['signed_ratio']
             set_numeric_value(self.fields['target'], abs(ratio))
         self.populating = False
@@ -419,8 +469,8 @@ class Controller:
         return {key: self.read_axis(key) for key, (locked, _, _) in self.axes.items() if not locked.get_active()}
 
     def read_settings(self):
-        titles = dict(target='Desired ratio', tolerance='Allowed error', x='Maximum X', y='Maximum Y', z='Maximum Z', budget='Maximum candidates', seconds='Time limit')
-        limits = dict(target=(0, float('inf')), tolerance=(0, 100), x=(0, float('inf')), y=(0, float('inf')), z=(0, float('inf')), budget=(1, 1000000), seconds=(0, 3600))
+        titles = dict(target='Desired ratio', tolerance='Allowed error', x='Maximum X', y='Maximum Y', z='Maximum Z', budget='Maximum candidates', seconds='Time limit', contact='Minimum usable contact ratio')
+        limits = dict(target=(0, float('inf')), tolerance=(0, 100), x=(0, float('inf')), y=(0, float('inf')), z=(0, float('inf')), budget=(1, 1000000), seconds=(0, 3600), contact=(0, float('inf')))
         values, errors = {}, []
         for key, entry in self.fields.items():
             message = ''
@@ -447,10 +497,13 @@ class Controller:
             self.setup.set_expanded(True)
             if any(self.field_errors[k].get_visible() for k in ('x', 'y', 'z')):
                 self.envelope.set_expanded(True)
-            if any(self.field_errors[k].get_visible() for k in ('budget', 'seconds')):
+            if any(self.field_errors[k].get_visible() for k in ('budget', 'seconds', 'contact')):
                 self.advanced.set_expanded(True)
             raise ValueError(errors[0])
-        settings = Settings(target=values['target'], tolerance_percent=values['tolerance'], direction=('either', 'same', 'opposite')[self.direction.get_selected()], max_xyz=tuple(values[k] for k in ('x', 'y', 'z')), max_candidates=int(values['budget']), max_seconds=values['seconds'])
+        ranking = ('ratio', 'compact', 'contact')[self.ranking.get_selected()]
+        if (ranking == 'contact' or values['contact'] > 0) and self.app.family not in ('parallel', 'internal', 'planetary'):
+            raise ValueError('Usable profile contact comparison requires cylindrical parallel, internal or planetary meshes.')
+        settings = Settings(target=values['target'], tolerance_percent=values['tolerance'], direction=('either', 'same', 'opposite')[self.direction.get_selected()], max_xyz=tuple(values[k] for k in ('x', 'y', 'z')), max_candidates=int(values['budget']), max_seconds=values['seconds'], ranking=ranking, min_profile_contact=values['contact'])
         settings.validate()
         return settings
 
@@ -481,8 +534,6 @@ class Controller:
             self.invalidate('Invalid search request: '+str(error))
             return
         self.invalidate('Searching…')
-        self.compare.set_visible(True)
-        self.empty.set_text('Generating proposals. Results appear when this run finishes; Cancel stops at the next cooperative boundary.')
         self.snapshot = deepcopy(app.project_snapshot())
         self.revision = app.document.token
         self.design_key = self.key(app.design)
@@ -542,11 +593,17 @@ class Controller:
             self.update_domain()
             return False
         self.result = result
-        message = ('Complete finite search' if result.complete else 'PARTIAL search · '+result.reason)+f' · {result.visited}/{result.total} candidates · {len(result.proposals)} retained proposals'
+        outcome = 'Complete finite search' if result.complete else 'PARTIAL search'
+        if result.reason == 'cancelled':
+            outcome = 'Search cancelled'
+        message = f'{outcome}\n{result.visited}/{result.total} candidates · {len(result.proposals)} retained proposals'
+        if result.reason and result.reason != 'cancelled':
+            message += '\n' + result.reason
         if not result.proposals:
-            message += ' · No matching proposals. Review ratio, ranges and size limits, then Search again.'
-        elif not result.complete:
-            message += ' · Review ranges or raise Advanced budgets, then Search again for more coverage.'
+            message += '\n' + ('No matching proposals. Review ratio, ranges and size limits.' if result.complete
+                                else 'No proposals found in the candidates visited so far.')
+        if not result.complete and result.reason != 'cancelled':
+            message += '\nReview ranges or raise Advanced budgets, then Search again for more coverage.'
         self.summary.set_text(message)
         if self.window:
             self.status.set_text(message)
@@ -561,17 +618,17 @@ class Controller:
     def update_step_view(self):
         editing = self.setup.get_expanded()
         self.results_button.set_visible(editing and self.result is not None)
-        self.compare.set_visible(not editing and (self.result is not None or self.cancel is not None))
+        self.compare.set_visible(not editing and bool(self.result and self.result.proposals))
+        self.report_details.set_visible(self.result is not None)
 
     def clear_rows(self):
         self.update_step_view()
         while (child := self.list.get_first_child()):
             self.list.remove(child)
         self.page_label.set_text('')
-        self.empty.set_visible(True)
+        self.selection_summary.set_visible(False)
         self.result_scroll.set_visible(False)
         self.pages.set_visible(False)
-        self.empty.set_text('Search to compare generated proposals. Select one to review and apply.')
         for button in self.page_buttons:
             button.set_sensitive(False)
 
@@ -580,24 +637,36 @@ class Controller:
             return
         self.clear_rows()
         self.report.get_buffer().set_text(self.result.text())
+        self.selection_summary.set_text('Select a proposal to compare it with the current model.')
+        self.selection_summary.set_visible(bool(self.result.proposals))
         proposals = self.result.proposals
         start = self.page*25
-        self.empty.set_visible(not proposals)
         self.result_scroll.set_visible(bool(proposals))
         self.pages.set_visible(bool(proposals))
-        self.empty.set_text('No matching proposals in the visited domain. Review ratio, ranges and size limits; for partial runs, review Advanced budgets.')
         self.page_buttons[0].set_sensitive(self.page > 0)
         self.page_buttons[1].set_sensitive(start+25 < len(proposals))
         self.page_label.set_text(f'{start+1 if proposals else 0}–{min(len(proposals), start+25)} / {len(proposals)}')
         for proposal in proposals[start:start+25]:
+            magnitude = ''.join(ratio_parts(proposal.ratio, 10, signed=False))
             row = Gtk.ListBoxRow()
             row.proposal = proposal
-            changes = '\n'.join(f'{self.titles.get(k, k)}: {a:g} → {b:g}' for k, (a, b) in proposal.changes.items()) or 'Current parameters (no change)'
-            if proposal.changes:
-                changes = 'Current → Proposed\n' + changes
             rotation = 'Same rotation' if proposal.ratio > 0 else 'Opposite rotation'
-            row.set_child(label(f'Ratio (input/output): {abs(proposal.ratio):.10g}:1\n{rotation} · error {proposal.error_percent:.6g}%\nOverall XYZ: {" × ".join(f"{v:.6g}" for v in proposal.xyz)} mm\n{changes}'))
-            row.set_tooltip_text(f'Signed input/output ratio: {proposal.ratio:+.12g}. Direction uses the current member axes.')
+            contact = proposal.comparison.get('min_profile_contact')
+            quality = f'Usable contact ratio: {contact:.6g}' if contact is not None else 'Usable contact ratio: unavailable'
+            content=Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+            content.append(label(f'Ratio (input/output): {magnitude}'))
+            line=Gtk.Box(spacing=4);line.append(label(rotation));line.append(label(f'· error {proposal.error_percent:.6g}%'));content.append(line)
+            content.append(label(f'Overall XYZ: {" × ".join(f"{v:.6g}" for v in proposal.xyz)} mm'))
+            content.append(label(quality))
+            if proposal.changes:
+                content.append(label('Current → Proposed'))
+                for key,(old,new) in proposal.changes.items():
+                    line=Gtk.Box(spacing=4);line.append(label(self.titles.get(key,key)+':'));line.append(label(f'{old:.10g} → {new:.10g}'));content.append(line)
+            else:
+                content.append(label('Current parameters (no change)'))
+            row.set_child(content)
+            signed_ratio = ''.join(ratio_parts(proposal.ratio, 12))
+            row.set_tooltip_text(f'Signed input/output ratio: {signed_ratio}. Direction uses the current member axes.')
             self.list.append(row)
 
     def change_page(self, delta):
@@ -606,6 +675,11 @@ class Controller:
             self.present_result()
 
     def selected(self, _, row):
+        if row is not None:
+            c = row.proposal.comparison
+            contact = c.get('min_profile_contact')
+            contact_text = f'{contact:.6g}' if contact is not None else 'unavailable'
+            self.selection_summary.set_text(f"Usable contact ratio: {contact_text} · Geometry warnings: {c.get('warning_count', 0)}. Apply changes parameters; run an interference check separately.")
         self.apply_button.set_sensitive(row is not None and bool(row.proposal.changes) and self.result is not None and self.current(self.serial))
 
     def apply_selected(self):
@@ -625,6 +699,11 @@ class Controller:
             checked = generate(app.family, deepcopy(proposal.values),**({'quality':app.quality} if getattr(app,'quality',None) else {}))
             if checked.values != proposal.values:
                 raise ValueError('Proposal normalization changed; run a new search.')
+            threshold = self.result.settings.min_profile_contact
+            if threshold > 0:
+                contacts = [m.get('profile_contact_total') for m in checked.analysis.get('meshes', [])]
+                if not contacts or any(v is None or v < threshold for v in contacts):
+                    raise ValueError('Fresh candidate does not meet the usable contact ratio limit.')
         except Exception as error:
             self.invalidate(f'Proposal cannot be applied: {error}')
             return False
@@ -670,8 +749,8 @@ class Controller:
                 try:
                     from export_transaction import write_text
                     write_text(Path(file.get_path()), text)
-                    self.status.set_text('Search report saved')
+                    self.app.status_text('Search report saved')
                 except (OSError, TypeError, ValueError) as error:
-                    self.status.set_text(f'Report could not be saved: {error}')
+                    self.app.status_text(f'Report could not be saved: {error}')
         dialog.connect('response', response)
         dialog.show()

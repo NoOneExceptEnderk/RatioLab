@@ -55,7 +55,7 @@ def export(design, config, target, png):
             'To replay the CAD script, open a terminal IN THIS PACKAGE DIRECTORY and run:\n'
             '  solidcraft-cli run model.script.json --out replay.step\n'
             'Relative STEP paths keep the script portable when the whole package is moved.\n'+
-            ('preview.png: only selected components, nominal pose, current camera; no section/explosion.\n' if scope else 'preview.png: captured nominal motion pose; selected visibility/camera settings apply.\n')+
+            ('preview.png: only selected components, nominal pose, current camera; no section/explosion.\n' if scope else 'preview.png: all exported components, nominal pose, current camera; no section/explosion.\n')+
             'No strength, service-life or production certification is implied.\n'
             'manifest.json lists every package file and its SHA-256 checksum.\n',encoding='utf-8')
         if scope:(staging/'selection.json').write_text(json.dumps(scope,indent=2,ensure_ascii=False)+'\n',encoding='utf-8')

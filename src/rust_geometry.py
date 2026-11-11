@@ -205,7 +205,8 @@ def call(operation, parameters=None, check=None, *, _backend=None):
     if check and operation not in ('collision_create','collision_create_surface','collision_pose',
                                    'surface_create','surface_cursor_create'):check()
     if not response.get('ok'):
-        raise ValueError(response.get('error', {}).get('message', 'Rust geometry calculation failed.'))
+        from parameter_errors import from_kernel
+        raise from_kernel(response.get('error', {}))
     return response['result']
 
 
@@ -250,7 +251,9 @@ def _buffer_result(operation,parameters,check=None,*,_backend=None,_preview=Fals
     if stopped:raise stopped[0]
     if check:check()
     if not data:raise RuntimeError('Rust geometry returned an empty binary response.')
-    if data[0]:raise ValueError(data[1:].decode('utf-8'))
+    if data[0]:
+        from parameter_errors import from_kernel
+        raise from_kernel(data[1:].decode('utf-8'))
     payload=memoryview(data)[1:]
     return _decode_preview(payload) if _preview else payload
 
@@ -388,7 +391,8 @@ def _native_preview(address,length,check):
     import ctypes
     if not length:raise RuntimeError('Rust geometry returned an empty binary response.')
     if ctypes.string_at(address,1)!=b'\0':
-        raise ValueError(ctypes.string_at(address+1,length-1).decode('utf-8'))
+        from parameter_errors import from_kernel
+        raise from_kernel(ctypes.string_at(address+1,length-1).decode('utf-8'))
     if length<5:raise RuntimeError('Truncated preview packet.')
     size=int.from_bytes(ctypes.string_at(address+1,4),'little')
     if size>16*1024*1024 or size>length-5:raise RuntimeError('Invalid preview metadata length.')

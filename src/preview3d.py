@@ -49,6 +49,9 @@ class MeshPart:
     color: tuple
     source_index: int = 0
     explosion: tuple = (0.,0.,0.)
+    opacity: float = 1.
+    center: tuple = None
+    context: bool = False
 
 @dataclass
 class Scene:
@@ -114,7 +117,7 @@ class GL:
             'EnableVertexAttribArray':(None,[u]),'DisableVertexAttribArray':(None,[u]),
             'VertexAttrib3f':(None,[u,f,f,f]),'VertexAttribPointer':(None,[u,i,u,C.c_ubyte,i,p]),
             'Viewport':(None,[i,i,i,i]),'Enable':(None,[u]),'Disable':(None,[u]),'ClearColor':(None,[f,f,f,f]),'Clear':(None,[u]),
-            'DepthFunc':(None,[u]),'DepthMask':(None,[C.c_ubyte]),'ColorMask':(None,[C.c_ubyte]*4),'StencilMask':(None,[u]),
+            'DepthFunc':(None,[u]),'DepthMask':(None,[C.c_ubyte]),'BlendFunc':(None,[u,u]),'ColorMask':(None,[C.c_ubyte]*4),'StencilMask':(None,[u]),
             'StencilFunc':(None,[u,i,u]),'StencilOp':(None,[u,u,u]),'DrawArrays':(None,[u,i,i]),'PolygonOffset':(None,[f,f]),
             'ReadPixels':(None,[i,i,i,i,u,u,p]),'GetError':(u,[]),
         }
@@ -133,6 +136,7 @@ layout(location=1) in vec3 normal;
 layout(location=2) in vec3 material;
 uniform vec3 center;
 uniform vec2 orbit;
+uniform float roll;
 uniform vec3 projection;
 uniform float edge;
 uniform mat4 model;
@@ -148,7 +152,7 @@ uniform vec3 ropeRight;
 uniform vec3 ropeWheel;
 out vec3 n;
 out vec3 world;
-vec3 rotate(vec3 p){float c=cos(orbit.x),s=sin(orbit.x),a=cos(orbit.y),b=sin(orbit.y);vec3 q=vec3(c*p.x-s*p.y,s*p.x+c*p.y,p.z);return vec3(q.x,a*q.y-b*q.z,b*q.y+a*q.z);}
+vec3 rotate(vec3 p){float c=cos(orbit.x),s=sin(orbit.x),a=cos(orbit.y),b=sin(orbit.y);vec3 q=vec3(c*p.x-s*p.y,s*p.x+c*p.y,p.z);vec3 r=vec3(q.x,a*q.y-b*q.z,b*q.y+a*q.z);return vec3(cos(roll)*r.x-sin(roll)*r.y,sin(roll)*r.x+cos(roll)*r.y,r.z);}
 // Explicit range reduction avoids implementation-dependent native trig
 // precision on wave material coordinates (verified by transform feedback).
 float waveSin(float angle){
@@ -203,9 +207,9 @@ in vec3 world;
 uniform vec3 center;
 uniform float section, sectionY;
 uniform vec3 color;
-uniform float lit;
+uniform float lit, opacity, frontOnly;
 out vec4 frag;
-void main(){if(section>0.5 && world.y>sectionY)discard;vec3 norm=normalize(n);float light=0.48+0.52*max(dot(norm,normalize(vec3(-0.35,-0.25,1.0))),0.0);frag=vec4(color*mix(1.0,light,lit),1.0);}
+void main(){if(section>0.5 && world.y>sectionY)discard;if(frontOnly>0.5 && n.z<=0.0)discard;vec3 norm=normalize(n);float light=0.48+0.52*max(dot(norm,normalize(vec3(-0.35,-0.25,1.0))),0.0);frag=vec4(color*mix(1.0,light,lit),opacity);}
 '''
 
 
@@ -282,6 +286,9 @@ class Preview3D(Gtk.GLArea):
         self.set_hexpand(True);self.set_vexpand(True);self.set_size_request(320,280);self.set_focusable(True)
         self.design=None;self.show_support=False;self.show_housing=False;self.exploded=0.;self.section=False;self.scene=None;self.dirty=False;self.gl=None;self.failure=None;self.zoom=1.;self.pan_offset=(0.,0.,0.);self.pan_mode=False;self.yaw=radians(-35);self.tilt=radians(-55)
         self.inspection_phase=None;self.inspection_indices=();self.inspection_motion_plan=None
+        self.tooth_detail=None;self._tooth_detail_camera=None;self.tooth_detail_closed=None
+        self.roll=0.
+        self.camera_tick=0;self.camera_transition=None;self._transition_radius=None
         self.selected_indices=();self.isolated_indices=None;self.drag_distance=0.;self.rendered_phase=0.
         self.mouse_navigation='ratiolab';self.drag_kind=None;self._drag_button=0;self._drag_offset=(0.,0.)
         self._freecad_buttons=0;self._freecad_origin=None;self._freecad_right_orbit=False;self._navigation_click=False
@@ -329,6 +336,7 @@ class Preview3D(Gtk.GLArea):
         # scene. Updating RPM metadata does not require drawing all teeth again.
         if not reuse_scene or self.motion_playing or was_inspecting or self.dirty:self.queue_render()
     def show_inspection(self,phase,indices):
+        self.clear_tooth_detail()
         self.set_motion_playing(False)
         if self.design and self.inspection_motion_plan is None:
             self.inspection_motion_plan=self.motion_plan
@@ -345,6 +353,7 @@ class Preview3D(Gtk.GLArea):
         if changed:self.emit('inspection-state')
     def set_motion_playing(self,playing):
         if playing:
+            self.clear_tooth_detail()
             if self.exploded:self.set_options(self.show_support,self.show_housing,0.,self.section)
             self.clear_inspection()
         playing=bool(playing and self.motion_valid and self.motion_plan and self.motion_plan.supported and not self.exploded and not self.failure)
@@ -378,6 +387,7 @@ class Preview3D(Gtk.GLArea):
                 self.set_motion_playing(False);return
         self.motion_last=max(now,self.motion_last) if self.motion_last is not None else now
     def reset_motion(self):
+        self.clear_tooth_detail()
         self.clear_inspection();self.set_motion_playing(False);self.motion_phase=0.;self.motion_enabled=False
         if self.exploded:self.set_options(self.show_support,self.show_housing,0.,self.section)
         if self.design:self.motion_plan=build_plan(self.design)
@@ -388,6 +398,7 @@ class Preview3D(Gtk.GLArea):
         phase=float(phase)
         if not isfinite(phase):raise ValueError('Preview phase must be finite.')
         if not (self.motion_valid and self.motion_plan and self.motion_plan.supported) or self.failure:return False
+        self.clear_tooth_detail()
         self.set_motion_playing(False)
         self.clear_inspection()
         limits=self.motion_plan.phase_limits
@@ -401,6 +412,7 @@ class Preview3D(Gtk.GLArea):
     def set_motion_speed(self,speed):
         self.motion_speed=max(0.,min(5.,float(speed)));self.emit('motion-state')
     def set_options(self,support,housing,exploded,section):
+        self.clear_tooth_detail()
         exploded=max(0.,min(1.,float(exploded)))
         rebuild=(support,housing)!=(self.show_support,self.show_housing)
         if exploded or section:self.clear_inspection()
@@ -412,23 +424,104 @@ class Preview3D(Gtk.GLArea):
         self.queue_render();self.emit('display-state')
     @property
     def camera_center(self):
-        center=self.scene.center if self.scene else (0.,0.,0.)
+        center=self.tooth_detail.target if self.tooth_detail else self.scene.center if self.scene else (0.,0.,0.)
         return tuple(v+p for v,p in zip(center,self.pan_offset))
+    @property
+    def camera_radius(self):
+        return self._transition_radius or self.base_camera_radius
+    @property
+    def base_camera_radius(self):
+        return self.tooth_detail.radius if self.tooth_detail else self.scene.radius if self.scene else 30.
+    def camera_state(self):
+        return (self.yaw,self.tilt,self.roll,self.zoom,self.camera_center,self.camera_radius)
+    def cancel_camera_transition(self):
+        if self.camera_tick:self.remove_tick_callback(self.camera_tick)
+        self.camera_tick=0;self.camera_transition=None
+        if self._transition_radius is not None:
+            self.zoom*=self.base_camera_radius/self._transition_radius
+            self._transition_radius=None
+    def apply_camera_frame(self,state):
+        self.yaw,self.tilt,self.roll,self.zoom,center,self._transition_radius=state
+        base=self.tooth_detail.target if self.tooth_detail else self.scene.center if self.scene else (0.,0.,0.)
+        self.pan_offset=tuple(a-b for a,b in zip(center,base))
+    def transition_camera(self,target,*,start=None,name='custom'):
+        start=start or self.camera_state()
+        self.cancel_camera_transition()
+        self.camera_transition=(start,target,GLib.get_monotonic_time()/1000000,name)
+        self.apply_camera_frame(start)
+        if not self.get_mapped() or start==target:
+            self.finish_camera_transition();return
+        self.camera_tick=self.add_tick_callback(self.on_camera_tick)
+        self.queue_render();self.emit('view-changed',name)
+    def finish_camera_transition(self):
+        if self.camera_transition is None:return
+        _,target,_,name=self.camera_transition
+        if self.camera_tick:self.remove_tick_callback(self.camera_tick)
+        self.camera_tick=0;self.camera_transition=None
+        self.apply_camera_frame(target)
+        self.zoom*=self.base_camera_radius/target[5];self._transition_radius=None
+        self.queue_render();self.emit('view-changed',name)
+    def on_camera_tick(self,widget,clock):
+        if self.camera_transition is None:self.camera_tick=0;return False
+        from view_navigation import camera_frame
+        start,target,when,name=self.camera_transition
+        fraction=(clock.get_frame_time()/1000000-when)/.35
+        if fraction>=1:
+            self.camera_tick=0;self.finish_camera_transition();return False
+        self.apply_camera_frame(camera_frame(start,target,fraction))
+        self.queue_render();self.emit('view-changed',name);return True
+    def reset_tooth_camera(self):
+        if self.tooth_detail is None:return
+        from view_navigation import paper_orientation
+        d=self.tooth_detail
+        self.transition_camera((*paper_orientation(d.direction,d.up),1.,d.target,d.radius))
+    def show_tooth_detail(self,detail):
+        start=self.camera_state()
+        same=self.tooth_detail is not None and self.tooth_detail.part_name==detail.part_name
+        self.advance_motion(GLib.get_monotonic_time()/1000000)
+        self.set_motion_playing(False);self.clear_inspection()
+        if self._tooth_detail_camera is None:
+            self._tooth_detail_camera=start
+        self.tooth_detail=detail
+        self.dirty=True
+        if same:
+            # Rebuilt geometry must not take ownership of the user's camera.
+            self.apply_camera_frame(start)
+            if self.camera_transition is None:
+                self.zoom*=detail.radius/start[5];self._transition_radius=None
+        else:
+            from view_navigation import paper_orientation
+            self.transition_camera((*paper_orientation(detail.direction,detail.up),1.,detail.target,detail.radius),start=start)
+        self.queue_render();self.emit('view-changed','custom')
+    def clear_tooth_detail(self,*,restore=True):
+        if self.tooth_detail is None:
+            if self.tooth_detail_closed:self.tooth_detail_closed()
+            return
+        start=self.camera_state();target=self._tooth_detail_camera
+        self.tooth_detail=None
+        self._tooth_detail_camera=None;self.dirty=True;self.queue_render()
+        if restore:self.transition_camera(target,start=start)
+        else:
+            self.cancel_camera_transition();self.apply_camera_frame(start)
+            self.zoom*=self.base_camera_radius/start[5];self._transition_radius=None
+        self.emit('view-changed','custom')
+        if self.tooth_detail_closed:self.tooth_detail_closed()
     def orient(self,direction):
         from view_navigation import orientation,FACES
-        self.yaw,self.tilt=orientation(direction)
         name=next((label.lower() for label,n,*_ in FACES if tuple(direction)==n),'custom')
-        self.queue_render();self.emit('view-changed',name)
+        self.transition_camera((*orientation(direction),0.,self.zoom,self.camera_center,self.camera_radius),name=name)
     def view(self,name):
+        start=self.camera_state();self.clear_tooth_detail(restore=False)
         from view_navigation import FACES, orientation
         direction=next((n for label,n,*_ in FACES if label.lower()==name),None)
-        if direction is not None:self.yaw,self.tilt=orientation(direction)
-        else:self.yaw=radians(-35);self.tilt=radians(-55)
-        self.zoom=1.;self.pan_offset=(0.,0.,0.);self.queue_render();self.emit('view-changed',name)
+        angles=orientation(direction) if direction is not None else (radians(-35),radians(-55))
+        center=self.scene.center if self.scene else (0.,0.,0.)
+        self.transition_camera((*angles,0.,1.,center,self.base_camera_radius),start=start,name=name)
     def component_click(self,gesture,n,x,y):
         self.grab_focus()
         if self.drag_distance>4 or self.pan_mode or self._navigation_click:return
         if n==2:self.view('iso');return
+        if self.tooth_detail:return
         from gi.repository import Gdk
         modifiers=gesture.get_current_event_state()
         self.emit('component-click',x,y,bool(modifiers & (Gdk.ModifierType.CONTROL_MASK|Gdk.ModifierType.SHIFT_MASK)))
@@ -450,8 +543,10 @@ class Preview3D(Gtk.GLArea):
         self._move_drag(x,y)
 
     def _anchor_drag(self,kind,x,y):
+        self.cancel_camera_transition()
         self.drag_kind=kind;self._drag_offset=(x,y)
         self.drag_origin=(self.yaw,self.tilt);self.drag_pan=self.pan_offset;self.drag_zoom=self.zoom
+        self.drag_roll=self.roll
         if kind:self.set_cursor_from_name('grabbing')
 
     def _move_drag(self,x,y):
@@ -460,7 +555,7 @@ class Preview3D(Gtk.GLArea):
         x-=self._drag_offset[0];y-=self._drag_offset[1]
         if self.drag_kind=='pan':
             from view_navigation import pan_delta
-            delta=pan_delta(x,y,self.scene.radius if self.scene else 30,self.zoom,self.get_width(),self.get_height(),*self.drag_origin)
+            delta=pan_delta(x,y,self.camera_radius,self.zoom,self.get_width(),self.get_height(),*self.drag_origin,self.drag_roll)
             self.pan_offset=tuple(a+b for a,b in zip(self.drag_pan,delta))
         elif self.drag_kind=='orbit':
             speed = .008*getattr(self, 'rotation_speed', 1)
@@ -526,6 +621,7 @@ class Preview3D(Gtk.GLArea):
         if not buttons:self._freecad_origin=None;self.drag_end()
         return False
     def scroll(self,c,dx,dy):
+        self.cancel_camera_transition()
         direction = -1 if getattr(self, 'invert_zoom', False) else 1
         delta = max(-20., min(20., -dy*direction*getattr(self, 'zoom_speed', 1)))
         self.zoom=max(.25,min(8,self.zoom*1.12**delta));self.queue_render();self.emit('view-changed','custom');return True
@@ -545,13 +641,14 @@ class Preview3D(Gtk.GLArea):
             self.program=g.CreateProgram();g.AttachShader(self.program,vs);g.AttachShader(self.program,fs);g.LinkProgram(self.program)
             status=C.c_int();g.GetProgramiv(self.program,0x8B82,C.byref(status));g.DeleteShader(vs);g.DeleteShader(fs)
             if not status.value:raise RuntimeError('Could not initialize the 3D shader')
-            self.locations={k:g.GetUniformLocation(self.program,k.encode()) for k in ['center','orbit','projection','color','lit','edge','section','sectionY','model','explosion','flexShape','flexBody','arcFirst','arcSecond','ropeShape','ropeEnds','ropeLeft','ropeRight','ropeWheel']}
+            self.locations={k:g.GetUniformLocation(self.program,k.encode()) for k in ['center','orbit','roll','projection','color','lit','opacity','frontOnly','edge','section','sectionY','model','explosion','flexShape','flexBody','arcFirst','arcSecond','ropeShape','ropeEnds','ropeLeft','ropeRight','ropeWheel']}
             self.vao=C.c_uint();self.vbo=C.c_uint();g.GenVertexArrays(1,C.byref(self.vao));g.GenBuffers(1,C.byref(self.vbo));g.BindVertexArray(self.vao.value);g.BindBuffer(0x8892,self.vbo.value)
             for index,offset in [(0,0),(1,12)]:g.EnableVertexAttribArray(index);g.VertexAttribPointer(index,3,0x1406,0,24,C.c_void_p(offset))
             self.material_vbo=C.c_uint();g.GenBuffers(1,C.byref(self.material_vbo));g.BindBuffer(0x8892,self.material_vbo.value);g.EnableVertexAttribArray(2);g.VertexAttribPointer(2,3,0x1406,0,12,C.c_void_p(0))
             self.dirty=True;self.queue_render()
         except Exception as e:self.failure=str(e);__import__('traceback').print_exc()
     def on_unrealize(self,*args):
+        self.finish_camera_transition()
         link=getattr(self,'_native_unmap',None)
         if link:
             link[0].disconnect(link[1]);self._native_unmap=None
@@ -601,7 +698,7 @@ class Preview3D(Gtk.GLArea):
     def motion_uniforms(self,index):
         g=self.gl;loc=self.locations;phase=self.inspection_phase if self.inspection_phase is not None else self.motion_phase
         g.Uniform3f(loc['explosion'],0.,0.,0.)
-        plan=self.motion_plan if (self.motion_enabled or self.inspection_phase is not None) and not self.exploded else None
+        plan=self.motion_plan if not self.tooth_detail and (self.motion_enabled or self.inspection_phase is not None) and not self.exploded else None
         matrix=plan.matrix(index,phase) if plan and index is not None else IDENTITY
         g.UniformMatrix4fv(loc['model'],1,0,(C.c_float*16)(*matrix))
         flex=plan.deformation(index,phase) if plan and index is not None else None
@@ -615,37 +712,59 @@ class Preview3D(Gtk.GLArea):
             g.Uniform4f(loc['ropeShape'],mode,cx,cy,ly);g.Uniform2f(loc['ropeEnds'],ry,rx)
             g.Uniform3f(loc['ropeLeft'],lx,ld,0);g.Uniform3f(loc['ropeRight'],rdx,rdy,0);g.Uniform3f(loc['ropeWheel'],wx,wy,0)
         else:g.Uniform4f(loc['ropeShape'],0,0,0,0)
+    def render_parts(self,scene):
+        """Opaque surfaces establish depth before back-to-front transparency."""
+        from view_navigation import rotate
+        opaque=[p for p in scene.parts if p.opacity>=1.]
+        translucent=[p for p in scene.parts if p.opacity<1.]
+        def depth(part):
+            center=part.center or scene.center
+            return rotate(tuple(a-b for a,b in zip(center,self.camera_center)),self.yaw,self.tilt,self.roll)[2]
+        return opaque+sorted(translucent,key=depth)
+
     def on_render(self,area,context):
         if not self.gl or self.failure:return True
         g=self.gl;ratio=self.get_scale_factor();w,h=self.get_width()*ratio,self.get_height()*ratio
         g.Viewport(0,0,w,h);g.ClearColor(*self.palette['background'],1);g.DepthMask(1);g.ColorMask(1,1,1,1);g.StencilMask(0xFF);g.Clear(0x4000|0x0100|0x0400)
         if not self.scene:return True
-        s=self.scene;g.UseProgram(self.program);g.BindVertexArray(self.vao.value);g.BindBuffer(0x8892,self.vbo.value)
+        s=self.tooth_detail.scene if self.tooth_detail else self.scene;g.UseProgram(self.program);g.BindVertexArray(self.vao.value);g.BindBuffer(0x8892,self.vbo.value)
         if self.dirty:
             raw=s.vertices.tobytes();buf=C.create_string_buffer(raw);g.BufferData(0x8892,len(raw),buf,0x88E8)
             g.BindBuffer(0x8892,self.material_vbo.value);raw=s.materials.tobytes();buf=C.create_string_buffer(raw);g.BufferData(0x8892,len(raw),buf,0x88E8);g.BindBuffer(0x8892,self.vbo.value);self.dirty=False
         if s.materials:g.EnableVertexAttribArray(2)
         else:g.DisableVertexAttribArray(2);g.VertexAttrib3f(2,0.,0.,0.)
         loc=self.locations
-        g.Uniform1f(loc['section'],float(self.section));g.Uniform1f(loc['sectionY'],s.center[1])
-        g.Uniform3f(loc['center'],*self.camera_center);g.Uniform2f(loc['orbit'],self.yaw,self.tilt)
-        scale=.86/s.radius*self.zoom;aspect=max(w,1)/max(h,1)
-        g.Uniform3f(loc['projection'],scale/max(aspect,1),scale*min(aspect,1),1/(s.radius*4))
+        g.Uniform1f(loc['section'],float(self.section and not self.tooth_detail));g.Uniform1f(loc['sectionY'],s.center[1])
+        g.Uniform3f(loc['center'],*self.camera_center);g.Uniform2f(loc['orbit'],self.yaw,self.tilt);g.Uniform1f(loc['roll'],self.roll)
+        scale=.86/self.camera_radius*self.zoom;aspect=max(w,1)/max(h,1)
+        g.Uniform3f(loc['projection'],scale/max(aspect,1),scale*min(aspect,1),1/(max(self.scene.radius,s.radius)*4))
         self.motion_uniforms(None)
         g.Uniform1f(loc['edge'],0);g.Enable(0x0B71);g.DepthFunc(0x0203);g.Disable(0x0B90)
-        g.Uniform1f(loc['lit'],0);g.Uniform3f(loc['color'],*self.palette['grid']);g.DrawArrays(1,*s.grid)
-        self.rendered_phase=self.inspection_phase if self.inspection_phase is not None else self.motion_phase
-        for part in s.parts:
-            if self.isolated_indices is not None and part.source_index not in self.isolated_indices:continue
+        g.Disable(0x0BE2);g.Uniform1f(loc['opacity'],1.);g.Uniform1f(loc['frontOnly'],0.)
+        g.Uniform1f(loc['lit'],0);g.Uniform3f(loc['color'],*self.palette['grid'])
+        if not self.tooth_detail:g.DrawArrays(1,*s.grid)
+        self.rendered_phase=0. if self.tooth_detail else self.inspection_phase if self.inspection_phase is not None else self.motion_phase
+        for part in self.render_parts(s):
+            if not self.tooth_detail and self.isolated_indices is not None and part.source_index not in self.isolated_indices:continue
             self.motion_uniforms(part.source_index)
-            g.Uniform3f(loc['explosion'],*(v*self.exploded for v in part.explosion))
-            color=((1.,.42,.08) if part.source_index==self.inspection_indices[0] else (.95,.12,.65)) if part.source_index in self.inspection_indices else (.28,.32,.37) if self.inspection_phase is not None else self.palette['selection'] if part.source_index in self.selected_indices else part.color
+            g.Uniform3f(loc['explosion'],*(v*(0. if self.tooth_detail else self.exploded) for v in part.explosion))
+            g.Uniform1f(loc['opacity'],part.opacity)
+            g.Uniform1f(loc['frontOnly'],float(part.context))
+            if part.opacity<1.:
+                g.Enable(0x0BE2);g.BlendFunc(0x0302,0x0303);g.DepthMask(0)
+            else:g.Disable(0x0BE2);g.DepthMask(1)
+            color=part.color if self.tooth_detail else ((1.,.42,.08) if part.source_index==self.inspection_indices[0] else (.95,.12,.65)) if part.source_index in self.inspection_indices else (.28,.32,.37) if self.inspection_phase is not None else self.palette['selection'] if part.source_index in self.selected_indices else part.color
             g.Uniform1f(loc['lit'],1);g.Uniform3f(loc['color'],*color);g.Enable(0x8037);g.PolygonOffset(1,1);g.DrawArrays(4,*part.side)
             for cap in part.caps:
                 g.StencilMask(1);g.Clear(0x0400);g.Enable(0x0B90);g.Disable(0x0B71);g.DepthMask(0);g.ColorMask(0,0,0,0)
+                g.Uniform1f(loc['frontOnly'],0.)
                 g.StencilFunc(0x0207,0,1);g.StencilOp(0x1E00,0x1E00,0x150A);g.DrawArrays(4,*cap.fan)
-                g.ColorMask(1,1,1,1);g.DepthMask(1);g.Enable(0x0B71);g.StencilMask(0);g.StencilFunc(0x0202,1,1);g.StencilOp(0x1E00,0x1E00,0x1E00);g.DrawArrays(4,*cap.plane);g.Disable(0x0B90)
-            g.Disable(0x8037);g.Uniform1f(loc['lit'],0);g.Uniform1f(loc['edge'],1);g.Uniform3f(loc['color'],*(x*.55 for x in color));g.DrawArrays(1,*part.edges);g.Uniform1f(loc['edge'],0)
+                g.Uniform1f(loc['frontOnly'],float(part.context))
+                g.ColorMask(1,1,1,1);g.DepthMask(int(part.opacity==1.));g.Enable(0x0B71);g.StencilMask(0);g.StencilFunc(0x0202,1,1);g.StencilOp(0x1E00,0x1E00,0x1E00);g.DrawArrays(4,*cap.plane);g.Disable(0x0B90)
+            g.Disable(0x8037)
+            if part.opacity==1.:
+                g.Uniform1f(loc['lit'],0);g.Uniform1f(loc['edge'],1);g.Uniform3f(loc['color'],*(x*.55 for x in color));g.DrawArrays(1,*part.edges);g.Uniform1f(loc['edge'],0)
+        g.Disable(0x0BE2);g.DepthMask(1);g.Uniform1f(loc['opacity'],1.);g.Uniform1f(loc['frontOnly'],0.)
         if getattr(self,'capture_path',None) or getattr(self,'capture_callback',None):
             callback=getattr(self,'capture_callback',None);self.capture_callback=None
             try:

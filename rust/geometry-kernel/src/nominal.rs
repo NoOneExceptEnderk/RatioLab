@@ -149,9 +149,28 @@ pub(crate) fn parallel(v: &Value) -> Result<Value> {
             raw(v, &k("helix"), 20.)
         };
         let groove = if double { n(v, &k("gap"), 0.)? } else { 0. };
-        if zw <= zp || backlash >= 0.7 * m || groove < 0. || double && groove >= width - 1. {
-            return Err(format!(
-                "Stage {stage}: invalid reduction, backlash or double-helix groove."
+        if zw <= zp {
+            return Err(crate::diagnostic::constraint(
+                "parallel.reduction",
+                &[&k("pinion"), &k("wheel")],
+                "For a reducer, choose more driven wheel teeth than pinion teeth.",
+                "Increase the wheel tooth count or reduce the pinion tooth count.",
+            ));
+        }
+        if backlash >= 0.7 * m {
+            return Err(crate::diagnostic::constraint(
+                "backlash.module",
+                &[&k("backlash"), &k("module")],
+                "Backlash too large for the module.",
+                "Reduce backlash or increase the module.",
+            ));
+        }
+        if groove < 0. || double && groove >= width - 1. {
+            return Err(crate::diagnostic::constraint(
+                "groove.width",
+                &[&k("gap"), &k("width")],
+                "The groove must leave at least 1 mm of teeth.",
+                "Reduce the groove or increase the face width.",
             ));
         }
         let active = if double { (width - groove) / 2. } else { width };

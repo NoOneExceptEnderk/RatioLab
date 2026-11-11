@@ -92,6 +92,79 @@ class ToolWorkspaceTests(unittest.TestCase):
         self.assertIsNone(a.components.window);self.assertFalse(a.tools.box.get_visible())
         self.assertEqual(a.canvas.get_width(),width)
 
+    def test_contextual_metrology_and_tool_drafts_survive_close(self):
+        a=self.app;token=a.document.token
+        a.components.open();a.components.select((1,))
+        a.components.metrology_button.emit('clicked')
+        gauge=a.gear_measurement
+        self.assertEqual(gauge.selected_index(),1)
+        from gui_workflow import numeric_value
+        exact=numeric_value(gauge.diameter)
+        gauge.window.close();gauge.open()
+        self.assertEqual(numeric_value(gauge.diameter),exact)
+        gauge.diameter.set_text('2.7512345');gauge.window.close();gauge.open()
+        self.assertEqual(gauge.selected_index(),1)
+        self.assertEqual(gauge.diameter.get_text(),'2.7512345')
+        search=a.combination_search;search.open()
+        search.fields['target'].set_text('7.125')
+        search.ranking.set_selected(1)
+        search.window.close();search.open()
+        self.assertEqual(search.fields['target'].get_text(),'7.125')
+        self.assertEqual(search.ranking.get_selected(),1)
+        backlash=a.backlash;backlash.open();backlash.target.set_text('.23456789')
+        backlash.window.close();backlash.open()
+        self.assertEqual(backlash.target.get_text(),'.23456789')
+        backlash.advanced.set_expanded(True);pump(.05)
+        backlash.seconds.set_text('-');backlash.window.close();backlash.open();pump(.05)
+        self.assertEqual(backlash.seconds.get_text(),'-')
+        self.assertFalse(backlash.start())
+        backlash.window.close();gauge.window.close()
+        self.assertEqual(a.document.token,token)
+
+    def test_finding_filter_keeps_coverage_and_edit_revokes_report(self):
+        from interference import Analysis, Settings
+        from dataclasses import asdict
+        c=self.app.interference;c.open()
+        rows=[dict(kind=kind,index_a=0,index_b=1,part_a='Pinion',part_b='Wheel',expected='',distance=0.,phase_degrees=0.,samples=1,depth_lower_bound=None)
+              for kind in ('Separated','Boundary contact / unresolved','Intersection')]
+        c.result=Analysis(asdict(Settings(step_degrees=180)),rows=rows,planned_poses=2,completed_poses=1,coverage_complete=False)
+        c.present_result();c.finding_filter.set_selected(1)
+        self.assertEqual([row['kind'] for row in c.filtered_rows()],['Intersection'])
+        self.assertIn('1/2 poses',c.coverage.get_text())
+        c.step.set_text('-')
+        self.assertIsNone(c.result)
+        self.assertFalse(c.save_button.get_sensitive())
+
+    def test_saving_a_partial_report_keeps_coverage_visible(self):
+        from combination_search import Settings as SearchSettings
+        from interference import Settings as CheckSettings
+        a=self.app
+        search=a.combination_search
+        check=a.interference
+        with TemporaryDirectory() as directory:
+            for controller,start in (
+                (search, lambda: search.start(SearchSettings(target=3,max_candidates=1), {'pinion':(20,21), 'wheel':(60,63)})),
+                (check, lambda: check.start(CheckSettings(step_degrees=180,max_poses=1))),
+            ):
+                with self.subTest(tool=type(controller).__module__):
+                    controller.open()
+                    start()
+                    self.assertTrue(wait_until(lambda:controller.result is not None))
+                    status=controller.status.get_text()
+                    self.assertRegex(status,'PARTIAL|INCOMPLETE')
+                    path=Path(directory)/f'{type(controller).__module__}.txt'
+                    with patch.object(Gtk,'FileChooserNative') as factory:
+                        chooser=factory.return_value
+                        chooser.get_property.return_value=None
+                        chooser.get_file.return_value=Gio.File.new_for_path(str(path))
+                        controller.save()
+                        signal,response=chooser.connect.call_args.args
+                        self.assertEqual(signal,'response')
+                        response(chooser,Gtk.ResponseType.ACCEPT)
+                    self.assertTrue(path.is_file())
+                    self.assertEqual(controller.status.get_text(),status)
+                    controller.window.close()
+
     def test_components_reopen_keeps_summary_in_the_current_panel(self):
         a=self.app;c=a.components
         snapshot=a.project_snapshot();token=a.document.token;design=a.design
@@ -174,7 +247,7 @@ class ToolWorkspaceTests(unittest.TestCase):
         self.assertTrue(wait_until(lambda:c.cancel is None,25));self.assertIsNotNone(c.result)
         c.list.select_row(c.list.get_row_at_index(0));pump(.03)
         self.assertTrue(c.coverage.get_visible())
-        self.assertIn('Complete sampled coverage' if c.result.coverage_complete else 'INCOMPLETE coverage',c.coverage.get_text())
+        self.assertIn('Complete sampled coverage' if c.result.coverage_complete else 'INCOMPLETE coverage',c.status.get_text())
         self.assertIn('180°',c.coverage.get_text())
         self.assertIn(f'{c.result.completed_poses}/{c.result.planned_poses} poses',c.coverage.get_text())
         a.inputs['module'].set_text('-')
@@ -185,7 +258,7 @@ class ToolWorkspaceTests(unittest.TestCase):
         for scale in (0,1,2):
             with self.subTest(scale=scale):
                 a.text_size.set_selected(scale)
-                for controller in (a.components,a.combination_search,a.interference):
+                for controller in (a.components,a.combination_search,a.interference,a.backlash,a.gear_measurement):
                     controller.open();pump(.1)
                     self.assertLessEqual(a.win.get_width(),self.window_limit[0],self.layout_budget())
                     self.assertLessEqual(a.win.get_height(),self.window_limit[1],self.layout_budget())
@@ -199,14 +272,13 @@ class ToolWorkspaceTests(unittest.TestCase):
                         self.assertLessEqual(rect.get_y()+rect.get_height(),a.win.get_height())
                     panel=controller.window
                     self.assertGreater(panel.scroll.get_height(),80)
-                    target=controller.export_buttons[0] if controller is a.components else controller.cancel_button
+                    target=controller.export_buttons[0] if controller is a.components else controller.run_button
                     if controller is a.components:
                         a.components.inspector_stack.set_visible_child_name('parts')
                         a.components.select((0,))
                     else:
-                        # Cancel stays in the pinned bar, outside the scrolling form.
-                        self.assertIsNot(target.get_parent(),panel.scroll.get_child())
-                        target=controller.run_button
+                        # The primary command stays pinned outside the scrolling form.
+                        self.assertFalse(target.is_ancestor(panel.scroll))
                     self.assertTrue(target.grab_focus());pump(.08)
                     ok,bounds=target.compute_bounds(a.win)
                     self.assertTrue(ok);self.assertGreaterEqual(bounds.get_y(),0)
@@ -359,6 +431,7 @@ class ToolWorkspaceTests(unittest.TestCase):
         keys=next(c for c in a.navigation_cube.observe_controllers()
                   if isinstance(c,Gtk.EventControllerKey))
         self.assertTrue(keys.emit('key-pressed',Gdk.KEY_5,0,Gdk.ModifierType(0)))
+        self.assertTrue(wait_until(lambda:a.canvas.camera_transition is None))
         self.assertEqual((a.canvas.yaw,a.canvas.tilt),(0,0))
         self.assertTrue(keys.emit('key-pressed',Gdk.KEY_Home,0,Gdk.ModifierType(0)))
         # Display and Tools still control their actual mutually exclusive overlays.

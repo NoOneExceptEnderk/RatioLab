@@ -257,6 +257,24 @@ class CombinationSearchGuiTests(unittest.TestCase):
         self.assertFalse(c.run_button.get_sensitive())
         self.assertEqual(c.axes['pinion'][1].get_text(),'201')
 
+    def test_reverse_ratio_is_consistent_on_card_and_search_row(self):
+        from result_controls import items
+
+        a, c = self.app, self.c
+        design = generate('parallel', {'pinion': 20, 'wheel': 60, 'io_scheme': 'reverse'})
+        a.load_config_data(dict(format='solidcraft-riduttori/1', family='parallel',
+                                parameters=design.values))
+        c.populate()
+        self.assertEqual(items(a.design)[0][1:3], ('-1', ':3'))
+        self.assertEqual(c.read_settings().target, 1/3)
+        self.assertEqual((c.titles['pinion'], c.titles['wheel']), ('Pinion teeth', 'Wheel teeth'))
+        result = self.run_search(Settings(target=1/3, direction='opposite'), {'wheel': (60,)})
+        row = next(self.rows())
+        self.assertEqual(row.get_child().get_first_child().get_label(), 'Ratio (input/output): 1:3')
+        self.assertIn('Opposite rotation', row.get_child().get_first_child().get_next_sibling().get_first_child().get_label())
+        self.assertIn('i=-0.333333333333', result.text())
+        self.assertEqual(row.proposal.ratio, a.design.analysis['signed_ratio'])
+
     def test_ratio_hint_handles_speed_increase_and_visible_size_limits(self):
         c=self.c
         c.fields['target'].set_text('0.5');c.fields['tolerance'].set_text('10')
@@ -297,7 +315,13 @@ class CombinationSearchGuiTests(unittest.TestCase):
     def test_compare_uses_human_titles_and_explicit_apply(self):
         c=self.c;r=self.run_search()
         row=next(row for row in self.rows() if row.proposal.changes)
-        text=row.get_child().get_text()
+        def text_content(widget):
+            if isinstance(widget,Gtk.Label):return widget.get_text()
+            values=[];child=widget.get_first_child()
+            while child:
+                values.append(text_content(child));child=child.get_next_sibling()
+            return ' '.join(values)
+        text=text_content(row.get_child())
         self.assertIn('Ratio (input/output)',text)
         self.assertIn('Overall XYZ',text)
         self.assertIn('3:1',text)
@@ -410,7 +434,11 @@ class CombinationSearchGuiTests(unittest.TestCase):
         self.run_search(Settings(target=500,tolerance_percent=0),{'pinion':(20,), 'wheel':(60,)})
         self.assertIn('No matching proposals',c.status.get_text())
         self.assertIn('Review ratio, ranges and size limits',c.status.get_text())
-        self.assertTrue(c.empty.get_visible());self.assertFalse(c.apply_button.get_sensitive())
+        self.assertFalse(c.compare.get_visible());self.assertFalse(c.apply_button.get_sensitive())
+        self.assertTrue(c.save_button.get_sensitive())
+        self.run_search(Settings(target=500,tolerance_percent=0,max_candidates=1),{'pinion':(20,21), 'wheel':(60,63)})
+        self.assertIn('No proposals found in the candidates visited so far.',c.status.get_text())
+        self.assertNotIn('No matching proposals.',c.status.get_text())
         self.run_search(Settings(target=3,tolerance_percent=0,max_candidates=1),{'pinion':(20,21), 'wheel':(60,63)})
         self.assertIn('PARTIAL',c.status.get_text());self.assertIn('Advanced budgets',c.status.get_text())
         self.assertIsNone(c.list.get_selected_row());self.assertFalse(c.apply_button.get_sensitive())

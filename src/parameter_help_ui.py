@@ -656,8 +656,6 @@ def bind_options(app):
         if isinstance(label, Gtk.Label):
             owner.bind(label, entry, 'worm_static_friction')
     # Stable direct refs for controls created outside the parameter sections.
-    caption = app.motion_caption
-    owner.bind(caption, app.motion_speed_text, 'input_rpm')
     if app.variant_box.get_visible():
         owner.bind(app.variant_caption, app.variant_selector, 'variant')
     # Each triple-member stage has two captions plus a derived fixed member.
