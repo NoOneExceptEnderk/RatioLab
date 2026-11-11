@@ -882,7 +882,7 @@ if ([IO.Path]::DirectorySeparatorChar -eq '\') {
         runtime.mkdir()
         marker = self.root/'new-runtime-started'
         code = ('#!/bin/sh\nif [ "${1:-}" = --self-test ]; then exit '+('7' if fails else '0')+'; fi\n'
-                +f'printf started > {shlex.quote(str(marker))}\n')
+                +f'printf "%s" "${{PYINSTALLER_RESET_ENVIRONMENT:-unset}}" > {shlex.quote(str(marker))}\n')
         executable = runtime/'RatioLab'
         executable.write_text(code)
         executable.chmod(0o700)
@@ -907,7 +907,7 @@ if ([IO.Path]::DirectorySeparatorChar -eq '\') {
         deadline = time.monotonic()+3
         while not marker.exists() and time.monotonic() < deadline:
             time.sleep(0.02)
-        self.assertEqual(marker.read_text(), 'started')
+        self.assertEqual(marker.read_text(), '1')
         self.assertEqual((self.bundle/'user export with spaces.stl').read_text(), 'preserve me')
         self.assertEqual((self.bundle/'project saved after preparation.json').read_text(), 'preserve new project')
         self.assertEqual(self.marker.read_text().strip(), install.MARKER)

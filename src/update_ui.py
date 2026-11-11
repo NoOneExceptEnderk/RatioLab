@@ -223,12 +223,20 @@ class Controller:
         pages=Gtk.Box(orientation=Gtk.Orientation.VERTICAL,spacing=16);scroll.set_child(pages)
         if release:
             pages.append(Gtk.Label(label='Published release notes',xalign=0,css_classes=['heading']))
-            pages.append(Gtk.Label(label=release_notes.plain_text(release.notes) or 'No published release notes.',xalign=0,
-                                   wrap=True,selectable=True,natural_wrap_mode=Gtk.NaturalWrapMode.WORD))
+            notes = release_notes.plain_text(release.notes)
+            published = Gtk.Label(label=notes or 'No published release notes.', xalign=0,
+                                  wrap=True, selectable=True, natural_wrap_mode=Gtk.NaturalWrapMode.WORD)
+            published._ratiolab_no_translate = bool(notes)
+            pages.append(published)
         pages.append(Gtk.Label(label='Version history',xalign=0,wrap=True,css_classes=['heading']))
         try:local=app_paths.resource_path('CHANGELOG.md').read_text(encoding='utf-8')
         except OSError:local='Local changelog is unavailable. See the project releases.'
-        pages.append(Gtk.Label(label=release_notes.plain_text(local,history=True) or 'Version history is unavailable.',xalign=0,wrap=True,selectable=True))
+        history = release_notes.plain_text(local, history=True)
+        history_label = Gtk.Label(label=history or 'Version history is unavailable.',
+                                  xalign=0, wrap=True, selectable=True)
+        # Release prose is already presentation text, not a UI translation template.
+        history_label._ratiolab_no_translate = bool(history)
+        pages.append(history_label)
         self.job_box=Gtk.Box(orientation=Gtk.Orientation.VERTICAL,spacing=8);box.append(self.job_box)
         self._job_widgets()
         row=Gtk.FlowBox(selection_mode=Gtk.SelectionMode.NONE,column_spacing=8,row_spacing=8,

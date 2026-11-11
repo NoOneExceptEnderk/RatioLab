@@ -6,6 +6,13 @@ published packages and their verification results.
 
 ## Unreleased
 
+## 0.2.4 — 2026-11-11
+
+### Fixed
+
+- **Linux updates** restart RatioLab with its bundled GTK libraries.
+- **Release notes and updates** opens without stalling on long changelogs.
+
 ## 0.2.3 — 2026-11-11
 
 ### Added

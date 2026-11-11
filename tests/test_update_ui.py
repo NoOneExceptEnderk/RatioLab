@@ -11,6 +11,7 @@ from unittest.mock import patch
 import gi
 gi.require_version('Gtk','4.0')
 from gi.repository import Gtk,Gdk,GLib
+import language_ui
 import update_ui
 from test_updates import release as release_record,asset as release_asset
 
@@ -135,8 +136,22 @@ class UpdateUITests(unittest.TestCase):
         controller=self.controller(lambda:[])
         controller.release=update_ui.updates.select_release([release(body='## Fixed\n- **Readable** [notes](javascript:evil)')])
         changelog=Path(self.directory.name)/'CHANGELOG.md'
-        changelog.write_text('## Unreleased\n- Future item\n## 0.1.2\n- Published item')
+        changelog.write_text('## Unreleased\n- Future item\n## 0.1.2\n- Published item\n'
+                             + '- An earlier change in the published version history.\n' * 700
+                             + '\n- Last published item')
         with patch.object(update_ui.app_paths,'resource_path',return_value=changelog):controller.show()
+        self.application.workspace_preferences = {'language': 'it'}
+        self.application.language_popover = Gtk.Popover()
+        original_translate = language_ui.translate
+
+        def translate_caption(text, language):
+            self.assertNotIn('Published item', text)
+            self.assertNotIn('Readable notes', text)
+            return original_translate(text, language)
+
+        with patch.object(language_ui, 'translate', side_effect=translate_caption):
+            localizer = language_ui.Controller(self.application)
+        self.addCleanup(localizer.stop)
         def labels(widget):
             if isinstance(widget,Gtk.Label):yield widget
             child=widget.get_first_child()
@@ -147,6 +162,9 @@ class UpdateUITests(unittest.TestCase):
         self.assertIn('Readable notes',text)
         self.assertIn('0.1.2',text)
         self.assertIn('Published item',text)
+        self.assertIn('Last published item',text)
+        self.assertIn('Cronologia delle versioni',text)
+        self.assertIn('Note di rilascio pubblicate',text)
         for hidden in ('Unreleased','Future item','javascript:','## Fixed','**Readable**'):
             self.assertNotIn(hidden,text)
         self.assertTrue(all(not label.get_use_markup() for label in values))

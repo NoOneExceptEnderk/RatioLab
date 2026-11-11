@@ -722,6 +722,10 @@ def prepare_install(download, installation, *, directory=None, parent_pid=None,
     if installation.kind == 'macos-dmg':
         update_macos.validate_source(installation)
     environment = child_environment()
+    if installation.kind in ('linux-bundle', 'debian'):
+        # The helper uses the system library path. A fresh bootloader must
+        # restore the bundle's library path when opening RatioLab at the same path.
+        environment['PYINSTALLER_RESET_ENVIRONMENT'] = '1'
     system = installation._target['system']
     parent_pid = os.getpid() if parent_pid is None else parent_pid
     if type(parent_pid) is not int or parent_pid <= 0:
