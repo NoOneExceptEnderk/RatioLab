@@ -3,7 +3,8 @@
 """Actual GTK focus commits, persistent tooth sessions and animated views."""
 from copy import deepcopy
 import unittest
-from gi.repository import Gtk
+from gi.repository import GLib, Gtk
+from ratiolab_checks import _wait_for_frame
 import test_tooth_tip_preview_gui as fixtures
 from test_interference_gui import pump,wait_until
 
@@ -70,9 +71,11 @@ class QolGuiTests(unittest.TestCase):
 
     def test_camera_has_intermediate_frames_and_gesture_interrupts(self):
         a=self.launch();self.load(a,'spur');c=a.canvas;self.settled(a)
+        _wait_for_frame(c, GLib.MainContext.default())
         initial=c.camera_state();c.orient((0,0,1))
         self.assertIsNotNone(c.camera_transition);self.assertEqual(c.camera_state(),initial)
-        pump(.1);self.assertNotEqual(c.camera_state(),initial);self.assertNotEqual(c.tilt,0)
+        self.assertTrue(wait_until(lambda: c.camera_state() != initial))
+        self.assertNotEqual(c.tilt,0)
         self.settled(a);self.assertEqual((c.yaw,c.tilt,c.roll),(0.,0.,0.))
         c.orient((1,0,0));pump(.08)
         c._anchor_drag('orbit',0,0);self.assertIsNone(c.camera_transition)

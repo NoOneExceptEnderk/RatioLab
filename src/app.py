@@ -813,11 +813,10 @@ class ReducerApp(ProjectActions, Gtk.Application):
         try:
             target=Path(self.output_dir).absolute()/f'{self.family}-{datetime.now():%Y%m%d-%H%M%S-%f}.package'
             design=self.design;config=self.config()
-            png=self.components.capture_export_preview()
-            def work():
+            def work(png):
                 folder=package_export.export(design,config,target,png)
                 return ExportResult('Package',(folder,),f'Complete STEP, STL, SVG/DXF, configuration, CAD script, preview and reports package saved: {folder}')
-            self.background(work,export_job=True)
+            self.components.export_with_preview(work)
         except Exception as e:
             self.status_text(str(e));self.export_feedback.failed(str(e))
     def export_step(self,*args):

@@ -65,6 +65,8 @@ published packages and their verification results.
 
 - **Browser numeric steppers** put **+ above −** and retain their step sizes.
 - **Python wheels** include the structured parameter diagnostics module.
+- **Package exports** wait for the first viewport allocation before capturing
+  the preview.
 
 ## 0.2.2 — 2026-11-09
 

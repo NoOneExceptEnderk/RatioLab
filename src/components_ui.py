@@ -6,9 +6,10 @@ from datetime import datetime
 from pathlib import Path
 from math import pi
 import re
+from threading import Event
 import gi
 gi.require_version('Gtk','4.0')
-from gi.repository import Gtk
+from gi.repository import GLib, Gtk
 from project_document import equivalent
 from motion import SPEED_KEYS, same_geometry
 from workspace_tools import actions, details
@@ -417,6 +418,49 @@ class Controller:
             for key,value in saved.items():setattr(canvas,key,value)
             canvas.dirty=True;canvas.queue_render()
 
+    def export_with_preview(self, work, indices=None):
+        """Capture on GTK's thread once the viewport has an allocation."""
+        app = self.app
+        canvas = app.canvas
+        if canvas.get_width() > 0 and canvas.get_height() > 0:
+            png = self.capture_export_preview(indices)
+            app.background(lambda: work(png), export_job=True)
+            return
+
+        token = app.document.token
+        design = app.design
+        captured = Event()
+        png = error = None
+
+        def capture_when_allocated():
+            nonlocal png, error
+            if captured.is_set():
+                return GLib.SOURCE_REMOVE
+            try:
+                if not self.alive or not app.project_alive or app.document.token != token or app.design is not design:
+                    raise RuntimeError('The model changed before the preview could be captured.')
+                if canvas.failure:
+                    raise RuntimeError('3D preview unavailable')
+                if canvas.get_width() <= 0 or canvas.get_height() <= 0:
+                    return GLib.SOURCE_CONTINUE
+                png = self.capture_export_preview(indices)
+            except Exception as failure:
+                error = failure
+            captured.set()
+            return GLib.SOURCE_REMOVE
+
+        def wait_for_preview():
+            if not captured.wait(30):
+                captured.set()
+                raise RuntimeError('Preview capture timed out. Try exporting again.')
+            if error is not None:
+                raise error
+            return work(png)
+
+        canvas.queue_render()
+        GLib.timeout_add(16, capture_when_allocated)
+        app.background(wait_for_preview, export_job=True)
+
     def export(self,kind):
         app=self.app
         if app.busy or not self.current() or not self.selected:return
@@ -425,18 +469,18 @@ class Controller:
         # new document or silently reuse old indices after an edit.
         if not app.refresh() or not self.current() or self.revision!=token or not equivalent(snapshot,app.project_snapshot()):
             app.export_feedback.failed('The selected components changed. Select current components before exporting.');return
-        design=deepcopy(app.design);config=deepcopy(app.config());png=None
-        if kind=='package':
-            try:png=self.capture_export_preview(indices)
-            except Exception as error:
-                app.status_text(str(error));app.export_feedback.failed(str(error));return
         if not self.current() or self.revision!=token:return
+        design=deepcopy(app.design);config=deepcopy(app.config())
         target=Path(app.output_dir).absolute()/f'{design.family}-{datetime.now():%Y%m%d-%H%M%S-%f}.selected-{kind}'
-        def work():
+        def work(png=None):
             folder=selected_export.export(design,indices,kind,target,config,png,token)
             return ExportResult('Selected '+{'step':'STEP','stl':'STL','profiles':'SVG / DXF profiles','package':'package'}[kind],
                                 (folder,),f'Selected components only · {len(indices)} source positions · nominal mm · {folder}')
-        app.background(work,export_job=True)
+        if kind=='package':
+            try:self.export_with_preview(work,indices)
+            except Exception as error:
+                app.status_text(str(error));app.export_feedback.failed(str(error))
+        else:app.background(work,export_job=True)
     def view_teeth(self):
         if not self.current() or len(self.selected)!=1 or self.app.busy:return
         self.app.tooth_tips.focus_component(self.selected[0])
