@@ -16,6 +16,7 @@ APP_FILES = (
     'index.html', 'app.css', 'app.js', 'bom-view.js', 'tools.css', 'tools.js', 'ratio-display.js', 'document.js', 'preferences.js',
     'settings.js', 'themes.js', 'controls.js', 'ui-catalog.js',
     'ui-language.js', 'ui-translations.json', 'model-catalog.js', 'choice-menu.js',
+    'viewport-warning.png', 'viewport-error.png',
     'model-catalog/spur.png', 'model-catalog/helical.png', 'model-catalog/double.png', 'model-catalog/planetary.png', 'model-catalog/cycloidal.png', 'model-catalog/harmonic.png', 'model-catalog/worm.png', 'model-catalog/parallel.png', 'model-catalog/internal.png', 'model-catalog/differential.png', 'model-catalog/wolfrom.png', 'model-catalog/bevel.png', 'model-catalog/hypoid.png', 'model-catalog/rack.png', 'model-catalog/face.png',
     'fonts/NotoSansCJK-Regular.ttc', 'fonts/NotoSansTamil-Regular.ttf',
     'fonts/LICENSE-NotoCJK.txt', 'fonts/LICENSE-NotoTamil.txt', 'fonts/SOURCE-NOTO.json',
