@@ -1,6 +1,6 @@
 # RatioLab
 
-![RatioLab](../../src/ratiolab_resources/branding/ratiolab-logo-dark.png)
+![展示行星减速器设计工作区的 RatioLab 横幅](../../assets/screenshots/ratiolab-banner.png)
 
 [![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/X0M22AB2SK)
 
@@ -9,8 +9,6 @@
 [下载](#download-and-install) · [用户指南（英文）](../user-guide.md) · [English](../../README.md) · [Italiano](../../README.it.md) · [报告问题](https://github.com/NoOneExceptEnderk/RatioLab/issues) · [Discord](https://discord.gg/G8NVHNg6J)
 
 **语言:** [English](../../README.md) · [Italiano](../../README.it.md) · [Español](es.md) · [Français](fr.md) · [Deutsch](de.md) · [Português (Portugal)](pt.md) · [Русский](ru.md) · **简体中文** · [தமிழ்](ta.md)
-
-![RatioLab 工作区](../../assets/screenshots/workspace.png)
 
 <a id="download-and-install"></a>
 

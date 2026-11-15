@@ -145,6 +145,12 @@ deformation, manufacturing tolerances or file-conversion accuracy.
 
 Tools include component surface measurements, theoretical gear metrology,
 finite combination search, discrete interference and working-backlash proposals.
+**Tools → Bill of materials** pairs the additional component table with the
+current model in an independent 3D view. Click a row or a component to select
+it in both views. Selected parts appear opaque in the assembled model, even
+when surrounded by nearly transparent parts. CAD interfaces point to the relevant geometry
+and leave unknown quantities and sizes open. The full report and downloadable
+component list remain available in the BOM dialog.
 Tools follow generated construction capabilities, and metrology uses the current
 single compatible component selection. Search starts with local tooth-count
 ranges and keeps other dimensions under **More dimensions**. Ratio, compact

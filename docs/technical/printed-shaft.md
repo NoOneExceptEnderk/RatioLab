@@ -46,13 +46,11 @@ The normal automatic bearing/hardware panels are hidden in FDM mode because this
 
 In **Motor and load**, set **Motor: Eccentric**, **Output: Ring / housing**. The panel then shows **Pin flange** fixed to the frame. Single and dual discs are supported.
 
-The housing-output arrangement retains the complete two-bolt input shaft and its removable bearing retainers. It adds an annular output sleeve connected to the existing upper housing cover, followed by a flange with six nominal M3 clearance holes. The fixed pin-carrier shaft is extended through the clear central opening to a separate stationary flange with eight M3 clearance holes. No solid central input adapter is added through the two bolt passages.
-
-The output sleeve starts at the cover end face, above all discs, output pins, ring rollers and the printed eccentric stack. Its central opening clears the fixed coaxial shaft. The frame flange lies axially beyond the rotating output flange. The existing covers and tubular housing stay with the rotating roller ring; the output pins and their flange remain stationary. Enable **Housing** to show the complete rotating body. The added output flange and the printed shaft remain visible when Supports is disabled.
+The housing-output arrangement retains the complete two-bolt input shaft and its removable bearing retainers. The monobloc ring rotates around the disc stack, and the pins and their flange remain stationary.
 
 With N ring rollers, eccentric input and a fixed pin carrier, the ideal ratio is **+N:1**. With the default 16 rollers, 1500 rpm input gives 93.75 rpm housing output in the same direction. This differs from the fixed-ring / pin-flange-output arrangement, which has ratio −(N−1):1.
 
-Attach an annular load adapter to the rotating flange and the frame to the separate stationary flange. The interface holes are nominal clearances; attachment screws, the external frame and actual support-bearing selection/retention remain to be specified. These interfaces do not establish a load rating.
+Define the load connection, external support and frame attachment in CAD using the ring and the pin-carrier shaft datum.
 
 ## Assembly and printing
 
@@ -64,7 +62,7 @@ Attach an annular load adapter to the rotating flange and the frame to the separ
 
 Use component selection and STL export for the **printed shaft parts only**. Choose placement, final print orientation, supports, perimeters and local fill in the slicer. Layers, shrinkage and polymer creep affect the shaft; the steel pair does not remove those effects. Commercial bearings, bolts, washers and nuts in the complete assembly STL are reference parts and must be purchased, not printed.
 
-The motor coupling is not universal: design it for the printed Ø17 mm input journal or the asymmetric two-bolt pattern. Neither reinforcement bolt is the rotation axis. Remaining input/output support bearing envelopes, external couplings, seals and load paths still require completion. No allowable torque, fatigue life or stiffness increase is assigned to this prototype without physical testing.
+Design the motor coupling for the printed Ø17 mm input journal or the asymmetric two-bolt pattern. The input journal defines the rotation axis. Complete the external supports, couplings, seals and load paths in CAD. No allowable torque, fatigue life or stiffness increase is assigned to this prototype without physical testing.
 
 ## Example configurations and verification
 

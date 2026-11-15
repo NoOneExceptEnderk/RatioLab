@@ -121,6 +121,31 @@ class BevelPairGuiTests(unittest.TestCase):
         a.variant_selector.set_selected(0)
         self.assertNotIn('trace_radius',a.inputs);self.assertNotIn('spiral_hand',a.inputs)
 
+    def test_herringbone_catalog_save_reload_and_render(self):
+        a = self.app
+        import model_catalog_ui
+        model_catalog_ui.show(a)
+        catalog = a.model_catalog
+        model = catalog.selectors[0].get_model()
+        labels = [model.get_string(i) for i in range(model.get_n_items())]
+        self.assertEqual(labels[-1], 'Herringbone')
+        self.assertEqual(len(labels), 4)
+        catalog.selectors[0].set_selected(labels.index('Herringbone'))
+        catalog.apply.emit('clicked')
+        wait_until(lambda: not a.pending)
+        self.assertEqual(a.design.values['variant'], 'herringbone')
+        self.assertNotIn('groove_width', a.inputs)
+        self.assertIn('spiral_hand', a.inputs)
+        a.canvas.set_motion_playing(True)
+        phase = a.canvas.motion_phase
+        wait_until(lambda: a.canvas.motion_phase != phase)
+        a.canvas.set_motion_playing(False)
+        path = a.output_dir/'herringbone.json'
+        self.assertTrue(a.save_project(path=path))
+        saved = json.loads(path.read_text())
+        a.load_config_data(saved)
+        self.assertEqual(a.config(), saved)
+
     def test_both_curved_types_really_play_and_export_current_surfaces(self):
         a=self.app
         for variant in ('spiral','zerol'):

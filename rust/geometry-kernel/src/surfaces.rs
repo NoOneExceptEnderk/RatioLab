@@ -244,6 +244,16 @@ impl Cursor {
     }
 }
 
+/// Visit the same sampled facets, in the same order, as the triangle cursor.
+pub(crate) fn visit_triangles(a: &Value, mut visit: impl FnMut([P3; 3])) -> Result<()> {
+    let mut cursor = Cursor::new(get(a)?, "triangles".into())?;
+    while let Some(triangle) = cursor.triangle()? {
+        crate::protocol::control_check()?;
+        visit(triangle);
+    }
+    Ok(())
+}
+
 /// The interference checker consumes the exact shared facets without exporting
 /// and reparsing their coordinates. Its existing face/assembly limits still apply.
 pub(crate) fn collision_triangles(a: &Value, limit: usize) -> Result<Vec<[P3; 3]>> {

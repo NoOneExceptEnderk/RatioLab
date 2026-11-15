@@ -41,6 +41,37 @@ class AnalysisTests(unittest.TestCase):
     def call(self, method, **args):
         return self.engine.call(method, dict(design_id=self.engine.design_id, **args))
 
+    def test_preview_packs_shared_explosion_offsets(self):
+        from rust_surfaces import surface
+        for family,params in [('internal', {}), ('worm', {}),
+                              ('cycloidal', {'variant':'dual'}),
+                              ('cycloidal', {'variant':'dual', 'eccentric_design':'fdm_bolted'})]:
+            with self.subTest(family=family, **params):
+                design = self.source(family, **params)
+                packed = self.engine.pack_design(design, self.engine.plan)
+                bounds = [surface(component_geometry.displayed_part(design, i)).call('solid_bounds')
+                          for i in range(len(design.parts))]
+                offsets,minimum,views = component_geometry.preview_explosion_layout(design, bounds)
+                self.assertAlmostEqual(packed['explosion_minimum'], minimum, places=8)
+                self.assertGreater(packed['explosion_minimum'], 0.)
+                self.assertEqual(packed['explosion_gradual_views'], views)
+                for part,expected in zip(packed['parts'], offsets):
+                    for actual, target in zip(part['explosion_offset_mm'], expected):
+                        self.assertAlmostEqual(actual, target, places=8)
+                self.assertTrue(any(any(part['explosion_offset_mm']) for part in packed['parts']))
+
+    def test_double_helical_planetary_preview_keeps_each_stage_in_mesh(self):
+        design = self.source('planetary', variant='two_stage_double')
+        packed = self.engine.pack_design(design, self.engine.plan)
+        self.assertEqual(packed['explosion_minimum'], 0.)
+        self.assertEqual(packed['explosion_gradual_views'], (0,1,2,3))
+        rows = {part['name']: part['explosion_offset_mm'] for part in packed['parts']}
+        for stage in ('S1', 'S2'):
+            self.assertEqual(rows[stage+'_Sun'], rows[stage+'_Ring'])
+            for index in range(design.values['planets']):
+                self.assertEqual(rows[stage+'_Sun'], rows[f'{stage}_Planet_{index+1}'])
+        self.assertNotEqual(rows['S1_Sun'], rows['S2_Sun'])
+
     def test_documents_canonical_grouping_text_and_selection_provenance(self):
         source = self.source()
         original = deepcopy(source)
@@ -79,6 +110,32 @@ class AnalysisTests(unittest.TestCase):
         for index in (True, -1, 100):
             with self.assertRaises(ValueError):
                 self.call('metrology', source_index=index)
+
+    def test_quick_search_planetary_nominal_preview_and_apply(self):
+        design = self.source('planetary')
+        schema = self.call('search_schema')
+        self.assertTrue(schema['quick']['radial'])
+        self.assertIn('spur', [v['value'] for v in schema['quick']['variants']])
+        request = dict(ratio='5:1', variants=['spur'], limits={'diameter': 165.4})
+        result = self.call('search_quick', **request)
+        proposal = result['data']['proposals'][0]
+        self.assertEqual((proposal['ratio'], proposal['values']['sun'], proposal['values']['planet']), (5, 18, 27))
+        self.assertAlmostEqual(proposal['comparison']['diameter_mm'], 165.4)
+        selection = dict(query_id=result['query_id'], proposal_index=0)
+        preview = self.call('search_preview', **selection)
+        self.assertGreater(preview['candidate']['triangle_count'], 0)
+        self.assertTrue(self.engine.buffers)
+        answer = self.call('search_apply', **selection)
+        self.assertEqual(answer['values']['planet'], 27)
+        self.assertIs(self.engine.design, design)
+        self.assertEqual(design.values['planet'], 18)
+        result = self.call('search_quick', **dict(request, limits={'diameter': 165}))
+        self.assertFalse(result['data']['proposals'])
+        self.assertGreater(result['data']['exclusions']['size limits'], 0)
+        with self.assertRaisesRegex(ValueError, 'no longer current'):
+            self.call('search_apply', **selection)
+        with self.assertRaisesRegex(ValueError, 'assembly size limits'):
+            self.call('search_quick', **dict(request, limits={'x': 166}))
 
     def test_finite_search_matches_canonical_and_apply_revalidates_without_mutation(self):
         design = self.source()
@@ -218,7 +275,7 @@ class AnalysisTests(unittest.TestCase):
 
     def test_rates_no_mesh_work_preserves_pose_and_canonical_metadata_all_families(self):
         cases = [(f,{}) for f in geometry.FAMILIES]
-        cases += [('parallel',dict(io_scheme='reverse')), ('worm',dict(io_scheme='reverse')),
+        cases += [('parallel',dict(io_scheme='reverse')),
                   ('planetary',dict(variant='two_stage_double',io_scheme='ring_carrier_sun',io_scheme2='sun_ring_carrier')),
                   ('differential',dict(configuration='classic'))]
         for family, parameters in cases:

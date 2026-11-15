@@ -62,6 +62,10 @@ export function initTools(api) {
   const state=new QueryState(token=>api.matches(token)), panels=new Map();
   let active=null,recovery=null,recoveryMessage=null,preview=null,savedView=null,inspectionSerial=0,pickSerial=0,samples=[],sampleKey=null,pickMessage='Click a visible sampled surface.',nominalInspection=false;
   const current=()=>api.snapshot();
+  const searchContext=snapshot=>JSON.stringify([snapshot.token.identity,snapshot.family,snapshot.parameters.variant,
+    snapshot.parameters.double_style,snapshot.parameters.io_scheme,snapshot.parameters.io_scheme2,
+    snapshot.parameters.bearing_mode,snapshot.parameters.bearing,snapshot.parameters.input_shaft_profile,
+    snapshot.parameters.output_shaft_profile,snapshot.parameters.eccentric_design]);
   function button(text,action,cls='') {const b=el('button',text,cls);b.type='button';b.addEventListener('click',action);return b;}
   function field(panel,key,label,value,{integer=false,select=null}={}) {
     const row=el('label',null,'tool-field'),name=el('span',label),input=el(select?'select':'input');
@@ -100,6 +104,7 @@ export function initTools(api) {
     for(const p of panels.values()) {
       p.selected=null;
       p.rows.replaceChildren();
+      if(p.selectedSummary){p.selectedSummary.textContent='';p.selectedSummary.hidden=true;}
       p.report.textContent='';
       p.reportDetails.hidden=true;
       p.downloadActions.hidden=true;
@@ -115,12 +120,19 @@ export function initTools(api) {
   function controls() {
     for(const p of panels.values()) {
       const capability=current()?.design.tool_capabilities?.[p.key];
-      p.run.disabled=!!state.run || !!recovery || !current() || capability?.available===false || p.key==='search' && !p.searchSchema?.supported;
+      p.run.disabled=!!state.run || !!recovery || !current() || capability?.available===false || p.key==='search' && (!p.searchSchema?.supported || p.schemaLoading);
       p.run.title=capability?.reason??'';
       p.cancel.disabled=state.run?.panel!==p.key;
       if(p.apply)p.apply.disabled=!state.usable() || state.result.panel!==p.key || p.key==='search' && (p.selected==null || !Object.keys(state.result.data.proposals[p.selected]?.changes??{}).length) || p.key==='backlash' && !state.result?.data.applicable;
       for(const b of p.downloads)b.disabled=!state.usable() || state.result.panel!==p.key;
-      if(p.key==='search'&&p.searchSchema?.supported)updateSearchDomain(p);
+      if(p.key==='search'&&p.searchSchema?.supported){
+        if(p.quickMode){
+          let error='';
+          try{quickPayload(p);}catch(exc){error=exc.message;}
+          p.quickError.textContent=error;p.quickError.hidden=!error;
+          if(error)p.run.disabled=true;
+        }else updateSearchDomain(p);
+      }
     }
   }
   function drop(message,{source=false}={}) {
@@ -144,14 +156,18 @@ export function initTools(api) {
         const p=panels.get(panel);
         if(p && panel===active && state.serial===serial && settled && current())p.summary.textContent=settled;
       } finally {
-        if(recovery===pending){recovery=null;controls();}
+        if(recovery===pending){recovery=null;if(active==='search')loadSearch(panels.get(active));controls();}
       }
     }
   }
   function edited(p) {
     if(p.populating)return;
     drop('Settings changed · results cleared. Run again with these drafts.');
-    if(p.key==='search')updateSearchDomain(p);
+    if(p.key==='search' && p.quickMode){
+      const serial=state.serial;
+      clearTimeout(p.quickTimer);
+      p.quickTimer=setTimeout(()=>{if(state.serial===serial && active===p.key && !p.run.disabled)run(p);},500);
+    }
   }
   function panel(key,intro) {
     const p={key,fields:{},downloads:[],selected:null,root:el('div',null,'analysis-tool'),form:el(key==='search'?'details':'div',null,'tool-form'),rows:el('div',null,'tool-rows'),report:el('pre',null,'tool-report'),summary:el('p','Choose settings, then run.','tool-summary')};
@@ -160,13 +176,14 @@ export function initTools(api) {
     p.context=el('p',null,'tool-summary');
     p.settingsTitle=el('h3','Analysis settings');
     p.root.id=`tool-${key}`;
-    p.root.append(el('h3','Model examined'),p.context,el('p',intro,'tool-note'),p.settingsTitle,p.form);
+    p.modelTitle=el('h3','Model examined');p.intro=el('p',intro,'tool-note');
+    p.root.append(p.modelTitle,p.context,p.intro,p.settingsTitle,p.form);
     p.summary.setAttribute('role','status');
     p.form.addEventListener('input',()=>edited(p));p.form.addEventListener('change',()=>edited(p));
     const actions=el('div',null,'tool-actions');p.run=button(key==='search'?'Search':key==='metrology'?'Calculate':key==='backlash'?'Solve':'Check cycle',()=>run(p));p.run.id=`${key}-run`;
     p.cancel=button('Cancel',()=>hardCancel());p.cancel.id=`${key}-cancel`;p.cancel.disabled=true;actions.append(p.run,p.cancel);
     p.progress=el('progress');p.progress.max=1;p.progress.value=0;p.progress.hidden=true;p.elapsed=el('span','','tool-note');
-    p.root.append(el('h3','Results'),p.summary,p.progress,p.elapsed,p.rows);
+    p.resultTitle=el('h3','Results');p.root.append(p.resultTitle,p.summary,p.progress,p.elapsed,p.rows);
     const downloads=el('div',null,'tool-actions');
     for(const format of ['txt','json']){const b=button('Download '+format.toUpperCase(),()=>download(p,format));b.id=`${key}-download-${format}`;b.disabled=true;p.downloads.push(b);downloads.append(b);}
     p.reportDetails=el('details');
@@ -177,13 +194,19 @@ export function initTools(api) {
     const footer=el('div',null,'tool-run-actions');
     footer.append(actions,downloads);
     p.root.append(p.reportDetails,footer);
-    p.actions=actions;
-    panels.set(key,p);api.registerTool(key,{label:titles[key]+'…',open:()=>open(p)});return p;
+    p.actions=actions;p.footer=footer;
+    panels.set(key,p);api.registerTool(key,{label:titles[key]+'…',open:options=>open(p,options),inMenu:key!=='search'});return p;
   }
-  async function open(p) {
+  async function open(p,{quick=false}={}) {
     if(active!==p.key){drop('Tool changed · run a fresh query.');active=p.key;}
-    api.setDockPanel(p.key,p.root,{title:titles[p.key]});
-    if(p.key==='search')await loadSearch(p);
+    api.setDockPanel(p.key,p.root,{title:titles[p.key],origin:p.key==='search'?'find-combinations':undefined});
+    if(p.key==='search'){
+      setSearchMode(p,quick,false);
+      await loadSearch(p);
+      const focused=document.activeElement;
+      if(active===p.key && (focused===document.getElementById('find-combinations') || focused===document.body))
+        focusSearch(p);
+    }
     if(p.key==='metrology')populateParts(p);
     const contextKey=JSON.stringify([current()?.token.identity,current()?.family,current()?.parameters.variant]);
     if(p.key==='backlash' && p.targetContext!==contextKey) {
@@ -193,7 +216,7 @@ export function initTools(api) {
     updateContext(p);
     if(!state.usable())p.summary.textContent=current()?.design.tool_capabilities?.[p.key]?.available===false
       ? current().design.tool_capabilities[p.key].reason : 'Choose settings, then run.';
-    if(p.key==='search'&&!state.usable())p.form.open=true;
+    if(p.key==='search'&&!state.usable())p.form.open=!p.quickMode;
     controls();
   }
   function updateContext(p) {
@@ -220,6 +243,7 @@ export function initTools(api) {
       if(p.fields.gauge_mode.input.value==='explicit')payload.gauge_diameter=value(p,'gauge_diameter');return payload;
     }
     if(p.key==='search') {
+      if(p.quickMode)return quickPayload(p);
       const grids={};for(const [key,d] of p.axes){const grid=axisGrid(d);if(grid!=null)grids[key]=grid;}
       if(!Object.keys(grids).length)throw Error('Choose Range or Custom for at least one parameter. Locked parameters stay at the current model.');
       const ranking=p.fields.ranking.input.value,minimum=value(p,'min_profile_contact');
@@ -232,12 +256,13 @@ export function initTools(api) {
     if(state.run || recovery || active!==p.key)return;
     let payload;try{payload=requestPayload(p);}catch(error){drop(error.message);p.form.open=true;for(const details of p.form.querySelectorAll?.('details')??[])details.open=true;return;}
     const snapshot=current();if(!snapshot){p.summary.textContent='Complete the model fields and wait for valid geometry.';return;}
-    clearResults('Preparing analysis…');const run=state.begin(p.key,p.key,snapshot.token);api.setAnalysisActive(true);controls();
+    const method=p.key==='search' && p.quickMode?'search_quick':p.key;
+    clearResults('Preparing analysis…');const run=state.begin(p.key,method,snapshot.token);api.setAnalysisActive(true);controls();
     p.progress.hidden=false;p.progress.removeAttribute('value');
     const timer=setInterval(()=>{if(state.current(run))p.elapsed.textContent=`${((performance.now()-run.started)/1000).toFixed(1)} s elapsed`;},200);
     try {
       await api.pauseForAnalysis();if(!state.current(run))return;
-      const result=await api.request(p.key,payload);
+      const result=await api.request(method,payload);
       if(active!==p.key || !state.finish(run,result))return;
       p.progress.hidden=true;
       p.elapsed.textContent='';
@@ -279,8 +304,15 @@ export function initTools(api) {
       const outcome=d.reason==='cancelled'?'Search cancelled':d.complete?'Complete finite search':'PARTIAL search';
       const lines=[`${outcome}\n${d.visited}/${d.total} candidates · ${d.proposals.length} retained proposals`];
       if(d.reason && d.reason!=='cancelled')lines.push(d.reason);
-      if(!d.proposals.length)lines.push(d.complete?'No matching proposals. Review ratio, ranges and size limits.':'No proposals found in the candidates visited so far.');
-      if(!d.complete && d.reason!=='cancelled')lines.push('Review ranges or raise Advanced budgets, then Search again for more coverage.');
+      if(d.quick && !d.proposals.length){
+        lines.push(d.complete?'No matching proposals.':'No proposals found in the candidates visited so far.');
+        if(d.exclusions?.['size limits'])lines.push('Generated candidates exceeded the size limit.');
+        if(d.complete && !d.total)lines.push('No tooth counts in the automatic ranges matched the ratio and construction.');
+        const error=Object.keys(d.geometry_errors??{})[0];if(error)lines.push(error);
+      }
+      if(d.quick)lines.push(`Automatic ranges · ±${d.settings.tolerance_percent}% ratio`);
+      if(!d.quick && !d.proposals.length)lines.push(d.complete?'No matching proposals. Review ratio, ranges and size limits.':'No proposals found in the candidates visited so far.');
+      if(!d.complete && d.reason!=='cancelled')lines.push(d.quick?'Use Advanced search for wider coverage.':'Review ranges or raise Advanced budgets, then Search again for more coverage.');
       p.summary.textContent=lines.join('\n');
       for(const [index,row] of d.proposals.entries()) {
         const labels=new Map((p.searchSchema?.variables??[]).map(s=>[s.key,s.label]));
@@ -288,17 +320,33 @@ export function initTools(api) {
         const quality = contact == null ? 'Usable contact ratio: unavailable' : `Usable contact ratio: ${significantText(contact, 6)}`;
         const magnitude = ratioParts(row.ratio, 10, {signed:false}).join('');
         const rotation = row.ratio > 0 ? 'Same rotation' : 'Opposite rotation';
-        const b=button('',()=>{if(!state.usable(result))return;p.selected=index;for(const r of p.rows.children)r.setAttribute('aria-pressed',String(r===b));controls();},'tool-result');
+        const b=button('',()=>{
+          if(!state.usable(result))return;
+          p.selected=index;
+          for(const r of p.rows.children)r.setAttribute('aria-pressed',String(r===b));
+          if(d.quick){
+            p.selectedSummary.textContent=ratioParts(row.ratio, 8).join('')+' · '+row.size_text;
+            p.selectedSummary.hidden=false;
+            showSearchPreview(p,result,index);
+          }
+          controls();
+        },'tool-result');
         b.title = `Signed input/output ratio: ${ratioParts(row.ratio, 12).join('')}. Direction uses the current member axes.`;
         const direction = el('div');
         direction.append(el('span', rotation), el('span', ` · error ${significantText(row.error_percent, 6)}%`));
-        b.append(el('div',`Ratio (input/output): ${magnitude}`), direction,
-          el('div',`Overall XYZ: ${row.xyz.map(value => significantText(value, 6)).join(' × ')} mm`),el('div',quality));
-        if(Object.keys(row.changes).length){b.append(el('div','Current → Proposed'));for(const [key,change] of Object.entries(row.changes)){
+        b.append(el('div',`Ratio (input/output): ${magnitude}`), direction);
+        if(d.quick){
+          b.append(el('div',row.size_text),el('div',p.searchSchema?.quick?.variants.find(v=>v.value===row.values.variant)?.label));
+          const counts=(p.searchSchema?.variables??[]).filter(spec=>spec.integer && row.values[spec.key]!=null)
+            .map(spec=>spec.label+' '+row.values[spec.key]);
+          if(counts.length)b.append(el('div',counts.join(' · ')));
+        }else b.append(el('div',`Overall XYZ: ${row.xyz.map(value => significantText(value, 6)).join(' × ')} mm`),el('div',quality));
+        if(!d.quick && Object.keys(row.changes).length){b.append(el('div','Current → Proposed'));for(const [key,change] of Object.entries(row.changes)){
           const line=el('div');line.append(el('span',labels.get(key)??key),el('span',`: ${significantText(Array.isArray(change)?change[0]:current()?.parameters[key], 10)} → ${significantText(Array.isArray(change)?change[1]:change, 10)}`));b.append(line);
-        }}else b.append(el('div','Current parameters (no change)'));
+        }}else if(!Object.keys(row.changes).length)b.append(el('div','Current parameters (no change)'));
         b.dataset.proposalIndex=index;b.setAttribute('aria-pressed','false');p.rows.append(b);
       }
+      if(d.quick && p.rows.children.length)p.rows.children[0].click();
     }
     if(p.key==='interference') {
       const outcome=d.cancelled?'Check cancelled\nINCOMPLETE coverage'
@@ -365,7 +413,8 @@ export function initTools(api) {
       const answer=await api.request(run.method,p.key==='search'?{query_id:result.query_id,proposal_index:index}:{proposal_id:result.data.proposal_id});
       if(!state.current(run) || active!==p.key || !state.usable(result))return;
       api.setAnalysisActive(false);
-      api.applyParameters(p.key==='search'?answer.changes:{center_extra:answer.center_extra});
+      if(p.key==='search' && result.data.quick)api.applySearchProposal(answer);
+      else api.applyParameters(p.key==='search'?answer.changes:{center_extra:answer.center_extra});
       state.invalidate();clearResults('Proposal applied · regenerate to run a new query.');
     }catch(error){if(state.current(run)){state.run=null;p.summary.textContent=error.message;}}
     finally{if(state.run===run)state.run=null;if(!state.run)api.setAnalysisActive(false);controls();}
@@ -401,9 +450,135 @@ export function initTools(api) {
       if(!varied)p.run.disabled=true;
     }catch(error){p.scope.textContent=error.message;p.run.disabled=true;}
   }
+  function selectedVariants(p) {
+    const values=p.quick.fields;
+    return (p.searchSchema?.quick?.variants??[]).filter(row=>
+      (!values.stages?.input.value || Number(values.stages.input.value)===row.stages) &&
+      (!values.teeth?.input.value || values.teeth.input.value===row.teeth) &&
+      (!values.variant?.input.value || values.variant.input.value===row.value));
+  }
+  function quickPayload(p) {
+    const ratio=p.quick.fields.ratio.input.value.trim();
+    const parts=ratio.replace('−','-').split(':');
+    if(parts.length>2 || ratio.length>64)throw Error('Enter a ratio such as 5:1.');
+    const numerator=preciseNumber(parts[0],'Target ratio');
+    const denominator=parts.length===2?preciseNumber(parts[1],'Ratio denominator'):1;
+    if(!numerator || denominator<=0 || !Number.isFinite(numerator/denominator) || !(Math.abs(numerator/denominator)>0))
+      throw Error('Enter a positive ratio magnitude, for example 5:1.');
+    const variants=selectedVariants(p).map(row=>row.value);
+    if(!variants.length)throw Error('No variant supports the selected construction.');
+    const limits={},construction={};
+    for(const key of p.searchSchema.quick.radial?['diameter']:['x','y']){
+      if(!p.quick.fields[key].input.value.trim()){p.quick.fields[key].input.removeAttribute('aria-invalid');continue;}
+      limits[key]=value(p.quick,key);
+      if(limits[key]<=0)throw Error('Enter a positive size in mm.');
+    }
+    for(const key of ['bearing_mode','bearing','input_shaft_profile','output_shaft_profile']){
+      if(p.quick.fields[key])construction[key]=p.quick.fields[key].input.value;
+    }
+    return {ratio,variants,limits,construction};
+  }
+  function setSearchMode(p,quick,focus=true) {
+    if(p.quickMode!==quick)drop('Search settings changed · run a new search.');
+    p.quickMode=quick;
+    for(const element of [p.form,p.context,p.modelTitle,p.intro,p.settingsTitle,p.resultTitle])element.hidden=quick;
+    p.quickForm.hidden=!quick;
+    p.modeButton.textContent=quick?'Advanced search…':'Quick search…';
+    p.apply.textContent=quick?'Apply proposal':'Apply selected combination';
+    if(!quick)p.form.open=true;
+    controls();
+    if(focus)focusSearch(p);
+  }
+  function focusSearch(p) {
+    const input=p.quickMode?p.quick.fields.ratio.input:p.fields.target.input;
+    input.focus();input.select?.();
+  }
+  function renderConstruction(p,snapshot) {
+    const meta=p.searchSchema.quick;
+    if(!meta)return;
+    p.quickRows.ratio.hidden=false;
+    p.quickRows.diameter.hidden=!meta.radial;
+    p.quickRows.x.hidden=p.quickRows.y.hidden=meta.radial;
+    const key=searchContext(snapshot);
+    if(key===p.quickKey)return;
+    const previous=p.quickContext;
+    const sameDocument=previous?.identity===snapshot.token.identity && previous.family===snapshot.family;
+    if(!sameDocument)for(const name of ['diameter','x','y'])p.quick.fields[name].input.value='';
+    if(!sameDocument || previous.variant!==snapshot.parameters.variant)
+      p.quick.fields.ratio.input.value=String(Math.abs(snapshot.design.analysis.signed_ratio));
+    p.quickContext={identity:snapshot.token.identity,family:snapshot.family,variant:snapshot.parameters.variant};
+    p.quickKey=key;
+    for(const name of Object.keys(p.quick.fields))if(!p.quickRows[name])delete p.quick.fields[name];
+    p.quickOptions.replaceChildren();
+    const base=snapshot.parameters,currentVariant=meta.variants.find(row=>row.value===base.variant);
+    const choices=(parent,name,title,entries,selected)=>{
+      const row=field(p.quick,name,title,selected,{select:entries});parent.append(row);
+      return p.quick.fields[name].input;
+    };
+    const automatic=entries=>[['','Automatic'],...entries];
+    const stages=[...new Set(meta.variants.map(row=>row.stages))];
+    const teethFamilies=['parallel','planetary','internal','wolfrom'];
+    const links=el('div',null,'quick-construction');
+    const drafts={...base};
+    function connections() {
+      for(const name of ['bearing_mode','bearing',...Object.keys(meta.port_labels)]){
+        if(p.quick.fields[name])drafts[name]=p.quick.fields[name].input.value;
+        delete p.quick.fields[name];
+      }
+      links.replaceChildren();
+      const variants=selectedVariants(p);
+      if(!variants.length)return;
+      const modes=Object.entries(meta.modes).filter(([mode])=>variants.some(row=>row.bearings.includes(mode)));
+      if(modes.length>1){
+        const mode=modes.some(([value])=>value===drafts.bearing_mode)?drafts.bearing_mode:'manual';
+        const input=choices(links,'bearing_mode','Catalog ball bearings',modes,mode);
+        input.addEventListener('change',connections);
+        if(mode!=='manual')choices(links,'bearing','NSK bearing',Object.entries(meta.bearings),drafts.bearing);
+      }else if(meta.fixed_bearing)links.append(el('p','Fixed bearings · '+meta.fixed_bearing,'tool-note'));
+      for(const [port,title] of Object.entries(meta.port_labels)){
+        if(variants.some(row=>row.ports[port]===null))
+          choices(links,port,title,Object.entries(meta.profiles),drafts[port]??'standard');
+        else links.append(el('p',title+' · '+variants[0].ports[port],'tool-note'));
+      }
+    }
+    if(stages.length>1)choices(p.quickOptions,'stages','Number of stages',automatic(stages.map(n=>[String(n),String(n)])),
+      String(currentVariant.stages)).addEventListener('change',connections);
+    if(teethFamilies.includes(snapshot.family))
+      choices(p.quickOptions,'teeth','Tooth type',automatic(Object.entries(meta.teeth)),currentVariant.teeth).addEventListener('change',connections);
+    else if(meta.variants.length>1)
+      choices(p.quickOptions,'variant',snapshot.family==='cycloidal'?'Cycloidal discs':'Tooth type',
+        automatic(meta.variants.map(row=>[row.value,row.label])),base.variant).addEventListener('change',connections);
+    p.quickOptions.append(links);connections();
+  }
+  async function showSearchPreview(p,result,index) {
+    disposePreview();
+    const serial=++p.previewSerial;
+    p.preview.append(el('p','Preparing proposal preview…','tool-note'));
+    try {
+      const data=await api.request('search_preview',{query_id:result.query_id,proposal_index:index});
+      if(!state.usable(result) || active!==p.key || serial!==p.previewSerial || p.selected!==index)return;
+      const canvas=el('canvas');
+      canvas.tabIndex=0;canvas.setAttribute('aria-label','Proposal preview');
+      p.preview.replaceChildren(el('p','Proposal preview','tool-note'),canvas);
+      preview=new ModelViewer(canvas);
+      preview.guides=false;preview.supports=true;
+      preview.setDesign({...data.candidate,buffers:data.buffers});
+    }catch(error){
+      if(state.usable(result) && serial===p.previewSerial && p.selected===index){
+        disposePreview();p.preview.append(el('p','Proposal preview unavailable: '+error.message,'tool-note'));
+      }
+    }
+  }
+
   async function loadSearch(p) {
     if(recovery || state.run || !current())return;
     const snapshot=current(),serial=++p.schemaSerial;
+    p.schemaLoading=true;
+    if(searchContext(snapshot)!==p.quickKey){
+      p.quickForm.hidden=true;
+      for(const row of Object.values(p.quickRows))row.hidden=true;
+    }
+    controls();
     try {
       const schema=await api.request('search_schema');
       if(serial!==p.schemaSerial || !api.matches(snapshot.token))return;
@@ -411,14 +586,15 @@ export function initTools(api) {
       p.searchSchema = snapshot.parameters.io_scheme === 'reverse'
         ? {...schema, variables:schema.variables.map(spec => ({...spec, label:reverseLabels.get(spec.label) ?? spec.label}))}
         : schema;
+      renderConstruction(p,snapshot);
       p.axisSpecs=new Map(p.searchSchema.variables.map(spec=>[spec.key,spec]));
       const key=JSON.stringify([snapshot.token.identity,snapshot.family,snapshot.parameters.variant,snapshot.parameters.double_style,snapshot.parameters.io_scheme,snapshot.parameters.io_scheme2]);
       if(key!==p.formKey){p.axes=new Map();p.formKey=key;p.fields.target.input.value=String(Math.abs(snapshot.design.analysis.signed_ratio)||schema.settings.target);}
       p.axesBox.replaceChildren();
       const more=el('details');more.append(el('summary','More dimensions'));
-      const countKey=key=>/^(pinion\d*|wheel\d*|sun\d*|planet\d*|teeth|pins|starts)$/.test(key);
+      const countKey=key=>/^(pinion\d*|wheel\d*|sun\d*|planet\d*|teeth|pins|starts|output_ring)$/.test(key);
       for(const spec of [...p.searchSchema.variables].sort((a,b)=>Number(countKey(b.key))-Number(countKey(a.key)))) {
-        let d=p.axes.get(spec.key);if(!d){const count=/^(pinion\d*|wheel\d*|sun\d*|planet\d*|teeth|pins|starts)$/.test(spec.key),stride=snapshot.family==='harmonic'?2:1;d={mode:count?'range':'locked',range:[String(count?Math.max(spec.minimum,spec.current-4):spec.current),String(count?Math.min(spec.maximum,spec.current+4):spec.current),String(count?stride:spec.step)],custom:String(spec.current)};p.axes.set(spec.key,d);}
+        let d=p.axes.get(spec.key);if(!d){const count=countKey(spec.key),stride=snapshot.family==='harmonic'?2:1;d={mode:count?'range':'locked',range:[String(count?Math.max(spec.minimum,spec.current-4):spec.current),String(count?Math.min(spec.maximum,spec.current+4):spec.current),String(count?stride:spec.step)],custom:String(spec.current)};p.axes.set(spec.key,d);}
         const box=el('fieldset',null,'tool-axis');box.append(el('legend',spec.label),el('p',`Current ${spec.current} · allowed ${spec.minimum}–${spec.maximum}`,'tool-note'));
         const mode=el('select');mode.setAttribute('aria-label',spec.label+' mode');mode.id=`search-axis-${spec.key}`;
         for(const [key,title]of [['locked','Locked'],['range','Range'],['custom','Custom']]){const o=el('option',title);o.value=key;mode.append(o);}mode.value=d.mode;
@@ -429,6 +605,7 @@ export function initTools(api) {
       p.axesBox.append(more);
       p.gridNote.textContent=schema.supported?'All other dimensions, variants, stages and input/output arrangements stay fixed. Each axis has at most 1000 values.':'This family has no supported single-ratio finite search.';controls();updateSearchDomain(p);
     }catch(error){if(serial===p.schemaSerial && api.matches(snapshot.token))p.summary.textContent=error.message;}
+    finally{if(serial===p.schemaSerial){p.schemaLoading=false;p.quickForm.hidden=!p.quickMode;controls();}}
   }
 
   const m=panel('metrology','Measure involute gear geometry using the selected component. Unsupported profiles and theory limits are reported explicitly.');
@@ -451,6 +628,35 @@ export function initTools(api) {
   const advanced=el('details');advanced.append(el('summary','Advanced · budgets & technical details'));s.form.append(advanced);
   for(const [key,label,v,integer]of [['min_profile_contact','Minimum usable contact ratio (0 = no filter)','0',false],['max_candidates','Maximum candidates','50000',true],['max_seconds','Time limit (s)','30',false],['max_results','Retained results (max 100)','100',true]])advanced.append(field(s,key,label,v,{integer}));
   s.apply=button('Apply selected combination',()=>apply(s));s.apply.id='search-apply';s.apply.disabled=true;s.actions.append(s.apply);
+  s.selectedSummary=el('p',null,'search-selected-summary');
+  s.selectedSummary.hidden=true;s.footer.prepend(s.selectedSummary);
+  s.quick={key:'search-quick',fields:{}};
+  s.quickForm=el('div',null,'tool-form');s.quickForm.hidden=true;
+  s.quickRows={};
+  for(const [name,title] of [['ratio','Target ratio'],['diameter','Maximum diameter (mm)'],['x','Maximum X (mm)'],['y','Maximum Y (mm)']]){
+    const row=field(s.quick,name,title,'');
+    s.quick.fields[name].input.placeholder=name==='ratio'?'e.g. 5:1':'Optional';
+    if(name==='ratio')s.quick.fields[name].input.inputMode='text';
+    row.hidden=true;s.quickRows[name]=row;s.quickForm.append(row);
+  }
+  const construction=el('details');
+  s.quickOptions=el('div',null,'quick-construction');
+  construction.append(el('summary','Construction'),s.quickOptions);
+  s.quickError=el('p',null,'tool-note');s.quickError.setAttribute('role','alert');s.quickError.hidden=true;
+  s.quickForm.append(construction,s.quickError);
+  s.quickForm.addEventListener('input',()=>edited(s));
+  s.quickForm.addEventListener('change',()=>edited(s));
+  s.quickForm.addEventListener('keydown',event=>{
+    if(event.key==='Enter' && event.target?.tagName==='INPUT' && !s.run.disabled){
+      event.preventDefault();run(s);
+    }
+  });
+  s.modeButton=button('Quick search…',()=>setSearchMode(s,!s.quickMode),'flat');
+  s.root.insertBefore(s.quickForm,s.resultTitle);
+  s.root.insertBefore(s.modeButton,s.resultTitle);
+  s.previewSerial=0;
+  s.preview=el('div',null,'candidate-preview');
+  s.root.insertBefore(s.preview,s.rows);
   const i=panel('interference','Check every component, including hidden supports and housing, over discrete poses of the labelled kinematic period or finite working stroke. Boundary contact remains unresolved. Samples can miss collisions between poses.');
   const b=panel('backlash','Parallel external spur, helical and double helix pairs. Target transverse tangential working backlash by adjusting centre spacing. The candidate stays separate until Apply.');
   b.form.append(field(b,'desired_backlash_mm','Desired working backlash (mm)','0.1'));

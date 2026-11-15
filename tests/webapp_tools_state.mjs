@@ -61,6 +61,7 @@ class Element extends EventTarget {
   get value(){if(this.tagName==='select' && !this.children.some(o=>String(o.value)===String(this._value)))return String(this.children[0]?.value??'');return this._value;}
   set value(v){this._value=String(v);}
   get options(){return this.children;}
+  focus(){document.activeElement=this;}
   append(...nodes){for(const n of nodes){n.parent=this;this.children.push(n);}}
   prepend(...nodes){for(const n of nodes)n.parent=this;this.children.unshift(...nodes);}
   replaceChildren(...nodes){this.children=[];this.append(...nodes);}
@@ -70,7 +71,6 @@ class Element extends EventTarget {
   removeAttribute(k){delete this.attributes[k];}
   getBoundingClientRect(){return {left:0,top:0,width:640,height:480};}
   getContext(){return this.gl??=graphics();}
-  focus(){}
   setPointerCapture(){}
   click(){if(!this.disabled)this.dispatchEvent(new Event('click'));}
 }
@@ -85,13 +85,17 @@ const originalRawEntries=structuredClone(rawEntries);
 let snapshot={token:{identity:'doc',revision:1,operation:1,designId:7},phase:0,family:'parallel',parameters:{variant:'double',double_style:'joined',wheel:60,gap:0},design:{design_id:7,analysis:{signed_ratio:-3},parts:[{index:0,name:'Pinion'},{index:1,name:'Wheel'}]}};
 let source={frame:{parts:[]},selected:new Set([1]),hidden:new Set([1]),supports:false,housing:false,section:true,explosion:.37,setSelection(indices){this.selected=new Set(indices);},applyFrame(frame){this.frame=frame;},addEventListener(){}};
 const emit=(type,detail)=>events.dispatchEvent(new Custom(type,{detail}));
-const schema={supported:true,variables:[{key:'wheel',label:'Wheel teeth',current:60,minimum:10,maximum:200,step:1}],settings:{target:3}};
+const schema={supported:true,quick:{radial:false, variants:[{value:'double',label:'Double helical',stages:1,teeth:'double',bearings:['manual'],ports:{}}],teeth:{double:'Double helical'},modes:{manual:'Manual'},bearings:{},profiles:{},port_labels:{}},variables:[{key:'wheel',label:'Wheel teeth',current:60,minimum:10,maximum:200,step:1}],settings:{target:3}};
 const result=(method,data,text='Canonical report')=>({query_id:'q'+(++workerQuery),design_id:7,method,data,text,buffers:[]});
 const searchResult=()=>result('search',{complete:false,partial:true,visited:1,total:2,reason:'candidate budget',proposals:[{ratio:-3.1,error_percent:3.333,xyz:[80,12,20],changes:{wheel:62}}]});
 const api={events,engine,viewer:source,pickMode:'navigate',snapshot:()=>valid?structuredClone(snapshot):null,matches:t=>valid && JSON.stringify(t)===JSON.stringify(snapshot.token),registerTool:(key,c)=>registry.set(key,c),setDockPanel(){},setPlaying(){},async pauseForAnalysis(){paused++;},setAnalysisActive(v){analysis=v;},async requestPose(phase){snapshot.phase=phase;source.frame={parts:[],phase};return true;},restoreInspection(frame,phase,selection){source.frame=frame;snapshot.phase=phase;source.setSelection(selection);},refreshInspection(){},applyParameters(values){assert.equal(analysis,false);if(applyError)throw Error(applyError);for(const key of Object.keys(values))if(!['wheel','module','input_rpm','center_extra','variant','double_style'].includes(key))throw Error('Unknown parameter: '+key);for(const [key,value] of Object.entries(values))if(key in rawEntries)rawEntries[key]={text:String(value),exact:value,typed:false};transaction=values;snapshot.token.revision++;valid=false;emit('invalidate');},downloadBlob(){downloads++;},
+  applySearchProposal(answer){transaction=answer.values;valid=false;emit('invalidate');},
   cancelOperations(){cancelled++;valid=false;emit('invalidate');if(pending){pending.reject(new DOMException('Cancelled','AbortError'));pending=null;}return new Promise(resolve=>setTimeout(()=>{snapshot.token.operation++;snapshot.token.designId++;snapshot.design.design_id++;valid=true;emit('design');resolve();},0));},
   async request(method,payload){calls.push({method,payload});if(['metrology','search','interference','backlash'].includes(method))emit('querybegin',{method});
     if(method==='search_schema')return structuredClone(schema);
+    if(method==='search_quick')return result('search',{quick:true,complete:true,settings:{tolerance_percent:1},
+      proposals:[{ratio:-5,error_percent:0,values:{variant:'double',wheel:100},size_text:'120 × 60 mm · 26 mm axial',changes:{wheel:[60,100]}}],visited:1,total:1});
+    if(method==='search_preview')throw Error('Preview unavailable in this fixture');
     if(method==='search_apply'){if(delayedApply)return new Promise(resolve=>{delayedApply.resolve=resolve;});return {values:{wheel:62,gap:0,module:2,input_rpm:31.1234567890123,variant:'double',double_style:'joined'},changes:{wheel:62}};}
     if(method==='proposal_apply')return {center_extra:.30000000000000426};
     if(method==='query_export')return {name:'query.txt',mime:'text/plain',buffer:0,buffers:[new Uint8Array([65]).buffer]};
@@ -171,11 +175,42 @@ assert.ok(paused>=8);assert.equal(analysis,false);
 // world section and explicit visible indices; camera/pose/visibility changes
 // alter the key used to reject asynchronous stale samples.
 const canvas=new Element('canvas'),viewer=new ModelViewer(canvas);viewer.guides=false;
-const part=(index,role)=>({index,role,color:[1,1,1],bounds_mm:{minimum:[0,0,0],maximum:[3,4,5]},mesh:{positions:index*2,normals:index*2+1,vertex_count:3}});
+const part=(index,role)=>({index,role,color:[1,1,1],explosion_offset_mm:[0,0,10+index],bounds_mm:{minimum:[0,0,0],maximum:[3,4,5]},mesh:{positions:index*2,normals:index*2+1,vertex_count:3}});
 const buffers=Array.from({length:4},()=>new Float32Array([0,0,0,3,0,0,0,4,5]).buffer);
-viewer.setDesign({motion:{},parts:[part(0,'gear'),part(1,'support')],buffers});
+viewer.setDesign({motion:{},parts:[part(0,'gear'),part(1,'support')],buffers,explosion_minimum:.8});
+assert.equal(registry.get('search').inMenu,false);
+valid=true;emit('design');await settle();
+await registry.get('search').open({quick:true});
+assert.equal(search.quickForm.hidden,false);
+assert.equal(search.form.hidden,true);
+search.quick.fields.ratio.input.value='5:1';
+search.quick.fields.x.input.value='125';
+search.quickForm.dispatchEvent(new Event('input'));
+search.run.click();await settle();
+assert.deepEqual(calls.findLast(c=>c.method==='search_quick').payload,
+  {ratio:'5:1',variants:['double'],limits:{x:125},construction:{}});
+assert.ok(calls.some(c=>c.method==='search_preview'));
+assert.equal(search.selected,0);
+search.apply.click();await settle();
+assert.equal(transaction.wheel,62);
+valid=true;emit('design');await settle();
+search.modeButton.click();
+assert.equal(search.form.hidden,false);
+assert.equal(search.quickForm.hidden,true);
+
 const matrix=identityMatrix();matrix[12]=12.3456789012345;
-viewer.applyFrame({parts:[{index:0,matrix},{index:1,matrix:identityMatrix()}]});viewer.section=true;viewer.explosion=.37;
-const picked=viewer.pickState(200,150);assert.deepEqual(picked.payload.visible_indices,[0]);assert.deepEqual(picked.payload.matrices,[{index:0,matrix}]);assert.equal(picked.payload.section_y,viewer.center[1]);assert.equal(picked.payload.animated,true);assert.deepEqual(picked.payload.explosion_offsets[0].offset,viewer.explosionOffset(viewer.design.parts[0]));
+viewer.applyFrame({parts:[{index:0,matrix},{index:1,matrix:identityMatrix()}]});viewer.section=true;
+const posed=viewer.pickState(200,150);assert.deepEqual(posed.payload.matrices,[{index:0,matrix}]);assert.equal(posed.payload.animated,true);assert.deepEqual(posed.payload.explosion_offsets[0].offset,[0,0,0]);
+viewer.explosion=.01;
+const picked=viewer.pickState(200,150);assert.deepEqual(picked.payload.visible_indices,[0]);assert.deepEqual(picked.payload.matrices,[{index:0,matrix:identityMatrix()}]);assert.equal(picked.payload.section_y,viewer.center[1]);assert.equal(picked.payload.animated,false);assert.ok(Math.abs(picked.payload.explosion_offsets[0].offset[2]-8.02)<1e-12);
+assert.ok(viewer.cameraRadius > viewer.radius);
+viewer.design.explosion_gradual_views=[0,2];
+assert.deepEqual(viewer.pickState(200,150).payload.explosion_offsets[0].offset,[0,0,.1]);
+viewer.supports=true;
+assert.ok(Math.abs(viewer.explosionOffset(viewer.design.parts[0])[2]-8.02)<1e-12);
+viewer.supports=false;
+viewer.housing=true;
+assert.deepEqual(viewer.explosionOffset(viewer.design.parts[0]),[0,0,.1]);
+viewer.housing=false;
 viewer.yaw+=.1;assert.notEqual(viewer.pickState(200,150).key,picked.key);viewer.yaw-=.1;viewer.setVisibility(0,false);assert.deepEqual(viewer.pickState(200,150).payload.visible_indices,[]);viewer.dispose();
 console.log('Tools state, cancellation, canonical Apply gates, candidate resources and inverse-camera checks passed.');

@@ -345,57 +345,6 @@ class ParameterHelpGuiTests(unittest.TestCase):
                         self.assertLessEqual(surface.get_position_y()+surface.get_height(),root.get_height())
                     self.assertEqual((a.project_snapshot(),a.document.states,a.document.index),before)
 
-    def test_optional_friction_help_distinguishes_unknown_zero_and_blank_draft(self):
-        from geometry import generate
-        from gui_workflow import show_page
-        a=self.app;key='worm_static_friction'
-        def state():
-            return copy.deepcopy((a.project_snapshot(),a.option_values,a.values,
-                                  a.document.states,a.document.index,a.design.values))
-        try:
-            a.load_config_data(dict(format='solidcraft-riduttori/1',family='worm',
-                                   parameters=generate('worm',{}).values))
-            show_page(a,'motion');a.io_frame.set_expanded(True);pump()
-            owner=a.parameter_help;b=owner.bindings[key]
-            self.assertIs(b.control,a.io_friction_entry)
-            before=state()
-            with patch.object(a,'rebuild_options',wraps=a.rebuild_options) as rebuild:
-                emit_motion(b.motion,'enter',0.,0.)
-                self.assertTrue(wait_for(lambda: owner.popover is not None and owner.popover.get_mapped()))
-                self.assertEqual(owner.value_label.get_text(),'Not specified')
-                self.assertFalse(owner.drawing.get_visible())
-                self.assertFalse(owner.diagram_expander.get_visible())
-                self.assertEqual(owner.details.get_label(),'Model and limits')
-                self.assertEqual(owner.footer.get_first_child().get_text(),'Static contact model')
-                self.assertEqual(state(),before)
-                owner.close();b.button.emit('clicked');pump()
-                self.assertTrue(owner.popover.get_mapped())
-                owner.close();b.control.grab_focus()
-                self.assertTrue(b.key_controllers[0].emit('key-pressed',Gdk.KEY_F1,0,0));pump()
-                self.assertTrue(owner.popover.get_mapped())
-                self.assertEqual(state(),before)
-                b.control.set_text('0');pump()
-                self.assertEqual(owner.value_label.get_text(),'0')
-                self.assertEqual(state(),before)
-                rebuild.assert_not_called()
-            owner.close()
-            # Explicit setup of saved physical evidence, independently of help.
-            a.rebuild_options({key:0.2});pump()
-            b=owner.bindings[key];before=state()
-            with patch.object(a,'rebuild_options',wraps=a.rebuild_options) as rebuild:
-                b.control.set_text('');b.open();pump()
-                self.assertEqual(owner.value_label.get_text(),'Editing value')
-                self.assertEqual(state(),before)
-                self.assertEqual(a.option_values[key],0.2)
-                rebuild.assert_not_called()
-        finally:
-            a.parameter_help.close()
-            a.load_config_data(dict(format='solidcraft-riduttori/1',family='parallel',
-                                   parameters=generate('parallel',{}).values))
-            show_page(a,'geometry')
-            pump()
-
-
 class ParameterHelpIconGuiTests(unittest.TestCase):
     """Fresh native controls for pixel/allocation checks, separate from draft tests."""
     @classmethod

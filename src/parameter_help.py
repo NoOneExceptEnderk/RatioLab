@@ -26,7 +26,6 @@ def H(title, meaning, effect, diagram='section', dimension=''):
 
 
 COMMON = {
-    'worm_static_friction': H('Static tooth-contact friction', 'Optional dimensionless coefficient μ for static friction at the actual worm tooth contact. Missing means unknown; explicit 0 assumes frictionless contact.', 'Apply commits the entered coefficient; Clear removes it as unknown; editing or emptying the text alone does not clear the saved value. The wheel-to-worm startup limit is μcritical = cos(αn) tan(γ), with γ = atan(mx × starts / d) and αn = atan(tan(αx) cos(γ)); αx is the axial pressure angle. At or above this limit, wheel-driven startup is refused by this static contact model. Below it, motion is only potentially backdrivable. Bearings, seals, loads and dynamics are not evaluated; this is not a brake or a real-world holding/startup guarantee.', 'text', 'Static tooth-contact model'),
     'module': H('Normal module · mm', 'Size of the teeth, measured in the normal section across the tooth trace.', 'Increase module to make the teeth and gear larger at the same tooth count. Pitch diameter d = mn × z / cos β, where z is tooth count and β is helix angle. For straight teeth, d = mn × z.', 'pitch', 'mn = tooth size'),
     'teeth': H('Tooth count', 'How many teeth are spaced around the gear.', 'Add teeth to enlarge the gear while keeping each tooth the same size. A single gear has no transmission ratio until paired with another member.', 'pitch', 'z = teeth around circle'),
     'width': H('Face width · mm', 'Axial distance between the two gear faces.', 'Increase width to make the gear thicker along its shaft. The pitch diameter stays the same. For double helices, total width includes both halves and the central groove.', 'section', 'b = axial width'),
@@ -54,7 +53,8 @@ COMMON = {
     'stage_gap': H('Additional stage spacing · mm', 'Extra axial distance between the two planetary stages.', 'Moves stage 2 farther from stage 1 in addition to the normal stack dimensions. Tooth counts and stage speed ratios stay the same.', 'section', 'g = extra stage gap'),
     'pins': H('Ring roller count', 'Number N of fixed-pitch rollers around the cycloidal ring.', 'The generated disc has N − 1 lobes. With eccentric input, fixed ring and pin-flange output, the signed ratio is −(N − 1). Other connections give other ratios.', 'eccentric', 'N rollers; N − 1 lobes'),
     'radius': H('Roller pitch radius · mm', 'Distance from the housing axis to each ring roller centre.', 'Sets the ring roller circle, not the roller surface radius. Increasing it enlarges the disc and housing arrangement.', 'eccentric', 'R = roller-centre radius'),
-    'pin_radius': H('Ring roller radius · mm', 'Radius of each roller contacting the outer cycloidal profile.', 'The disc profile is the inward normal offset of the roller-centre trajectory. Changing roller radius changes the generated contact profile.', 'eccentric', 'r = ring roller radius'),
+    'pin_radius': H('Ring contact radius · mm', 'Contact radius of each integral pin or roller shell around a bushing.', 'With NSK roller bearings, the selected bearing fixes the contact radius instead.', 'eccentric', 'r = contact radius'),
+    'ring_roller_bearing': H('Ring rollers', 'Choose integral pins, miniature bearings or roller shells with bushings.', 'One insert per pin and disc. With bushings, the ring contact radius sets the shell diameter. Ring output uses integral pins.', 'text'),
     'eccentric': H('Eccentricity · mm', 'Offset e between the main shaft axis and the disc / eccentric-bearing centre.', 'Increase eccentricity to make the disc centre travel in a larger orbit. The output holes must also grow: hole radius = output pin radius + eccentricity + output clearance.', 'eccentric', 'e = axis offset'),
     'eccentric_flat_depth': H('D-shaft flat depth · mm', 'Flat depth specified by the external mating shaft drawing; cut plane x = shaft radius − depth before clocking.', 'The cam bore receives the same flat plus half the diametral allowance. Depth must be smaller than the shaft radius; allowance must preserve the flat engagement. Separate shaft bodies are left to CAD.', 'text'),
     'eccentric_bore_allowance': H('Cam bore diametral allowance · mm', 'Nonnegative diametral clearance added to the direct shaft bore, independently of disc and output-pin clearances.', 'Half this value is added to the bore radius. For a D bore its flat moves outward by the same radial amount. Key widths remain nominal catalog dimensions; actual fit classes and axial retention must be designed in CAD.', 'text'),
@@ -145,7 +145,7 @@ OPTIONS = {
     'hardware_keys': H('Compatible keys and keyways', 'Adds supported parallel keys and matching shaft/hub keyways.', 'Requires a compatible nominal diameter and enough axial and radial material. External mating hubs may remain outside the generated assembly.', 'section'),
     'hardware_bolts': H('Flange screws, nuts and holes', 'Adds the supported flange fastening pattern and standard hardware.', 'Availability depends on the assembly. The fixed-axis parallel and internal pairs do not provide this automatic bolt pattern.', 'bore'),
     'hardware_shims': H('Shims and spacers', 'Adds supported catalog shims and geometric spacers around shaft supports.', 'Changes the axial support stack without changing tooth count or ideal transmission ratio.', 'section'),
-    'io_scheme': H('Drive connections', 'Select the driven member and output member; the remaining third member is fixed to the frame.', 'Changing roles changes speeds, signs and interfaces. A two-member pair can reverse input/output; worm reversal does not prove backdrivability.', 'motion'),
+    'io_scheme': H('Drive connections', 'Select the driven member and output member; the remaining third member is fixed to the frame.', 'Changing roles changes speeds, signs and interfaces. Some pairs support changing the driving member.', 'motion'),
     'io_scheme2': H('Drive connections · stage 2', 'Select stage 2 input and output, with the third member fixed.', 'Stage 1 output drives stage 2 input. The total signed ratio combines both selected stage arrangements.', 'motion'),
 }
 
@@ -159,6 +159,8 @@ OPTION_LABELS = {
     'Differential configuration': 'configuration', 'Side / transverse tooth ratio': 'ratio_mode',
     'Output connection': 'output_interface', 'Carrier construction': 'carrier_style',
     'Local side spiral hand': 'spiral_hand', 'Eccentric shaft construction': 'eccentric_design',
+    'Ring roller bearings': 'ring_roller_bearing',
+    'Ring rollers': 'ring_roller_bearing',
     'Double helix construction': 'double_style', 'Standard fit': 'bearing_mode',
     'NSK bearing · d × D × B': 'bearing', 'Seat dimensions': 'fit',
     'Hardware and assembly': 'hardware_mode', 'Flange fasteners': 'hardware_screw',
@@ -167,10 +169,22 @@ OPTION_LABELS = {
 CHECK_LABELS = {OPTIONS[k].title: k for k in (
     'hardware_retaining', 'hardware_keys', 'hardware_bolts', 'hardware_shims')}
 
+SHAFT_CONNECTION_HELP = {
+    'flat': H('D-shaft flat depth · mm', 'Radial depth of the flat specified by the mating shaft drawing.',
+              'The depth must exceed the radial allowance and stay below the shaft radius.', 'text'),
+    'allowance': H('Shaft bore diametral allowance · mm', 'Diametral clearance relative to the mating shaft.',
+                   'Half the allowance is added radially. Key widths retain their nominal dimensions.', 'text'),
+    'clocking': H('Shaft connection clocking · degrees', 'Orientation of the flat or keyway in the local plane perpendicular to the shaft.',
+                  'Zero points toward local +X. Positive angles rotate toward local +Y as viewed from the positive end of the shaft axis.', 'text'),
+}
+
 
 def lookup(family, key, values=None):
     """Resolve a known control without silently inventing a generic fallback."""
     values = values or {}
+    from shaft_connections import field_port
+    if field_port(key):
+        return SHAFT_CONNECTION_HELP[key.rsplit('_', 1)[1]]
     from tooth_tips import KEYS
     tip_key = next((name for name in KEYS if key == name or key.endswith('_'+name)), None)
     if tip_key == 'topping_mm':
@@ -271,10 +285,13 @@ def lookup(family, key, values=None):
             'bore': replace(COMMON['bore'], title='Pinion bore diameter · mm', meaning='Through hole along the pinion shaft, world +X.', effect='Check remaining material at the small-end root; zero produces a solid blank. Shafts and retention are designed separately.'),
             'output_bore': replace(COMMON['output_bore'], title='Wheel bore diameter · mm', meaning='Through hole along the wheel shaft, world +Z.', effect='Check remaining material at the small-end root; zero produces a solid blank. Input/output swapping preserves these physical bore assignments.'),
             'input_rpm': replace(COMMON['input_rpm'], meaning='Signed speed of the selected input member about its own right-hand shaft axis.', effect='Pinion uses world +X; wheel uses world +Z. Reversing input changes both physical speeds; zero stops the complete pair.'),
-            'variant': H('Bevel tooth type', 'Straight, logarithmic spiral or circular Zerol-style trace on 90° shafts.', 'All use custom spherical involute working flanks and planar blanks. Zerol-style has zero mean spiral angle but a curved developed trace; it is not the industrial Gleason octoidal cutter geometry. Hypoid offset is not supported.', 'bevel', 'Σ = 90°'),
+            'variant': H('Bevel tooth type', 'Straight, spiral, Zerol-style or herringbone teeth on 90° shafts.', 'All use custom spherical involute working flanks and planar blanks. Zerol-style has zero mean spiral angle but a curved developed trace; it is not the industrial Gleason octoidal cutter geometry. Hypoid offset is not supported.', 'bevel', 'Σ = 90°'),
             'spiral_angle': replace(COMMON['spiral_angle'], effect='Sets a constant pitch-cone trace inclination for the logarithmic spiral. Zero exactly recovers the straight surfaces. Mate hand is derived opposite to the pinion hand.'),
             'spiral_hand': H('Pinion local trace hand · −1 / +1', 'Mirrors the pinion tooth trace about its own +X shaft frame.', 'The mating wheel uses the opposite local hand about +Z. This controls tooth geometry, independently of input/output roles or the sign of operating speed.', 'bevel', 'hp = −hw'),
         }
+        if values.get('variant') == 'herringbone':
+            changes['spiral_angle'] = replace(COMMON['spiral_angle'], effect='Sets the spiral inclination away from the centre. Zero produces straight tooth traces.')
+            changes['spiral_hand'] = replace(changes['spiral_hand'], effect='Sets the pinion heel-band hand. The pinion toe band and mating heel band each use the opposite hand.')
         result = changes.get(key, result)
     elif family == 'differential':
         classic = values.get('configuration') == 'classic'
@@ -295,6 +312,8 @@ def lookup(family, key, values=None):
             result = replace(COMMON[key], title='Disc thickness · mm', meaning='Axial thickness of each individual cycloidal disc.', effect='Dual-disc assemblies use two discs of this thickness plus their separate axial gap. The printed eccentric stack imposes its own fit constraints.')
         elif key == 'input_shaft':
             result = replace(COMMON[key], meaning='Diameter of the physical eccentric shaft on the main axis.', effect='The saved input-shaft name identifies this physical shaft even when another member drives the reducer. Its wall and eccentric seat must remain compatible.')
+        elif key == 'housing_wall':
+            result = H('Ring carrier wall · mm', 'Radial material outside the ring rollers.', 'Sets the outside diameter of the annular pin carrier.', 'bore')
     elif family == 'harmonic':
         if key == 'teeth':
             result = H('Flexspline teeth', 'Number zf of teeth on the flexible member.', 'The rigid ring has zf + 2 teeth. With wave input and fixed ring the ideal ratio is −zf/2; other member roles change the ratio.', 'wave', 'zc = zf + 2')
@@ -318,8 +337,10 @@ def lookup(family, key, values=None):
         members = {'planetary': 'sun, carrier and ring', 'cycloidal': 'eccentric shaft, pin flange and ring / housing', 'harmonic': 'wave generator, flexible gear and rigid ring'}
         if family in members:
             result = replace(result, meaning='Assign input and output among the '+members[family]+'. The remaining member is fixed to the frame.')
-        elif family in ('worm', 'parallel', 'internal', 'bevel', 'hypoid'):
-            result = replace(result, meaning='Choose which of the two meshing members is the input and which is the output.', effect='Reversing the roles changes the speed ratio and driving interface. There is no third fixed member; worm reversal does not establish backdrivability.')
+        elif family == 'worm':
+            result = H('Worm drive connections', 'The worm drives the wheel.', 'The speed ratio follows the worm starts, wheel tooth count and thread hand.', 'worm')
+        elif family in ('parallel', 'internal', 'bevel', 'hypoid'):
+            result = replace(result, meaning='Choose which of the two meshing members is the input and which is the output.', effect='Reversing the roles changes the speed ratio and driving interface. There is no third fixed member.')
     if family == 'parallel' and key == 'profile_shift':
         result = replace(result, effect='Applies x to the pinion and −x to the wheel. This balanced pair keeps the reference centre distance; a separate control adds working centre distance.')
     if key in ('teeth', 'pinion', 'wheel', 'module') and result.diagram == 'pitch':
@@ -372,14 +393,13 @@ def coverage_rows():
             if variant in ('double', 'two_stage_double', 'three_stage_double') and family != 'double' or family=='face' and variant=='double_helical':
                 options.add('double_style')
             if family == 'cycloidal':
-                options.add('eccentric_design')
-            if family == 'worm':
-                keys.add('worm_static_friction')
+                options.update(('eccentric_design', 'ring_roller_bearing'))
             if family == 'differential':
                 options.update(('configuration', 'ratio_mode', 'output_interface', 'carrier_style'))
             all_keys = keys | options
             from tooth_tips import specs as tip_specs
             tip_keys={s[0] for s in tip_specs(family,variant)}
-            missing = sorted(k for k in all_keys if k not in COMMON and k not in OPTIONS and k not in tip_keys)
+            from shaft_connections import field_port
+            missing = sorted(k for k in all_keys if k not in COMMON and k not in OPTIONS and k not in tip_keys and not field_port(k))
             rows.append(dict(family=family, variant=variant or 'standard', parameters=sorted(keys), options=sorted(options), missing=missing))
     return rows

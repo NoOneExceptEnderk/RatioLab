@@ -53,6 +53,8 @@ pub struct Part {
     pub(crate) frame: Vec<P3>,
     #[serde(default)]
     pub(crate) alternate_diagonal: bool,
+    #[serde(default)]
+    pub(crate) fixed_first_bore: bool,
     #[serde(default = "crate::sampling::default_tolerance")]
     pub(crate) surface_tolerance_mm: f64,
 }
@@ -306,10 +308,14 @@ impl Part {
                 Ok(
                     crate::sampling::refine_loops(self.loops(outer, z, index)?, refinements)?
                         .into_iter()
-                        .map(|l| {
-                            l.iter()
-                                .map(|q| self.point(*q, z, angle.to_radians()))
-                                .collect()
+                        .enumerate()
+                        .map(|(loop_index, l)| {
+                            let rotation = if self.fixed_first_bore && loop_index == 1 {
+                                0.
+                            } else {
+                                angle.to_radians()
+                            };
+                            l.iter().map(|q| self.point(*q, z, rotation)).collect()
                         })
                         .collect(),
                 )

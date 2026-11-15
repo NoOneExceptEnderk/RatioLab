@@ -318,7 +318,7 @@ def build_plan(d, previous=None, phase=0):
         we = rates['eccentric']
         wo = rates['output']
         for i, p in enumerate(parts):
-            if p.name.startswith('Disc_cycloidal'):
+            if p.name.startswith(('Disc_cycloidal', 'Bushing_disc_eccentric_')):
                 orbit(i, wo/ref, we/ref, p.center)
                 plan.rates[i] = (wo / ref, we / ref)
             elif p.name.startswith('Bearing_eccentric'):

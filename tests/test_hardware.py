@@ -59,7 +59,7 @@ class HardwareTests(unittest.TestCase):
                         self.assertGreater(signature(p)['volume_mm3'], 0)
 
     def test_bolt_holes_match_screw_positions_and_length(self):
-        d = generate('cycloidal', {'hardware_mode': 'standard', 'bearing_mode': 'gear'})
+        d = generate('planetary', {'hardware_mode': 'standard', 'bearing_mode': 'gear'})
         screws = [p for p in d.parts if p.procurement.get('standard') == 'ISO 4762']
         self.assertEqual(len(screws), 4)
         covers = [p for p in d.parts if p.name in ('Cover_input', 'Cover_output')]

@@ -61,7 +61,7 @@ class UpdateUITests(unittest.TestCase):
         self.application.win.destroy();self.config.stop();self.env.stop();self.selector.stop();self.directory.cleanup()
 
     def controller(self,fetch):
-        controller=update_ui.Controller(self.application,self.header,fetch=fetch,launch=self.opened.append)
+        controller=update_ui.Controller(self.application,self.header.pack_end,fetch=fetch,launch=self.opened.append)
         self.controllers.append(controller);return controller
 
     def test_new_release_badge_only_then_click_notes_without_browser(self):

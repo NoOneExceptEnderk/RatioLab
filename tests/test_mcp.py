@@ -56,6 +56,26 @@ class ProtocolTests(unittest.TestCase):
         self.assertEqual(self.server.process(request('tools/list',modern=False))['error']['code'],-32602)
         self.assertEqual(self.server.process(request('ping'))['error']['code'],-32601)
 
+    def test_wolfrom_explicit_search_and_confirmed_update(self):
+        def call(name, arguments):
+            response = self.server.process(request('tools/call', dict(name='ratiolab.'+name, arguments=arguments)))
+            result = response['result']
+            self.assertFalse(result['isError'], result)
+            return result['structuredContent']
+
+        model = call('project_create', dict(family='wolfrom'))
+        reference = dict(handle=model['handle'], revision=model['revision'])
+        search = call('search', dict(reference, axes={'output_ring': [135, 132]},
+                                     settings={'target': 1760, 'direction': 'opposite', 'tolerance_percent': 0}))
+        self.assertTrue(search['complete'])
+        self.assertEqual(search['search']['total'], 2)
+        self.assertEqual(len(search['search']['proposals']), 1)
+        proposal = search['search']['proposals'][0]
+        self.assertEqual(proposal['ratio'], -1760)
+        self.assertEqual(call('project_describe', reference)['parameters']['output_ring'], 135)
+        updated = call('project_update', dict(reference, parameters={'output_ring': proposal['values']['output_ring']}))
+        self.assertEqual(updated['parameters']['output_ring'], 132)
+
     def test_legacy_handshake_only_negotiates_implemented_version(self):
         params=dict(protocolVersion='2025-06-18',capabilities={},clientInfo=dict(name='test',version='1'))
         initialized=self.server.process(request('initialize',params,modern=False))['result']

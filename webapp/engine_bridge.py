@@ -91,6 +91,11 @@ def option_definitions(family):
     choices('hardware_shim', hardware.SHIM_THICKNESSES, '.5')
     for key in ('retaining', 'keys', 'bolts', 'shims'):
         fields['hardware_'+key] = dict(key='hardware_'+key, type='boolean', default=not (family in ('parallel', 'internal') and key == 'bolts'))
+    from shaft_connections import PORT_LABELS, PROFILES, ports, profile_key
+    for port in ports(family):
+        key = profile_key(port)
+        choices(key, PROFILES, 'standard')
+        fields[key].update(label=PORT_LABELS[port], shaft_connection_port=port)
     for key, default, low, high, step in [('seat_allowance', 0, -.08, .8, .01), ('shaft_allowance', 0, -.8, .08, .01), ('shoulder', 1, .5, 5, .1)]:
         fields[key] = dict(key=key, type='number', default=default, minimum=low, maximum=high, step=step)
     if family in geometry.VARIANTS:
@@ -103,11 +108,15 @@ def option_definitions(family):
             choices('io_scheme2', kinematics.options(family), kinematics.default(family))
     if family == 'harmonic':
         choices('harmonic_output', geometry.HARMONIC_OUTPUTS, 'flex')
-    if family == 'worm':
-        fields['worm_static_friction'] = dict(key='worm_static_friction', type='number', default=None, minimum=0, optional=True)
     if family == 'cycloidal':
         from printed_shaft import DESIGNS
         choices('eccentric_design', DESIGNS, 'integral')
+        choices('ring_roller_bearing', bearings.RING_ROLLER_CHOICES, 'none')
+        fields['ring_roller_bearing']['label'] = 'Ring rollers'
+    from bushings import fields as bushing_fields
+    for key, label, values in bushing_fields(family):
+        choices(key, values, 'none')
+        fields[key].update(label=label, bushing_option=True)
     if family == 'differential':
         import differential_wrist as wrist
         for key, source in [('configuration', wrist.CONFIGURATIONS), ('output_interface', wrist.OUTPUT_INTERFACES), ('carrier_style', wrist.CARRIER_STYLES), ('ratio_mode', wrist.RATIO_MODES)]:
@@ -185,6 +194,8 @@ def schema(family, parameters=None):
         from printed_shaft import DIRECT_FIELDS, direct_field_active
         inactive.update(key for key,*_ in DIRECT_FIELDS
                         if not direct_field_active(key,supplied.get('eccentric_design','integral')))
+    from shaft_connections import field_active, field_port, fields as connection_fields, ports, profile_key, targets
+    inactive.update(key for key, *_ in connection_fields(family) if not field_active(key, supplied))
     fields = []
     advanced = set(editor_metadata().get('advanced', ADVANCED))
     for key, label, default, low, high, step in specs:
@@ -195,15 +206,25 @@ def schema(family, parameters=None):
         tips = tip_group(family,supplied.get('variant'),key)
         if tips:
             fields[-1]['tooth_tip_group'] = tips[1]
+        if port := field_port(key):
+            fields[-1]['shaft_connection_port'] = port
     options = option_definitions(family)
+    if ports(family):
+        available = targets(family, supplied)
+        for port in ports(family):
+            if port not in available:
+                options[profile_key(port)]['shaft_connection_unavailable'] = True
     multistage = family == 'parallel' and supplied.get('variant') in geometry.PARALLEL_MULTISTAGE_VARIANTS
     if multistage:
         from parallel_multistage import count
         n = count(supplied)
         for choice in options['io_scheme']['choices']:
             choice['label'] = f'Shaft 1 → shaft {n+1}' if choice['value'] == 'forward' else f'Shaft {n+1} → shaft 1'
+    from bushings import unavailable as bushing_unavailable
     for key, field in options.items():
         field.update(help=help_for(family, key, supplied))
+        if field.get('bushing_option'):
+            field['unavailable_reason'] = bushing_unavailable(key, supplied)
     presentation = {}
     if family == 'cycloidal':
         from printed_shaft import interface_presets
@@ -391,6 +412,7 @@ class Engine:
 
     def pack_design(self, design, plan):
         """Pack an independent assembly without replacing the active source."""
+        from component_geometry import preview_explosion_layout
         import stl_export
         from solid_geometry import PALETTE,profile_report,sampling_report
         from engineering import geometry_warnings
@@ -399,7 +421,7 @@ class Engine:
         values = design.values
         if len(design.parts) > 256:
             raise BridgeError('resource_limit', 'The browser supports at most 256 components.')
-        parts, triangles = [], 0
+        parts, boxes, triangles = [], [], 0
         lower, upper = [float('inf')]*3, [-float('inf')]*3
         for index, part in enumerate(design.parts):
             from rust_surfaces import surface
@@ -419,6 +441,7 @@ class Engine:
                     raise BridgeError('invalid_geometry',str(error)+': '+part.name) from error
                 raise
             triangles+=packed['triangles'];lo,hi=packed['bounds']
+            boxes.append((lo, hi))
             mesh=dict(positions=self.add_buffer(positions),normals=self.add_buffer(normals),vertex_count=len(positions)//12)
             if materials:mesh['material']=self.add_buffer(materials)
             for axis in range(3):
@@ -429,11 +452,16 @@ class Engine:
                               center=part.center, frame=part.frame, axis_x=part.axis_x,
                               profile_geometry=profile_report(shown), manufacturing=part.manufacturing,
                               preview_sampling=sampling_report(shown)))
+        offsets, explosion_minimum, explosion_gradual_views = preview_explosion_layout(design, boxes)
+        for part, offset in zip(parts, offsets):
+            part['explosion_offset_mm'] = offset
         return dict(design_id=self.design_id, family=design.family, values=design.values, metrics=design.metrics,
                     notes=design.notes, warnings=geometry_warnings(design), requirements=design.requirements,
                     analysis=design.analysis, quality=design.quality, representation=summary(design), parts=parts, triangle_count=triangles,
                     tool_capabilities=capabilities(design),
-                    bounds_mm=dict(minimum=lower, maximum=upper), motion=self.motion_metadata(design, plan), limitations=LIMITATIONS)
+                    bounds_mm=dict(minimum=lower, maximum=upper), explosion_minimum=explosion_minimum,
+                    explosion_gradual_views=explosion_gradual_views,
+                    motion=self.motion_metadata(design, plan), limitations=LIMITATIONS)
 
     def motion_metadata(self, design=None, plan=None):
         design, plan = design or self.design, plan or self.plan
@@ -476,6 +504,10 @@ class Engine:
         return self.remember('documents', dict(bom=bill, bom_text=bom.as_text(bill), analysis=design.analysis,
                             report_text=report, scope=getattr(design, 'export_scope', None)), bom.as_text(bill)+'\n'+report)
 
+    def bom_view(self, args):
+        from bom import presentation
+        return dict(design_id=self.design_id, **presentation(self.require(args)))
+
     def metrology(self, args):
         design = self.require(args)
         import gear_measurement as measurement
@@ -502,10 +534,74 @@ class Engine:
     def search_schema(self, args):
         design = self.require(args)
         import combination_search as search
-        return dict(design_id=self.design_id, supported=design.family in search.FAMILIES,
+        supported = design.family in search.FAMILIES
+        return dict(design_id=self.design_id, supported=supported,
                     variables=[dict(key=s[0], label=s[1], default=s[2], minimum=s[3], maximum=s[4], step=s[5],
                                     integer=s[0] in geometry.INTEGER, current=design.values.get(s[0])) for s in search.variables(design.family, design.values)],
-                    settings=asdict(search.Settings()), max_results=100)
+                    settings=asdict(search.Settings()), max_results=100,
+                    quick=self.quick_search_schema(design) if supported else None)
+
+    @staticmethod
+    def quick_search_schema(design):
+        import quick_combination_search as quick
+        from shaft_connections import PORT_LABELS, PROFILES, profile_key, targets
+        family, base = design.family, design.values
+        variants = []
+        for variant, label in quick.available_variants(family, base['variant']).items():
+            values = dict(base, variant=variant)
+            ports = targets(family, values)
+            variants.append(dict(value=variant, label=label, stages=quick.stage_count(family, variant),
+                teeth=quick.variant_teeth(family, variant), bearings=list(quick.bearing_modes(family, values)),
+                ports={profile_key(port): None if port in ports else quick.fixed_connection(family, values, port)
+                       for port in ('input', 'output')}))
+        return dict(radial=family in quick.RADIAL, variants=variants, teeth=quick.TEETH,
+                    modes=bearings.MODES, bearings={key: b.label for key, b in bearings.BEARINGS.items()},
+                    profiles=PROFILES, port_labels={profile_key(port): PORT_LABELS[port] for port in ('input', 'output')},
+                    fixed_bearing='NSK 6804' if base.get('eccentric_design') == 'fdm_bolted' else None)
+
+    def search_quick(self, args):
+        design = self.require(args)
+        import combination_search as search
+        import quick_combination_search as quick
+        if design.family not in search.FAMILIES:
+            raise BridgeError('invalid_arguments', 'Choose a supported reducer with a single input/output ratio.')
+        target_text = args.get('ratio')
+        if not isinstance(target_text, str) or len(target_text) > 64:
+            raise BridgeError('invalid_arguments', 'Enter a positive ratio magnitude, for example 5:1.')
+        target, direction = quick.parse_ratio(target_text)
+        meta = self.quick_search_schema(design)
+        variants = args.get('variants')
+        available = {item['value']: item for item in meta['variants']}
+        if (not isinstance(variants, list) or not variants or len(variants) > len(available)
+                or any(not isinstance(v, str) or v not in available for v in variants)):
+            raise BridgeError('invalid_arguments', 'Choose a supported construction.')
+        variants = tuple(dict.fromkeys(variants))
+        options = args.get('construction', {})
+        allowed = dict(bearing_mode=meta['modes'], bearing=meta['bearings'],
+                       **{key: meta['profiles'] for key in meta['port_labels']})
+        if not isinstance(options, dict) or any(key not in allowed or not isinstance(value, str)
+                or value not in allowed[key] for key, value in options.items()):
+            raise BridgeError('invalid_arguments', 'Invalid construction settings.')
+        limits = args.get('limits', {})
+        expected = {'diameter'} if meta['radial'] else {'x', 'y'}
+        if not isinstance(limits, dict) or limits.keys()-expected:
+            raise BridgeError('invalid_arguments', 'Invalid assembly size limits.')
+        limits = {key: number(value, key) for key, value in limits.items()}
+        if any(value <= 0 for value in limits.values()):
+            raise BridgeError('invalid_arguments', 'Enter a positive size in mm.')
+        maximum = sys.float_info.max
+        settings = search.Settings(target=target, direction=direction,
+            max_xyz=(limits.get('x', maximum), limits.get('y', maximum), maximum),
+            max_candidates=80, max_seconds=15, max_results=12)
+        result = quick.quick_search(design.family, deepcopy(design.values), variants, options,
+            settings, limits.get('diameter'), progress=self.progress, quality=design.quality)
+        result.revision = self.design_id
+        data = asdict(result)
+        data.update(quick=True, complete=result.complete, partial=not result.complete)
+        for row, proposal in zip(data['proposals'], result.proposals):
+            row['xyz'] = proposal.xyz
+            row['size_text'] = quick.size_text(design.family, proposal)
+        return self.remember('search', data, result.text())
 
     def search(self, args):
         design = self.require(args)
@@ -525,7 +621,7 @@ class Engine:
             else:
                 raise BridgeError('invalid_arguments', 'Each grid must be a string or 1 to 1000 finite numbers.')
         self.proposal = None
-        result = search.search(design.family, deepcopy(design.values), axes, settings, progress=self.progress)
+        result = search.search(design.family, deepcopy(design.values), axes, settings, progress=self.progress, quality=design.quality)
         result.revision = self.design_id
         data = asdict(result)
         data.update(complete=result.complete, partial=not result.complete)
@@ -539,7 +635,7 @@ class Engine:
             raise BridgeError('stale_query', 'This query is no longer current; run it again.')
         return self.query
 
-    def search_apply(self, args):
+    def search_apply(self, args, *, preview=False):
         query = self.require_query(args, 'search')
         import combination_search as search
         data = query['data']
@@ -552,17 +648,29 @@ class Engine:
         checked = geometry.generate(self.design.family, deepcopy(row['values']),quality=self.design.quality)
         settings = settings_check(search.Settings, data['settings'])
         lo, hi = search.nominal_bounds(checked)
-        if (checked.values != row['values'] or any(checked.values.get(k) != v for k, v in data['base'].items() if k not in data['axes'])
-                or any(checked.values[k] not in grid for k, grid in data['axes'].items())
+        quick = data.get('quick', False)
+        outside = search.exceeds_quick_limit if quick else lambda length, limit: length > limit
+        max_diameter = data.get('max_diameter')
+        if (checked.values != row['values']
+                or not quick and search.locked_values(checked.values, data['axes']) != search.locked_values(data['base'], data['axes'])
+                or not quick and any(checked.values[k] not in grid for k, grid in data['axes'].items())
+                or max_diameter is not None and outside(search.nominal_diameter(checked), max_diameter)
                 or not search.matches(checked.analysis['signed_ratio'], settings)
                 or checked.analysis['signed_ratio'] != row['ratio']
-                or any(b-a > limit for a, b, limit in zip(lo, hi, settings.max_xyz))
+                or any(outside(b-a, limit) for a, b, limit in zip(lo, hi, settings.max_xyz))
                 or tuple(lo) != tuple(row['minimum']) or tuple(hi) != tuple(row['maximum'])):
             raise BridgeError('invalid_proposal', 'Fresh candidate no longer matches the finite search proposal.')
         if settings.min_profile_contact > 0:
             contact = [m.get('profile_contact_total') for m in checked.analysis.get('meshes', [])]
             if not contact or any(v is None or v < settings.min_profile_contact for v in contact):
                 raise BridgeError('invalid_proposal', 'Fresh candidate does not meet the usable contact ratio limit.')
+        if preview:
+            if not quick:
+                raise BridgeError('invalid_arguments', 'Preview requires a quick search proposal.')
+            return dict(candidate=self.pack_design(checked, motion.build_plan(checked)))
+        if quick:
+            return dict(design_id=self.design_id, query_id=query['query_id'],
+                        values=deepcopy(checked.values), schema=schema(checked.family, checked.values))
         # Canonical values can contain hidden fields (joined helices retain
         # gap=0). Apply only freshly checked unlocked changes to the editor,
         # preserving locked raw entries and their original precision.
@@ -753,7 +861,11 @@ class Engine:
                 else:
                     folder.mkdir()
                     if kind == 'stl': stl_export.export(design, folder/'model')
-                    if kind == 'step': cad_export.write_files(design, folder)
+                    if kind == 'step':
+                        if design.family == 'bevel' and design.values['variant'] == 'herringbone':
+                            cad_export.write_files(design, folder, max_step_bytes=MAX_EXPORT_BYTES-1024*1024)
+                        else:
+                            cad_export.write_files(design, folder)
                     if kind in ('svg', 'dxf', 'profiles'): profile_export.write_files(design, folder)
                     if kind == 'bom': bom.export(design, folder/'model')
                     if kind == 'report':
@@ -815,6 +927,9 @@ class Engine:
             parameters = project.get('parameters')
             if not isinstance(parameters, dict) or not all(isinstance(key, str) for key in parameters):
                 raise BridgeError('invalid_parameters', 'Parameters must be an object with string keys.')
+            if family == 'bevel' and parameters.get('variant') == 'double_spiral':
+                # Reject this saved construction before filtering old fields.
+                geometry.get_specs(family, 'double_spiral')
             # Desktop project loading ignores retired and unknown settings. Keep
             # this compatibility at the import boundary; live RPCs stay strict.
             if family == 'wolfrom':
@@ -823,7 +938,10 @@ class Engine:
                     raise BridgeError('invalid_parameters', 'Unsupported Wolfrom parameter(s): '+', '.join(sorted(unsupported)))
             from precise_numbers import SOURCE_KEY
             known = numeric_parameter_keys(family) | option_definitions(family).keys() | {SOURCE_KEY}
-            result = self.generate(family, {key: value for key, value in parameters.items() if key in known}, project.get('quality'), project.get('component_sheets'))
+            compatible = kinematics.migrate_saved_parameters(family, parameters)
+            result = self.generate(family, {key: value for key, value in compatible.items() if key in known}, project.get('quality'), project.get('component_sheets'))
+            if compatible.get('io_scheme') != parameters.get('io_scheme'):
+                result['migrated_worm_drive'] = True
             result['ignored_parameters'] = sorted(parameters.keys() - known)
             return result
         if method == 'project':
@@ -831,7 +949,8 @@ class Engine:
             return dict(design_id=self.design_id, project=self.project())
         if method == 'pose': return self.pose(args)
         if method == 'export': return self.export(args)
-        if method in ('documents', 'metrology', 'search_schema', 'search', 'search_apply', 'interference',
+        if method == 'search_preview': return self.search_apply(args, preview=True)
+        if method in ('documents', 'bom_view', 'metrology', 'search_schema', 'search', 'search_quick', 'search_apply', 'interference',
                       'backlash', 'proposal_apply', 'query_export', 'rates', 'motion_reset', 'pick', 'surface_distance'):
             return getattr(self, method)(args)
         if method == 'clear':

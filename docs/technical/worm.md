@@ -50,9 +50,7 @@ The worm rotates positively about world **+X**, the wheel about **+Z**, and the
 wheel centre is `(0,-a,0)`. The signed ratio is `h*z/s`; therefore
 `omega_wheel = h*s/z * omega_worm`. Reversing the input reverses both speeds;
 changing hand reverses the wheel speed. No backdrivability or self-locking
-conclusion follows from this relation. A separate optional static tooth-friction
-screen refuses wheel driving at or above its geometric friction limit; missing
-friction remains indeterminate. See the [criterion, source and limits](calculations.md#static-worm-backdrivability).
+conclusion follows from this relation. RatioLab supports worm input and wheel output.
 
 Houser and Su, **Definition and Inspection of Profile and Lead of a Worm Wheel**,
 Gear Technology, Nov/Dec 1999, pp. 18–19, Eq. (4), replace screw rotation by axial

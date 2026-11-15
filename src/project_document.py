@@ -174,7 +174,14 @@ def validate_snapshot(value, families):
                 or not all(isinstance(key, str) and key in value['raw'].get(family, {})
                            for key in keys)):
             raise ValueError('Invalid recovery numeric display metadata')
-    return deepcopy(value)
+    result = deepcopy(value)
+    from kinematics import migrate_saved_parameters
+    if 'worm' in result['values']:
+        result['values']['worm'] = migrate_saved_parameters('worm', result['values']['worm'])
+        result['raw'].get('worm', {}).pop('worm_static_friction', None)
+        if 'worm' in result.get('automatic', {}):
+            result['automatic']['worm'] = [key for key in result['automatic']['worm'] if key != 'worm_static_friction']
+    return result
 
 
 class Store:

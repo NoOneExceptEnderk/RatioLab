@@ -23,6 +23,19 @@ fn spherical(theta: f64, base: f64) -> Result<f64> {
     Ok(t / base.sin() - t.sin().atan2(base.sin() * t.cos()))
 }
 #[derive(Clone, Serialize, Deserialize)]
+pub(crate) struct OpposedTrace {
+    pub(crate) reversal_distance: f64,
+    pub(crate) log_half_width: f64,
+}
+impl OpposedTrace {
+    fn offset(&self, r: f64) -> f64 {
+        let u = (r / self.reversal_distance).ln().abs();
+        let e = self.log_half_width;
+        if u < e { (u * u + e * e) / (2. * e) } else { u }
+    }
+}
+
+#[derive(Clone, Serialize, Deserialize)]
 pub struct Profile {
     pub(crate) teeth: u32,
     pub(crate) delta: f64,
@@ -38,6 +51,8 @@ pub struct Profile {
     pub(crate) trace_radius: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) trace_hand: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) opposed_trace: Option<OpposedTrace>,
 }
 impl Profile {
     pub(crate) fn half(&self, theta: f64) -> f64 {
@@ -86,6 +101,15 @@ impl Profile {
                 if m.is_finite() && r.is_finite() && m > 0. && r > 0. && h.abs() == 1. => {}
             _ => return Err("Invalid circular spherical trace".into()),
         }
+        if let Some(trace) = &p.opposed_trace
+            && (p.mean_distance.is_some()
+                || !trace.reversal_distance.is_finite()
+                || !(0. < trace.reversal_distance && trace.reversal_distance < p.outer_distance)
+                || !trace.log_half_width.is_finite()
+                || trace.log_half_width < 0.)
+        {
+            return Err("Invalid opposed spherical trace".into());
+        }
         Ok(p)
     }
 
@@ -111,13 +135,17 @@ impl Profile {
                 * (self.developed_angle(distance)? - self.developed_angle(self.outer_distance)?)
                 / self.delta.sin())
         } else if distance > 0. && distance.is_finite() {
-            Ok(self.k * (distance / self.outer_distance).ln())
+            Ok(self.k
+                * match &self.opposed_trace {
+                    Some(trace) => trace.offset(distance) - trace.offset(self.outer_distance),
+                    None => (distance / self.outer_distance).ln(),
+                })
         } else {
             Err("Positive spherical trace distance required".into())
         }
     }
     pub(crate) fn section_trace(&self, z: f64, theta: f64) -> f64 {
-        if self.mean_distance.is_some() {
+        if self.mean_distance.is_some() || self.opposed_trace.is_some() {
             self.trace(z / theta.cos()).unwrap_or(f64::NAN)
         } else {
             self.k * (z / (theta.cos() * self.outer_distance)).ln()
@@ -174,6 +202,7 @@ pub(crate) fn parameters(a: &Value) -> Result<Profile> {
         mean_distance: None,
         trace_radius: None,
         trace_hand: None,
+        opposed_trace: None,
     };
     if !(0. < q.half(tip) && q.half(tip) < q.half(root) && q.half(root) < PI / z) {
         return Err("Pointed or overlapping spherical bevel teeth; reduce backlash or increase tooth count.".into());
@@ -183,6 +212,7 @@ pub(crate) fn parameters(a: &Value) -> Result<Profile> {
 pub(crate) fn engagement(a: &Profile, b: &Profile, width: f64) -> Result<Value> {
     let outer = a.outer_distance;
     let inner = outer - width;
+    let slope = a.k;
     if !(0. < inner && inner < outer) {
         return Err("Bevel engagement requires a positive inner cone distance.".into());
     }
@@ -205,10 +235,10 @@ pub(crate) fn engagement(a: &Profile, b: &Profile, width: f64) -> Result<Value> 
     if slo < 0. && 0. < shi {
         candidates.push(0.);
     }
-    if a.k != 0. {
+    if slope != 0. {
         for sign in [-1., 1.] {
             for offset in [ga, -gb] {
-                let crit = (1. / (sign * a.k * a.base.sin())).atan() - offset;
+                let crit = (1. / (sign * slope * a.base.sin())).atan() - offset;
                 for winding in [-1., 0., 1.] {
                     let v = crit + winding * PI;
                     if slo < v && v < shi {
@@ -229,7 +259,7 @@ pub(crate) fn engagement(a: &Profile, b: &Profile, width: f64) -> Result<Value> 
         }
         for r in [lo, hi] {
             for (i, sign) in [-1., 1.].iter().enumerate() {
-                phases[i].push(s / a.base.sin() - sign * a.k * (r / outer).ln());
+                phases[i].push(s / a.base.sin() - sign * slope * (r / outer).ln());
             }
         }
     }
@@ -248,7 +278,43 @@ pub(crate) fn engagement(a: &Profile, b: &Profile, width: f64) -> Result<Value> 
         "scope":"Ideal unmodified working flanks, independent of load and manufacturing error"}),
     )
 }
-pub(crate) fn section(q: &Profile, z: f64, phase: f64, tolerance: f64) -> Result<Vec<Point>> {
+// Refine each flank in every sampled cross-section before sweeping a common
+// vertex sequence. A heel-only chord can miss curvature at the joined V.
+fn flank_samples(
+    q: &Profile,
+    z: f64,
+    side: f64,
+    low: f64,
+    high: f64,
+    tolerance: f64,
+    probe_z: &[f64],
+) -> Result<Vec<f64>> {
+    let mut breaks = vec![low, high];
+    for &axial in std::iter::once(&z).chain(probe_z) {
+        let (_, spans) = crate::profiles::sample_with_domains(
+            &|t| q.section_point(t, axial, side, 0.),
+            low,
+            high,
+            tolerance,
+        )?;
+        breaks.extend(spans.into_iter().map(|(a, _)| a));
+    }
+    breaks.sort_by(f64::total_cmp);
+    breaks.dedup();
+    if low > high {
+        breaks.reverse();
+    }
+    breaks.pop();
+    Ok(breaks)
+}
+
+pub(crate) fn section_for_sweep(
+    q: &Profile,
+    z: f64,
+    phase: f64,
+    tolerance: f64,
+    probe_z: &[f64],
+) -> Result<Vec<Point>> {
     if z <= 0. || !z.is_finite() || !phase.is_finite() || !tolerance.is_finite() || tolerance <= 0.
     {
         return Err("Spherical bevel section must be above the cone apex".into());
@@ -263,6 +329,24 @@ pub(crate) fn section(q: &Profile, z: f64, phase: f64, tolerance: f64) -> Result
         levels.push(q.base);
     }
     levels.push(q.tip);
+    let flank = |side| {
+        let mut values = Vec::new();
+        let mut polar = levels.clone();
+        if side > 0. {
+            polar.reverse();
+        }
+        for pair in polar.windows(2) {
+            values.extend(flank_samples(
+                q, z, side, pair[0], pair[1], tolerance, probe_z,
+            )?);
+        }
+        Ok::<_, String>(values)
+    };
+    let refined = if probe_z.is_empty() {
+        None
+    } else {
+        Some([flank(-1.)?, flank(1.)?])
+    };
     let mut points = Vec::new();
     let append = |points: &mut Vec<Point>, mut p: Vec<Point>| {
         p.pop();
@@ -289,33 +373,49 @@ pub(crate) fn section(q: &Profile, z: f64, phase: f64, tolerance: f64) -> Result
             &mut points,
             arc(q.root, root_phase - pitch / 2., root_phase - q.half(q.root))?,
         );
-        for p in levels.windows(2) {
-            append(
-                &mut points,
-                sample(
-                    &|theta| q.section_point(theta, z, -1., center),
-                    p[0],
-                    p[1],
-                    tolerance,
-                    false,
-                )?,
+        if let Some(refined) = &refined {
+            points.extend(
+                refined[0]
+                    .iter()
+                    .map(|t| q.section_point(*t, z, -1., center)),
             );
+        } else {
+            for p in levels.windows(2) {
+                append(
+                    &mut points,
+                    sample(
+                        &|theta| q.section_point(theta, z, -1., center),
+                        p[0],
+                        p[1],
+                        tolerance,
+                        false,
+                    )?,
+                );
+            }
         }
         append(
             &mut points,
             arc(q.tip, tip_phase - q.half(q.tip), tip_phase + q.half(q.tip))?,
         );
-        for p in levels.windows(2).rev() {
-            append(
-                &mut points,
-                sample(
-                    &|theta| q.section_point(theta, z, 1., center),
-                    p[1],
-                    p[0],
-                    tolerance,
-                    false,
-                )?,
+        if let Some(refined) = &refined {
+            points.extend(
+                refined[1]
+                    .iter()
+                    .map(|t| q.section_point(*t, z, 1., center)),
             );
+        } else {
+            for p in levels.windows(2).rev() {
+                append(
+                    &mut points,
+                    sample(
+                        &|theta| q.section_point(theta, z, 1., center),
+                        p[1],
+                        p[0],
+                        tolerance,
+                        false,
+                    )?,
+                );
+            }
         }
         append(
             &mut points,
@@ -329,6 +429,9 @@ pub(crate) fn section(q: &Profile, z: f64, phase: f64, tolerance: f64) -> Result
         return Err("Spherical bevel contour exceeds its vertex budget.".into());
     }
     Ok(points)
+}
+pub(crate) fn section(q: &Profile, z: f64, phase: f64, tolerance: f64) -> Result<Vec<Point>> {
+    section_for_sweep(q, z, phase, tolerance, &[])
 }
 fn spiral_trace(distance: f64, outer: f64, angle: f64, beta: f64, hand: f64) -> Result<f64> {
     let ratio = distance / outer;

@@ -53,6 +53,47 @@ class ComponentTests(unittest.TestCase):
             expected=[point(p,(x,y),z,0) for z in (0,4) for x,y in [(10,0),(-10,0),(0,10),(0,-10)]]
             for i in range(3):self.assertAlmostEqual(a['min_mm'][i],min(q[i] for q in expected));self.assertAlmostEqual(a['max_mm'][i],max(q[i] for q in expected))
 
+    def test_section_pick_hits_cut_material_but_preserves_the_bore(self):
+        surfaces=[(0,cg.triangles(model().parts[0]))]
+        cut=cg.pick((5,20,2),(0,-1,0),surfaces,section_y=0)
+        self.assertEqual(cut,(0,(5,0,2),None))
+        bore=cg.pick((0,20,2),(0,-1,0),surfaces,section_y=0)
+        self.assertAlmostEqual(bore[1][1],-3)
+        self.assertIsNotNone(bore[2])
+        reverse=cg.pick((5,-20,2),(0,1,0),surfaces,section_y=0)
+        self.assertLess(reverse[1][1],0)
+        self.assertIsNotNone(reverse[2])
+
+    def test_native_preview_pick_matches_sampled_facets(self):
+        from rust_surfaces import surface
+        from motion import MotionPlan
+
+        d = model()
+        plan = MotionPlan(poses={0: lambda _: rotation(math.pi / 2, axis=(0, 1, 0))})
+        for matrix, shift, origin, direction, section, limit in (
+            (None, (0, 0, 0), (0, 0, 20), (0, 0, -1), None, 50),
+            (None, (0, 0, 0), (5, 20, 2), (0, -1, 0), 0, 50),
+            (None, (0, 0, 0), (0, 20, 2), (0, -1, 0), 0, 50),
+            (None, (0, 0, 0), (5, -20, 2), (0, 1, 0), 0, 50),
+            (None, (0, 0, 0), (5, 0, 20), (0, 0, -1), None, 10),
+            (None, (0, 0, 5), (5, 0, 20), (0, 0, -1), None, 50),
+            (plan.matrix(0, 0), (0, 0, 0), (30, 5, 0), (-1, 0, 0), 0, 50),
+        ):
+            with self.subTest(matrix=matrix, shift=shift, origin=origin, section=section, limit=limit):
+                first = cg.displayed_part(d, 0, shift=shift)
+                facets = cg.triangles(first)
+                if matrix is not None:
+                    facets = cg.posed(facets, plan, 0, 0)
+                # Include a coincident surface to exercise the first-hit tie rule.
+                second = cg.triangles(d.parts[1])
+                old = cg.pick(origin, direction, [(0, facets), (1, second), (2, facets)],
+                              section_y=section, max_distance=limit)
+                new = cg.pick_displayed(origin, direction,
+                                        [(0, surface(first), matrix), (1, surface(d.parts[1]), None),
+                                         (2, surface(first), matrix)],
+                                        section_y=section, max_distance=limit)
+                self.assertEqual(new, old)
+
     def test_subset_exact_indices_duplicates_all_formats_bom_and_manifest(self):
         d=model();before=deepcopy(d)
         with TemporaryDirectory() as temp:

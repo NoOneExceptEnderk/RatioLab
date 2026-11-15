@@ -56,6 +56,7 @@ def harmonic(d):
     from rust_geometry import call_geometry
     result=call_geometry('construction_harmonic',dict(values=v))
     parts=[part_from_kernel(p['name'],p) for p in result['parts']]
+    next(p for p in parts if p.name == 'Bearing_wave_envelope').bom_kind = 'wave_bearing'
     d.parts.extend(parts)
     analysis=result['analysis']
     ratio=analysis['signed_ratio'];a,b=analysis['pitch_ellipse_semiaxes_mm']

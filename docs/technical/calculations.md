@@ -480,7 +480,25 @@ For planetary gears, the coaxiality, equal-spacing and inter-planet distance con
 
 The profile remains the inward normal offset of the roller-centre trajectory. **Profile clearance**, **output-hole clearance**, **assembly axial clearance** and **distance between the two discs** are distinguished. The output-hole radius is r pin + eccentricity + output clearance. If an old configuration does not specify the new values, the old profile clearance and old axial clearance are used, respectively.
 
-Adaptive sampling compares the midpoint and quarter points of each interval with the chord. This is a numerical threshold, not a manufacturing tolerance or a proven global bound. The curvature check uses at least 4096 samples and a 2% margin against offset cusps; it is not an analytical proof of cusp absence for every parameter. The ratio is −(N rollers − 1).
+Adaptive sampling compares the midpoint and quarter points of each interval with the chord. The numerical threshold controls the sampled profile. The curvature check uses at least 4096 samples and a 2% margin against offset cusps. With eccentric input and the ring fixed, the signed ratio is −(N − 1) for N ring pins.
+
+In **Assembly → Bearings & fits**, **Ring rollers** defaults to **Plain pins**. Selecting an NSK size places one bearing on each pin at the axial centre of each disc. Its bore sets the pin diameter and its outside radius supplies the same normal-offset calculation. A selected bearing must fit inside the disc thickness. [NSK 692 dimensions](https://www.nsk.com/eu-en/engineering/692-esm-md.html), [bearing rollers on a cycloidal ring, section 2.1.1](https://doi.org/10.3390/robotics13110168).
+
+Selecting an **igus bushing** places a cylindrical sleeve in a separate roller
+shell at each pin and disc. The **Ring contact radius** still controls the disc
+profile and equals the outside radius of the shell. The shell bore is the
+nominal seat diameter from the catalog; its length matches the sleeve, which
+must fit inside the disc width. The minimum modeled shell wall is 0.5 mm,
+a geometric guard. For example, with a contact radius of 3 mm and GSM-0304-05,
+the shell is Ø6 mm outside, Ø4.5 mm at the seat and 5 mm long. The Ø3 mm pin
+runs inside the installed sleeve (modeled at the catalog minimum of Ø3.014 mm).
+See [igus, iglide G, metric sleeve table, p. 98](https://www.igus.com/ContentData/Products/Downloads/iglide_G300_FM_USen.pdf).
+The BOM lists the sleeve for purchase and the shell for manufacture.
+Define the pin attachment, axial retention, actual fits and load/wear checks
+in CAD. Preview follows the ring position; it does not solve individual roller
+spin. Ring output retains integral lobes.
+
+The ring wall spans the disc stack. Its bore clears the swept disc. With plain pins, the same solid ring with integral cylindrical lobes serves as the fixed housing or as the output. Separate rollers use matching pockets in the wall. For 16 ring lobes and eccentric input, the ring turns +1/16 revolution per input revolution when the pin flange is fixed. Define external support, frame attachment, fits and axial retention in CAD. [Cycloidal ring output and fixed carrier, figure 20](https://patents.google.com/patent/US9321595B2/en#description).
 
 Apply that formula to the [15:1 cycloidal drive generator example](../tutorials/cycloidal-drive-generator.md), which includes a downloadable project with 16 ring rollers and a 15-lobe disc.
 
@@ -520,56 +538,10 @@ The footer **Calculation report** shows results and warnings; **Export… → BO
 
 ## Kinematic arrangements
 
-The ratio is input/output. Planetary, cycloidal and strain wave solve all six member permutations with zero speed for the fixed member. The two-stage planetary propagates speed and sign between the two stages. Parallel-axis, internal-ring and worm pairs allow input and output to be reversed; for the worm, this does not guarantee backdrivability. See [IO-MODELS.md](io-models.md).
+The ratio is input/output. Planetary, cycloidal and strain wave solve all six member permutations with zero speed for the fixed member. The two-stage planetary propagates speed and sign between the two stages. Parallel-axis and internal-ring pairs allow input and output to be swapped. Worm drives use worm input and wheel output. See [IO-MODELS.md](io-models.md).
 
 
-## Static worm backdrivability
-
-The driving member is selected by `io_scheme`: `reverse` means wheel input,
-whereas motor-speed sign changes rotation direction only and is not a
-backdrivability criterion. Existing per-family numeric speed ranges still apply:
-worm operating data currently accepts 0 to 100000 rpm. Both ZA and ZI
-use their reference-cylinder lead and normal pressure angles for this limited
-static tooth-contact screen. Lengths `mx` (axial module) and `d` (worm pitch
-diameter) are in mm; starts `s` is dimensionless; pressure `alpha_x` is the axial
-pressure angle in degrees in the interface. Angles in the equations are radians.
-The optional `worm_static_friction` is the explicit nonnegative, finite static
-tooth-contact friction coefficient `mu`; there is no default or material table.
-
-```
-gamma = atan(mx*s/d)
-alpha_n = atan(tan(alpha_x)*cos(gamma))
-Ft1/Fn = cos(alpha_n)*sin(gamma) - mu*cos(gamma)
-mu_critical = cos(alpha_n)*tan(gamma)
-```
-
-KHK, **Calculation of Gear Dimensions**, §4.6(4), Eq. (4.27), resolves the force
-on a passive, unassisted worm shaft when the wheel drives: `Fn` is the tooth
-normal force [N] and `Ft1` the worm circumferential driving force [N]; their ratio
-is dimensionless. The criterion concerns reference-cylinder tooth contact at
-static startup. Positive driving force requires
-`mu < mu_critical`; equality gives no positive startup margin and is refused
-along with larger coefficients. This is a static Coulomb tooth-contact model.
-The hand and speed sign do not change this magnitude criterion. [KHK primary
-technical reference](https://khkgears.net/new/gear_knowledge/gear_technical_reference/calculation_gear_dimensions.html).
-
-The shared backend/UI evaluator blocks only a wheel-driven request established
-as `not_backdrivable` in this model. Worm-input configurations remain valid.
-A smaller explicit coefficient produces `potentially_backdrivable`, not a startup
-or sustained-motion guarantee. An omitted coefficient produces `indeterminate`;
-legacy reverse projects continue to load with an explicit ideal-kinematics
-warning. Invalid physical fields are rejected rather than discarded. Projects
-save the coefficient; calculation metadata records the state, assumptions,
-reference, angles and threshold. There is no override of a supplied forbidden
-coefficient: removing it explicitly withdraws the physical evaluation.
-
-Bearings, seals, preload, elastic deformation, vibration, changed lubrication,
-temperature and operating loads are outside the model. No safety-brake,
-load-holding, strength or certification claim follows from either state.
-The manufacturer's explanation also distinguishes static self-locking from the
-loss of holding under shocks or vibration and identifies lubrication, surface
-condition and temperature as relevant to friction; no heuristic angle or guessed
-material coefficient is adopted here. [BJ-Gear technical explanation](https://www.bj-gear.com/about-bj-gear/information-centre/technical-knowledge-base/how-to-interpret-the-self-locking-mechanism-of-worm-gearboxes).
+## Strain-wave backdrivability
 
 For strain-wave drives, output-member input remains `indeterminate` without
 hardware-specific breakaway torque and conditions. Harmonic Drive's **CSD Gear

@@ -113,8 +113,6 @@ def omit_reference_shafts(d):
     if construction!='fdm_bolted' and d.analysis.get('mount_interfaces'):
         d.analysis['mounting_status']='external_cad_datums'
         d.notes[:]=[q for q in d.notes if not q.startswith('Geometry adapted to the selected members: hubs connect')]
-    d.notes[:]=[q.replace('includes eccentric cams, shafts, seats and bearing envelopes.',
-        'includes eccentric cams, seats and bearing envelopes; separate shaft geometry is left to CAD.') for q in d.notes]
     d.notes.append('Separate cycloidal shaft blanks and their automatic external adapters are omitted from preview, CAD exports and component inventory. Functional integral/printed eccentric bodies remain; external shaft datums and nominal diameters are recorded for CAD.')
     d.requirements.append('Complete the external shafts, their actual lengths, connections and axial retention in CAD; see external_shafts for the nominal connection diameters/profiles.')
 
@@ -292,6 +290,8 @@ def apply(d):
         return
     if construction != 'fdm_bolted':
         return
+    from assemblies import SILVER
+
     v=d.values;e=v['eccentric'];w=v['width'];count=2 if v['variant']=='dual' else 1
     gap=v.get('disc_gap',v['assembly_clearance']);span=count*w+(count-1)*gap
     wall=v['print_min_wall'];rin=v['input_shaft']/2
@@ -352,7 +352,7 @@ def apply(d):
                    (z+low_shoulder+B-protrusion,journal,c,hole)]
         body('Eccentric_printed_base' if j==0 else 'Eccentric_printed_stage_2',levels)
         bearing=Part(f'Bearing_eccentric_{j+1}_NSK_6804',circle(16,256),[circle(10,192)],B,z+low_shoulder,c,
-                     role='gear',color=(.52,.57,.63))
+                     role='gear',color=SILVER,bom_kind='eccentric_bearing')
         _buy(bearing,'NSK 6804','Open deep groove ball bearing','20 × 32 × 7 mm','6804',BEARING_URL,'NSK')
         d.parts.append(bearing)
     c=(e if count==1 else -e,0.)
@@ -367,14 +367,15 @@ def apply(d):
               (head_bottom,1.5,xy,0),(head_bottom,f['head']/2,xy,0),
               (head_bottom+f['k'],f['head']/2,xy,0)],[],0,color=steel)
         _buy(bolt,f'ISO4762-M3x{length}','Hex socket head cap screw',f'M3 × {length} mm','ISO 4762',SCREW_SOURCE)
+        bolt.bom_kind = 'eccentric_bolt'
         d.parts.append(bolt)
         for tag,z in [('lower',nut_top),('upper',cap_z+cap_floor)]:
             washer=Part(f'Eccentric_tie_washer_{j}_{tag}',circle(f['washer_od']/2),
-                        [circle(f['washer_id']/2)],f['washer_t'],z,xy,role='gear',color=steel)
+                        [circle(f['washer_id']/2)],f['washer_t'],z,xy,role='gear',color=steel,bom_kind='eccentric_washer')
             _buy(washer,'ISO7089-M3','Flat washer','3.2 × 7 × 0.5 mm','ISO 7089',WASHER_SOURCE)
             d.parts.append(washer)
         r=f['af']/(2*cos(pi/6));outer=[(r*cos(pi/6+2*pi*k/6),r*sin(pi/6+2*pi*k/6)) for k in range(6)]
-        nut=Part(f'Eccentric_tie_nut_{j}',outer,[circle(1.5)],f['nut'],nut_bottom,xy,role='gear',color=steel)
+        nut=Part(f'Eccentric_tie_nut_{j}',outer,[circle(1.5)],f['nut'],nut_bottom,xy,role='gear',color=steel,bom_kind='eccentric_nut')
         _buy(nut,'ISO4032-M3','Hex nut','M3 · AF 5.5 × 2.4 mm','ISO 4032',NUT_SOURCE)
         d.parts.append(nut)
     d.analysis['printed_eccentric_shaft']=dict(design='fdm_bolted',bolt_count=2,bolt_size='M3',
@@ -390,62 +391,4 @@ def apply(d):
     d.notes.append('The printed eccentric stack is split into a base, an intermediate cam for dual discs, and a removable end cap. Two off-axis through bolts constrain relative rotation; the asymmetric pattern indexes the 180° cam phase. Torque is transmitted through bolt/hole bearing, not solely clamp friction. Bolt clearance permits finite play; this is not a zero-backlash coupling.')
     d.notes.append('The 6804 bearing inner rings sit between printed shoulders and removable retainers, with 0.12 mm journal relief so the stack can clamp the inner rings before the printed journal ends bottom out. Head/washer pockets are recessed below the disc stack top; nuts and lower washers are outside the input end. Threads and socket recesses are simplified reference geometry; the bolts are purchased steel parts.')
     d.requirements.append('FDM assembly: fit bearings from the open cam ends, stack the indexed printed parts, insert both M3 bolts, then fit washers and nuts. Ream/measure holes and bearing seats on a calibration print. Tightening torque, polymer creep, fatigue and allowable input torque require testing; no load rating is assigned.')
-    d.requirements.append('Design the external motor coupling for the printed input journal or asymmetric two-bolt pattern. Do not treat either reinforcement bolt as the free rotation axis. Remaining input/output support bearing envelopes still require actual component selection.')
-
-
-def mount_housing_output(d, record):
-    """Retain the bolted input stack and route the housing around the fixed hub.
-
-    No solid central input adapter is added: it would fill the two tie-bolt
-    passages. The original output shaft is extended, rather than overlapped by
-    a duplicate shaft, to provide the stationary pin-carrier connection.
-    """
-    from mounting import part, port, radius, bore
-    q=record['stage_results'][0];v=d.values;t=v['plate'];g=v['assembly_clearance']
-    byname={p.name:p for p in d.parts}
-    cover=byname['Cover_output'];carrier=byname['Flange_output'];shaft=byname['Shaft_output']
-    base=byname['Eccentric_printed_base'];data=d.analysis['printed_eccentric_shaft']
-    ro=radius(cover.outer);ri=max(bore(cover),radius(carrier.outer)+g)
-    if ri>=ro-2*v['print_min_wall']:
-        raise ValueError('Insufficient annular material for the FDM housing output flange.')
-    contact=cover.z+cover.width;plane=contact+8
-    ring_port=port(q,'ring');fixed_port=port(q,'output')
-    neck=part(d,'Attachment_ring_Hub',ro,ri,contact,plane,ring_port)
-    # A full M3 washer footprint fits on the added 7 mm radial rim.
-    flange_r=ro+7;bolt_r=ro+3.5;hole=(3+v['print_hole_clearance'])/2
-    ring_holes=[circle(hole,64,(bolt_r*cos(2*pi*j/6),bolt_r*sin(2*pi*j/6))) for j in range(6)]
-    flange=part(d,'Attachment_ring_Flange',flange_r,ri,plane,plane+t,ring_port,holes=ring_holes)
-    neck.role=flange.role='gear'
-    # The stationary frame plate lies beyond the moving flange, with a clear
-    # coaxial shaft route through its central opening.
-    frame_z=plane+t+max(4,t+g);shaft.width=frame_z-shaft.z
-    frame_r=min(ri-g-1,max(radius(shaft.outer)+8,12))
-    frame_bolt_r=frame_r-3.5
-    if frame_bolt_r-hole<=radius(shaft.outer)+v['print_min_wall']:
-        raise ValueError('Fixed pin-carrier flange leaves insufficient material around its shaft and M3 holes.')
-    frame_holes=[circle(hole,64,(frame_bolt_r*cos(2*pi*j/8),frame_bolt_r*sin(2*pi*j/8))) for j in range(8)]
-    frame=part(d,'Attachment_output_Frame_flange',frame_r,0,frame_z,frame_z+t,fixed_port,holes=frame_holes)
-    records=d.analysis.setdefault('mount_interfaces',[])
-    records.append(dict(member='eccentric',role='input',stage=1,anchor=base.name,
-        parts=data['printed_parts']+['Eccentric_tie_bolt_1','Eccentric_tie_bolt_2'],
-        contact_z_mm=base.z,terminal_z_mm=base.z,direction=-1,center_mm=(0,0,base.z),axis=(0,0,1),
-        bolt_count=2,bolt_centers_mm=data['bolt_centers_mm'],status='printed two-bolt input; external motor coupling required'))
-    records.append(dict(member='ring',role='output',stage=1,anchor=cover.name,
-        parts=[neck.name,flange.name],contact_z_mm=contact,terminal_z_mm=plane,direction=1,
-        center_mm=(0,0,plane),axis=(0,0,1),neck_outer_radius_mm=ro,neck_inner_radius_mm=ri,
-        flange_outer_radius_mm=flange_r,flange_thickness_mm=t,bolt_count=6,
-        bolt_circle_radius_mm=bolt_r,bolt_hole_diameter_mm=2*hole,
-        status='nominal annular housing output; load fasteners and bearing selection required'))
-    records.append(dict(member='output',role='fixed',stage=1,anchor=carrier.name,
-        parts=[shaft.name,frame.name],contact_z_mm=carrier.z+carrier.width,terminal_z_mm=frame_z,direction=1,
-        center_mm=(0,0,frame_z),axis=(0,0,1),neck_outer_radius_mm=radius(shaft.outer),neck_inner_radius_mm=0,
-        flange_outer_radius_mm=frame_r,flange_thickness_mm=t,bolt_count=8,
-        bolt_circle_radius_mm=frame_bolt_r,bolt_hole_diameter_mm=2*hole,
-        status='nominal stationary pin-carrier attachment; frame and fasteners required'))
-    data['output_member']='ring'
-    data['fixed_member']='output'
-    data['housing_output_flange']=flange.name
-    data['fixed_frame_flange']=frame.name
-    d.analysis['mounting_status']='nominal_role_adapted'
-    d.notes.append('FDM housing output: the eccentric stack and both tie bolts remain the input; output pins and their carrier are fixed to the frame. The roller ring, tubular housing, covers and annular six-hole flange rotate together. The stationary eight-hole frame flange is axially beyond the moving output flange; the fixed shaft passes through its clear central opening.')
-    d.requirements.append('Connect the load to the annular housing flange and the frame to the separate pin-carrier flange. Select the remaining support bearings, their axial retention and interface fasteners; these mount holes are nominal M3 clearances, not purchased fasteners or a load rating.')
+    d.requirements.append('Design the external motor coupling for the printed input journal or asymmetric two-bolt pattern. Do not treat either reinforcement bolt as the free rotation axis.')

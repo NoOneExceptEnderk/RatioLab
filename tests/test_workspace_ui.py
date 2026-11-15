@@ -119,16 +119,15 @@ class WorkspaceTests(unittest.TestCase):
             pump(.1);allocated(width)
         a.workspace_paned.set_position(230);allocated(230)
 
-    def test_worm_motion_actions_fit_default_and_manual_sidebar_at_all_text_sizes(self):
+    def test_worm_fixed_drive_fits_default_and_manual_sidebar_at_all_text_sizes(self):
         from test_interference_gui import wait_until
         a=self.app
         a.load_config_data(dict(format='solidcraft-riduttori/1',family='worm',
-                                parameters=generate('worm',dict(worm_static_friction=.2)).values))
+                                parameters=generate('worm').values))
         a.motion_connections.emit('clicked')
         self.assertEqual(a.fields.get_visible_child_name(),'motion')
         # Finish focus-loss commits and any accepted geometry request before
         # checking that presentation-only changes preserve object identity.
-        a.io_friction_apply.grab_focus()
         self.assertTrue(wait_until(lambda:not a.pending and not a._geometry_waiting
                                   and a.design is not None and a.design.family=='worm',3))
         before=a.project_snapshot(),a.document.token,a.design
@@ -140,19 +139,11 @@ class WorkspaceTests(unittest.TestCase):
                         a.workspace_paned.set_position(width)
                         self.assertTrue(wait_until(lambda:a.parameter_panel.get_width()==width,3),
                                         f'actual={a.parameter_panel.get_width()} position={a.workspace_paned.get_position()}')
-                        for button,caption in ((a.io_friction_apply,'Apply coefficient'),
-                                               (a.io_friction_clear,'Clear coefficient · unknown')):
-                            self.assertEqual(button.get_label(),caption)
-                            self.assertTrue(button.get_child().get_wrap())
-                            button.grab_focus()
-                            self.assertTrue(wait_until(lambda:button.has_focus(),1))
-                            pump(.03)
-                            self.assertEqual(a.parameter_panel.get_width(),width)
-                            ok,bounds=button.compute_bounds(a.parameter_panel)
+                        for row in (a.io_box.get_first_child(), a.io_box.get_first_child().get_next_sibling()):
+                            ok,bounds=row.compute_bounds(a.parameter_panel)
                             self.assertTrue(ok)
                             self.assertGreaterEqual(bounds.get_x(),0)
                             self.assertLessEqual(bounds.get_x()+bounds.get_width(),width)
-                            self.assertFalse(button.get_child().get_layout().is_ellipsized())
                         for button in a.page_buttons.values():
                             self.assertTrue(button.get_visible())
                             self.assertTrue(button.get_parent().get_visible())
@@ -680,7 +671,8 @@ class WorkspaceTests(unittest.TestCase):
         self.assertEqual(a.error_field,'sun')
         self.assertTrue(a.field_feedback['sun'].get_visible())
         self.assertFalse(a.send_btn.get_sensitive())
-        self.assertIn('Last valid',a.empty.get_text())
+        self.assertIn('last valid configuration',a.warning_context.get_text())
+        self.assertTrue(a.geometry_error_bar.get_visible())
         a.inputs['sun'].set_text('18')
         self.assertTrue(a.refresh())
         self.assertTrue(a.export_menu.get_sensitive())

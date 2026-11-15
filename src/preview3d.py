@@ -20,7 +20,7 @@ from gl_loader import load_epoxy, bind_function
 
 
 from solid_geometry import point,section_loops,PALETTE
-from component_geometry import displayed_part,explosion_offset
+from component_geometry import displayed_part,preview_explosion_layout,explosion_scale
 import mouse_navigation
 
 
@@ -62,31 +62,47 @@ class Scene:
     radius: float
     bounds: tuple
     materials: array
+    explosion_minimum: float = 0.
 
 
-def build_scene(design,show_support=False,show_housing=False,exploded=False,*,frame_explosion=False):
+def build_scene(design,show_support=False,show_housing=False,exploded=False,*,frame_explosion=False,
+                visible_indices=None,layout_explosion=True):
     from rust_surfaces import surface
     from rust_geometry import preview_scene,control_check
     held=[];items=[]
     def keep(part):
         snapshot=surface(part);held.append(snapshot)
         if snapshot._identity!=held[0]._identity:raise RuntimeError('Rust backend changed while preparing a scene.')
-        return snapshot.parameters()
+        return snapshot
+    nominal = [displayed_part(design, index) for index in range(len(design.parts))]
+    snapshots = [keep(part) for part in nominal]
+    offsets, minimum, views = (preview_explosion_layout(
+        design, [snapshot.call('solid_bounds') for snapshot in snapshots])
+        if layout_explosion else ([(0.,0.,0.)]*len(snapshots), 0., ()))
+    view = int(show_support) + 2*int(show_housing)
+    if view in views:
+        minimum = 0.
+    scale = explosion_scale(exploded, minimum)
     for index,source in enumerate(design.parts):
         control_check()
+        if visible_indices is not None and index not in visible_indices:continue
         if source.role=='support' and not show_support:continue
         if source.role=='housing' and not show_housing:continue
-        part=displayed_part(design,index,exploded)
+        part = nominal[index]
+        snapshot = snapshots[index]
+        if scale:
+            part = displayed_part(design, index, shift=tuple(v*scale for v in offsets[index]))
+            snapshot = keep(part)
         normal=part.frame[3] if part.frame else ((1,0,0) if part.axis_x else (0,0,1))
         color=PALETTE[index%len(PALETTE)] if part.color==(.35,.72,.9) else part.color
         grooves=[]
         if part.double and part.gap and part.stations:
             grooves=[i for i,s in enumerate(part.stations) if min(abs(s['z']-(part.width-part.gap)/2),abs(s['z']-(part.width+part.gap)/2))<1e-7]
-        items.append(dict(keep(part),source_index=index,color=color,
-            explosion=explosion_offset(design,index),bottom_normal=tuple(-x for x in normal),top_normal=normal,
+        items.append(dict(snapshot.parameters(),source_index=index,color=color,
+            explosion=offsets[index],bottom_normal=tuple(-x for x in normal),top_normal=normal,
             groove_sections=grooves,flexspline=source.name.startswith('Flexspline')))
     args=dict(parts=items,frame_explosion=bool(frame_explosion),compensated_sum=sys.version_info>=(3,12),
-              fallback_parts=[] if items else [keep(p) for p in design.parts])
+              fallback_parts=[] if items else [snapshot.parameters() for snapshot in snapshots])
     if design.family=='harmonic' and not exploded and any(p.name.startswith('Flexspline') for p in design.parts):
         from special_drives import ellipse_axes
         rp=design.values['module']*design.values['teeth']/2
@@ -98,7 +114,7 @@ def build_scene(design,show_support=False,show_housing=False,exploded=False,*,fr
         [Cap(tuple(cap['fan']),tuple(cap['plane'])) for cap in row['caps']],tuple(row['color']),
         row['source_index'],tuple(row['explosion'])) for row in metadata['parts']]
     return Scene(vertices,parts,tuple(metadata['grid']),tuple(metadata['center']),metadata['radius'],
-                 tuple(tuple(p) for p in metadata['bounds']),materials)
+                 tuple(tuple(p) for p in metadata['bounds']),materials,minimum)
 
 
 class GL:
@@ -117,9 +133,14 @@ class GL:
             'EnableVertexAttribArray':(None,[u]),'DisableVertexAttribArray':(None,[u]),
             'VertexAttrib3f':(None,[u,f,f,f]),'VertexAttribPointer':(None,[u,i,u,C.c_ubyte,i,p]),
             'Viewport':(None,[i,i,i,i]),'Enable':(None,[u]),'Disable':(None,[u]),'ClearColor':(None,[f,f,f,f]),'Clear':(None,[u]),
-            'DepthFunc':(None,[u]),'DepthMask':(None,[C.c_ubyte]),'BlendFunc':(None,[u,u]),'ColorMask':(None,[C.c_ubyte]*4),'StencilMask':(None,[u]),
+            'DepthFunc':(None,[u]),'DepthMask':(None,[C.c_ubyte]),'BlendFunc':(None,[u,u]),'BlendFuncSeparate':(None,[u,u,u,u]),'ColorMask':(None,[C.c_ubyte]*4),'StencilMask':(None,[u]),
             'StencilFunc':(None,[u,i,u]),'StencilOp':(None,[u,u,u]),'DrawArrays':(None,[u,i,i]),'PolygonOffset':(None,[f,f]),
             'ReadPixels':(None,[i,i,i,i,u,u,p]),'GetError':(u,[]),
+            'GetIntegerv':(None,[u,C.POINTER(i)]),'IsEnabled':(C.c_ubyte,[u]),
+            'GenFramebuffers':(None,[i,C.POINTER(u)]),'BindFramebuffer':(None,[u,u]),'DeleteFramebuffers':(None,[i,C.POINTER(u)]),
+            'GenRenderbuffers':(None,[i,C.POINTER(u)]),'BindRenderbuffer':(None,[u,u]),'DeleteRenderbuffers':(None,[i,C.POINTER(u)]),
+            'RenderbufferStorage':(None,[u,u,i,i]),'FramebufferRenderbuffer':(None,[u,u,u,u]),
+            'CheckFramebufferStatus':(u,[u]),
         }
         for name,(restype,args) in signatures.items():
             setattr(self,name,bind_function(self.lib,name,restype,args))
@@ -139,6 +160,7 @@ uniform vec2 orbit;
 uniform float roll;
 uniform vec3 projection;
 uniform float edge;
+uniform float section, sectionY;
 uniform mat4 model;
 uniform vec3 explosion;
 uniform vec4 flexShape; // flex material angle, wave angle, ellipse a,b
@@ -199,7 +221,20 @@ vec3 deform(vec3 p){
  }
  return p;
 }
-void main(){world=(model*vec4(deform(position),1.0)).xyz+explosion;vec3 p=rotate(world-center);gl_Position=vec4(p.x*projection.x,p.y*projection.y,-p.z*projection.z-edge*0.00005,1);vec3 nn=normal;if(flexBody.w>0.5){vec2 oldT,newT;waveFrame(material.x,material.y,material.z,0.0,0.0,oldT);waveFrame(material.x,material.y,material.z,flexShape.x,flexShape.y,newT);vec2 oldN=vec2(oldT.y,-oldT.x),newN=vec2(newT.y,-newT.x);nn.xy=dot(nn.xy,oldT)*newT+dot(nn.xy,oldN)*newN;}n=rotate(mat3(model)*nn);}
+void main(){
+ if(section==3.0){
+  vec2 clip=vec2((gl_VertexID%2)*2-1,(gl_VertexID/2)*2-1);
+  n=rotate(vec3(0,1,0));
+  // Solve the world-Y plane equation in camera coordinates.
+  float z=(sectionY-center.y-dot(n.xy,clip/projection.xy))/n.z;
+  gl_Position=vec4(clip,-z*projection.z,1);
+  world=vec3(0,sectionY,0);
+  return;
+ }
+ world=(model*vec4(deform(position),1.0)).xyz+explosion;vec3 p=rotate(world-center);gl_Position=vec4(p.x*projection.x,p.y*projection.y,-p.z*projection.z-edge*0.00005,1);
+ if(section==2.0){gl_Position.z=0.0;n=vec3(0,1,0);return;}
+ vec3 nn=normal;if(flexBody.w>0.5){vec2 oldT,newT;waveFrame(material.x,material.y,material.z,0.0,0.0,oldT);waveFrame(material.x,material.y,material.z,flexShape.x,flexShape.y,newT);vec2 oldN=vec2(oldT.y,-oldT.x),newN=vec2(newT.y,-newT.x);nn.xy=dot(nn.xy,oldT)*newT+dot(nn.xy,oldN)*newN;}n=rotate(mat3(model)*nn);
+}
 '''
 FRAGMENT='''#version 330 core
 in vec3 n;
@@ -209,7 +244,7 @@ uniform float section, sectionY;
 uniform vec3 color;
 uniform float lit, opacity, frontOnly;
 out vec4 frag;
-void main(){if(section>0.5 && world.y>sectionY)discard;if(frontOnly>0.5 && n.z<=0.0)discard;vec3 norm=normalize(n);float light=0.48+0.52*max(dot(norm,normalize(vec3(-0.35,-0.25,1.0))),0.0);frag=vec4(color*mix(1.0,light,lit),opacity);}
+void main(){if((section==1.0 && world.y>sectionY)||(section==2.0 && world.y>=sectionY))discard;if(frontOnly>0.5 && n.z<=0.0)discard;vec3 norm=normalize(n);float light=0.48+0.52*max(dot(norm,normalize(vec3(-0.35,-0.25,1.0))),0.0);frag=vec4(color*mix(1.0,light,lit),opacity);}
 '''
 
 
@@ -290,6 +325,7 @@ class Preview3D(Gtk.GLArea):
         self.roll=0.
         self.camera_tick=0;self.camera_transition=None;self._transition_radius=None
         self.selected_indices=();self.isolated_indices=None;self.drag_distance=0.;self.rendered_phase=0.
+        self.context_opacity=None;self.pickable_indices=None
         self.mouse_navigation='ratiolab';self.drag_kind=None;self._drag_button=0;self._drag_offset=(0.,0.)
         self._freecad_buttons=0;self._freecad_origin=None;self._freecad_right_orbit=False;self._navigation_click=False
         self.render_serial=0;self.render_size=None
@@ -426,6 +462,9 @@ class Preview3D(Gtk.GLArea):
     def camera_center(self):
         center=self.tooth_detail.target if self.tooth_detail else self.scene.center if self.scene else (0.,0.,0.)
         return tuple(v+p for v,p in zip(center,self.pan_offset))
+    @property
+    def explosion_scale(self):
+        return explosion_scale(self.exploded, self.scene.explosion_minimum) if self.scene and not self.tooth_detail else 0.
     @property
     def camera_radius(self):
         return self._transition_radius or self.base_camera_radius
@@ -722,11 +761,30 @@ class Preview3D(Gtk.GLArea):
             return rotate(tuple(a-b for a,b in zip(center,self.camera_center)),self.yaw,self.tilt,self.roll)[2]
         return opaque+sorted(translucent,key=depth)
 
-    def on_render(self,area,context):
-        if not self.gl or self.failure:return True
-        g=self.gl;ratio=self.get_scale_factor();w,h=self.get_width()*ratio,self.get_height()*ratio
-        g.Viewport(0,0,w,h);g.ClearColor(*self.palette['background'],1);g.DepthMask(1);g.ColorMask(1,1,1,1);g.StencilMask(0xFF);g.Clear(0x4000|0x0100|0x0400)
-        if not self.scene:return True
+    def render_section_cap(self, part, color):
+        g,loc=self.gl,self.locations
+        # Each ray through the kept half crosses an odd number of triangles
+        # exactly where the plane cuts material. End-face fans already use
+        # parity, so the same pass accounts for their holes and concave edges.
+        g.Uniform1f(loc['section'],2.)
+        g.StencilMask(1);g.Clear(0x0400);g.Enable(0x0B90);g.Disable(0x0B71)
+        g.DepthMask(0);g.ColorMask(0,0,0,0)
+        g.StencilFunc(0x0207,0,1);g.StencilOp(0x1E00,0x1E00,0x150A)
+        g.DrawArrays(4,*part.side)
+        for cap in part.caps:
+            g.DrawArrays(4,*cap.fan)
+        g.ColorMask(1,1,1,1);g.DepthMask(1);g.Enable(0x0B71)
+        g.StencilMask(0);g.StencilFunc(0x0202,1,1);g.StencilOp(0x1E00,0x1E00,0x1E00)
+        g.Uniform1f(loc['section'],3.)
+        g.Uniform1f(loc['lit'],0.);g.Uniform3f(loc['color'],*(x*.85 for x in color))
+        g.DrawArrays(5,0,4)
+        g.Disable(0x0B90);g.Uniform1f(loc['section'],1.)
+
+    def _draw_frame(self,w,h,*,picking=False):
+        g=self.gl
+        background=(0.,0.,0.) if picking else self.palette['background']
+        g.Viewport(0,0,w,h);g.ClearColor(*background,1);g.DepthMask(1);g.ColorMask(1,1,1,1);g.StencilMask(0xFF);g.Clear(0x4000|0x0100|0x0400)
+        if not self.scene:return
         s=self.tooth_detail.scene if self.tooth_detail else self.scene;g.UseProgram(self.program);g.BindVertexArray(self.vao.value);g.BindBuffer(0x8892,self.vbo.value)
         if self.dirty:
             raw=s.vertices.tobytes();buf=C.create_string_buffer(raw);g.BufferData(0x8892,len(raw),buf,0x88E8)
@@ -734,7 +792,9 @@ class Preview3D(Gtk.GLArea):
         if s.materials:g.EnableVertexAttribArray(2)
         else:g.DisableVertexAttribArray(2);g.VertexAttrib3f(2,0.,0.,0.)
         loc=self.locations
-        g.Uniform1f(loc['section'],float(self.section and not self.tooth_detail));g.Uniform1f(loc['sectionY'],s.center[1])
+        section=self.section and not self.tooth_detail
+        cap_visible=section and abs(cos(self.yaw)*sin(self.tilt))>1e-6
+        g.Uniform1f(loc['section'],float(section));g.Uniform1f(loc['sectionY'],s.center[1])
         g.Uniform3f(loc['center'],*self.camera_center);g.Uniform2f(loc['orbit'],self.yaw,self.tilt);g.Uniform1f(loc['roll'],self.roll)
         scale=.86/self.camera_radius*self.zoom;aspect=max(w,1)/max(h,1)
         g.Uniform3f(loc['projection'],scale/max(aspect,1),scale*min(aspect,1),1/(max(self.scene.radius,s.radius)*4))
@@ -742,29 +802,124 @@ class Preview3D(Gtk.GLArea):
         g.Uniform1f(loc['edge'],0);g.Enable(0x0B71);g.DepthFunc(0x0203);g.Disable(0x0B90)
         g.Disable(0x0BE2);g.Uniform1f(loc['opacity'],1.);g.Uniform1f(loc['frontOnly'],0.)
         g.Uniform1f(loc['lit'],0);g.Uniform3f(loc['color'],*self.palette['grid'])
-        if not self.tooth_detail:g.DrawArrays(1,*s.grid)
-        self.rendered_phase=0. if self.tooth_detail else self.inspection_phase if self.inspection_phase is not None else self.motion_phase
-        for part in self.render_parts(s):
-            if not self.tooth_detail and self.isolated_indices is not None and part.source_index not in self.isolated_indices:continue
-            self.motion_uniforms(part.source_index)
-            g.Uniform3f(loc['explosion'],*(v*(0. if self.tooth_detail else self.exploded) for v in part.explosion))
-            g.Uniform1f(loc['opacity'],part.opacity)
-            g.Uniform1f(loc['frontOnly'],float(part.context))
-            if part.opacity<1.:
-                g.Enable(0x0BE2);g.BlendFunc(0x0302,0x0303);g.DepthMask(0)
-            else:g.Disable(0x0BE2);g.DepthMask(1)
-            color=part.color if self.tooth_detail else ((1.,.42,.08) if part.source_index==self.inspection_indices[0] else (.95,.12,.65)) if part.source_index in self.inspection_indices else (.28,.32,.37) if self.inspection_phase is not None else self.palette['selection'] if part.source_index in self.selected_indices else part.color
-            g.Uniform1f(loc['lit'],1);g.Uniform3f(loc['color'],*color);g.Enable(0x8037);g.PolygonOffset(1,1);g.DrawArrays(4,*part.side)
-            for cap in part.caps:
-                g.StencilMask(1);g.Clear(0x0400);g.Enable(0x0B90);g.Disable(0x0B71);g.DepthMask(0);g.ColorMask(0,0,0,0)
-                g.Uniform1f(loc['frontOnly'],0.)
-                g.StencilFunc(0x0207,0,1);g.StencilOp(0x1E00,0x1E00,0x150A);g.DrawArrays(4,*cap.fan)
+        if not picking:
+            if not self.tooth_detail:g.DrawArrays(1,*s.grid)
+            self.rendered_phase=0. if self.tooth_detail else self.inspection_phase if self.inspection_phase is not None else self.motion_phase
+        exploded = self.explosion_scale
+        parts = [part for part in self.render_parts(s)
+                 if (self.tooth_detail or self.isolated_indices is None or part.source_index in self.isolated_indices)
+                 and (not picking or self.pickable_indices is None or part.source_index in self.pickable_indices)]
+        if self.context_opacity is not None and self.selected_indices and not (section or self.tooth_detail):
+            selected = set(self.selected_indices)
+            context = [part for part in parts if part.source_index not in selected]
+            focus = [part for part in parts if part.source_index in selected]
+            # Composite only the nearest ghost surface at each pixel. The
+            # selected opaque parts paint over that context at their real pose.
+            passes = [('opaque', context)] if picking else [('depth', context), ('context', context)]
+            passes.append(('focus', focus))
+        else:
+            passes = [('opaque', parts)]
+        for phase, group in passes:
+            depth_only = phase == 'depth'
+            ghost = phase == 'context'
+            if phase == 'focus':
+                g.DepthMask(1);g.Clear(0x0100)
+            g.DepthFunc(0x0202 if ghost else 0x0203)
+            write_color = (not depth_only,)*4
+            g.ColorMask(*write_color)
+            for part in group:
+                opacity = self.context_opacity if ghost else 1. if picking or depth_only else part.opacity
+                g.Uniform1f(loc['opacity'],opacity)
                 g.Uniform1f(loc['frontOnly'],float(part.context))
-                g.ColorMask(1,1,1,1);g.DepthMask(int(part.opacity==1.));g.Enable(0x0B71);g.StencilMask(0);g.StencilFunc(0x0202,1,1);g.StencilOp(0x1E00,0x1E00,0x1E00);g.DrawArrays(4,*cap.plane);g.Disable(0x0B90)
-            g.Disable(0x8037)
-            if part.opacity==1.:
-                g.Uniform1f(loc['lit'],0);g.Uniform1f(loc['edge'],1);g.Uniform3f(loc['color'],*(x*.55 for x in color));g.DrawArrays(1,*part.edges);g.Uniform1f(loc['edge'],0)
+                if opacity<1.:
+                    g.Enable(0x0BE2)
+                    if ghost:g.BlendFuncSeparate(0x0302,0x0303,1,0x0303)
+                    else:g.BlendFunc(0x0302,0x0303)
+                else:g.Disable(0x0BE2)
+                g.DepthMask(opacity==1.)
+                self.motion_uniforms(part.source_index)
+                g.Uniform3f(loc['explosion'],*(v*exploded for v in part.explosion))
+                color=part.color if self.tooth_detail else ((1.,.42,.08) if part.source_index==self.inspection_indices[0] else (.95,.12,.65)) if part.source_index in self.inspection_indices else (.28,.32,.37) if self.inspection_phase is not None else self.palette['selection'] if part.source_index in self.selected_indices else part.color
+                if picking:
+                    component=part.source_index+1
+                    color=tuple(((component >> shift) & 255)/255 for shift in (0,8,16))
+                g.Uniform1f(loc['lit'],0 if picking else 1);g.Uniform3f(loc['color'],*color);g.Enable(0x8037);g.PolygonOffset(1,1);g.DrawArrays(4,*part.side)
+                for cap in part.caps:
+                    g.StencilMask(1);g.Clear(0x0400);g.Enable(0x0B90);g.Disable(0x0B71);g.DepthMask(0);g.ColorMask(0,0,0,0)
+                    g.Uniform1f(loc['frontOnly'],0.)
+                    g.StencilFunc(0x0207,0,1);g.StencilOp(0x1E00,0x1E00,0x150A);g.DrawArrays(4,*cap.fan)
+                    g.Uniform1f(loc['frontOnly'],float(part.context))
+                    g.ColorMask(*write_color);g.DepthMask(opacity==1.);g.Enable(0x0B71);g.StencilMask(0);g.StencilFunc(0x0202,1,1);g.StencilOp(0x1E00,0x1E00,0x1E00);g.DrawArrays(4,*cap.plane);g.Disable(0x0B90)
+                g.Disable(0x8037)
+                if opacity==1. and not (picking or depth_only):
+                    if cap_visible:self.render_section_cap(part,color)
+                    g.Uniform1f(loc['lit'],0);g.Uniform1f(loc['edge'],1);g.Uniform3f(loc['color'],*(x*.55 for x in color));g.DrawArrays(1,*part.edges);g.Uniform1f(loc['edge'],0)
+        g.DepthFunc(0x0203);g.ColorMask(1,1,1,1)
         g.Disable(0x0BE2);g.DepthMask(1);g.Uniform1f(loc['opacity'],1.);g.Uniform1f(loc['frontOnly'],0.)
+        g.StencilMask(0xFF);g.BindVertexArray(0);g.UseProgram(0)
+
+    def _part_id_frame(self, *, point=None):
+        """Read unlit IDs from the same geometry, camera and depth ordering.
+
+        The separate single-sampled target avoids blending neighboring IDs,
+        touching GTK's displayed color buffer, or sending triangles to Python.
+        This helper is for static model inspection without section caps.
+        """
+        if (not self.gl or self.failure or not self.scene or self.section or self.tooth_detail
+                or self.motion_enabled or self.inspection_phase is not None):
+            return None
+        ratio=self.get_scale_factor()
+        w,h=self.get_width()*ratio,self.get_height()*ratio
+        if w <= 0 or h <= 0:
+            return None
+        if point is not None:
+            x,y=int(point[0]*ratio),h-1-int(point[1]*ratio)
+            if not (0 <= x < w and 0 <= y < h):
+                return None
+        else:
+            x=y=0
+        self.make_current()
+        if self.get_error():
+            return None
+        g=self.gl
+        draw,read,renderbuffer=C.c_int(),C.c_int(),C.c_int()
+        g.GetIntegerv(0x8CA6,C.byref(draw));g.GetIntegerv(0x8CAA,C.byref(read));g.GetIntegerv(0x8CA7,C.byref(renderbuffer))
+        dither=g.IsEnabled(0x0BD0)
+        srgb=not self.use_es and g.IsEnabled(0x8DB9)
+        target=C.c_uint()
+        attachments=(C.c_uint*2)()
+        g.GenFramebuffers(1,C.byref(target));g.GenRenderbuffers(2,attachments)
+        try:
+            g.BindFramebuffer(0x8D40,target.value)
+            for buffer,format_,attachment in zip(attachments,(0x8058,0x88F0),(0x8CE0,0x821A)):
+                g.BindRenderbuffer(0x8D41,buffer)
+                g.RenderbufferStorage(0x8D41,format_,w,h)
+                g.FramebufferRenderbuffer(0x8D40,attachment,0x8D41,buffer)
+            if g.CheckFramebufferStatus(0x8D40)!=0x8CD5:
+                return None
+            g.Disable(0x0BD0)
+            if srgb:g.Disable(0x8DB9)
+            self._draw_frame(w,h,picking=True)
+            width,height=(1,1) if point is not None else (w,h)
+            raw=C.create_string_buffer(width*height*4)
+            g.ReadPixels(x,y,width,height,0x1908,0x1401,raw)
+            return raw.raw
+        finally:
+            if dither:g.Enable(0x0BD0)
+            if srgb:g.Enable(0x8DB9)
+            g.BindFramebuffer(0x8CA9,draw.value);g.BindFramebuffer(0x8CA8,read.value)
+            g.BindRenderbuffer(0x8D41,renderbuffer.value)
+            g.DeleteRenderbuffers(2,attachments);g.DeleteFramebuffers(1,C.byref(target))
+
+    def pick_component(self,x,y):
+        raw=self._part_id_frame(point=(x,y))
+        return int.from_bytes(raw[:3],'little')-1 if raw and any(raw[:3]) else None
+
+    def on_render(self,area,context):
+        if not self.gl or self.failure:return True
+        g=self.gl;ratio=self.get_scale_factor();w,h=self.get_width()*ratio,self.get_height()*ratio
+        self._draw_frame(w,h)
+        if not self.scene:return True
         if getattr(self,'capture_path',None) or getattr(self,'capture_callback',None):
             callback=getattr(self,'capture_callback',None);self.capture_callback=None
             try:
@@ -781,6 +936,5 @@ class Preview3D(Gtk.GLArea):
             except Exception as error:
                 if callback:callback(None,error)
                 else:raise
-        g.StencilMask(0xFF);g.BindVertexArray(0);g.UseProgram(0)
         self.render_serial+=1;self.render_size=(w,h)
         return True

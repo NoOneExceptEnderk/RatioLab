@@ -65,7 +65,7 @@ class MountingTests(unittest.TestCase):
 
     def test_reverse_axes_and_differential_ports(self):
         # These families generate adapters; bevel/face/hypoid expose CAD ports.
-        for f in ('parallel', 'internal', 'worm'):
+        for f in ('parallel', 'internal'):
             scheme = next((s for s in options(f) if s != default(f)))
             d = generate(f, {'io_scheme': scheme})
             records = d.analysis['mount_interfaces']
@@ -78,11 +78,6 @@ class MountingTests(unittest.TestCase):
                     self.assertGreater(signature(next((p for p in d.parts if p.name == name)))['volume_mm3'], 0)
             cfg = json.loads(json.dumps(d.values))
             self.assertEqual(generate(f, cfg).analysis['mount_interfaces'], records)
-        d = generate('worm', {'io_scheme': 'reverse'})
-        a = next((r for r in d.analysis['mount_interfaces'] if r['member'] == 'A'))
-        b = next((r for r in d.analysis['mount_interfaces'] if r['member'] == 'B'))
-        self.assertEqual(a['axis'], (1, 0, 0))
-        self.assertEqual(b['axis'], (0, 0, 1))
 
     def test_reverse_cad_ports_do_not_invent_mounting_flanges(self):
         for family in sorted(set(PAIRS) - {'parallel', 'internal', 'worm'}):

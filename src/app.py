@@ -249,11 +249,6 @@ class ReducerApp(ProjectActions, Gtk.Application):
             self.values[self.family].pop('gap')
         for key in changes:self.raw_edits.get(self.family,{}).pop(key,None)
         self.make_fields()
-    def project_changed(self,group=None):
-        if not hasattr(self,'document') or not self.project_alive or self.project_restoring or self.building:
-            return
-        if io_controls.reject_forbidden_edit(self):return
-        return super().project_changed(group)
     def change_family(self,*args):
         if self.building:return
         self.remember();self.family=list(FAMILIES)[self.selector.get_selected()];self.make_fields()
@@ -265,7 +260,7 @@ class ReducerApp(ProjectActions, Gtk.Application):
         advanced_open=getattr(self,'advanced_expander',None) and self.advanced_expander.get_expanded()
         gui_workflow.preserve_scroll(self)
         if self.pending:GLib.source_remove(self.pending);self.pending=0
-        for key in ('geometry','bearings','hardware','loads','housing'):
+        for key in ('geometry','bearings','hardware','shaft_connections','loads','housing'):
             body=self.sections[key][1];child=body.get_first_child()
             while child:
                 nxt=child.get_next_sibling();body.remove(child);child=nxt
@@ -404,8 +399,37 @@ class ReducerApp(ProjectActions, Gtk.Application):
             style_control=choice('double_style','Double helix construction',DOUBLE_STYLES,'joined' if values.get('gap',0 if self.family=='face' else 1)==0 else 'separated')
             if self.family=='face':self.face_style_selector=style_control
         io_controls.build(self,values,variant,choice)
+        from shaft_connections import PORT_LABELS, PROFILES, ports, profile_key, targets
+        connection_ports = ports(self.family)
+        section, body = self.sections['shaft_connections']
+        section.set_visible(bool(connection_ports))
+        self.shaft_connection_fields = {}
+        available = targets(self.family, dict(values, variant=variant)) if connection_ports else {}
+        for port in connection_ports:
+            group = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=7)
+            body.append(group)
+            self.shaft_connection_fields[port] = group
+            key = profile_key(port)
+            dropdown = choice(key, PORT_LABELS[port], PROFILES, 'standard', group)
+            if port not in available and self.option_values[key] == 'standard':
+                dropdown.set_sensitive(False)
+                group.append(gui_workflow.text('This member has no supported shaft bore for a shaped connection.'))
         self.sections['bearings'][0].set_visible(True)
         field_target=self.sections['bearings'][1]
+        if self.family == 'cycloidal':
+            from catalog import RING_ROLLER_CHOICES
+            self.ring_roller_bearing_selector = choice('ring_roller_bearing', 'Ring rollers',
+                                                       RING_ROLLER_CHOICES, 'none')
+            self.ring_roller_bearing_selector.set_sensitive(self.option_values['io_scheme'].split('_')[1] != 'ring')
+        from bushings import fields as bushing_fields, unavailable as bushing_unavailable
+        self.bushing_selectors = {}
+        for key, label, choices in bushing_fields(self.family):
+            dropdown = choice(key, label, choices, 'none')
+            self.bushing_selectors[key] = dropdown
+            unavailable_reason = bushing_unavailable(key, dict(values, **self.option_values))
+            if unavailable_reason:
+                dropdown.set_sensitive(False)
+                field_target.append(Gtk.Label(label=unavailable_reason, xalign=0, wrap=True, css_classes=['muted']))
         if self.family in SUPPORTED and not printed and not multistage:
             modes=dict(MODES)
             if self.family in ('parallel','internal'):modes.pop('gear')
@@ -439,6 +463,7 @@ class ReducerApp(ProjectActions, Gtk.Application):
             choice('hardware_mode','Hardware and assembly',hw.MODES,'none')
             if self.option_values['hardware_mode']=='standard':
                 for key,label in [('retaining','Retaining rings and grooves'),('keys','Compatible keys and keyways'),('bolts','Flange screws, nuts and holes'),('shims','Shims and spacers')]:
+                    if self.family == 'cycloidal' and key == 'bolts':continue
                     name='hardware_'+key;check=Gtk.CheckButton(label=label);default=False if self.family in ('parallel','internal') and key=='bolts' else True;check.set_active(values.get(name,default));self.option_values[name]=values.get(name,default)
                     if self.family in ('parallel','internal') and key=='bolts':
                         from pair_assembly import BOLT_REASON
@@ -451,10 +476,11 @@ class ReducerApp(ProjectActions, Gtk.Application):
                         from pair_assembly import hardware_warnings
                         warning=hardware_warnings(self.family,values).get(key)
                         note=Gtk.Label(label=warning or '',xalign=0,wrap=True,css_classes=['muted']);note.set_visible(bool(warning));field_target.append(note);self.hardware_warning_labels[key]=note
-                fastener=choice('hardware_screw','Flange fasteners',{k:k for k in hw.FASTENERS},'M3')
-                if self.family in ('parallel','internal'):
-                    from pair_assembly import BOLT_REASON
-                    fastener.set_sensitive(False);field_target.append(Gtk.Label(label=BOLT_REASON,xalign=0,wrap=True))
+                if self.family != 'cycloidal':
+                    fastener=choice('hardware_screw','Flange fasteners',{k:k for k in hw.FASTENERS},'M3')
+                    if self.family in ('parallel','internal'):
+                        from pair_assembly import BOLT_REASON
+                        fastener.set_sensitive(False);field_target.append(Gtk.Label(label=BOLT_REASON,xalign=0,wrap=True))
                 choice('hardware_shim','DIN 988 shim thickness',hw.SHIM_THICKNESSES,'.5')
                 field_target.append(Gtk.Label(label='Automatic dimensions and quantities; remaining connections are listed in the BOM.',xalign=0,wrap=True,css_classes=['muted']))
         else:
@@ -502,8 +528,6 @@ class ReducerApp(ProjectActions, Gtk.Application):
             widget.set_position(position)
             return
         key=next((key for key,w in self.inputs.items() if args and w is args[0]),'input_rpm')
-        if io_controls.reject_forbidden_edit(self,key):return
-        if io_controls.defer_empty_physical_text(self,key):return
         if hasattr(self,'tooth_tips'):self.tooth_tips.edited(key)
         if key in SPEED_KEYS and self.design is not None:
             try:
@@ -520,7 +544,6 @@ class ReducerApp(ProjectActions, Gtk.Application):
         self.fusion_send_btn.set_sensitive(False)
         self.export_menu.set_sensitive(False)
         self.empty.set_text('Geometry out of date · updating…')
-        self.empty.remove_css_class('invalid')
         self.empty.set_visible(True)
         self.metric_cards.set_sensitive(False)
         if args:
@@ -542,8 +565,6 @@ class ReducerApp(ProjectActions, Gtk.Application):
         # Keep this real GLib source alive until preparation finishes. Existing
         # callers may use `not pending` to mean the accepted model is ready.
         if self._geometry_waiting or not self.win.get_mapped():return True
-        if io_controls.reject_forbidden_edit(self):
-            self.pending=0;return False
         reconcile_token=self.project_reconcile_token()
         try:
             values=self.read_values()
@@ -600,7 +621,6 @@ class ReducerApp(ProjectActions, Gtk.Application):
     def apply_motion_rate(self,group=None,now=None):
         """Record live speed revisions immediately; checkpoint after the burst."""
         if self.building:return
-        if io_controls.reject_forbidden_edit(self):return
         if hasattr(self,'document') and self.project_alive and not self.project_restoring:
             snapshot=self.project_snapshot()
             for name in ('interference','combination_search','components','gear_measurement','backlash'):
@@ -631,7 +651,6 @@ class ReducerApp(ProjectActions, Gtk.Application):
     def refresh(self):
         """Authoritative synchronous refresh for explicit operations and loads."""
         self.invalidate_geometry_request();self.stop_geometry_timer()
-        if io_controls.reject_forbidden_edit(self):return False
         reconcile_token=self.project_reconcile_token()
         try:
             values=self.read_values()
@@ -734,13 +753,12 @@ class ReducerApp(ProjectActions, Gtk.Application):
         self.error_field=None if operating_valid else 'input_rpm'
         self.export_menu.set_sensitive(not self.busy and operating_valid)
         self.empty.set_visible(False)
-        self.empty.remove_css_class('invalid')
         self.send_btn.set_sensitive(not self.busy and operating_valid)
         self.fusion_send_btn.set_sensitive(not self.busy and operating_valid)
         self.live_label.set_text('✓ Geometry generated')
         self.status.remove_css_class('error')
         if not self.busy:
-            self.status_text('✓ Geometry generated' if operating_valid else 'Complete a valid input speed.')
+            self.status_text('✓ Geometry generated' if operating_valid else '')
         self.reconcile_project(reconcile_token)
         self.interference.refreshed(design)
         self.combination_search.refreshed(design)
@@ -771,28 +789,27 @@ class ReducerApp(ProjectActions, Gtk.Application):
             self.canvas.set_design(None)
         self.canvas.invalidate_motion()
         retained = self.canvas.design is not None
-        self.empty.set_text('! Last valid model · parameters do not match'
-                            if retained else 'Invalid configuration')
-        self.empty.set_visible(True)
+        if not retained:
+            self.warning_bar.set_visible(False)
+        self.empty.set_visible(False)
         gui_workflow.show_parameter_error(self, error)
-        self.warning_bar.set_visible(True)
-        self.warning_bar.add_css_class('invalid')
-        self.warning_details.set_visible(False)
-        self.study.set_text('! Export blocked · preview and results show the last valid configuration.' if retained else '! Export blocked · correct the configuration.')
-        self.study.set_visible(True)
-        self.study.set_tooltip_text(message)
-        self.empty.add_css_class('invalid')
+        guidance = ('! Export blocked · preview and results show the last valid configuration.'
+                    if retained else '! Export blocked · correct the configuration.')
+        self.geometry_error_label.set_text(message)
+        self.geometry_error_label.set_tooltip_text(message)
+        self.warning_context.set_text(guidance)
+        self.warning_context.set_visible(True)
+        self.geometry_notice_error = message
+        self.geometry_error_bar.set_visible(True)
+        self.update_preview_notices()
         self.hidden_hint.set_visible(False)
         self.metric_cards.set_sensitive(False)
         for label in self.geometry_derived.values():label.set_text('—')
         self.metrics.set_text('Results out of date · ' + message)
         self.send_btn.set_sensitive(False)
         self.live_label.set_text('● Update required')
-        self.status.add_css_class('error')
-        from parameter_errors import record
-        if record(error)['kind']=='internal':
-            self.status_text('Calculation failed · export blocked')
-        else:self.status_text('! Invalid configuration · export blocked')
+        self.status.remove_css_class('error')
+        self.status_text('')
         return False
 
     def reset_defaults(self,*args):
@@ -845,8 +862,12 @@ class ReducerApp(ProjectActions, Gtk.Application):
             return ExportResult('STL',(assembly,parts_folder),f'STL in millimetres: {assembly.name} and {len(parts)} components in {parts_folder.name} · folder {stem.parent}')
         self.background(work,export_job=True)
     def show_bom(self,*args):
+        if self.busy:return
+        if (window:=getattr(self,'bom_window',None)) is not None:
+            window.present();return window
         if not self.refresh():return
-        return gui_workflow.show_report(self,'Bill of materials',bom.as_text(bom.build(self.design)))
+        from bom_ui import show
+        return show(self,self.design)
     def show_calculations(self,*args):
         if not self.refresh():return
         from engineering import report_text

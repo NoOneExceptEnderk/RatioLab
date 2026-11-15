@@ -126,3 +126,11 @@ def distance(a,b):
 def relation(a,b,tolerance):
     if a._identity!=b._identity:raise ValueError('Collision surfaces belong to different Rust backends')
     return _call('collision_relation',dict(a=a._handle,b=b._handle,tolerance=tolerance),check=a.check,_backend=a._backend)
+
+
+def translation_clear(a, b, movement):
+    """Check the swept surfaces with B fixed and A translated by movement."""
+    if a._identity != b._identity:
+        raise ValueError('Collision surfaces belong to different Rust backends')
+    return _call('collision_translation_clear', dict(a=a._handle, b=b._handle, movement=movement),
+                 check=a.check, _backend=a._backend)

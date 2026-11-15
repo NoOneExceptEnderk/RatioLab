@@ -14,8 +14,11 @@ PALETTE=[(.23,.68,.82),(.96,.66,.33),(.48,.74,.59),(.69,.59,.86)]
 
 def kernel_part(p):
     """Only geometric fields cross the ABI; product metadata stays in Python."""
-    return {key:getattr(p,key) for key in ('outer','holes','width','z','center','twist',
+    result = {key:getattr(p,key) for key in ('outer','holes','width','z','center','twist',
         'axis_x','double','gap','core_radius','internal','stations','mesh','frame','alternate_diagonal','surface_tolerance_mm')}
+    if p.fixed_first_bore:
+        result['fixed_first_bore'] = True
+    return result
 
 
 def sampling_report(p):

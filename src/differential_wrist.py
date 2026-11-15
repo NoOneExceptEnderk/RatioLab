@@ -131,6 +131,8 @@ def split_bridge(span, half_y, seat, gap, bolt_radius, positive=True, inside_spa
 
 
 def build(d):
+    from bushings import selected, require_length, require_wall, seat, sleeve, error
+
     v=d.values;q=dimensions(v);t=v['plate'];c=v['assembly_clearance'];m=v['module']
     classic=v['configuration']=='classic'
     speed=(classic_rates(v['input_rpm'],v['output_difference_rpm'],v['side_teeth'],v['output_teeth']) if classic
@@ -204,6 +206,17 @@ def build(d):
     side_end,side_toe,side_radius=bevel('Bevel_side_A' if classic else 'Bevel_input_A',v['side_teeth'],v['input_shaft'],q['side_cone_angle'],FRAME_A,a_phase,'A',wa)
     bevel('Bevel_side_B' if classic else 'Bevel_input_B',v['side_teeth'],v['input_shaft'],q['side_cone_angle'],FRAME_B,b_phase,'B',wb)
     out_end,out_toe,_=bevel('Bevel_spider' if classic else 'Bevel_output',v['output_teeth'],q['transverse_bore'],q['output_cone_angle'],FRAME_OUTPUT,0,'spider' if classic else 'output')
+    spider_bushing = selected(v, 'spider_bushing')
+    if spider_bushing:
+        spider = d.parts[-1]
+        if abs(v['spider_pin_diameter']-spider_bushing.d) > 1e-8:
+            raise error('spider_bushing', f'Set the spider pin diameter to {spider_bushing.d:g} mm.', 'spider_pin_diameter')
+        require_length(spider_bushing, spider.width, 'spider_bushing', 'width')
+        require_wall(spider, spider_bushing, 'spider_bushing', 'width', 'module')
+        seat(spider, spider_bushing)
+        sleeve(d, spider_bushing, 'Bushing_spider', spider.z+(spider.width-spider_bushing.B)/2,
+               frame=spider.frame, port=spider.port, bom_kind='spider_bushing')
+        d.requirements.append('Spider bushing: check the fit in the gear and the clearance on the pin, axial retention and wear at the relative spider speed.')
 
     # Independent stub shafts stop at the cone toe and do not cross the centre.
     ra=v['input_shaft']/2;ro=v['spider_pin_diameter' if classic else 'output_shaft']/2
@@ -233,9 +246,11 @@ def build(d):
     shaft_end=flange_z+t if v['output_interface']=='flange' else out_support+t+v['output_extension']
     if classic:
         retainer=min(1.5,t/2)
-        cylinder('Pin_spider',ro,0,out_support+t-(out_toe-c-retainer),out_toe-c-retainer,FRAME_OUTPUT,'carrier',speed['carrier'])
+        retainer_radius = (spider_bushing.D/2+.5 if spider_bushing
+                           else ro+v['spider_clearance']+.8)
+        cylinder('Pin_spider',ro,0,out_support+t-(out_toe-c-retainer),out_toe-c-retainer,FRAME_OUTPUT,'carrier',speed['carrier']).bom_kind='spider_pin'
         for label,z in (('lower',out_toe-c-retainer),('upper',out_end+c)):
-            cylinder('Retainer_spider_'+label,ro+v['spider_clearance']+.8,ro,retainer,z,FRAME_OUTPUT,'carrier',speed['carrier'])
+            cylinder('Retainer_spider_'+label,retainer_radius,ro,retainer,z,FRAME_OUTPUT,'carrier',speed['carrier']).bom_kind='spider_retainer'
     else:
         cylinder('Shaft_output',ro,passage,shaft_end-out_toe,out_toe,FRAME_OUTPUT,'output')
         cylinder('Hub_output',ro+2,ro,t,out_end,FRAME_OUTPUT,'output')
@@ -263,7 +278,7 @@ def build(d):
             if tag=='B':outer=[(x,-y) for x,y in reversed(outer)]
             p=Part('Carrier_cheek_'+tag,outer,[circle(ra+bearing_wall)],t,side_support,frame=frame,role='support')
             member(p,'carrier',speed['carrier'])
-        cylinder(('Bearing_side_' if classic else 'Bearing_input_')+tag+'_envelope',ra+bearing_wall-c,ra+c,t,side_support,frame,'carrier',speed['carrier'])
+        cylinder(('Bearing_side_' if classic else 'Bearing_input_')+tag+'_envelope',ra+bearing_wall-c,ra+c,t,side_support,frame,'carrier',speed['carrier']).bom_kind='side_bearing'
     # Split bridge ends butt against the cheek inner faces; they do not occupy
     # the cheek volumes at the four corners. Preserve the original open model.
     span=side_support if v['carrier_style']=='split' else side_support+t
@@ -291,7 +306,7 @@ def build(d):
         mount=cylinder('Flange_carrier_input',outside,inner,t,side_support+t,FRAME_A,'carrier',speed['carrier'],holes=holes)
         mount.machining=[dict(type='clearance_hole',diameter=2*bolt,through=True,center=list(polar(pitch,2*pi*j/4+pi/4)),
             z0=0,z1=t,source='Nominal direct carrier input mount; drive and fasteners to be selected') for j in range(4)]
-    else:cylinder('Bearing_output_envelope',ro+bearing_wall-c,ro+c,t,out_support,FRAME_OUTPUT,'carrier',speed['carrier'])
+    else:cylinder('Bearing_output_envelope',ro+bearing_wall-c,ro+c,t,out_support,FRAME_OUTPUT,'carrier',speed['carrier']).bom_kind='end_bearing'
 
     equations=(['side_a = carrier - prescribed_difference / 2', 'side_b = carrier + prescribed_difference / 2',
                 'spider_spin = (side_teeth / spider_teeth) * prescribed_difference / 2'] if classic else
@@ -314,7 +329,8 @@ def build(d):
     if classic:
         construction.update(side_extension_mm=v['shaft_extension'],side_passage_diameter_mm=2*passage,
             passage_scope='Each side output axis only; spider and pin can obstruct a route through the complete mechanism',
-            spider_pin_diameter_mm=2*ro,spider_bore_diameter_mm=q['transverse_bore'],spider_radial_running_clearance_mm=v['spider_clearance'],
+            spider_pin_diameter_mm=2*ro,spider_bore_diameter_mm=spider_bushing.D if spider_bushing else q['transverse_bore'],
+            spider_radial_running_clearance_mm=(spider_bushing.installed_bore_min/2-ro if spider_bushing else v['spider_clearance']),
             spider_axial_clearance_mm=c,carrier_input_mount_thickness_mm=t)
         d.analysis['classic_construction']=construction
         d.analysis['kinematics'].update(prescribed_difference_rpm=v['output_difference_rpm'],

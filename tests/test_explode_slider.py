@@ -2,42 +2,184 @@
 # SPDX-License-Identifier: GPL-3.0-only
 """Continuous desktop display placement and native GTK/OpenGL regressions."""
 import os
-from dataclasses import replace
+from itertools import combinations, product
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
 from unittest.mock import patch
 
 import component_geometry as cg
-from geometry import generate, FAMILIES
+from geometry import DOUBLE_STYLES, FAMILIES, VARIANTS, generate, is_double
 from solid_geometry import point
 
 
+def catalog_configurations(family):
+    from differential_wrist import CONFIGURATIONS, OUTPUT_INTERFACES, CARRIER_STYLES, RATIO_MODES
+    from kinematics import options
+    from printed_shaft import DESIGNS, KEYED_PRESET, SUPPORTED_SCHEMES
+
+    schemes = options(family)
+    for variant in VARIANTS.get(family, (None,)):
+        base = {} if variant is None else dict(variant=variant)
+        styles = DOUBLE_STYLES if family != 'double' and is_double(family, variant) else (None,)
+        for style in styles:
+            params = dict(base, double_style=style) if style else base
+            if family == 'cycloidal':
+                for construction in DESIGNS:
+                    preset = KEYED_PRESET if construction == 'keyed_shaft' else {}
+                    for scheme in SUPPORTED_SCHEMES if construction == 'fdm_bolted' else schemes:
+                        yield dict(params, **preset, eccentric_design=construction, io_scheme=scheme)
+            elif family == 'differential':
+                for config,interface,carrier,ratio in product(CONFIGURATIONS, OUTPUT_INTERFACES, CARRIER_STYLES, RATIO_MODES):
+                    yield dict(params, configuration=config, output_interface=interface, carrier_style=carrier, ratio_mode=ratio)
+            elif family == 'planetary' and variant in ('two_stage', 'two_stage_double'):
+                for first,second in product(schemes, repeat=2):
+                    yield dict(params, io_scheme=first, io_scheme2=second)
+            elif schemes:
+                for scheme in schemes:
+                    yield dict(params, io_scheme=scheme)
+            else:
+                yield params
+
+
 class ExplodePlacementTests(unittest.TestCase):
-    def test_linear_desktop_offsets_across_families_axes_frames_and_meshes(self):
-        designs=[generate(family) for family in FAMILIES]
-        designs.append(generate('differential',dict(configuration='classic')))
+    def test_every_catalog_configuration_has_clearance_from_the_first_step(self):
+        from rust_surfaces import surface
+        for family in FAMILIES:
+            for params in catalog_configurations(family):
+                with self.subTest(family=family, **params):
+                    design = generate(family, params)
+                    boxes = [surface(cg.displayed_part(design, i)).call('solid_bounds')
+                             for i in range(len(design.parts))]
+                    offsets,minimum = cg.explosion_layout(boxes, family)
+                    self.assertTrue(0. <= minimum < 1.)
+                    self.assertEqual(cg.explosion_scale(0., minimum), 0.)
+                    for amount in (.01, .25, .5, .75, 1.):
+                        scale = cg.explosion_scale(amount, minimum)
+                        shifted = [(tuple(lo[k]+scale*offset[k] for k in range(3)),
+                                    tuple(hi[k]+scale*offset[k] for k in range(3)))
+                                   for (lo,hi),offset in zip(boxes, offsets)]
+                        for i,j in combinations(range(len(boxes)), 2):
+                            a,b = shifted[i],shifted[j]
+                            gap = max(max(a[0][k]-b[1][k], b[0][k]-a[1][k]) for k in range(3))
+                            self.assertGreater(gap, 0., (amount, design.parts[i].name, design.parts[j].name))
+
+    def test_explosion_preserves_world_translations_for_axes_frames_and_meshes(self):
+        from rust_surfaces import surface
+        designs = [generate('worm'), generate('differential', dict(configuration='classic')),
+                   generate('planetary', dict(variant='two_stage_double')), generate('cycloidal', dict(variant='dual'))]
         for design in designs:
-            mid=sum(p.z+p.width/2 for p in design.parts)/len(design.parts)
-            for index,source in enumerate(design.parts):
-                offset=(source.z+source.width/2-mid)*1.1
-                if source.role!='gear':offset+=8 if source.z+source.width/2>=mid else -8
-                full=replace(source,z=source.z+offset,center=tuple(v*1.12 for v in source.center))
+            boxes = [surface(cg.displayed_part(design, i)).call('solid_bounds')
+                     for i in range(len(design.parts))]
+            offsets,minimum,_ = cg.preview_explosion_layout(design, boxes)
+            for index,(source,offset) in enumerate(zip(design.parts, offsets)):
                 self.assertIs(cg.displayed_part(design,index,0),source)
-                self.assertEqual(cg.displayed_part(design,index,1),full)
-                # Compare real world points to the historical endpoint, rather
-                # than assuming local Z is world Z (worm and differential).
-                for amount in (.25,.5,.75):
+                for amount in (.01,.25,.5,.75,1.):
                     with self.subTest(family=design.family,index=index,amount=amount):
-                        shown=cg.displayed_part(design,index,amount)
-                        translation=cg.explosion_offset(design,index,amount)
+                        shift = tuple(v*cg.explosion_scale(amount, minimum) for v in offset)
+                        shown=cg.displayed_part(design,index,shift=shift)
                         for xy,z in (((0,0),0),((2,-3),source.width)):
-                            nominal=point(source,xy,z,0);endpoint=point(full,xy,z,0)
+                            nominal=point(source,xy,z,0)
                             actual=point(shown,xy,z,0)
                             for j in range(3):
-                                self.assertAlmostEqual(actual[j],nominal[j]+amount*(endpoint[j]-nominal[j]),places=10)
-                                self.assertAlmostEqual(actual[j],nominal[j]+translation[j],places=10)
+                                self.assertAlmostEqual(actual[j],nominal[j]+shift[j],places=10)
                 self.assertIs(design.parts[index],source)
+
+    def test_internal_pair_sampled_surfaces_stay_clear_through_explosion(self):
+        from collision_geometry import Surface, relation
+        from motion import translation
+        design = generate('internal')
+        pinion, ring = [Surface.from_part(p) for p in design.parts[:2]]
+        for amount in (.01,.25,.5,.75,1.):
+            a = pinion.posed(translation(*cg.explosion_offset(design, 0, amount)))
+            b = ring.posed(translation(*cg.explosion_offset(design, 1, amount)))
+            self.assertEqual(relation(a,b,.001)['kind'], 'Separated')
+
+    def test_gradual_dual_cycloidal_extraction_keeps_main_surfaces_clear(self):
+        from collision_geometry import Surface, relation
+        from motion import translation
+        from rust_surfaces import surface
+        for params in catalog_configurations('cycloidal'):
+            if params['variant'] != 'dual':
+                continue
+            with self.subTest(**params):
+                design = generate('cycloidal', params)
+                boxes = [surface(part).call('solid_bounds') for part in design.parts]
+                offsets,minimum,views = cg.preview_explosion_layout(design, boxes)
+                if params['eccentric_design'] == 'fdm_bolted':
+                    self.assertNotIn(0, views)
+                    self.assertGreater(minimum, 0.)
+                    continue
+                self.assertIn(0, views)
+                main = [i for i,part in enumerate(design.parts) if part.role == 'gear']
+                pairs = [(i,j) for i,j in combinations(main,2)
+                         if all(max(boxes[i][0][axis]-boxes[j][1][axis],
+                                    boxes[j][0][axis]-boxes[i][1][axis]) <= .001 for axis in (0,1))]
+                meshes = {i:Surface.from_part(design.parts[i]) for i in {k for pair in pairs for k in pair}}
+                for amount in (.01, .02, .05, .1, .15, .25, .4, .5, .6, .75, .9, 1.):
+                    for i,j in pairs:
+                        relative = amount*(offsets[i][2]-offsets[j][2])
+                        a,b = boxes[i],boxes[j]
+                        if max(a[0][2]+relative-b[1][2], b[0][2]-a[1][2]-relative) > .001:
+                            continue
+                        result = relation(meshes[i].posed(translation(0.,0.,relative)), meshes[j], .001)
+                        self.assertIn(result['kind'], ('Separated', 'Boundary contact / unresolved'),
+                                      (amount, design.parts[i].name, design.parts[j].name, result))
+
+    def test_sweep_selects_radial_opening_and_retains_clearance_step_for_blocked_mesh(self):
+        from rust_surfaces import surface
+        for family,variant,expected in [('planetary','spur',{2}), ('parallel','helical',{0}),
+                                        ('parallel','three_stage_helical',{0,2}),
+                                        ('parallel','two_stage_double',{0,2}),
+                                        ('differential','spiral',{0,2}), ('wolfrom','spur',{2}),
+                                        ('rack','helical',{1}), ('harmonic','cup',None)]:
+            with self.subTest(family=family, variant=variant):
+                design = generate(family, dict(variant=variant))
+                boxes = [surface(part).call('solid_bounds') for part in design.parts]
+                offsets,minimum,views = cg.preview_explosion_layout(design, boxes)
+                self.assertGreater(minimum, 0.)
+                self.assertEqual(0 in views, expected is not None)
+                if expected is not None:
+                    self.assertEqual({k for shift in offsets for k,value in enumerate(shift) if value}, expected)
+
+    def test_double_helical_planetary_explodes_by_stage(self):
+        from collision_geometry import Surface, translation_clear
+        from rust_surfaces import surface
+        for variant,style in product(('double','two_stage_double'), DOUBLE_STYLES):
+            with self.subTest(variant=variant, style=style):
+                design = generate('planetary', dict(variant=variant, double_style=style))
+                boxes = [surface(part).call('solid_bounds') for part in design.parts]
+                offsets,entry,views = cg.preview_explosion_layout(design, boxes)
+                self.assertEqual((entry,views), (0., (0,1,2,3)))
+                stages = ('S1', 'S2') if variant == 'two_stage_double' else ('S1',)
+                stage_offsets = []
+                for stage in stages:
+                    members = [shift for part,shift in zip(design.parts, offsets)
+                               if part.name.startswith((stage+'_Sun', stage+'_Planet_', stage+'_Ring'))
+                               and part.role == 'gear']
+                    self.assertEqual(len(members), design.values['planets']+2)
+                    self.assertEqual(len(set(members)), 1)
+                    stage_offsets.append(members[0])
+                self.assertEqual(len(set(stage_offsets)), len(stages))
+                self.assertGreater(len(set(offsets)), len(stages))
+                meshes = {}
+                for i,j in combinations(range(len(boxes)), 2):
+                    if offsets[i] == offsets[j]:
+                        continue
+                    a,b = boxes[i],boxes[j]
+                    delta = cg.sub(offsets[i], offsets[j])
+                    self.assertTrue(any(a[1][k]+delta[k]<b[0][k] or b[1][k]<a[0][k]+delta[k]
+                                        for k in range(3)))
+                    if any(a[1][k]+max(0.,delta[k])+1e-8<b[0][k] or b[1][k]+1e-8<a[0][k]+min(0.,delta[k])
+                           for k in range(3)):
+                        continue
+                    if not any(delta[:2]) and cg._matching_bore(design.parts[i], design.parts[j]):
+                        continue
+                    for k in (i,j):
+                        if k not in meshes:
+                            meshes[k] = Surface.from_part(design.parts[k])
+                    self.assertTrue(translation_clear(meshes[i], meshes[j], delta),
+                                    (design.parts[i].name, design.parts[j].name))
 
 
 class ExplodeSliderGuiTests(unittest.TestCase):
@@ -89,6 +231,9 @@ class ExplodeSliderGuiTests(unittest.TestCase):
     def test_slider_sweep_reuses_gpu_mesh_and_stable_framing(self):
         import preview3d
         a=self.app;c=a.canvas;scene=c.scene;vertices=scene.vertices.tobytes()
+        # The axial separation is foreshortened in the top view.
+        c.view('iso')
+        self.assertTrue(self.wait_until(lambda:c.camera_transition is None))
         token=a.document.token;history=len(a.document.states);config=a.config()
         self.assertIsNone(a.view_options['exploded'].get_parent())
         self.assertEqual(a.explode_slider.get_adjustment().get_upper(),1.)
@@ -182,16 +327,19 @@ class ExplodeSliderGuiTests(unittest.TestCase):
         a.explode_slider.set_value(.75)
         stl_export.write_stl(stl,a.design.parts);cad_export.write(step,a.design.parts)
         self.assertEqual(stl.read_bytes(),nominal_stl);self.assertEqual(step.read_bytes(),nominal_step)
-        observed=[];capture=c.capture_png
+        observed=[];captured=[];capture=c.capture_png
         def check_capture(callback):
             observed.append((c.exploded,c.motion_phase,c.section))
-            capture(callback)
+            def record(data,error):
+                captured.append(data)
+                callback(data,error)
+            capture(record)
         with patch.object(c,'capture_png',side_effect=check_capture):a.export()
         self.assertTrue(self.wait_until(lambda:not a.busy,20))
         self.assertEqual(observed,[(0.,0.,False)])
-        self.assertEqual(a.explode_slider.get_value(),0.)
+        self.assertEqual(a.explode_slider.get_value(),.75)
         package=next(a.output_dir.glob('*.package'))
-        self.assertEqual((package/'preview.png').read_bytes(),self.png())
+        self.assertEqual((package/'preview.png').read_bytes(),captured[0])
         self.assertEqual((package/'model.stl').read_bytes(),nominal_stl)
         self.assertEqual((package/'assembly.step').read_bytes(),nominal_step)
 

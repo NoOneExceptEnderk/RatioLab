@@ -39,7 +39,7 @@ class ParameterHelpTests(unittest.TestCase):
         self.assertIn('both', lookup('differential', 'flange_radius', {'configuration': 'classic'}).effect)
 
     def test_drive_connections_distinguish_pairs_and_triples(self):
-        self.assertIn('two meshing', lookup('worm', 'io_scheme').meaning)
+        self.assertIn('two meshing', lookup('parallel', 'io_scheme').meaning)
         self.assertIn('remaining member is fixed', lookup('planetary', 'io_scheme').meaning)
         self.assertIn('physical eccentric shaft', lookup('cycloidal', 'input_shaft').meaning)
 
@@ -57,16 +57,10 @@ class ParameterHelpTests(unittest.TestCase):
         with self.assertRaises(KeyError):
             lookup('spur', 'unknown_future_parameter')
 
-    def test_optional_worm_friction_has_specific_model_help_and_worm_only_coverage(self):
-        help = lookup('worm', 'worm_static_friction')
-        self.assertEqual(help.diagram, 'text')
-        for phrase in ('dimensionless', 'Missing means unknown', 'explicit 0'):
-            self.assertIn(phrase, help.meaning)
-        for phrase in ('Apply commits', 'Clear removes', 'does not clear', 'cos(αn) tan(γ)',
-                       'axial pressure angle', 'static contact model', 'not a brake'):
-            self.assertIn(phrase, help.effect)
+    def test_worm_help_describes_fixed_drive(self):
+        self.assertEqual(lookup('worm', 'io_scheme').meaning, 'The worm drives the wheel.')
         for row in coverage_rows():
-            self.assertEqual('worm_static_friction' in row['parameters'], row['family'] == 'worm')
+            self.assertNotIn('worm_static_friction', row['parameters'])
 
 
 if __name__ == '__main__':

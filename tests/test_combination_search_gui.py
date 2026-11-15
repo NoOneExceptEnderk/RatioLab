@@ -67,6 +67,80 @@ class CombinationSearchGuiTests(unittest.TestCase):
     def changed_proposal(self):
         return next(p for p in self.c.result.proposals if p.changes)
 
+    def test_catalog_quick_search_preview_limit_apply_and_undo(self):
+        a, c = self.app, self.c
+        a.catalog_button.emit('clicked')
+        self.assertIsNotNone(a.model_catalog)
+        a.model_catalog.cards['planetary'].emit('clicked')
+        a.model_catalog.apply.emit('clicked')
+        self.assertEqual(a.design.family, 'planetary')
+        self.assertIs(a.catalog_button.get_next_sibling(), a.find_combinations_button)
+        before = a.project_snapshot()
+        token, index = a.document.token, a.document.index
+        a.find_combinations_button.emit('clicked')
+        pump()
+        self.assertEqual(a.tools.active, 'search')
+        self.assertTrue(c.quick)
+        target = c.quick_fields['target']
+        focus = a.win.get_focus()
+        self.assertTrue(focus is target or focus.is_ancestor(target))
+        self.assertTrue(c.quick_rows['diameter'].get_visible())
+        self.assertFalse(c.quick_rows['x'].get_visible())
+        self.assertFalse(c.setup.get_visible())
+        target.set_text('5:1')
+        c.quick_fields['diameter'].set_text('165.4')
+        # Edits trigger a debounced search in the quick flow.
+        self.assertTrue(wait_until(lambda: c.result is not None, 20), c.status.get_text())
+        proposal = c.list.get_selected_row().proposal
+        self.assertEqual((proposal.ratio, proposal.values['sun'], proposal.values['planet']), (5, 18, 27))
+        self.assertAlmostEqual(proposal.comparison['diameter_mm'], 165.4)
+        self.assertTrue(c.quick_outcome.get_visible())
+        self.assertIn('Ø 165.4 mm', c.quick_outcome.get_text())
+        self.assertEqual(a.document.token, token)
+        self.assertTrue(equivalent(a.project_snapshot(), before))
+        self.assertIs(a.canvas.design, a.design)
+        self.assertTrue(wait_until(lambda: c.preview is not None and c.preview.render_serial > 0))
+        self.assertFalse(c.preview.failure)
+        captured = []
+        c.preview.capture_png(lambda data, error: captured.append((data, error)))
+        self.assertTrue(wait_until(lambda: bool(captured)))
+        self.assertIsNone(captured[0][1])
+        self.assertTrue(captured[0][0].startswith(b'\x89PNG'))
+
+        c.quick_fields['diameter'].set_text('165')
+        c.run_button.emit('clicked')
+        self.assertTrue(wait_until(lambda: c.result is not None, 20), c.status.get_text())
+        self.assertFalse(c.result.proposals)
+        self.assertIn('exceeded the size limit', c.status.get_text())
+        self.assertIn('exceeded the size limit', c.quick_outcome.get_text())
+        self.assertFalse(c.apply_button.get_sensitive())
+        self.assertIsNone(c.preview)
+
+        c.quick_fields['diameter'].set_text('165.4')
+        c.run_button.emit('clicked')
+        self.assertTrue(wait_until(lambda: c.result is not None, 20), c.status.get_text())
+        self.assertTrue(c.apply_button.get_sensitive())
+        c.apply_button.emit('clicked')
+        self.assertEqual(a.document.index, index+1, c.status.get_text())
+        self.assertEqual(a.design.analysis['signed_ratio'], 5)
+        a.undo_button.emit('clicked')
+        self.assertTrue(equivalent(a.project_snapshot(), before))
+        c.mode_button.emit('clicked')
+        self.assertTrue(c.setup.get_visible())
+        self.assertIn('planet', c.axes)
+        focus = a.win.get_focus()
+        advanced_target = c.fields['target']
+        self.assertTrue(focus is advanced_target or focus.is_ancestor(advanced_target))
+        advanced_target.set_text('5')
+        c.axes['sun'][0].set_active(True)
+        c.axes['planet'][1].set_text('27')
+        c.run_button.emit('clicked')
+        self.assertTrue(wait_until(lambda: c.result is not None, 20), c.status.get_text())
+        self.assertTrue(c.result.complete)
+        self.assertEqual([(p.ratio, p.values['planet']) for p in c.result.proposals], [(5, 27)])
+        c.window.close()
+        c.quick = False
+
     def test_compact_automatic_ratio_keeps_exact_search_target_and_typed_precision(self):
         a,c = self.app,self.c
         a.load_config_data(dict(format='solidcraft-riduttori/1', family='parallel',

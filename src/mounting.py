@@ -20,18 +20,6 @@ def explicit(p):
         p.stations = [dict(z=q, outer=p.outer, holes=p.holes) for q in (0, p.width)]
     return p
 
-def profile(p, outer=None, holes=None):
-    if outer is not None:
-        p.outer = outer
-    if holes is not None:
-        p.holes = holes
-    if p.stations:
-        for s in p.stations:
-            if outer is not None:
-                s['outer'] = outer
-            if holes is not None:
-                s['holes'] = holes
-
 def part(d, name, ro, ri, z0, z1, port, center=(0, 0), frame=(), holes=()):
     if ro <= ri + 0.1 or z1 <= z0 + 1e-06:
         raise ValueError('Axial interface has no material: ' + name)
@@ -163,31 +151,25 @@ def coaxial(d, record):
     def add(member, anchor, contact, plane, ro, ri=0):
         return interface(d, 'Attachment_' + member, anchor.name, contact, plane, ro, ri, port(q, member))
     if f == 'cycloidal':
-        if v.get('eccentric_design') == 'fdm_bolted':
-            from printed_shaft import mount_housing_output
-            mount_housing_output(d, record)
-            return
         old = {p.name: p for p in d.parts}
         shaft = old['Shaft_input']
         out = old['Shaft_output']
-        body = old['Housing_tubular']
+        body = old['Ring_pin_carrier']
         flange = old['Flange_output']
         integral = v.get('eccentric_design') in ('integral','d_shaft','keyed_shaft')
-        removed = {'Shaft_output', 'Cover_input', 'Cover_output', 'Bearing_input_envelope'}
+        removed = {'Shaft_output'}
         if not integral:
             removed.add('Shaft_input')
         d.parts = [p for p in d.parts if p.name not in removed]
-        lower = body.z - t - g
+        lower = min(body.z, shaft.z) - t - g
         upper = max(body.z + body.width, flange.z + flange.width) + t + g
         anchor = shaft if integral else next(p for p in d.parts if p.name == 'Eccentric_1')
         contact = shaft.z if integral else anchor.z + anchor.width / 2
         add('eccentric', anchor, contact, lower - ext - 2 * (t + g), radius(shaft.outer), 0)
-        if integral:
-            # The final I/O pass renames this shaft; keep report identity aligned.
-            d.analysis['eccentric_connection']['part'] = 'Shaft_eccentric'
         add('output', flange, flange.z + flange.width / 2, upper + ext + t + g, radius(out.outer), 0)
-        add('ring', body, body.z + body.width, upper + ext, radius(body.outer), bore(body) + 0.02)
-        d.notes.append('With a moving ring, the housing and roller seats belong to the same member. Previous fixed covers crossed by interfaces are removed; the new mounting ring follows the ring role. Discs retain rotation and orbit; they are not hubs rigidly fixed to the flange.')
+        ring_contact = body.z
+        ring_plane = ring_contact - t - g
+        add('ring', body, ring_contact, ring_plane, radius(body.outer), max(bore(body) + .02, body.outer.radius - v['housing_wall']))
     elif f == 'harmonic':
         flex, ring, bearing, cam = d.parts[:4]
         upper = max((p.z + p.width for p in d.parts))
@@ -248,11 +230,6 @@ def pairs(d):
         b = next((p for p in d.parts if p.name == 'Ring_output'))
         fit('A', a or next((p for p in d.parts if p.name == 'Pinion_input')), -1, shaft=a is not None)
         fit('B', b, 1, radius(b.outer), radius(b.holes[0]) + 0.02)
-    elif f == 'worm':
-        a = next((p for p in d.parts if p.name.startswith('Screw_')))
-        b = next((p for p in d.parts if p.name.startswith('Wheel_')))
-        fit('A', a, -1)
-        fit('B', b, 1)
     renamed = {}
     for p in d.parts:
         old = p.name

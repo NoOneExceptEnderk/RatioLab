@@ -225,20 +225,22 @@ class ToolWorkspaceTests(unittest.TestCase):
         self.assertIn('2 selected / 4',a.export_count.get_text())
         a.view_options['support'].set_active(True);c.isolate();a.update_export_scope()
         self.assertIn('2 selected / 4',a.export_count.get_text())
-        # Activate the real format command; do not write mock geometry.
-        body=a.export_scope.get_parent();child=body.get_first_child();step=None
-        while child:
-            if isinstance(child,Gtk.Button) and child.get_child():
-                text=child.get_child().get_first_child()
-                if isinstance(text,Gtk.Label) and text.get_text()=='STEP for CAD':step=child;break
-            child=child.get_next_sibling()
-        self.assertIsNotNone(step)
-        with patch.object(c,'export') as selected:
-            step.emit('clicked');selected.assert_called_once_with('step')
+        # Select STEP in the current export chooser and confirm the action.
+        formats = a.export_format.get_model()
+        step = next(i for i in range(formats.get_n_items()) if formats.get_string(i) == 'STEP for CAD')
+        a.export_format.set_selected(step)
+        self.assertTrue(a.export_confirm.get_sensitive())
+        with patch.object(c, 'export') as selected:
+            a.export_confirm.emit('clicked')
+            selected.assert_called_once_with('step')
         a.export_scope.set_selected(0);a.update_export_scope()
         self.assertIn('All 4',a.export_count.get_text())
         c.select(());a.export_scope.set_selected(1);a.update_export_scope()
-        self.assertFalse(step.get_sensitive());self.assertIn('0 selected',a.export_count.get_text())
+        self.assertFalse(a.export_confirm.get_sensitive())
+        self.assertIn('Select current components', a.export_count.get_text())
+        with patch.object(c, 'export') as selected:
+            a.export_confirm.emit('clicked')
+            selected.assert_not_called()
 
     def test_interference_coverage_stays_visible_when_a_pose_is_selected(self):
         from interference import Settings
@@ -437,7 +439,13 @@ class ToolWorkspaceTests(unittest.TestCase):
         # Display and Tools still control their actual mutually exclusive overlays.
         a.view_menu.emit('clicked');pump(.05)
         self.assertTrue(a.view_panel.get_visible());self.assertTrue(a.view_menu.get_active())
-        self.assertIsInstance(a.view_panel,Gtk.Popover)
+        self.assertIs(a.view_panel.get_parent(),a.preview_overlay)
+        self.assertTrue(a.view_panel.has_css_class('tool-dock'))
+        ok,view=a.view_menu.compute_bounds(a.preview_overlay);self.assertTrue(ok)
+        ok,panel=a.view_panel.compute_bounds(a.preview_overlay);self.assertTrue(ok)
+        self.assertEqual(round(panel.get_y()-view.get_y()-view.get_height()),6)
+        self.assertEqual(round(panel.get_x()+panel.get_width()-view.get_x()-view.get_width()),0)
+        self.assertLessEqual(panel.get_y()+panel.get_height(),a.preview_overlay.get_height())
         self.assertTrue(a.pick_mode.get_mapped());self.assertTrue(a.explode_slider.get_mapped())
         a.tools.menu.emit('clicked');pump(.05)
         self.assertTrue(a.tools.box.get_visible());self.assertTrue(a.tools.menu.get_active())
@@ -449,7 +457,7 @@ class ToolWorkspaceTests(unittest.TestCase):
         a=self.app
         a.tools.menu.set_active(True);pump(.1)
         try:
-            self.assertEqual(len(a.tools.command_buttons),8)
+            self.assertEqual(len(a.tools.command_buttons),7)
             for button in a.tools.command_buttons:
                 with self.subTest(action=button.get_label()):
                     self.assertIsInstance(button.workspace_icon,Gtk.DrawingArea)
@@ -476,14 +484,17 @@ class ToolWorkspaceTests(unittest.TestCase):
         rows=[];row=tools.commands.get_first_child()
         while row:
             rows.append(row.get_child());row=row.get_next_sibling()
-        self.assertEqual(rows[:5],[tools.controllers[key].button for key in
-            ('components','search','interference','gear_measurement','backlash')])
-        self.assertEqual(len(tools.command_buttons),8)
+        self.assertEqual(rows[:4],[tools.controllers[key].button for key in
+            ('components','interference','gear_measurement','backlash')])
+        self.assertNotIn('Find combinations', {button.get_label().rstrip('…') for button in rows})
+        self.assertNotIn('Find combinations', tools.context.get_text())
+        self.assertEqual(len(tools.command_buttons),7)
         self.assertTrue({'Bill of materials','Calculation report','Model notes'} <= {button.get_label() for button in tools.command_buttons})
-        for controller in tools.controllers.values():
-            self.assertTrue(controller.button.is_ancestor(tools.commands))
-        a.combination_search.button.emit('clicked');pump(.05)
+        for button in tools.command_buttons:
+            self.assertTrue(button.is_ancestor(tools.commands))
+        a.find_combinations_button.emit('clicked');pump(.05)
         panel=a.combination_search.window
+        a.combination_search.mode_button.emit('clicked')
         a.combination_search.fields['target'].set_text('7.125')
         self.assertEqual(tools.stack.get_visible_child_name(),'search')
         self.assertTrue(tools.back_button.get_visible());self.assertTrue(tools.menu.get_active())
@@ -492,7 +503,7 @@ class ToolWorkspaceTests(unittest.TestCase):
         tools.close_button.emit('clicked');pump(.05)
         self.assertFalse(tools.menu.get_active());self.assertFalse(tools.box.get_visible())
         self.assertIs(a.combination_search.window,panel)
-        tools.menu.emit('clicked');a.combination_search.button.emit('clicked');pump(.05)
+        tools.menu.emit('clicked');a.find_combinations_button.emit('clicked');pump(.05)
         self.assertEqual(a.combination_search.fields['target'].get_text(),'7.125')
         tools.expand_button.emit('clicked');self.assertTrue(tools.expanded)
         a.view_menu.set_active(True);pump(.1)
@@ -501,7 +512,7 @@ class ToolWorkspaceTests(unittest.TestCase):
         tools.menu.emit('clicked');pump(.05)
         self.assertFalse(a.view_menu.get_active());self.assertFalse(a.view_panel.get_visible())
         self.assertEqual(tools.stack.get_visible_child_name(),'chooser')
-        a.combination_search.button.emit('clicked');pump(.05)
+        a.find_combinations_button.emit('clicked');pump(.05)
         self.assertIs(a.combination_search.window,panel)
         self.assertEqual(a.combination_search.fields['target'].get_text(),'7.125')
         self.assertEqual((a.canvas.get_width(),a.canvas.get_height()),(width,height))
@@ -533,6 +544,36 @@ class ToolWorkspaceTests(unittest.TestCase):
             a.view_menu.set_active(False)
             controller.window.close()
         self.assertEqual(id(a.canvas.scene),id(scene));self.assertEqual(a.document.token,token)
+
+    def test_bom_exposes_internal_bushings_in_the_assembled_pose(self):
+        app = self.app
+        design = generate('planetary', {'variant': 'two_stage_double', 'planet_bushing': 'GSM-0608-04'})
+        app.load_config_data(dict(format='solidcraft-riduttori/1', family=design.family, parameters=design.values))
+        main_selection = app.canvas.selected_indices
+        window = app.show_bom()
+        try:
+            bom = window.bom
+            preview = bom.preview
+            self.wait_for(lambda: preview.scene and preview.render_serial and bom.list.get_selected_row(), 25)
+            bushings = bom.list.get_selected_row()
+            self.assertEqual(bushings.bom_item['kind'], 'planet_bushing')
+            indices = set(bushings.bom_item['indices'])
+            self.assertEqual(set(preview.selected_indices), indices)
+            self.assertEqual(preview.exploded, 0)
+            self.assertIsNone(preview.isolated_indices)
+            self.assertEqual(app.canvas.selected_indices, main_selection)
+
+            def visible_ids():
+                pixels = preview._part_id_frame()
+                self.assertIsNotNone(pixels)
+                return {r+256*g+65536*b-1 for r,g,b in zip(pixels[0::4], pixels[1::4], pixels[2::4])}
+
+            self.assertTrue(indices & visible_ids())
+            preview.context_opacity = None
+            preview.pickable_indices = None
+            self.assertFalse(indices & visible_ids(), 'fixture must cover the bushings in the opaque assembly')
+        finally:
+            window.close()
 
 
 if __name__=='__main__':unittest.main()

@@ -36,16 +36,6 @@ class TechnicalTranslationTests(unittest.TestCase):
         self.assertEqual(translate('Triangolo STL degenere: −2.5e+12','en'),
                          'Degenerate STL triangle: −2.5e+12')
 
-    def test_static_friction_explanation_keeps_equations_and_limit_qualifiers(self):
-        from parameter_help import COMMON
-        source = COMMON['worm_static_friction'].effect
-        for code in catalog()['languages']:
-            text = translate(source,code)
-            for formula in ('μcritical = cos(αn) tan(γ)','γ = atan(mx × starts / d)','αn = atan(tan(αx) cos(γ))'):
-                self.assertIn(formula,text)
-        self.assertIn('solo potenzialmente reversibile',translate(source,'it'))
-        self.assertIn('仅表示可能',translate(source,'zh-CN'))
-
     def test_file_references_and_named_engineering_symbols_remain_canonical(self):
         for language,messages in catalog()['translations'].items():
             for source,target in messages.items():

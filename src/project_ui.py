@@ -258,7 +258,8 @@ class ProjectActions:
             raise ValueError('Configuration parameters must be an object')
         from component_sheets import normalize as normalize_sheets
         normalize_sheets(obj.get('component_sheets'))
-        return generate(family, obj['parameters'],quality=obj.get('quality'))
+        from kinematics import migrate_saved_parameters
+        return generate(family, migrate_saved_parameters(family, obj['parameters']), quality=obj.get('quality'))
 
     def load_config_data(self, obj, path=None):
         checked = self.checked_config(obj)

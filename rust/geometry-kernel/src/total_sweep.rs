@@ -259,7 +259,12 @@ fn interpolation(a: &Landmark, b: &Landmark, n: usize) -> Result<(f64, f64)> {
 }
 pub(crate) fn audit(a: &Value) -> Result<Value> {
     let p = Part::read(&a["part"])?;
-    if p.internal || !p.stations.is_empty() || !p.mesh.is_empty() || p.alternate_diagonal {
+    if p.internal
+        || !p.stations.is_empty()
+        || !p.mesh.is_empty()
+        || p.alternate_diagonal
+        || p.fixed_first_bore
+    {
         return Err(
             "Complete cylindrical sweep proof requires unchanged external section construction"
                 .into(),

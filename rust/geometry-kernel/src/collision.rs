@@ -127,6 +127,52 @@ fn ray_triangle(p: P, d: P, t: T) -> Option<f64> {
     }
     Some(dot(e2, q) * inv)
 }
+
+fn pick_surface(a: &Value) -> Result<Value> {
+    let origin: P = parse(a, "point")?;
+    let direction: P = parse(a, "direction")?;
+    let section: Option<f64> = parse(a, "section_y")?;
+    let max_distance: f64 = parse(a, "max_distance")?;
+    let matrix: Option<[f64; 16]> = parse(a, "matrix")?;
+    let plane_distance = section
+        .filter(|_| direction[1].abs() > 1e-12)
+        .map(|y| (y - origin[1]) / direction[1])
+        .filter(|t| (0. ..=max_distance).contains(t));
+    let mut crossings = Vec::new();
+    let mut best: Option<(f64, P, Option<T>)> = None;
+    crate::surfaces::visit_triangles(a, |triangle| {
+        let triangle = match matrix {
+            Some(matrix) => triangle.map(|p| crate::affine::transform(matrix, p)),
+            None => triangle,
+        };
+        let Some(distance) = ray_triangle(origin, direction, triangle) else {
+            return;
+        };
+        let point = add(origin, mul(direction, distance));
+        if plane_distance.is_some() && section.is_some_and(|y| point[1] < y) {
+            crossings.push(distance);
+        }
+        if (0. ..=max_distance).contains(&distance)
+            && best.is_none_or(|hit| distance < hit.0)
+            && section.is_none_or(|y| point[1] <= y)
+        {
+            best = Some((distance, point, Some(triangle)));
+        }
+    })?;
+    if let (Some(y), Some(distance)) = (section, plane_distance) {
+        if !crossings.is_empty() && best.is_none_or(|hit| distance < hit.0) {
+            crossings.sort_unstable_by(f64::total_cmp);
+            // A ray on a triangulation edge can report the same crossing twice.
+            let count = 1 + crossings.windows(2).filter(|w| w[1] - w[0] > 1e-9).count();
+            if count % 2 == 1 {
+                let [x, _, z] = add(origin, mul(direction, distance));
+                best = Some((distance, [x, y, z], None));
+            }
+        }
+    }
+    Ok(json!(best))
+}
+
 fn triangle_distance(a: T, b: T) -> (f64, P, P) {
     let mut best = (f64::INFINITY, a[0], b[0]);
     for (first, second, reverse) in [(a, b, false), (b, a, true)] {
@@ -719,6 +765,108 @@ fn distance(a: &Query<'_>, b: &Query<'_>, w: &mut Work) -> Result<(f64, P, P)> {
     }
     Ok((best.0.sqrt(), best.1, best.2))
 }
+
+fn swept_box(a: Bounds, b: Bounds, movement: P) -> bool {
+    (0..3).all(|i| {
+        a[0][i] + movement[i].min(0.) <= b[1][i] + 1e-8
+            && b[0][i] <= a[1][i] + movement[i].max(0.) + 1e-8
+    })
+}
+
+fn swept_triangles_clear(a: &Face, b: &Face, movement: P) -> bool {
+    // The moving triangle sweeps a triangular prism. Any projection that
+    // separates that entire prism from the other triangle proves clearance.
+    let separated = |axis: P| {
+        let length = norm2(axis).sqrt();
+        if !length.is_finite() || length <= 1e-15 {
+            return false;
+        }
+        let axis = mul(axis, 1. / length);
+        let origin = a.triangle[0];
+        let project = |triangle: T| {
+            let p = triangle.map(|p| dot(sub(p, origin), axis));
+            (p[0].min(p[1]).min(p[2]), p[0].max(p[1]).max(p[2]))
+        };
+        let (lo, hi) = project(a.triangle);
+        let (other_lo, other_hi) = project(b.triangle);
+        let shift = dot(movement, axis);
+        lo + shift.min(0.) > other_hi + 1e-8
+            || other_lo > hi + shift.max(0.) + 1e-8
+            // A contact in the assembled pose may open immediately. A
+            // projection that stays in contact cannot prove clearance.
+            || (lo >= other_hi && shift > 1e-8)
+            || (other_lo >= hi && shift < -1e-8)
+    };
+    let edges = |t: T| -> [P; 3] { std::array::from_fn(|i| sub(t[(i + 1) % 3], t[i])) };
+    if [a, b].iter().any(|face| {
+        face.plane.is_some_and(|(_, axis)| separated(axis))
+            || face.slabs.iter().any(|&(_, axis, _, _)| separated(axis))
+    }) {
+        return true;
+    }
+    let ea = edges(a.triangle);
+    let eb = edges(b.triangle);
+    ea.iter()
+        .chain(&eb)
+        .any(|&edge| separated(cross(edge, movement)))
+        || ea
+            .iter()
+            .any(|&x| eb.iter().any(|&y| separated(cross(x, y))))
+}
+
+#[cfg(test)]
+#[test]
+fn translation_sweep_checks_intermediate_positions_and_opening_contact() {
+    let triangle = [[0., 0., 0.], [0., 1., 0.], [0., 0., 1.]];
+    let a = Face::new(triangle);
+    let b = Face::new(triangle.map(|p| add(p, [2., 0., 0.])));
+    assert!(!swept_triangles_clear(&a, &b, [4., 0., 0.]));
+    assert!(swept_triangles_clear(&a, &b, [0., 4., 0.]));
+    assert!(swept_triangles_clear(&a, &a, [1., 0., 0.]));
+    assert!(!swept_triangles_clear(&a, &a, [0., 0.5, 0.]));
+}
+
+fn translation_clear(a: &Surface, b: &Surface, movement: P, w: &mut Work) -> Result<bool> {
+    let mut stack = vec![(0, 0)];
+    while let Some((i, j)) = stack.pop() {
+        w.tick()?;
+        let x = &a.nodes[i];
+        let y = &b.nodes[j];
+        if !swept_box(x.bounds, y.bounds, movement) {
+            continue;
+        }
+        match (x.children, y.children) {
+            (Some(children), None) => stack.extend(children.map(|k| (k, j))),
+            (None, Some(children)) => stack.extend(children.map(|k| (i, k))),
+            (Some(left), Some(right)) => {
+                if x.size >= y.size {
+                    stack.extend(left.map(|k| (k, j)));
+                } else {
+                    stack.extend(right.map(|k| (i, k)));
+                }
+            }
+            (None, None) => {
+                for &first in x.triangles.iter() {
+                    let first = &a.faces[first];
+                    if !swept_box(first.bounds, y.bounds, movement) {
+                        continue;
+                    }
+                    for &second in y.triangles.iter() {
+                        w.tick()?;
+                        let second = &b.faces[second];
+                        if swept_box(first.bounds, second.bounds, movement)
+                            && !swept_triangles_clear(first, second, movement)
+                        {
+                            return Ok(false);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    Ok(true)
+}
+
 fn relation(a: &Surface, b: &Surface, tolerance: f64, w: &mut Work) -> Result<Value> {
     let measured = distance(&a.query(), &b.query(), w)?;
     // Bounded contact witnesses depend on traversal order. Retain the original
@@ -961,6 +1109,18 @@ pub fn call(op: &str, a: &Value) -> Result<Value> {
             &mut work
         )?),
         "collision_relation" => relation(&*get(a, "a")?, &*get(a, "b")?, tolerance(a)?, &mut work)?,
+        "collision_translation_clear" => {
+            let movement: P = parse(a, "movement")?;
+            if movement.iter().any(|x| !x.is_finite()) {
+                return Err("Invalid collision translation".into());
+            }
+            json!(translation_clear(
+                &*get(a, "a")?,
+                &*get(a, "b")?,
+                movement,
+                &mut work
+            )?)
+        }
         "collision_point_triangle" => {
             json!(point_triangle(parse(a, "point")?, parse(a, "triangle")?))
         }
@@ -976,6 +1136,7 @@ pub fn call(op: &str, a: &Value) -> Result<Value> {
             parse(a, "direction")?,
             parse(a, "triangle")?
         )),
+        "collision_pick_surface" => pick_surface(a)?,
         "collision_bounds" => {
             let points: Vec<P> = parse(a, "points")?;
             if points.is_empty() {

@@ -28,6 +28,8 @@ def is_message(text):
     """Exclude identifiers, units, code, paths and markup rather than translate data."""
     if not isinstance(text, str) or len(text.strip()) < 3 or not re.search(r'[A-Za-z]{3}', text):
         return False
+    if re.fullmatch(r'[A-Za-z0-9_\\|?*+()\[\]0-9:\-]+', text) and ('_' in text or '\\d' in text):
+        return False  # Generated component identifiers and regular expressions.
     literal = re.sub(r'\{(?:arg\d+|value|[A-Za-z_]\w*(?::[^{}]+)?)\}', '', text)
     if not re.search(r'[A-Za-z]{3}', literal):
         return False

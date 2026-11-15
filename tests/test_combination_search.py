@@ -148,6 +148,60 @@ class CombinationSearchTests(unittest.TestCase):
             r=search('parallel',d.values,{},Settings(),event)
         self.assertEqual(r.visited,0);self.assertEqual(r.reason,'cancelled')
 
+    def test_wolfrom_grid_uses_generated_assembly_and_rejects_singular_counts(self):
+        # 18/72/162, 59/135 teeth gives i=600. With a 60-tooth
+        # second rim the same output ring instead gives a stationary output.
+        design = generate('wolfrom')
+        for variant in ('spur', 'helical', 'double'):
+            with self.subTest(variant=variant):
+                d = generate('wolfrom', dict(design.values, variant=variant))
+                r = search('wolfrom', d.values, {'planet2': (59, 60)},
+                           Settings(target=600, tolerance_percent=0))
+                self.assertTrue(r.complete)
+                self.assertEqual([p.ratio for p in r.proposals], [600])
+                self.assertEqual(r.generated, 1)
+                self.assertEqual(r.proposals[0].values['planet2'], 59)
+                self.assertEqual(generate('wolfrom', r.proposals[0].values).values, r.proposals[0].values)
+
+    def test_quick_planetary_guide_and_radial_envelope_oracle(self):
+        from math import hypot
+        from quick_combination_search import parse_ratio, quick_search
+        base = generate('planetary').values
+        settings = Settings(target=parse_ratio('5:1')[0])
+        result = quick_search('planetary', base, ['spur'], {}, settings, 165.4)
+        proposal = result.proposals[0]
+        self.assertEqual((proposal.ratio, proposal.values['sun'], proposal.values['planet']), (5, 18, 27))
+        d = generate('planetary', proposal.values)
+        actual = 2*max(hypot(x, y) for p in d.parts for f in faces(p) for loop in f for x, y, _ in loop)
+        self.assertAlmostEqual(proposal.comparison['diameter_mm'], actual)
+        self.assertAlmostEqual(actual, 165.4)
+        self.assertAlmostEqual(proposal.xyz[2], 39.2)
+        smaller = quick_search('planetary', base, ['spur'], {}, settings, 165)
+        self.assertTrue(smaller.complete)
+        self.assertFalse(smaller.proposals)
+        self.assertGreater(smaller.exclusions['size limits'], 0)
+
+    def test_quick_construction_changes_are_regenerated(self):
+        from quick_combination_search import quick_search
+        base = generate('planetary').values
+        r = quick_search('planetary', base, ['two_stage'], dict(bearing_mode='gear', bearing='626',
+                                                               output_shaft_profile='d_shaft'),
+                         Settings(target=20, max_candidates=4))
+        p = r.proposals[0]
+        d = generate('planetary', p.values)
+        self.assertEqual(p.ratio, 20)
+        self.assertEqual(p.values['variant'], 'two_stage')
+        self.assertTrue(any(part.catalog_code == '626' for part in d.parts))
+        self.assertEqual(p.values['output_shaft_profile'], 'd_shaft')
+        self.assertEqual(set(('variant', 'bearing_mode', 'output_shaft_profile')) - p.changes.keys(), set())
+
+    def test_varying_precise_axis_preserves_other_numeric_sources(self):
+        from precise_numbers import SOURCE_KEY
+        d = generate('parallel', {'module': '2.0000000000000001', 'width': '10.0000000000000001'})
+        r = search('parallel', d.values, {'module': (2.1,)}, Settings(target=3))
+        self.assertEqual(len(r.proposals), 1)
+        self.assertEqual(r.proposals[0].values[SOURCE_KEY], {'width': '10.0000000000000001'})
+
     def test_discrete_grid_parsing_and_invalid_inputs(self):
         self.assertEqual(parse_grid('2, 4:8:2, 2'),(2.,4.,6.,8.))
         for text in ('nan','inf','','1:5:0','4:2:1','1:2000:1','1:2','-1e308:1e308:1e-308','-1e308:1e308:1'):

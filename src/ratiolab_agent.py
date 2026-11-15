@@ -125,6 +125,9 @@ def _option_fields(family):
         hardware_shim=dict(type='string', enum=list(hardware_catalog.SHIM_THICKNESSES)))
     for key in ('retaining', 'keys', 'bolts', 'shims'):
         fields['hardware_'+key] = dict(type='boolean')
+    from shaft_connections import PROFILES, ports, profile_key
+    for port in ports(family):
+        fields[profile_key(port)] = dict(type='string', enum=list(PROFILES))
     if family in VARIANTS:
         fields['variant'] = dict(type='string', enum=list(VARIANTS[family]))
     if family == 'double' or any(is_double(family, variant) for variant in VARIANTS.get(family, {})):
@@ -133,14 +136,15 @@ def _option_fields(family):
         fields['io_scheme'] = dict(type='string', enum=list(kinematics.options(family)))
         if family == 'planetary':
             fields['io_scheme2'] = deepcopy(fields['io_scheme'])
-    if family == 'worm':
-        fields['worm_static_friction'] = dict(type='number', minimum=0,
-            description='Explicit static tooth friction coefficient; omit when unknown. Not inferred from materials.')
     if family == 'harmonic':
         fields['harmonic_output'] = dict(type='string', enum=list(HARMONIC_OUTPUTS))
     if family == 'cycloidal':
         from printed_shaft import DESIGNS
         fields['eccentric_design'] = dict(type='string', enum=list(DESIGNS))
+        fields['ring_roller_bearing'] = dict(type='string', enum=list(catalog.RING_ROLLER_CHOICES))
+    from bushings import fields as bushing_fields
+    for key, _, choices in bushing_fields(family):
+        fields[key] = dict(type='string', enum=list(choices))
     if family == 'differential':
         from differential_wrist import OUTPUT_INTERFACES,CARRIER_STYLES,RATIO_MODES,CONFIGURATIONS
         for key,choices in (('output_interface',OUTPUT_INTERFACES),('carrier_style',CARRIER_STYLES),('ratio_mode',RATIO_MODES),('configuration',CONFIGURATIONS)):
@@ -351,7 +355,7 @@ class AgentService:
                                    derived_fields=['output_teeth'],explanation=description)
         return dict(family=family, label=FAMILIES[family], defaults=values, named_presets=presets,
                     fields=[dict(name=k, label=label, type='integer' if k in INTEGER else 'number',
-                                 default=values[k], nominal_default=default, minimum=low, maximum=high, step=step) for k,label,default,low,high,step in specs],
+                    default=values.get(k, default), nominal_default=default, minimum=low, maximum=high, step=step) for k,label,default,low,high,step in specs],
                     options=options, variants=VARIANTS.get(family, {}), io_schemes=kinematics.options(family),
                     bearings={k:v.data() for k,v in catalog.BEARINGS.items()},
                     bearing_catalog_supported=family in catalog.SUPPORTED,
@@ -388,7 +392,9 @@ class AgentService:
         _object(obj, 'configuration')
         if not {'format','family','parameters'} <= set(obj) or set(obj)-{'format','family','parameters','quality','component_sheets'} or obj.get('format') != CONFIG_FORMAT:
             raise AgentError('invalid_format', 'Expected a full solidcraft-riduttori/1 configuration; subset/script/recovery imports are not accepted.')
-        design = self._generate(obj['family'], obj['parameters'], budget, obj.get('quality'))
+        from kinematics import migrate_saved_parameters
+        parameters = _object(obj['parameters'], 'parameters')
+        design = self._generate(obj['family'], migrate_saved_parameters(obj['family'], parameters), budget, obj.get('quality'))
         from component_sheets import normalize as normalize_sheets
         try:design.component_sheets = normalize_sheets(obj.get('component_sheets'))
         except ValueError as error:raise AgentError('invalid_format',str(error)) from error
@@ -644,7 +650,7 @@ class AgentService:
             if not isinstance(values, list) or not values or len(values)>100:
                 raise AgentError('invalid_arguments', key+': use 1–100 explicit numeric values.')
         try:
-            result = search.search(design.family, design.values, axes, search.Settings(**options), budget.cancel)
+            result = search.search(design.family, design.values, axes, search.Settings(**options), budget.cancel, quality=design.quality)
         except (ValueError, TypeError, OverflowError) as error:
             raise AgentError('invalid_arguments', str(error)) from error
         return dict(handle=handle, revision=revision, search=asdict(result), complete=result.complete,

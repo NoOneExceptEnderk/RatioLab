@@ -32,7 +32,8 @@ def catalog(d,b):
         gear.holes[0:1]=[circle(shaft)]
         shaftpart.outer=circle(shaft);shaftpart.z=-sw-8;shaftpart.width=gear.width+2*sw+16
         for tag,z in [('lower',-sw-2),('upper',gear.width+2)]:
-            bearing(d,b,f'Bearing_{member}_{tag}_NSK_{b.code}',z+(sw-b.B)/2,gear.center)
+            bearing(d,b,f'Bearing_{member}_{tag}_NSK_{b.code}',z+(sw-b.B)/2,gear.center,
+                    bom_kind='pinion_bearing' if member=='A' else 'wheel_bearing')
             d.parts.append(Part(f'BearingBlock_{member}_{tag}',circle(seat+max(3,v['shoulder'])),[circle(seat)],sw,z,gear.center,role='housing'))
     d.analysis['fixed_axis_supports']=dict(scope='both gear shafts' if d.family=='parallel' else 'pinion shaft only; ring output annular support is NOT generated',bearing_code=b.code,shaft_members=[q[0] for q in targets],independent_blocks=True)
     d.requirements=[s for s in d.requirements if 'automatic catalog does not yet apply' not in s]

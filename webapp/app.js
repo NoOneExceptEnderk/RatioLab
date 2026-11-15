@@ -5,6 +5,7 @@ import {initChoiceMenus} from './choice-menu.js';
 import {EngineClient} from './engine-client.js';
 import {BrowserDocument, automaticText, clone, downloadBlob, numberValue, storage} from './document.js';
 import {ModelViewer} from './viewer.js';
+import {buildBomPanel} from './bom-view.js';
 import {initTools} from './tools.js';
 import {ratioParts} from './ratio-display.js';
 import {LANGUAGES, initLanguage} from './ui-language.js';
@@ -16,8 +17,8 @@ import {themePalette,viewPalette,hexColor} from './themes.js';
 const defaultPageTitle = document.title;
 const $ = id => document.getElementById(id);
 const node = (tag, text, className) => { const n = document.createElement(tag); if (text != null) n.textContent = text; if (className) n.className = className; return n; };
-const labels = {variant:'Variant', double_style:'Double helix construction', bearing_mode:'Standard fit', bearing:'NSK bearing · d × D × B', fit:'Seat dimensions', hardware_mode:'Standard hardware', hardware_screw:'Screw size', hardware_shim:'Shim thickness', hardware_retaining:'Retaining rings', hardware_keys:'Parallel keys', hardware_bolts:'Assembly bolts', hardware_shims:'Shim washers', seat_allowance:'Bearing seat allowance', shaft_allowance:'Shaft allowance', shoulder:'Bearing shoulder', io_scheme:'Input / output arrangement', io_scheme2:'Second-stage input / output', harmonic_output:'Output member', eccentric_design:'Eccentric shaft construction', configuration:'Differential configuration', output_interface:'Output connection', carrier_style:'Carrier construction', ratio_mode:'Side / output tooth ratio', worm_static_friction:'Static tooth-contact friction μ'};
-const motionKeys = new Set(['input_rpm','input_b_rpm','output_difference_rpm','input_torque','efficiency','pull_force','io_scheme','io_scheme2','harmonic_output','worm_static_friction']);
+const labels = {variant:'Variant', double_style:'Double helix construction', bearing_mode:'Standard fit', bearing:'NSK bearing · d × D × B', fit:'Seat dimensions', hardware_mode:'Standard hardware', hardware_screw:'Screw size', hardware_shim:'Shim thickness', hardware_retaining:'Retaining rings', hardware_keys:'Parallel keys', hardware_bolts:'Assembly bolts', hardware_shims:'Shim washers', seat_allowance:'Bearing seat allowance', shaft_allowance:'Shaft allowance', shoulder:'Bearing shoulder', io_scheme:'Input / output arrangement', io_scheme2:'Second-stage input / output', harmonic_output:'Output member', eccentric_design:'Eccentric shaft construction', configuration:'Differential configuration', output_interface:'Output connection', carrier_style:'Carrier construction', ratio_mode:'Side / output tooth ratio'};
+const motionKeys = new Set(['input_rpm','input_b_rpm','output_difference_rpm','input_torque','efficiency','pull_force','io_scheme','io_scheme2','harmonic_output']);
 const assemblyKeys = new Set(['plate','housing_wall','rim','stage_gap','carrier_bolt_diameter','spider_pin_diameter','spider_clearance','output_interface','carrier_style','eccentric_design','seat_allowance','shaft_allowance','shoulder']);
 const shaftKeys = new Set(['bore','output_bore','wheel_bore','input_shaft','output_shaft','shaft_extension','journal_length','journal_diameter','output_extension','passage_diameter']);
 const outputKeys = new Set(['output_count','output_radius','output_pin','flange_radius','bolt_count','bolt_diameter']);
@@ -57,9 +58,55 @@ const familyDefinition = () => catalog?.families.find(f => f.key === doc.family)
 const displayKey = key => labels[key] ?? key.replaceAll('_',' ').replace(/^./,s => s.toUpperCase());
 
 function status(text, kind = '') { $('status-text').textContent = text; $('status-line').className = 'status-line'+(kind ? ' '+kind : ''); }
+let warningKey = '', errorKey = '', openNotice = '', previewError = '', stageError = '';
+function updateNoticeCounter() {
+  const stage = $('stage-message');
+  const warnings = design?.warnings ?? [];
+  const fatalNotice = !stage.hidden && stage.dataset.error === 'true';
+  const error = fatalNotice ? stageError : previewError;
+  const exportButton = $('export-document');
+  exportButton.dataset.blocked = String(!!error && exportButton.disabled);
+  const stale = !$('stale-banner').hidden;
+  const warningCount = warnings.length || Number(stale && !error);
+  const nextWarning = warningCount ? JSON.stringify([doc.identity, warnings]) : '';
+  const nextError = error ? JSON.stringify([doc.identity, error]) : '';
+  if (nextError && nextError !== errorKey) openNotice = 'error';
+  else if (!nextError && nextWarning && nextWarning !== warningKey) openNotice = 'warning';
+  else if (openNotice === 'error' && !nextError) openNotice = nextWarning ? 'warning' : '';
+  else if (openNotice === 'warning' && !nextWarning) openNotice = nextError ? 'error' : '';
+  warningKey = nextWarning;
+  errorKey = nextError;
+  for (const [id, kind, count] of [['notice-count', 'warning', warningCount], ['error-count', 'error', Number(!!error)]]) {
+    const badge = $(id);
+    badge.hidden = !count;
+    badge.setAttribute('aria-expanded', String(openNotice === kind));
+    const value = $(id+'-value');
+    if (value.textContent !== String(count)) value.textContent = String(count);
+  }
+  const panel = $('viewport-notices');
+  panel.dataset.notice = openNotice;
+  panel.hidden = !openNotice || (fatalNotice && openNotice === 'error');
+  stage.dataset.dismissed = String(openNotice !== 'error');
+}
+function setPreviewError(text = '') {
+  previewError = text;
+  const notice = $('preview-error');
+  notice.textContent = text;
+  notice.hidden = !text;
+  if (text) {
+    $('stage-message').hidden = true;
+    status('');
+  }
+}
 function stageMessage(title, detail, {retry = false, loading = false} = {}) {
-  $('stage-message').hidden = false; $('stage-message').querySelector('strong').textContent = title;
-  $('loading-detail').textContent = detail; $('stage-message').querySelector('.loading-ring').hidden = !loading; $('retry-engine').hidden = !retry;
+  const stage = $('stage-message');
+  stageError = loading ? '' : `${title}\n${detail}`;
+  stage.dataset.error = String(!loading);
+  stage.hidden = false; stage.querySelector('strong').textContent = title;
+  stage.querySelector('[data-close-notices]').hidden = loading;
+  $('loading-detail').textContent = detail; stage.querySelector('.loading-ring').hidden = !loading; $('retry-engine').hidden = !retry;
+  if (!loading) status('');
+  updateNoticeCounter();
 }
 function updateActions() {
   const valid = currentValid();
@@ -68,6 +115,7 @@ function updateActions() {
   for (const id of ['show-bom','show-report']) $(id).disabled = !valid;
   if (analysisActive) for (const id of ['save-document','save-as-document','export-document','show-bom','show-report','reset-motion']) $(id).disabled = true;
   $('show-notes').disabled = !design;
+  $('find-combinations').disabled = !valid || !design?.tool_capabilities?.search?.available;
   for (const [id,source] of [['tool-bom','show-bom'],['tool-report','show-report'],['tool-notes','show-notes']]) $(id).disabled = $(source).disabled;
   for(const button of $('tools-menu-extension').querySelectorAll('[data-tool]')){
     const capability=design?.tool_capabilities?.[button.dataset.tool];
@@ -90,6 +138,7 @@ function updateActions() {
   $('document-name').textContent = title;
   $('document-state').textContent = `${title} · ${doc.dirty ? 'unsaved changes' : doc.name === 'Untitled design' ? 'not saved' : 'saved'}`;
   syncMotionControl();
+  updateNoticeCounter();
   document.title = `${doc.dirty ? '• ' : ''}${doc.name === 'Untitled design' ? defaultPageTitle : `${doc.name} · RatioLab`}`;
 }
 function setPlaying(value) {
@@ -111,6 +160,7 @@ function invalidate(message = 'Updating geometry…') {
   validToken = null; ++operationSerial; rateEditing = false; rateSource = null; ratePending = false;
   sliderRateQueued = false; speedSliderActive = false; speedSliderPreview = null; speedSliderKeyActive = false;
   scrubTarget = null; setPlaying(false); errors = {};
+  setPreviewError();
   if (generationRunning) { generationRunning = false; engine.cancel('A parameter edit superseded the active generation.'); }
   if (design?.family !== doc.family) {
     viewer?.clear(); design = null; phase = 0; renderInspection(); renderMetrics();
@@ -142,6 +192,8 @@ function linkedDescription(key) {
 function isParallelMultistage(variant) { return /^(two|three)_stage(?:_(helical|double))?$/.test(variant); }
 function classify(spec) {
   const key = spec.key;
+  if (spec.bushing_option) return ['assembly','Bearings & fits'];
+  if (spec.shaft_connection_port) return ['assembly',schema.options.find(field => field.shaft_connection_port === spec.shaft_connection_port)?.label];
   if (spec.tooth_tip_group) return ['dimensions', spec.tooth_tip_group];
   if (doc.family === 'parallel' && isParallelMultistage(doc.draft.options.variant)) {
     if (/^layout_angle[23]$/.test(key) || ['stage_gap','hub_wall','assembly_clearance'].includes(key)) return ['assembly','Shaft layout'];
@@ -151,9 +203,9 @@ function classify(spec) {
   }
   if (motionKeys.has(key)) return ['motion', ['input_torque','efficiency','pull_force'].includes(key) ? 'Nominal operating loads' : 'Drive connections'];
   if (key.startsWith('hardware_')) return ['assembly','Standard hardware'];
-  if (key.startsWith('bearing') || key === 'fit' || ['seat_allowance','shaft_allowance','shoulder'].includes(key)) return ['assembly','Bearings & fits'];
+  if (key.startsWith('bearing') || ['ring_roller_bearing','fit','seat_allowance','shaft_allowance','shoulder'].includes(key)) return ['assembly','Bearings & fits'];
   if (key.startsWith('eccentric_')) return ['assembly','Eccentric shaft construction'];
-  if (assemblyKeys.has(key) || key.startsWith('print_')) return ['assembly', key === 'eccentric_design' ? 'Eccentric shaft construction' : 'Housing & flanges'];
+  if (assemblyKeys.has(key) || key.startsWith('print_')) return ['assembly', doc.family === 'cycloidal' ? 'Ring carrier & flanges' : 'Housing & flanges'];
   if (spec.advanced) return ['dimensions','Advanced · profile & clearances'];
   if (shaftKeys.has(key)) return ['dimensions','Shafts & bores'];
   if (outputKeys.has(key)) return ['dimensions','Output connection'];
@@ -161,6 +213,7 @@ function classify(spec) {
 }
 function optionDisabled(spec, value) {
   const options = doc.draft.options;
+  if (spec.shaft_connection_unavailable) return value !== 'standard';
   const ioDefault = schema.options.find(f => f.key === 'io_scheme')?.default;
   const alternative = ['planetary','cycloidal'].includes(doc.family) && (options.io_scheme !== ioDefault || doc.family === 'planetary' && ['two_stage','two_stage_double'].includes(options.variant) && options.io_scheme2 !== ioDefault);
   if (spec.key === 'bearing_mode') return value !== 'manual' && (!schema.bearing_supported || alternative) || value === 'gear' && ['parallel','internal'].includes(doc.family);
@@ -219,9 +272,21 @@ function placeParameterHelp() {
   const margin = 8, anchor = helpAnchor.getBoundingClientRect(), width = document.documentElement.clientWidth, height = window.innerHeight;
   const panel = helpPane.getBoundingClientRect(), sidebar = helpAnchor.closest?.('.parameter-panel')?.getBoundingClientRect();
   let x = (sidebar?.right ?? anchor.right)+10, y = anchor.top;
-  if (x+panel.width > width-margin) { x = anchor.left; y = anchor.bottom+10; }
+  helpPane.style.maxHeight = '';
+  if (x+panel.width > width-margin) {
+    x = anchor.left;
+    const below = height-anchor.bottom-10-margin, above = anchor.top-10-margin;
+    if(below >= Math.min(180,above)){
+      y = anchor.bottom+10;
+      helpPane.style.maxHeight = `${Math.max(0,below)}px`;
+    }else{
+      const available = Math.max(0,above);
+      helpPane.style.maxHeight = `${available}px`;
+      y = anchor.top-10-Math.min(available,helpPane.getBoundingClientRect().height);
+    }
+  }
   helpPane.style.left = `${Math.max(margin,Math.min(x,width-panel.width-margin))}px`;
-  helpPane.style.top = `${Math.max(margin,Math.min(y,height-panel.height-margin))}px`;
+  helpPane.style.top = `${Math.max(margin,Math.min(y,height-helpPane.getBoundingClientRect().height-margin))}px`;
 }
 function showParameterHelp(anchor,{keyboard=false,activation=keyboard ? 'keyboard' : 'pointer'} = {}) {
   const binding = helpBindings.get(anchor); if (!binding) return;
@@ -333,11 +398,11 @@ function makeField(spec, {top = false} = {}) {
       if (key === 'ratio_mode' && doc.draft.options.configuration === 'classic') title = title.replace('output','spider').replace('Relative spin','Spider spin');
       const option = node('option',title); option.value = choice.value; option.disabled = optionDisabled(spec,choice.value); input.append(option);
     }
-    input.value = spec.option_key ? spec.value : doc.draft.options[key];
+    input.value = spec.option_key ? spec.value : doc.draft.options[key] ?? spec.default;
     input.addEventListener('change',() => changeOption(spec.option_key ?? key,input.value));
   } else if (spec.type === 'boolean') {
     input = node('input'); input.type = 'checkbox'; input.checked = doc.draft.options[key];
-    if (key === 'hardware_bolts' && ['parallel','internal'].includes(doc.family)) { input.disabled = true; input.title = 'Automatic assembly bolts are unavailable for this fixed-axis construction.'; }
+  if (key === 'hardware_bolts' && ['parallel','internal'].includes(doc.family)) { input.disabled = true; input.title = 'Automatic assembly bolts are unavailable for this fixed-axis construction.'; }
     input.addEventListener('change',() => changeOption(key,input.checked));
   } else {
     input = node('input'); input.type = 'text'; input.inputMode = spec.type === 'integer' ? 'numeric' : 'decimal'; input.autocomplete = 'off'; input.spellcheck = false;
@@ -375,6 +440,11 @@ function makeField(spec, {top = false} = {}) {
   if (key === 'double_style' && !['double','two_stage_double','three_stage_double','double_helical'].includes(doc.draft.options.variant) && doc.family !== 'double') { input.disabled = true; input.title = 'Select a double helical construction to use this option.'; }
   if (key === 'double_style' && doc.family === 'double') { input.disabled = true; input.value = doc.draft.options.variant; input.title = 'Defined by the construction selected above.'; }
   if (key === 'io_scheme2' && !['two_stage','two_stage_double'].includes(doc.draft.options.variant)) { input.disabled = true; input.title = 'Available for a two-stage construction.'; }
+  if (key === 'ring_roller_bearing' && doc.draft.options.io_scheme?.split('_')[1] === 'ring') input.disabled = true;
+  if (spec.bushing_option && spec.unavailable_reason) {
+    input.disabled = true;
+    input.title = spec.unavailable_reason;
+  }
   if (busy || schemaPending) input.disabled = true;
   fields.set(key,{spec,input,feedback,row}); return row;
 }
@@ -392,18 +462,21 @@ function renderFields() {
     if (!remaining) { remaining = node('details',null,'all-model-parameters'); remaining.open = remainingParametersOpen; remaining.addEventListener('toggle',() => { remainingParametersOpen = remaining.open; }); remaining.append(node('summary','All model parameters')); const body = node('div',null,'remaining-parameter-fields'); remaining.append(body); container.append(remaining); }
     return remaining.children[1];
   }
-  const specs = [...schema.fields,...schema.options.filter(f => f.key !== 'variant')];
+  const connectionOptions = schema.options.filter(f => f.shaft_connection_port);
+  const specs = [...connectionOptions.flatMap(option => [option, ...schema.fields.filter(f => f.shaft_connection_port === option.shaft_connection_port)]),
+    ...schema.fields.filter(f => !f.shaft_connection_port), ...schema.options.filter(f => f.key !== 'variant' && !f.shaft_connection_port)];
   const multistage = doc.family === 'parallel' && isParallelMultistage(doc.draft.options.variant);
   const stageOrder = [1,2,3].flatMap(s => ['pinion','wheel','module','width','helix','gap','pressure','backlash','profile_shift','center_extra'].map(k => s === 1 ? k : k+s));
   const order = ['configuration','ratio_mode','double_style',...(doc.family === 'face' ? ['pinion','wheel','module','width','offset','helix','radial_setting','gap'] : doc.family === 'rack' ? ['pinion','rack_teeth','module','width','helix','gap','base'] : doc.family === 'hypoid' ? ['pinion','wheel','module','offset','width','spiral_angle'] : doc.family === 'bevel' ? ['pinion','wheel','module','width','spiral_angle','trace_radius','spiral_hand'] : multistage ? stageOrder : mainOrder)];
   specs.sort((a,b) => { const ia = order.indexOf(a.key), ib = order.indexOf(b.key); return (ia < 0 ? 100 : ia)-(ib < 0 ? 100 : ib); });
   for (const spec of specs) {
+    if (doc.family === 'cycloidal' && ['hardware_bolts','hardware_screw'].includes(spec.key)) continue;
     if (spec.key === 'input_rpm' || spec.key === 'harmonic_output' || spec.key === 'io_scheme2' && !['two_stage','two_stage_double'].includes(doc.draft.options.variant) || spec.key === 'double_style' && (doc.family === 'double' || !['double','two_stage_double','three_stage_double','double_helical'].includes(doc.draft.options.variant)) || spec.inactive || spec.key.startsWith('print_') && doc.draft.options.eccentric_design !== 'fdm_bolted') continue;
     const [page, classifiedGroup] = classify(spec); if (page !== tab) continue;
     const group = page === 'dimensions' && classifiedGroup === 'Main geometry' && !primaryKeys.has(spec.key) ? 'Additional geometry' : classifiedGroup;
     if (!groups.has(group)) {
       let section, target;
-      if (group.endsWith('· tooth tips') || ['Advanced · profile & clearances','Nominal operating loads','Drive connections','Bearings & fits','Standard hardware','Housing & flanges','Eccentric shaft construction','Shaft layout','Stage 1','Stage 2','Stage 3'].includes(group)) {
+      if (group.endsWith('· tooth tips') || ['Advanced · profile & clearances','Nominal operating loads','Drive connections','Bearings & fits','Standard hardware','Housing & flanges','Ring carrier & flanges','Eccentric shaft construction','Shaft layout','Stage 1','Stage 2','Stage 3'].includes(group)) {
         section = node('details'); const groupKey = `${tab}:${group}`; section.open = group.startsWith('Advanced') ? advancedOpen : parameterGroupOpen.get(groupKey) ?? (!group.endsWith('· tooth tips') && !['Nominal operating loads','Standard hardware','Eccentric shaft construction'].includes(group));
         section.addEventListener('toggle',() => parameterGroupOpen.set(groupKey,section.open));
         section.append(node('summary',group.startsWith('Advanced') ? 'Advanced tooth geometry' : group==='Drive connections'?'Drive · input and output':group)); target = node('div',null,'field-group'); section.append(target);
@@ -532,7 +605,7 @@ async function refreshSchema() {
     if (serial !== schemaSerial || !isCurrent(token)) return false;
     schema = result; doc.ensure(schema); schemaPending = false; renderFields(); return true;
   } catch (error) {
-    if (serial === schemaSerial && isCurrent(token) && error.name !== 'AbortError') { schemaPending = false; status(error.message,'error'); handleFatal(error); }
+    if (serial === schemaSerial && isCurrent(token) && error.name !== 'AbortError') { schemaPending = false; setPreviewError(error.message); handleFatal(error); updateActions(); }
     return false;
   }
 }
@@ -546,8 +619,9 @@ async function generateCurrent() {
   const token = currentToken(), family = doc.family, parsed = doc.values(schema,linkedFields());
   errors = parsed.errors; applyFieldErrors();
   if (Object.keys(errors).length) {
-    const field = Object.keys(errors)[0]; status(`${fields.get(field)?.spec.label ?? displayKey(field)}: ${errors[field]} Export is blocked.`,'error');
-    if (!design) stageMessage('Check the parameters','Complete the highlighted fields to generate a model.'); updateActions(); return;
+    const field = Object.keys(errors)[0];
+    const message = `${fields.get(field)?.spec.label ?? displayKey(field)}: ${errors[field]} Export is blocked.`;
+    setPreviewError(message); updateActions(); return;
   }
   generationRunning = true; updateActions(); status('Generating geometry…','warning');
   const serial = ++operationSerial;
@@ -564,6 +638,7 @@ async function generateCurrent() {
     validToken = token; phase = 0; syncPhaseControl();
     if (changedFamily) { viewer.supports = family === 'differential'; $('show-supports').checked = viewer.supports; viewer.housing = false; $('show-housing').checked = false; }
     $('stage-message').hidden = true; $('stale-banner').hidden = true;
+    setPreviewError();
     $('model-meta').textContent = `${result.triangle_count.toLocaleString()} triangles · preview mesh · mm`;
     $('motion-summary').textContent = result.motion.message;
     renderFields(); renderMetrics(); renderInspection(); updateActions();
@@ -574,11 +649,11 @@ async function generateCurrent() {
   } catch (error) {
     if (serial !== operationSerial || !isCurrent(token) || error.name === 'AbortError') return;
     generationRunning = false; validToken = null; setPlaying(false);
-    status((error.kind === 'internal' ? 'Calculation failed.\n' : '')+error.message+'\nExport is blocked.','error');
+    const message = (error.kind === 'internal' ? 'Calculation failed.\n' : '')+error.message+'\nExport is blocked.';
+    setPreviewError(message);
     const known = new Set([...schema.fields,...schema.options].map(f => f.key));
     for (const key of error.fields || []) if (known.has(key)) errors[key] = error.fieldMessages?.[key] || error.message;
     applyFieldErrors();
-    if (!design) stageMessage(error.kind === 'internal' ? 'Calculation failed.' : 'This configuration needs attention',error.message,{retry:!!engine.failure});
     $('stale-banner').hidden = !design; handleFatal(error); updateActions();
   }
 }
@@ -593,12 +668,15 @@ async function onDocumentChange() {
   updateActions(); saveRecovery();
   if (doc.revision === previousRevision || startup) return;
   previousRevision = doc.revision; initialClean = false;
-  if (!analysisActive && isQualityEdit()) { qualityCompletion=applyQuality();await qualityCompletion;return; }
+  if (!analysisActive && !rateEditing && isQualityEdit()) { qualityCompletion=applyQuality();await qualityCompletion;return; }
   if (!analysisActive && isSpeedEdit()) {
     clearTimeout(generationTimer); validToken = null; rateEditing = true; rateSource = design; ++operationSerial;
     events.dispatchEvent(new CustomEvent('invalidate',{detail:{token:currentToken()}}));
-    errors = doc.values(schema,linkedFields()).errors; applyFieldErrors(); syncMotionControl(); updateActions();
-    status(Object.keys(errors).length ? 'Complete the input speed. Export is blocked.' : 'Input speed edited · press Enter or leave the field to apply.','warning');
+    errors = doc.values(schema,linkedFields()).errors; applyFieldErrors();
+    const incomplete = Object.keys(errors).length > 0;
+    setPreviewError(incomplete ? 'Complete the input speed. Export is blocked.' : '');
+    if (!incomplete) status('Input speed edited · press Enter or leave the field to apply.','warning');
+    updateActions();
     if (document.activeElement !== $('motion-rpm')) scheduleGeneration();
     return;
   }
@@ -709,6 +787,7 @@ async function applyQuality() {
   const token=currentToken(), source=design, frame=viewer.frame, wasPlaying=playing;
   const selected=[...viewer.selected], hidden=[...viewer.hidden], currentPhase=phase;
   clearTimeout(generationTimer);setPlaying(false);validToken=null;generationRunning=true;
+  setPreviewError();
   const serial=++operationSerial;updateActions();status('Preparing surface detail…','warning');
   events.dispatchEvent(new CustomEvent('invalidate',{detail:{token}}));
   try {
@@ -727,7 +806,9 @@ async function applyQuality() {
     viewer.setSelection(selected);setPlaying(wasPlaying);status('Surface detail updated · nominal construction retained');
   } catch(error) {
     if (!isCurrent(token) || serial!==operationSerial) return;
-    generationRunning=false;validToken=null;$('stale-banner').hidden=false;updateActions();status(error.message+' Previous preview retained; export is blocked.','error');
+    generationRunning=false;validToken=null;$('stale-banner').hidden=false;
+    const message = error.message+' Previous preview retained; export is blocked.';
+    setPreviewError(message); updateActions();
   }
 }
 async function qualityDialog() {
@@ -761,7 +842,7 @@ function syncMotionControl() {
     input.dataset.helpKey = helpKey;
   }
   const parsed = numberValue(doc.entries.input_rpm,spec), error = parsed.error;
-  input.setAttribute('aria-invalid',String(!!error)); $('motion-error').textContent = error ?? ''; $('motion-error').hidden = !error;
+  input.setAttribute('aria-invalid',String(!!error));
   const low = spec.minimum ?? 0, high = spec.maximum ?? 100000, value = parsed.value ?? design?.values.input_rpm ?? spec.default;
   $('rpm-slider').min = scaleRPM(low); $('rpm-slider').max = scaleRPM(high);
   if (!speedSliderActive) $('rpm-slider').value = scaleRPM(value);
@@ -816,7 +897,10 @@ async function performRateCommit() {
   clearTimeout(generationTimer);
   if (!rateEditing || ratePending || rateSource !== design || busy) return false;
   const parsed = doc.values(schema,linkedFields()); errors = parsed.errors; applyFieldErrors(); syncMotionControl();
-  if (Object.keys(errors).length) { status('Complete the input speed. Export is blocked.','error'); updateActions(); return false; }
+  if (Object.keys(errors).length) {
+    const message = 'Complete the input speed. Export is blocked.';
+    setPreviewError(message); updateActions(); return false;
+  }
   const source = design, token = currentToken();
   // Drain the single outstanding pose before choosing the exact displayed
   // phase. No frame is advanced while the rates request is in flight.
@@ -840,14 +924,14 @@ async function performRateCommit() {
     ratePending = false; lastTick = playing ? performance.now() : 0;
     if (isCurrent(token)) {
       doc.normalize(result.values,schema); rememberSourceParameters(); validToken = token; rateEditing = false; rateSource = null;
-      $('stale-banner').hidden = true; renderFields(); status('Geometry generated'); saveRecovery();
+      $('stale-banner').hidden = true; setPreviewError(); renderFields(); status('Geometry generated'); saveRecovery();
       events.dispatchEvent(new CustomEvent('design',{detail:{design:source,token:currentToken()}}));
     } else if (!sliderRateQueued && document.activeElement !== $('motion-rpm')) scheduleGeneration(0);
     renderMetrics(); renderInspection(); updateActions(); return true;
   } catch (error) {
     if (design === source && rateSource === source && error.name !== 'AbortError') {
-      status(error.message+' Export is blocked.','error'); handleFatal(error);
-      $('motion-error').textContent = error.message; $('motion-error').hidden = false;
+      const message = error.message+' Export is blocked.';
+      setPreviewError(message); handleFatal(error);
     }
     return false;
   } finally { ratePending = false; updateActions(); }
@@ -902,6 +986,19 @@ function makeDriveConnections(spec) {
     }
     body.append(details);
     if (spec.help) bindParameterHelp(body,spec,body.querySelector('input,select,button') ?? body);
+    return body;
+  }
+  if (doc.family === 'worm') {
+    body.classList.add('fixed-drive');
+    for (const [role, member, style] of [['Input','Worm','io-input'], ['Output','Wheel','io-output']]) {
+      const row = node('div',null,'io-role '+style);
+      row.append(node('span',role),node('strong',member)); body.append(row);
+    }
+    const output = design?.analysis.output;
+    if (output && currentValid()) {
+      const result = node('div',null,'drive-result'), value = node('strong',automaticText(output.rpm));
+      value.append(node('small','rpm')); result.append(node('span','Nominal output'),value); body.append(result);
+    }
     return body;
   }
   const triples = spec.choices.every(choice => choice.value.split('_').length === 3);
@@ -985,6 +1082,7 @@ function revealDock(mode,title) {
   $('tools-back').hidden = mode !== 'inspection';
   $('open-view-panel').setAttribute('aria-expanded',String(mode === 'view'));
   $('open-tools-panel').setAttribute('aria-expanded',String(mode !== 'view'));
+  $('find-combinations').setAttribute('aria-expanded',String(mode === 'inspection' && activeTool === 'search'));
 }
 function closeDisplayMenu() {
   const restoreFocus=$('view-panel').contains(document.activeElement);
@@ -1007,22 +1105,25 @@ function closeToolDock() {
   if ($('tool-dock').hidden) return;
   $('tool-dock').hidden = true; dockMode = null;
   $('open-view-panel').setAttribute('aria-expanded','false'); $('open-tools-panel').setAttribute('aria-expanded','false');
+  $('find-combinations').setAttribute('aria-expanded','false');
   $(dockOrigin).focus({preventScroll:true}); events.dispatchEvent(new Event('toolclose'));
 }
-function setDockPanel(key,body,{title = key} = {}) {
+function setDockPanel(key,body,{title = key, origin = 'open-tools-panel'} = {}) {
   if (activeTool !== key) events.dispatchEvent(new CustomEvent('toolswitch',{detail:{key}}));
-  activeTool = key; inspection = key; dockOrigin = 'open-tools-panel'; revealDock('inspection',title);
+  activeTool = key; inspection = key; dockOrigin = origin; revealDock('inspection',title);
   $('inspection-panel').replaceChildren(body); $('inspection-panel').setAttribute('aria-label',title);
   return $('inspection-panel');
 }
 function openTool(key) {
   dockOrigin = 'open-tools-panel';
   if (key === 'components') return chooseInspection('components');
-  toolControllers.get(key)?.open();
+  if (key === 'search') closeParameterHelp();
+  toolControllers.get(key)?.open({quick:key==='search'});
 }
-function registerTool(key,{label = key,open}) {
+function registerTool(key,{label = key,open,inMenu = true}) {
   if (typeof open !== 'function') throw Error('A tool requires an open callback.');
   toolControllers.set(key,{open});
+  if (!inMenu) return;
   let button = $('tools-menu-extension').querySelector(`[data-tool="${key}"]`);
   if (!button) { button = node('button',label); button.dataset.tool = key; button.addEventListener('click',() => openTool(key)); $('tools-menu-extension').append(button); }
   const caption = button.querySelector('.tool-label'); if (caption) caption.textContent = label; else button.textContent = label; button.disabled = false;
@@ -1030,13 +1131,34 @@ function registerTool(key,{label = key,open}) {
 }
 async function showDocuments(kind) {
   if (!currentValid()) return;
-  const token = currentToken(), id = design.design_id;
+  const token = currentToken(), source = design, id = source.design_id;
   try {
-    events.dispatchEvent(new CustomEvent('querybegin',{detail:{method:'documents'}}));
-    const result = await engine.request('documents',{design_id:id});
-    if (!currentValid() || !isCurrent(token) || design.design_id !== id) return;
-    const body = node('pre',kind === 'bom' ? result.data.bom_text : result.data.report_text,'document-text');
-    const answer = await dialog(kind === 'bom' ? 'Bill of materials' : 'Calculation report',body,[{label:'Close',value:null},{label:'Download…',value:'download',primary:true}]);
+    const method = kind === 'bom' ? 'bom_view' : 'documents';
+    if (kind !== 'bom') events.dispatchEvent(new CustomEvent('querybegin',{detail:{method}}));
+    const result = await engine.request(method,{design_id:id});
+    if (!currentValid() || !isCurrent(token) || design !== source) return;
+    let answer;
+    if (kind === 'bom') {
+      const panel = buildBomPanel(result,source,preferences,viewPalette(preferences.theme,preferences.theme_customizations));
+      try {
+        answer = await dialog('Bill of materials',panel.body,[
+          {label:'Full report',value:'report'}, {label:'Close',value:null},
+          {label:'Download…',value:'download',primary:true},
+        ],{className:'bom-dialog',onOpen:panel.start});
+      } finally {
+        panel.dispose();
+      }
+      if (answer === 'report' && currentValid() && isCurrent(token) && design === source) {
+        events.dispatchEvent(new CustomEvent('querybegin',{detail:{method:'documents'}}));
+        const report = await engine.request('documents',{design_id:id});
+        if (!currentValid() || !isCurrent(token) || design !== source) return;
+        answer = await dialog('Bill of materials',node('pre',report.data.bom_text,'document-text'),
+          [{label:'Close',value:null},{label:'Download…',value:'download',primary:true}]);
+      }
+    } else {
+      answer = await dialog('Calculation report',node('pre',result.data.report_text,'document-text'),
+        [{label:'Close',value:null},{label:'Download…',value:'download',primary:true}]);
+    }
     if (answer && currentValid() && isCurrent(token) && design.design_id === id) runExport(kind);
   } catch (error) { if (isCurrent(token) && error.name !== 'AbortError') { status(error.message,'error'); handleFatal(error); } }
 }
@@ -1074,6 +1196,10 @@ async function cancelOperations() {
 
 function renderMetrics() {
   const cards = $('metric-cards'); cards.replaceChildren();
+  const warnings = design?.warnings ?? [];
+  $('warning-bar').hidden = !warnings.length;
+  const warning = warnings.length ? 'Geometry warning: '+warnings[0]+' See the calculation report.' : '';
+  if ($('warning-text').textContent !== warning) $('warning-text').textContent = warning;
   if (!design) return;
   const a = design.analysis, v = design.values; let items;
   // Presentation mirrors result_controls.items; all values come from the engine.
@@ -1103,6 +1229,7 @@ function renderMetrics() {
       items[0][3] = 'Signs about offset pinion +X and wheel +Z';
       items.push(['Shaft offset',signed(v.offset),'mm','90° shaft directions · offset along world Y']);
     }
+    else if (design.family === 'cycloidal') items.push(['Ring carrier diameter',a.ring_rollers.carrier_diameter_mm.toFixed(3),'mm','']);
     else if (housing) items.push(['Housing diameter',housing[1],'mm','Nominal housing envelope']);
     else if (a.parallel_train) items.push(['Stage distances',a.meshes.map(q => automaticText(q.center_distance_mm)).join(' / '),'mm',a.meshes.map((q,i) => `Stage ${i+1}`).join(' / ')]);
     else if (a.center_distance_mm != null || a.meshes?.length) items.push(['Centre distance',(a.center_distance_mm ?? a.meshes[0].center_distance_mm).toFixed(3),'mm','Axis spacing']);
@@ -1113,9 +1240,6 @@ function renderMetrics() {
     if (unit) line.append(node('span',unit,'result-unit'));
     card.append(node('span',title,'result-title'),line,node('span',detail,'result-detail')); cards.append(card);
   }
-  const warnings = design.warnings ?? [];
-  $('warning-bar').hidden = !warnings.length;
-  $('warning-text').textContent = warnings.length ? 'Geometry warning: '+warnings[0]+' See the calculation report.' : '';
 }
 function signed(value, precision = null) {
   return (value >= 0 ? '+' : '')+(precision ? Number(value.toPrecision(precision)).toString() : String(value));
@@ -1203,18 +1327,20 @@ function renderInspection() {
 
 // One application dialog owns focus and the modal action lifecycle. No native
 // confirm() boxes, implicit document replacement or automatic recovery import.
-function dialog(title, body, actions = [{label:'Close',value:null}], {dismiss = true} = {}) {
+function dialog(title, body, actions = [{label:'Close',value:null}], {dismiss = true, className = '', onOpen = null} = {}) {
   const modal = $('app-dialog'); if (modal.open) modal.finish?.(null);
+  if (className) modal.classList.add(className);
   $('dialog-title').textContent = title; $('dialog-body').replaceChildren(typeof body === 'string' ? node('p',body) : body); $('dialog-actions').replaceChildren();
   return new Promise(resolve => {
     let done = false;
-    const finish = value => { if (done) return; done = true; modal.removeEventListener('cancel',cancel); modal.finish = null; if (modal.open) modal.close(); resolve(value); };
+    const finish = value => { if (done) return; done = true; modal.removeEventListener('cancel',cancel); modal.finish = null; if (modal.open) modal.close(); if (className) modal.classList.remove(className); resolve(value); };
     const cancel = event => { event.preventDefault(); if (dismiss) finish(null); };
     for (const action of actions) { const button = node('button',action.label,action.primary ? 'primary' : ''); button.disabled = !!action.disabled; button.addEventListener('click',() => finish(action.value)); $('dialog-actions').append(button); }
     $('dialog-close').onclick = () => { if (dismiss) finish(null); }; $('dialog-close').hidden = !dismiss;
     // Only finish() closes this dialog. Listening to the asynchronous native
     // close event would let a previous dialog's queued event close its successor.
     modal.finish = finish; modal.addEventListener('cancel',cancel); modal.showModal();
+    onOpen?.();
   });
 }
 function applyPreferences() {
@@ -1253,7 +1379,7 @@ function initSettings() {
       if(JSON.stringify(doc.state.quality||{})===JSON.stringify(value)&&currentValid())return;
       doc.setQuality(value);const token=currentToken();await qualityCompletion;
       if(!isCurrent(token))throw new DOMException('The document changed.','AbortError');
-      if(!currentValid())throw Error($('status-text').textContent);
+      if(!currentValid())throw Error(previewError || $('status-text').textContent);
     }});
   shortcuts=new ShortcutController({preferences,blocked:()=>$('app-dialog').open||settingsUI.modal.open||viewer.captureBusy,
     viewport:target=>target===$('model-canvas'),changed:()=>changePreference('keyboard_shortcuts',preferences.keyboard_shortcuts),
@@ -1315,8 +1441,9 @@ async function openProject(project, name) {
     viewer.supports = result.family === 'differential'; viewer.housing = false; $('show-supports').checked = viewer.supports; $('show-housing').checked = false;
     busy = false; schemaPending = false; updateFamilyHeader(); renderFields(); renderMetrics(); renderInspection(); updateActions();
     $('stage-message').hidden = true; $('stale-banner').hidden = true; $('motion-summary').textContent = result.motion.message;
+    updateNoticeCounter();
     $('model-meta').textContent = `${result.triangle_count.toLocaleString()} triangles · preview mesh · mm`;
-    doc.markSaved(); storage.remember(name,{format:catalog.project_format,family:result.family,parameters:clone(result.values),...(doc.state.component_sheets ? {component_sheets:clone(doc.state.component_sheets)} : {}),...(result.quality && Object.keys(result.quality).length ? {quality:clone(result.quality)} : {})}); status(`Opened ${name}${result.ignored_parameters?.length ? ` · ignored ${result.ignored_parameters.length} obsolete or unknown settings` : ''}`); events.dispatchEvent(new CustomEvent('design',{detail:{design,token:currentToken()}})); if (await requestPose(0)) nominalFrame = clone(viewer.frame); return true;
+    doc.markSaved(); storage.remember(name,{format:catalog.project_format,family:result.family,parameters:clone(result.values),...(doc.state.component_sheets ? {component_sheets:clone(doc.state.component_sheets)} : {}),...(result.quality && Object.keys(result.quality).length ? {quality:clone(result.quality)} : {})}); status(`Opened ${name}${result.migrated_worm_drive ? ' · Worm input restored' : ''}${result.ignored_parameters?.length ? ` · ignored ${result.ignored_parameters.length} obsolete or unknown settings` : ''}`); events.dispatchEvent(new CustomEvent('design',{detail:{design,token:currentToken()}})); if (await requestPose(0)) nominalFrame = clone(viewer.frame); return true;
   } catch (error) {
     if (serial !== operationSerial || !isCurrent(token)) return false;
     busy = false; schemaPending = false; handleFatal(error);
@@ -1489,6 +1616,7 @@ async function recoverDocument() {
 }
 async function boot({retry = false} = {}) {
   startup = true; fatal = false; validToken = null; setPlaying(false); updateActions();
+  setPreviewError();
   if (retry) { sourceParameters = null; engine.cancel('Restart requested'); }
   stageMessage('Preparing your workspace','Loading the local calculation engine…',{loading:true});
   try {
@@ -1500,12 +1628,12 @@ async function boot({retry = false} = {}) {
       renderFields(); updateActions(); scheduleGeneration(0);
       if (recovery) await recoverDocument();
     }
-  } catch (error) { startup = false; fatal = true; stageMessage('RatioLab could not start',error.message,{retry:true}); status(error.message,'error'); updateActions(); }
+  } catch (error) { startup = false; fatal = true; stageMessage('RatioLab could not start',error.message,{retry:true}); updateActions(); }
 }
 
 function setup() {
   try { viewer = new ModelViewer($('model-canvas')); }
-  catch (error) { stageMessage('3D preview unavailable',error.message); status(error.message,'error'); return; }
+  catch (error) { stageMessage('3D preview unavailable',error.message); return; }
   applyPreferences();
   initSettings();
   viewer.addEventListener('context',({detail}) => {
@@ -1513,7 +1641,7 @@ function setup() {
     else { $('stage-message').hidden = !!design; status('Graphics context restored.'); }
     updateActions();
   });
-  viewer.addEventListener('error',({detail}) => { setPlaying(false); stageMessage('Preview unavailable',detail.message); status(detail.message,'error'); });
+  viewer.addEventListener('error',({detail}) => { setPlaying(false); stageMessage('Preview unavailable',detail.message); });
   viewer.addEventListener('camera',({detail}) => {
     if(detail?.fitOnly)return;
     const name = detail?.view;
@@ -1613,6 +1741,7 @@ function setup() {
   });
   $('open-view-panel').addEventListener('click',() => openPreviewPanel('view'));
   $('open-tools-panel').addEventListener('click',() => openPreviewPanel('tools'));
+  $('find-combinations').addEventListener('click',() => openTool('search'));
   $('tools-back').addEventListener('click',() => openPreviewPanel('tools'));
   $('expand-tool-dock').addEventListener('click',() => { const expanded = $('tool-dock').classList.toggle('expanded'); $('expand-tool-dock').setAttribute('aria-pressed',String(expanded)); $('expand-tool-dock').setAttribute('aria-label',expanded ? 'Compact panel' : 'Expand panel'); });
   const overview = {help:{title:'Model & dimensions',meaning:'Choose a generator family and construction, then set the dimensions of the mechanism. The preview uses the current valid design.',effect:'Dimensions contains geometry and advanced profile controls. Motion configures inputs, outputs and operating rates. Assembly contains connections, bearings, fits and hardware. Linked dimensions show Change source; invalid edits stay visible until corrected.'}};
@@ -1623,6 +1752,18 @@ function setup() {
   for (const button of document.querySelectorAll('[data-tool]')) button.addEventListener('click',() => openTool(button.dataset.tool));
   $('pick-mode').addEventListener('change',() => { if ($('pick-mode').value !== 'navigate') openTool('components'); events.dispatchEvent(new CustomEvent('pickmode',{detail:{mode:$('pick-mode').value}})); });
   $('show-bom').addEventListener('click',() => showDocuments('bom')); $('show-report').addEventListener('click',() => showDocuments('report')); $('show-notes').addEventListener('click',showNotes); $('warning-details').addEventListener('click',showNotes);
+  for (const [id, kind] of [['notice-count', 'warning'], ['error-count', 'error']]) {
+    $(id).addEventListener('click', () => {
+      openNotice = openNotice === kind ? '' : kind;
+      updateNoticeCounter();
+    });
+  }
+  for (const close of document.querySelectorAll('[data-close-notices]')) close.addEventListener('click', () => {
+    const badge = $(openNotice === 'error' ? 'error-count' : 'notice-count');
+    openNotice = '';
+    updateNoticeCounter();
+    badge.focus();
+  });
   document.addEventListener('pointerdown',event => { if (helpAnchor && !helpAnchor.contains(event.target) && !helpPane?.contains(event.target)) closeParameterHelp(); });
   document.addEventListener('click',event => { for (const menu of document.querySelectorAll('.popover[open]')) if (!menu.contains(event.target) || event.target.closest('button') && !event.target.closest('.motion-palette')) menu.open = false; });
   document.addEventListener('toggle',event => {
@@ -1646,7 +1787,7 @@ function setup() {
     events, engine, viewer, document:doc,
     snapshot() { return currentValid() ? {token:{...currentToken(),operation:operationSerial,designId:design.design_id},design,phase,parameters:clone(design.values),family:doc.family,modelLabel:$('family-variant-chip').textContent,indices:selectedIndices()} : null; },
     matches(token) { return currentValid() && isCurrent(token) && (token.operation == null || token.operation === operationSerial) && (token.designId == null || token.designId === design.design_id); },
-    async request(method,payload = {}) { const snapshot = this.snapshot(); if (!snapshot) throw Error('Wait for a valid current model.'); if (['documents','metrology','search','interference','backlash'].includes(method)) events.dispatchEvent(new CustomEvent('querybegin',{detail:{method}})); const result = await engine.request(method,{design_id:snapshot.design.design_id,...payload}); if (!this.matches(snapshot.token)) throw new DOMException('The document changed.','AbortError'); return result; },
+    async request(method,payload = {}) { const snapshot = this.snapshot(); if (!snapshot) throw Error('Wait for a valid current model.'); if (['documents','metrology','search','search_quick','interference','backlash'].includes(method)) events.dispatchEvent(new CustomEvent('querybegin',{detail:{method}})); const result = await engine.request(method,{design_id:snapshot.design.design_id,...payload}); if (!this.matches(snapshot.token)) throw new DOMException('The document changed.','AbortError'); return result; },
     applyParameters(values) {
       if (!currentValid()) throw Error('Wait for a valid current model.');
       const definitions = new Map([...schema.fields,...schema.options].map(f => [f.key,f]));
@@ -1667,6 +1808,10 @@ function setup() {
       // this explicit transaction's numeric proposal in that target context.
       doc.ensure(schema); Object.assign(doc.entries,numbers);
       doc.changed();
+    },
+    applySearchProposal(answer) {
+      if (!currentValid()) throw Error('Wait for a valid current model.');
+      doc.applyProposal(answer.schema, answer.values);
     },
     requestPose, setPlaying, showDialog:dialog, downloadBlob, cancelOperations,
     async pauseForAnalysis() { setPlaying(false); await poseCompletion; },

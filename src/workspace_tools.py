@@ -12,6 +12,14 @@ def heading(parent, title):
     return label
 
 
+def viewport_panel():
+    """Right-hand panel over the preview, below its toolbar."""
+    return Gtk.Box(orientation=Gtk.Orientation.VERTICAL, css_classes=['tool-dock'],
+                   width_request=340, visible=False, halign=Gtk.Align.END,
+                   valign=Gtk.Align.FILL, margin_start=12, margin_end=12,
+                   margin_top=60, margin_bottom=12)
+
+
 def model_text(design):
     from geometry import FAMILIES, VARIANTS
     if design is None:
@@ -131,14 +139,7 @@ class Dock:
     def __init__(self, app, paned, toolbar):
         self.app, self.paned = app, paned
         self.controllers, self.panels, self.tabs = {}, {}, {}
-        self.box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, css_classes=['tool-dock'])
-        self.box.set_size_request(340, -1)
-        self.box.set_visible(False)
-        self.box.set_halign(Gtk.Align.END)
-        self.box.set_valign(Gtk.Align.FILL)
-        for side in ('start', 'end', 'top', 'bottom'):
-            getattr(self.box, 'set_margin_'+side)(12)
-        self.box.set_margin_top(60)
+        self.box = viewport_panel()
         app.preview_overlay.add_overlay(self.box)
         app.preview_overlay.set_measure_overlay(self.box, False)
         self.expanded=False;self.saved_layout=None;self.restore_clock=None;self.restore_frame=None
@@ -281,10 +282,13 @@ class Dock:
         caps = capabilities(ready)
         unavailable = []
         for key, controller in self.controllers.items():
+            button = getattr(controller, 'button', None)
+            if button is None:
+                continue
             info = caps['metrology' if key == 'gear_measurement' else key]
-            controller.button.set_tooltip_text(info['reason'])
+            button.set_tooltip_text(info['reason'])
             if not info['available']:
-                unavailable.append(controller.button.get_label().rstrip('…'))
+                unavailable.append(button.get_label().rstrip('…'))
         self.context.set_text('Available tools follow the current model.' if not unavailable else
                               'Unavailable for this model: '+', '.join(unavailable)+'. Open a tool to see its requirements.')
         self.context.set_visible(True)
@@ -301,7 +305,9 @@ class Dock:
 
     def register(self, key, controller):
         self.controllers[key] = controller
-        icon={'components':'list','search':'search','interference':'warning',
+        if getattr(controller, 'button', None) is None:
+            return
+        icon={'components':'list','interference':'warning',
               'gear_measurement':'ruler','backlash':'backlash'}[key]
         self._command(controller.button,icon)
         if not controller.button.get_tooltip_text():
@@ -328,7 +334,9 @@ class Dock:
         self.box.set_visible(True)
         self.expand_button.set_visible(True)
         self.stack.set_visible_child_name(key)
-        self.title.set_text(self.controllers[key].button.get_label().rstrip('…'))
+        controller = self.controllers[key]
+        button = getattr(controller, 'button', None)
+        self.title.set_text(button.get_label().rstrip('…') if button else controller.title)
 
     def remove(self, panel):
         if self.panels.get(panel.key) is not panel:

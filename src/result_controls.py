@@ -82,6 +82,8 @@ def items(design):
     elif design.family == 'hypoid':
         result[0]=('Effective ratio', ratio_value, ratio_unit, 'Signs about offset pinion +X and wheel +Z')
         result.append(('Shaft offset',f'{v["offset"]:+g}','mm','90° shaft directions · offset along world Y'))
+    elif design.family == 'cycloidal':
+        result.append(('Ring carrier diameter', f'{a["ring_rollers"]["carrier_diameter_mm"]:.3f}', 'mm', ''))
     elif match:
         result.append(('Housing diameter', match.group(1), 'mm',
                        'Nominal housing envelope'))

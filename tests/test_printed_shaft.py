@@ -119,7 +119,7 @@ class PrintedShaftTests(unittest.TestCase):
             d = self.design(variant, io_scheme='eccentric_ring_output')
             self.assertEqual(d.analysis['signed_ratio'], 16)
             self.assertEqual(d.analysis['kinematics']['stage_results'][0]['rates_rpm'], {'eccentric': 1500, 'ring': 93.75, 'output': 0})
-            self.assertTrue(any((p.name == 'Cover_input' for p in d.parts)))
+            self.assertTrue(any(p.name == 'Ring_pin_carrier' for p in d.parts))
             self.assertFalse(any((p.name == 'Attachment_eccentric_Hub' for p in d.parts)))
             printed = d.analysis['printed_eccentric_shaft']['printed_parts']
             for name in printed + ['Eccentric_tie_bolt_1', 'Eccentric_tie_bolt_2']:
@@ -128,50 +128,33 @@ class PrintedShaftTests(unittest.TestCase):
                 self.assertEqual(signature(old), signature(new))
                 self.assertEqual(new.port['member'], 'eccentric')
                 self.assertEqual(new.port['role'], 'input')
-            names = {p.name for p in d.parts}
-            for r in d.analysis['mount_interfaces']:
-                self.assertIn(r['anchor'], names)
-                for name in r['parts']:
-                    self.assertIn(name, names)
-                    part = next((p for p in d.parts if p.name == name))
-                    self.assertEqual(part.port['role'], r['role'])
             for p in d.parts:
                 if p.name.startswith(('Pin_output_', 'Flange_pincarrier', 'Shaft_pincarrier')):
                     self.assertEqual(p.port['role'], 'fixed')
                     self.assertEqual(p.port['rpm'], 0)
             plan = build_plan(d)
             phase = pi / 2
-            ring_i = next((i for i, p in enumerate(d.parts) if p.name == 'Housing_tubular'))
+            ring_i = next(i for i, p in enumerate(d.parts) if p.name == 'Ring_pin_carrier')
             x, y, z = transform(plan.matrix(ring_i, phase), (40, 0, 0))
             self.assertAlmostEqual(x, 40 * cos(phase / 16))
             self.assertAlmostEqual(y, 40 * sin(phase / 16))
             fixed_i = next((i for i, p in enumerate(d.parts) if p.name == 'Pin_output_1'))
             self.assertEqual(transform(plan.matrix(fixed_i, phase), (3, 2, 5)), (3, 2, 5))
 
-    def test_housing_output_interfaces_are_watertight_and_clear_of_the_fixed_shaft(self):
+    def test_housing_output_uses_only_the_watertight_ring_and_external_shaft_datums(self):
         for variant in ('single', 'dual'):
             d = self.design(variant, io_scheme='eccentric_ring_output')
             byname = {p.name: p for p in d.parts}
             shaft = next(p for p in d.analysis['external_shafts'] if p['member']=='output')
-            rings = [byname['Attachment_ring_Hub'], byname['Attachment_ring_Flange']]
-            frame = byname['Attachment_output_Frame_flange']
-            cover = byname['Cover_output']
-            self.assertAlmostEqual(rings[0].z, cover.z + cover.width)
-            self.assertAlmostEqual(rings[1].z, rings[0].z + rings[0].width)
-            self.assertGreater(frame.z, rings[1].z + rings[1].width)
+            carrier = byname['Ring_pin_carrier']
+            self.assertEqual(shaft['role'], 'fixed')
             self.assertNotIn('Shaft_pincarrier',byname)
-            for p in rings:
-                self.assertGreater(circle_info(p.holes[0])[2], shaft['diameter_mm']/2 + d.values['assembly_clearance'])
-            self.assertEqual(len(rings[1].holes) - 1, 6)
-            self.assertEqual(len(frame.holes), 8)
-            for p in d.parts:
-                if p.name.startswith(('Eccentric_', 'Disc_cycloidal', 'Pin_output_', 'Roller_ring_')):
-                    self.assertLessEqual(p.z + p.width, rings[0].z + 1e-07)
-            checker = test_stl_export.StlExportTests()
-            for p in rings + [frame]:
-                checker.assert_solid(p)
+            self.assertFalse(any(name.startswith(('Attachment_', 'Bearing_ring_output_',
+                                                  'Ring_output_bearing_')) for name in byname))
+            self.assertNotIn('mount_interfaces', d.analysis)
+            test_stl_export.StlExportTests().assert_solid(carrier)
             again = generate('cycloidal', json.loads(json.dumps(d.values)))
-            self.assertEqual(again.analysis['mount_interfaces'], d.analysis['mount_interfaces'])
+            self.assertEqual(again.analysis['external_shafts'], d.analysis['external_shafts'])
             self.assertEqual(build(again)['rows'], build(d)['rows'])
 if __name__ == '__main__':
     unittest.main()

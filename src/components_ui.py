@@ -315,7 +315,7 @@ class Controller:
         # View filters may legitimately rebuild the scene without replacing the
         # bound design. A set_design handoff must be checked by refreshed().
         if self.design is not None and self.app.canvas.design is self.design:self.scene=self.app.canvas.scene
-        # Only retain triangles for the current continuous placement, rather
+        # Only retain surfaces for the current continuous placement, rather
         # than accumulating a full mesh for each slider stop.
         if self.cache and next(iter(self.cache))[1]!=self.app.canvas.exploded:self.cache={}
         visible=self.visible_indices()
@@ -345,15 +345,20 @@ class Controller:
         phase=canvas.inspection_phase if canvas.inspection_phase is not None else canvas.motion_phase
         surfaces=[]
         try:
+            from rust_surfaces import surface
+            offsets = {part.source_index: part.explosion for part in canvas.scene.parts}
+            scale = canvas.explosion_scale
             for index in self.visible_indices():
                 key=(index,canvas.exploded)
-                if key not in self.cache:self.cache[key]=geometry.triangles(geometry.displayed_part(self.app.design,index,canvas.exploded))
-                ts=self.cache[key]
-                if plan:ts=geometry.posed(ts,plan,index,phase)
-                surfaces.append((index,ts))
+                if key not in self.cache:
+                    shift = tuple(v*scale for v in offsets[index])
+                    shown = geometry.displayed_part(self.app.design, index, shift=shift)
+                    self.cache[key] = surface(shown)
+                matrix = plan.matrix(index,phase) if plan else None
+                surfaces.append((index,self.cache[key],matrix))
             s=canvas.scene
             origin,direction=geometry.ray(x,y,canvas.camera_center,s.radius,canvas.zoom,canvas.yaw,canvas.tilt,canvas.get_width(),canvas.get_height())
-            hit=geometry.pick(origin,direction,surfaces,s.center[1] if canvas.section else None,max_distance=8*s.radius)
+            hit=geometry.pick_displayed(origin,direction,surfaces,s.center[1] if canvas.section else None,max_distance=8*s.radius)
         except (ValueError,ArithmeticError) as error:
             self.summary.set_text(f'Surface inspection unavailable: {error}');return
         measuring=self.window and self.measure.get_active()

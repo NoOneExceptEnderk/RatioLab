@@ -155,7 +155,7 @@ class GeometryRefreshGuiTests(unittest.TestCase):
                 previous=a.design;self.edit(0);wait_until(lambda:not a.pending)
                 if family=='wolfrom':self.assertIs(a.design,previous)
                 else:self.assertIsNone(a.design)
-                self.assertIs(a.canvas.design,previous);self.assertTrue(a.empty.has_css_class('invalid'))
+                self.assertIs(a.canvas.design,previous);self.assertTrue(a.geometry_error_bar.get_visible())
                 self.assertFalse(a.metric_cards.get_sensitive());self.assertFalse(a.export_menu.get_sensitive())
                 self.assertFalse(a.canvas.motion_valid);self.assertEqual(a.inputs['width'].get_text(),'0')
 

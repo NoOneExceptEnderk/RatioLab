@@ -3,7 +3,7 @@
 //! Custom spherical-involute pairs. KHK 4.17 pitch cones; Dong sec.2 eq.1
 //! flanks; circular developed lead, not industrial Gleason octoidal geometry.
 use crate::{
-    bevel::{self, Profile},
+    bevel::{self, OpposedTrace, Profile},
     geometry_data::{Construction, Part, Station},
     precision::Result,
     profiles::{Point, n},
@@ -89,6 +89,14 @@ pub(crate) fn stations(profiles: &[Profile], width: f64) -> Result<(Vec<f64>, f6
     if width <= 0. || inner <= 0. || !width.is_finite() {
         return Err("Positive inner cone distance required".into());
     }
+    station_interval(profiles, inner, outer, width)
+}
+fn station_interval(
+    profiles: &[Profile],
+    inner: f64,
+    outer: f64,
+    width: f64,
+) -> Result<(Vec<f64>, f64)> {
     let mut bound = 0_f64;
     for q in profiles {
         let amp = q.delta.cos() * q.tip.tan();
@@ -97,6 +105,12 @@ pub(crate) fn stations(profiles: &[Profile], width: f64) -> Result<(Vec<f64>, f6
             let cmax = q.delta.cos() / q.tip.cos();
             let [first, second] = derivative_bounds(q, cmin * inner, cmax * outer)?;
             amp * (2. * cmax * first + outer * cmax.powi(2) * (second + first.powi(2)))
+        } else if let Some(trace) = &q.opposed_trace
+            && trace.log_half_width > 0.
+        {
+            // In log-radius u, |F'| <= 1 and |F''| <= 1/e. The
+            // azimuth is C1 and the same bound holds across the joins.
+            amp * q.k.abs() * ((1. + q.k * q.k).sqrt() + 1. / trace.log_half_width) / inner
         } else {
             amp * q.k.abs() * (1. + q.k * q.k).sqrt() / inner
         };
@@ -131,7 +145,7 @@ pub(crate) fn curved_section(q: &Profile, points: &[Point], distance: f64) -> Re
         })
         .collect()
 }
-fn circular_engagement(a: &Profile, b: &Profile, width: f64) -> Result<Value> {
+fn sampled_engagement(a: &Profile, b: &Profile, width: f64, trace_center: f64) -> Result<Value> {
     let base = bevel::engagement(a, b, width)?;
     let lo = base["action_angle_interval_rad"][0].as_f64().unwrap();
     let hi = base["action_angle_interval_rad"][1].as_f64().unwrap();
@@ -152,7 +166,7 @@ fn circular_engagement(a: &Profile, b: &Profile, width: f64) -> Result<Value> {
         if low > high {
             continue;
         }
-        for r in [low, high, a.mean_distance.unwrap().clamp(low, high)] {
+        for r in [low, high, trace_center.clamp(low, high)] {
             for (i, sign) in [-1., 1.].into_iter().enumerate() {
                 let phase = s / a.base.sin() - sign * a.trace(r)?;
                 bounds[i][0] = bounds[i][0].min(phase);
@@ -162,7 +176,7 @@ fn circular_engagement(a: &Profile, b: &Profile, width: f64) -> Result<Value> {
     }
     let spans = bounds.map(|[a0, b0]| (b0 - a0) / (TAU / a.teeth as f64));
     if spans.iter().any(|x| !x.is_finite()) {
-        return Err("Empty circular bevel action domain".into());
+        return Err("Empty curved bevel action domain".into());
     }
     Ok(
         json!({"contact_phase_span_teeth":spans[0].min(spans[1]),"flank_contact_phase_spans_teeth":spans,
@@ -189,10 +203,10 @@ pub(crate) fn dimensions(v: &Value) -> Result<(Profile, Profile, Value)> {
         return Err("Backlash too large for the bevel module.".into());
     }
     let variant = v["variant"].as_str().unwrap_or("straight");
-    if !["straight", "spiral", "zerol"].contains(&variant) {
+    if !["straight", "spiral", "zerol", "herringbone"].contains(&variant) {
         return Err("Unknown bevel pair variant".into());
     }
-    let beta = if variant == "spiral" {
+    let beta = if matches!(variant, "spiral" | "herringbone") {
         n(v, "spiral_angle", 35.)?
     } else {
         0.
@@ -219,7 +233,16 @@ pub(crate) fn dimensions(v: &Value) -> Result<(Profile, Profile, Value)> {
                 distance * q.delta.cos() / q.tip.cos(),
             )?;
         }
-        circular_engagement(&a, &b, width)?
+        sampled_engagement(&a, &b, width, distance - width / 2.)?
+    } else if variant == "herringbone" && beta > 0. {
+        let reversal_distance = distance - width / 2.;
+        let trace = OpposedTrace {
+            reversal_distance,
+            log_half_width: width / (4. * reversal_distance),
+        };
+        a.opposed_trace = Some(trace.clone());
+        b.opposed_trace = Some(trace);
+        sampled_engagement(&a, &b, width, reversal_distance)?
     } else {
         bevel::engagement(&a, &b, width)?
     };
@@ -245,6 +268,8 @@ pub(crate) fn build(v: &Value) -> Result<Construction> {
     let scale = 1. - width / distance;
     let variant = v["variant"].as_str().unwrap_or("straight");
     let hand = n(v, "spiral_hand", 1.)?;
+    let opposed = variant == "herringbone";
+    let beta = n(v, "spiral_angle", if opposed { 35. } else { 0. })?;
     let (distances, bound) = stations(&[a.clone(), b.clone()], width)?;
     let mut parts = Vec::new();
     for (q, name, bore, frame, phase, member, h) in [
@@ -270,7 +295,20 @@ pub(crate) fn build(v: &Value) -> Result<Construction> {
         crate::protocol::control_check()?;
         let heel = distance * q.delta.cos();
         let toe = heel * scale;
-        let outer = bevel::section(q, heel, phase, REFINEMENT)?;
+        let mut profile_planes = Vec::new();
+        if q.opposed_trace
+            .as_ref()
+            .is_some_and(|t| t.log_half_width > 0.)
+        {
+            let c = q.delta.cos();
+            profile_planes.extend(distances.iter().map(|r| r * c));
+            profile_planes.extend(
+                distances
+                    .windows(2)
+                    .map(|pair| (pair[0] + pair[1]) * c / 2.),
+            );
+        }
+        let outer = bevel::section_for_sweep(q, heel, phase, REFINEMENT, &profile_planes)?;
         let holes = bores(bore / 2.)?;
         let mut p = Part::new(name, outer.clone(), holes.clone(), heel - toe);
         p.extra["z"] = json!(toe);
@@ -286,7 +324,7 @@ pub(crate) fn build(v: &Value) -> Result<Construction> {
             ),
             Station::new(heel - toe, outer.clone(), holes.clone()),
         ];
-        if variant != "straight" && (q.k != 0. || q.mean_distance.is_some()) {
+        if q.k != 0. || q.mean_distance.is_some() {
             if 2 * (outer.len() + holes.iter().map(Vec::len).sum::<usize>()) * (distances.len() - 1)
                 + 2
                 > 250000
@@ -330,7 +368,17 @@ pub(crate) fn build(v: &Value) -> Result<Construction> {
             "engagement":contact,"flank_reference_doi":"10.3389/fmech.2025.1643228","flank_reference_equation":"Section 2 equation 1"});
         if variant != "straight" {
             meta.as_object_mut().unwrap().extend(json!({"tooth_type":variant,"local_trace_hand":h,"trace_chord_tolerance_mm":REFINEMENT,"trace_second_derivative_bound":bound,"cone_stations_mm":distances,
-            "spiral_angle_deg":n(v,"spiral_angle",0.)?,"trace_radius_mm":v.get("trace_radius"),"mean_spiral_angle_deg":if variant=="zerol"{0.}else{n(v,"spiral_angle",0.)?}}).as_object().unwrap().clone());
+            "spiral_angle_deg":beta,"trace_radius_mm":v.get("trace_radius"),"mean_spiral_angle_deg":if variant=="zerol"{0.}else{beta}}).as_object().unwrap().clone());
+        }
+        if opposed {
+            // The supplied angle applies to the logarithmic segments. The
+            // herringbone trace has zero slope at the reversal radius.
+            meta.as_object_mut()
+                .unwrap()
+                .remove("mean_spiral_angle_deg");
+            meta["opposed_trace"] = json!(q.opposed_trace);
+            meta["heel_local_hand"] = json!(h);
+            meta["toe_local_hand"] = json!(-h);
         }
         p.extra["profile_metadata"] = json!({"bevel_profile":meta});
         parts.push(p);
@@ -339,8 +387,16 @@ pub(crate) fn build(v: &Value) -> Result<Construction> {
         "outer_pitch_diameters_mm":[n(v,"module",2.)?*a.teeth as f64,n(v,"module",2.)?*b.teeth as f64],"engagement":contact,
         "construction":"Straight spherical involute; custom planar blanks","axes":{"A":[1,0,0],"B":[0,0,1]},"rolling_equation":"pinion_teeth * pinion_rpm + wheel_teeth * wheel_rpm = 0"});
     if variant != "straight" {
-        info.as_object_mut().unwrap().extend(json!({"tooth_type":variant,"spiral_angle_deg":n(v,"spiral_angle",0.)?,"pinion_local_trace_hand":hand,"trace_radius_mm":v.get("trace_radius"),"cone_stations_mm":distances,
-        "construction":if variant=="spiral"{"Spherical involute; logarithmic spiral trace"}else{"Custom spherical involute; circular developed Zerol-style trace"}}).as_object().unwrap().clone());
+        info.as_object_mut().unwrap().extend(json!({"tooth_type":variant,"spiral_angle_deg":beta,"pinion_local_trace_hand":hand,"trace_radius_mm":v.get("trace_radius"),"cone_stations_mm":distances,
+        "construction":match variant {
+            "spiral" => "Spherical involute; logarithmic spiral trace",
+            "herringbone" if a.k != 0. => "Opposed logarithmic spirals with a tangent-continuous V",
+            "herringbone" => "Straight spherical involute; zero-angle Herringbone",
+            _ => "Custom spherical involute; circular developed Zerol-style trace",
+        }}).as_object().unwrap().clone());
+    }
+    if let Some(trace) = &a.opposed_trace {
+        info["opposed_trace"] = json!(trace);
     }
     Ok(Construction {
         parts,
@@ -371,11 +427,15 @@ pub fn call(a: &Value) -> Result<Value> {
             n(a, "low", 0.)?,
             n(a, "high", 0.)?
         )?)),
-        "engagement" => circular_engagement(
-            &Profile::read(&a["a"])?,
-            &Profile::read(&a["b"])?,
-            n(a, "width", 0.)?,
-        ),
+        "engagement" => {
+            let p = Profile::read(&a["a"])?;
+            sampled_engagement(
+                &p,
+                &Profile::read(&a["b"])?,
+                n(a, "width", 0.)?,
+                p.mean_distance.ok_or("Circular trace required")?,
+            )
+        }
         "stations" => {
             let p: Vec<Value> =
                 serde_json::from_value(a["profiles"].clone()).map_err(|e| e.to_string())?;

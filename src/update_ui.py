@@ -20,7 +20,7 @@ import release_notes
 
 
 class Controller:
-    def __init__(self, app, header, fetch=updates.fetch_releases, launch=None,
+    def __init__(self, app, add_button, fetch=updates.fetch_releases, launch=None,
                  detect=update_install.detect_installation,
                  download=update_download.download_release,
                  prepare=update_install.prepare_install, cache=None):
@@ -35,12 +35,12 @@ class Controller:
         self.status=updates.disabled_reason() or 'Choose Check now to look for updates.'
         self.job_status='';self.status_label=None;self.check_button=None
         self.preferences=updates.Preferences(app_paths.config_dir()/'updates.json')
-        self.button=Gtk.Button(visible=False,css_classes=['suggested-action'])
+        self.button=Gtk.Button(visible=False,valign=Gtk.Align.CENTER,css_classes=['primary', 'update-badge'])
         self.badge_label=Gtk.Label(max_width_chars=27,ellipsize=Pango.EllipsizeMode.END)
         self.button.set_child(self.badge_label)
         self.button.set_tooltip_text('Read release notes and choose an update')
         self.button.connect('clicked',lambda *_:self.show())
-        header.pack_end(self.button)
+        add_button(self.button)
         app.win.connect('unrealize',lambda *_:self.close())
         app.connect('shutdown',lambda *_:self.close())
 
@@ -136,7 +136,6 @@ class Controller:
         visible=bool(self.release and self.preferences.visible(self.release))
         if visible:
             self.badge_label.set_text('Update to v'+self.release.version.lstrip('v'))
-            self.button.set_tooltip_text('Update to '+self.release.version+' · Read release notes and choose an update')
         self.button.set_visible(visible)
 
     def _launch(self,url):

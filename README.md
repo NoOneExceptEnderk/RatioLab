@@ -1,6 +1,6 @@
 # RatioLab
 
-![RatioLab](src/ratiolab_resources/branding/ratiolab-logo-dark.png)
+![RatioLab banner showing a planetary gearbox in the design workspace](assets/screenshots/ratiolab-banner.png)
 
 [![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/X0M22AB2SK)
 
@@ -16,8 +16,6 @@ MCP server to create and edit projects with an agent.
 [Website](https://ratiolab.dev) · [Try in your browser](https://ratiolab.dev/app/) · [Download](#download-and-install) · [User guide](docs/user-guide.md) · [Discord](https://discord.gg/G8NVHNg6J)
 
 **Read this introduction in:** **English** · [Italiano](README.it.md) · [Español](docs/readme/es.md) · [Français](docs/readme/fr.md) · [Deutsch](docs/readme/de.md) · [Português (Portugal)](docs/readme/pt.md) · [Русский](docs/readme/ru.md) · [简体中文](docs/readme/zh-CN.md) · [தமிழ்](docs/readme/ta.md)
-
-![RatioLab workspace with dimension controls, a 3D model and motion controls](assets/screenshots/workspace.png)
 
 ## Choose how to work
 

@@ -26,7 +26,7 @@ class MotionRateTests(unittest.TestCase):
         cases += [('planetary', {'variant': 'two_stage_double', 'io_scheme': 'ring_carrier_sun', 'io_scheme2': 'sun_ring_carrier'}),
                   ('cycloidal', {'variant': 'dual', 'io_scheme': 'ring_eccentric_output'}),
                   ('harmonic', {'io_scheme': 'flex_wave_circular'}),
-                  ('worm', {'io_scheme': 'reverse'}),
+                  ('worm', {}),
                   ('parallel', {'io_scheme': 'reverse'}),
                   ('internal', {'io_scheme': 'reverse'}),
                   ('differential', {'configuration': 'classic', 'output_difference_rpm': 40})]

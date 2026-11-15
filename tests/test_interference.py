@@ -4,7 +4,7 @@
 from math import pi,cos,sin
 from threading import Event
 import unittest
-from geometry import Part,Design,generate,circle
+from geometry import Part,Design,generate,circle,polar,TAU
 from interference import analyze,Settings,period
 from motion import MotionPlan,rigid,translation,build_plan
 from collision_geometry import Surface,relation
@@ -122,7 +122,9 @@ class InterferenceTests(unittest.TestCase):
 
     def test_nearly_collinear_shared_cycloidal_cap_keeps_topology(self):
         from collision_geometry import point_triangle,norm2,sub
-        d=generate('cycloidal');part=next(p for p in d.parts if p.name=='Seat_support_output')
+        # Preserve the legacy triangulation case after the seat was removed.
+        holes = [circle(28.35)] + [circle(3, 48, polar(40, TAU*j/16)) for j in range(16)]
+        part = Part('Legacy cycloidal seat', circle(43.2), holes, width=3, z=8.2)
         surface=Surface(list(triangles(part)))
         self.assertGreater(surface.thin_triangles,0)
         self.assertLess(surface.edge_approximation_mm,1e-9)

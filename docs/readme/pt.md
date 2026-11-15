@@ -1,6 +1,6 @@
 # RatioLab
 
-![RatioLab](../../src/ratiolab_resources/branding/ratiolab-logo-dark.png)
+![Banner do RatioLab com um redutor planetário na área de trabalho](../../assets/screenshots/ratiolab-banner.png)
 
 [![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/X0M22AB2SK)
 
@@ -9,8 +9,6 @@
 [Transferir](#download-and-install) · [Guia do utilizador (em inglês)](../user-guide.md) · [English](../../README.md) · [Italiano](../../README.it.md) · [Comunicar um problema](https://github.com/NoOneExceptEnderk/RatioLab/issues) · [Discord](https://discord.gg/G8NVHNg6J)
 
 **Idiomas:** [English](../../README.md) · [Italiano](../../README.it.md) · [Español](es.md) · [Français](fr.md) · [Deutsch](de.md) · **Português (Portugal)** · [Русский](ru.md) · [简体中文](zh-CN.md) · [தமிழ்](ta.md)
-
-![Área de trabalho do RatioLab](../../assets/screenshots/workspace.png)
 
 <a id="download-and-install"></a>
 

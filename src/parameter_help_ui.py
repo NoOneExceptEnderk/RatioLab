@@ -228,10 +228,6 @@ class HelpController:
         control = binding.control
         if isinstance(control, (Gtk.SpinButton, Gtk.Entry)):
             raw = control.get_text().strip()
-            if (binding.key == 'worm_static_friction' and not raw
-                    and binding.key not in getattr(self.app, 'option_values', {})
-                    and binding.key not in getattr(self.app, 'values', {}).get(self.app.family, {})):
-                return 'Not specified'
             try:
                 if not isfinite(float(raw.replace(',', '.'))):
                     return 'Editing value'
@@ -465,7 +461,7 @@ class HelpController:
         self.body.append(self._text('SET DIMENSIONS' if section else 'WHAT CHANGES', 'help-subtitle'))
         summary, detail = effect_sections(help.effect)
         self.body.append(self._text(help.effect, 'help-effect', selectable=True, transform=lambda value:effect_sections(value)[0]))
-        self.details = Gtk.Expander(label='Model and limits' if binding.key == 'worm_static_friction' else 'Geometry and dependencies')
+        self.details = Gtk.Expander(label='Geometry and dependencies')
         self.details.set_child(self._text(help.effect, 'help-details', selectable=True, transform=lambda value:effect_sections(value)[1]))
         self.details.set_visible(bool(detail) and not section)
         if section:
@@ -479,7 +475,7 @@ class HelpController:
         self.scroll.set_child(self.body)
         card.append(self.scroll)
         self.footer = Gtk.Box(spacing=8, css_classes=['help-footer'])
-        self.footer.append(Gtk.Label(label='Choose · adjust · preview' if binding.key == SECTION_KEY else 'Static contact model' if binding.key == 'worm_static_friction' else 'Schematic · not to scale', xalign=0,
+        self.footer.append(Gtk.Label(label='Choose · adjust · preview' if binding.key == SECTION_KEY else 'Schematic · not to scale', xalign=0,
                                     hexpand=True, css_classes=['help-footnote']))
         self.footer_hint = Gtk.Label(label='Esc to close',
                                     css_classes=['help-footnote'])
@@ -650,11 +646,6 @@ def bind_options(app):
             child = nxt
     for root in roots:
         visit(root)
-    if app.family == 'worm':
-        entry = getattr(app, 'io_friction_entry', None)
-        label = entry.get_prev_sibling() if entry is not None else None
-        if isinstance(label, Gtk.Label):
-            owner.bind(label, entry, 'worm_static_friction')
     # Stable direct refs for controls created outside the parameter sections.
     if app.variant_box.get_visible():
         owner.bind(app.variant_caption, app.variant_selector, 'variant')

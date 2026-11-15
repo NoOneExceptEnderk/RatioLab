@@ -720,20 +720,58 @@ impl Generator {
                 })
                 .collect::<Vec<_>>()
         };
-        let bore = circle_at(&inner, n(&self.v, "output_bore", 0.)? / 2., root);
         let rim = circle_at(&outer, self.outer, root);
         let bottomrim = atz(&rim, 0.);
-        let bottombore = atz(&bore, 0.);
-        strip(&mut mesh, &bore, &inner)?;
-        strip(&mut mesh, &outer, &rim)?;
-        strip(&mut mesh, &bottomrim, &bottombore)?;
-        strip(&mut mesh, &rim, &bottomrim)?;
-        strip(&mut mesh, &bottombore, &bore)?;
+        if let Some(profile) = output_bore_profile(&self.v)? {
+            let reach = profile.iter().map(|p| p[0].hypot(p[1])).fold(0., f64::max);
+            if inner.iter().any(|p| p[0].hypot(p[1]) <= reach + 0.51) {
+                return Err(
+                    "Shaped wheel bore leaves insufficient wall below the tooth band.".into(),
+                );
+            }
+            let bore: Vec<_> = profile.into_iter().map(|p| [p[0], p[1], root]).collect();
+            let bottom_bore = atz(&bore, 0.);
+            strip(&mut mesh, &outer, &rim)?;
+            strip(&mut mesh, &rim, &bottomrim)?;
+            let mut bottom_outer = bottomrim;
+            bottom_outer.reverse();
+            for face in [
+                vec![inner, bore.clone()],
+                vec![bottom_outer, bottom_bore.clone()],
+            ] {
+                for triangle in crate::solid::triangulate(&face)? {
+                    mesh.extend(triangle);
+                }
+            }
+            strip(&mut mesh, &bottom_bore, &bore)?;
+        } else {
+            let bore = circle_at(&inner, n(&self.v, "output_bore", 0.)? / 2., root);
+            let bottombore = atz(&bore, 0.);
+            strip(&mut mesh, &bore, &inner)?;
+            strip(&mut mesh, &outer, &rim)?;
+            strip(&mut mesh, &bottomrim, &bottombore)?;
+            strip(&mut mesh, &rim, &bottomrim)?;
+            strip(&mut mesh, &bottombore, &bore)?;
+        }
+        if mesh.len() / 3 > 250000 {
+            return Err("Face wheel exceeds the 250,000 shared triangle budget.".into());
+        }
         Ok((mesh, bottom))
     }
     fn info(&self) -> Value {
         json!({"e":self.e,"m":self.m,"g":self.g,"joined":self.joined,"beta":self.beta,"rp":self.rp,"ref":self.reference,"alpha":self.alpha,"rb":self.rb,"k":self.k,"height":self.height,"low":self.low,"high":self.high,"root_z":self.root_z,"x0":self.x0,"x1":self.x1,"pinion":self.pinion,"start":self.start,"bands":self.bands,"certificates":self.certificates,"outer":self.outer,"engagement":self.engagement,"joined_surface":self.joined_surface.as_ref().map(Joined::state)})
     }
+}
+fn output_bore_profile(values: &Value) -> Result<Option<Vec<Point>>> {
+    let Some(profile) = values.get("output_bore_profile") else {
+        return Ok(None);
+    };
+    let profile: Vec<Point> = serde_json::from_value(profile.clone()).map_err(|e| e.to_string())?;
+    if profile.len() < 3 || profile.len() > 512 || profile.iter().flatten().any(|x| !x.is_finite())
+    {
+        return Err("Invalid shaped face wheel bore.".into());
+    }
+    Ok(Some(profile))
 }
 fn deviation(v: P3, p: P3, q: P3, f: f64) -> f64 {
     (0..3)
@@ -882,17 +920,22 @@ pub(crate) fn build(v: &Value) -> Result<Construction> {
     pinion.extra = Value::Object(extra);
     pinion.stations = pinion_stations(&g.pinion)?;
     pinion.extra["color"] = json!([0.96, 0.66, 0.33]);
+    let custom_bore = output_bore_profile(v)?;
+    let holes = match &custom_bore {
+        Some(profile) => vec![profile.clone()],
+        None => bp::bores(n(v, "output_bore", 0.)? / 2.)?,
+    };
     let mut wheel = Part::new(
         "Face_wheel",
         bp::circle(g.outer)?,
-        bp::bores(n(v, "output_bore", 0.)? / 2.)?,
+        holes,
         g.height - g.low - bottom,
     );
     wheel.extra["z"] = json!(bottom);
     wheel.extra["color"] = json!([0.23, 0.75, 0.65]);
     wheel.mesh_triangle_points = mesh;
     wheel.extra["outer_circle_radius"] = json!(g.outer);
-    if n(v, "output_bore", 0.)? > 0. {
+    if custom_bore.is_none() && n(v, "output_bore", 0.)? > 0. {
         wheel.extra["bore_circle_radius"] = json!(n(v, "output_bore", 0.)? / 2.);
     }
     for (p, member, axis) in [

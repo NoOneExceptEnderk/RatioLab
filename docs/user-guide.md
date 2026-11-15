@@ -116,7 +116,9 @@ scope. See [keyboard and mouse presets and references](keyboard-shortcuts.md).
 The [Settings guide](preferences.md) explains which preferences are shared,
 mode-specific or exported, and how to reset or replace an imported palette.
 
-The **Explode** slider in **View** moves continuously from the assembled pose at **0.00** to the exploded pose at **1.00**. Moving it pauses motion; **Start motion** or **Initial pose** returns to the assembled pose. Explosion affects only the preview: geometry exports and package previews use nominal assembly coordinates. Component selection and surface measurements follow the displayed pose; changing the amount clears existing measurement points.
+The **Explode** slider in **View** shows the assembled pose at **0.00**. It opens gradually when the preview geometry can follow a clear translation path. If the path is blocked or cannot be verified for the visible components, the first step opens a clearance gap and the remaining travel increases it up to **1.00**. Moving the slider pauses motion. **Start motion** or **Initial pose** returns to the assembled pose. Geometry exports and package previews use nominal assembly coordinates. Component selection and surface measurements follow the displayed pose. Changing the amount clears existing measurement points.
+
+Double-helical planetary reducers open by stage. The sun, planets and ring of each stage stay in mesh, and parts that cannot slide clear along the display path move together. For the single-stage reducer, show **Supports** or **Housing** to see the opening around the gearset.
 
 Invalid input remains visible, with a field message when the generator identifies the cause. Geometry actions are blocked immediately while a geometry update is pending. Invalid geometry stops motion; the last valid model of the same family remains visible with an explicit warning that it does not match the current parameters. An incomplete or unconfirmed RPM entry keeps motion at the last valid speed. Pressing Enter, leaving the speed field or requesting a save/export confirms the entry; failed confirmation shows a field error and blocks geometry exports and CAD transfers until the speed is corrected, while prior motion continues. No automatic correction replaces an invalid numeric entry on focus loss.
 
@@ -174,7 +176,7 @@ These fifteen families are available, in this order:
 | Internal gear reducer | Fixed axes; spur, helical, double helical |
 | Bevel differential | Wrist or classic configuration; straight or spiral bevel gears |
 | Wolfrom / 3K reducer | Two-rim spur, helical or double helical; sun input, fixed first ring, second ring output |
-| Bevel gear pair | Straight, spiral or circular Zerol-style traces; 90° shafts; reversible ports |
+| Bevel gear pair | Straight, spiral, circular Zerol-style or herringbone teeth; 90° shafts; reversible ports |
 | Hypoid gear pair | Generated spiral pinion; signed shaft offset; reversible ports |
 | Rack and pinion | Finite spur, helical or double-helical rack; rotary input and linear output |
 | Face gear pair | Generated face wheel and spur/helical/joined or separated double-helical pinion; 90° shaft directions and signed offset |
@@ -504,26 +506,24 @@ expand **Motion details** for all member speeds and the sign convention.
 
 **Motion → Drive · input and output** selects which member is driven, which delivers motion, and which is fixed. Planetary, cycloidal and strain wave drives offer all six physical member combinations. The planetary two-stage variants have independent connections for each stage.
 
-Parallel shaft, internal gear and worm drives offer forward/reverse operation.
-For a worm drive, **Static tooth friction coefficient μ** is optional explicit
-physical data for the actual tooth contact and conditions; no value is inferred.
-**Apply coefficient** validates it before changing the design. With wheel input,
-RatioLab blocks the configuration when static friction reaches or exceeds the
-lead-angle/normal-pressure-angle limit. The refusal explains the coefficient and
-limit and keeps the previous valid design and project. A geometry edit that
-crosses the same limit is refused as well. Motor rotation direction does not select wheel input. The existing per-family
-speed input range still applies.
+Parallel shaft and internal gear drives offer forward/reverse operation. A worm
+drive always uses the worm as input and the wheel as output. Projects saved
+with wheel input open with worm input. Output-driven strain-wave operation is
+an ideal kinematic relation pending hardware-specific breakaway data. See
+[Input and output connections](technical/io-models.md).
 
-Below the limit the state is **potentially backdrivable**, without a guarantee of
-real startup. With no coefficient, including older projects, the state is
-**indeterminate** and wheel-driven motion is explicitly an ideal kinematic
-relation. **Clear coefficient · unknown** removes that physical evidence and
-shows this uncertainty; it does not alter the physical assembly. The coefficient
-and assessment are retained in project/calculation metadata. Output-driven
-strain-wave arrangements are also indeterminate without measured breakaway torque
-and operating conditions for that hardware. Commercial catalog data are not
-assigned to generated geometry. These checks do not certify a safety brake or
-load holding. See the [static mesh criterion and limits](technical/calculations.md#static-worm-backdrivability). Role colors and nominal mounting interfaces follow the selected arrangement; see [IO-MODELS.md](technical/io-models.md).
+## Shaped shaft connections
+
+Open **Assembly → Shaft connections** to select a standard, D-shaped or keyed
+connection for each compatible port. The profile uses the existing bore
+diameter. A D-shaped bore has a radial flat depth. Both shaped profiles support
+diametral allowance and angular clocking. Keyed bores use nominal Ø6, 8, 10 or
+12 mm dimensions and include a catalog key when the hub is long enough.
+
+Ports that use a ring or a carrier without a supported shaft bore show the
+standard connection. A shaped bore replaces the matching reference shaft where
+the model has one. Complete the mating shaft and axial retention in CAD. The
+preview, STEP/STL and machining report share the selected profile.
 
 ## Printed cycloidal eccentric shaft
 
@@ -572,9 +572,9 @@ supports and validate the exported pair for your application. See
 [method and limits](technical/hypoid.md).
 
 **Bevel gear pair:** two gear blanks on intersecting 90° shafts. **Tooth type**
-selects straight, spiral or Zerol-style. Spiral exposes its angle and local hand;
-Zerol-style exposes the developed trace curvature radius and hand, with zero mean
-spiral angle. Its custom spherical flanks are not industrial Gleason octoids.
+offers straight, spiral, Zerol-style and **Herringbone**. Herringbone exposes
+the spiral angle and pinion heel-band hand. Zerol-style exposes the developed
+trace curvature radius and hand, with zero mean spiral angle.
 Set pinion/wheel teeth, outer module, face width along the pitch cone and both
 bores. Motion → Drive connections swaps the input and output without swapping
 the physical bore assignments. Positive speeds use pinion world +X and wheel
@@ -669,9 +669,20 @@ SVG uses physical `mm` dimensions and a one-to-one coordinate scale. DXF declare
 
 STEP, profile and complete-package folders are published only after every file succeeds. Existing exports are preserved; failed operations clean their temporary output. The complete package waits for a finished PNG before publication. Its preview shows the chosen export scope in nominal coordinates with the current camera, including hidden exported components; the displayed view and selection are restored even if capture fails. STL assembly/component exports also preserve existing results and remove newly created files if publication fails. An interrupted process can leave a hidden staging directory or reservation file; these do not represent a completed export.
 
-Standalone desktop BOM and calculation export describes the complete source model; selected geometry exports include a selective BOM and source calculations.
+Open **Tools → Bill of materials** to inspect the additional components of the
+current construction. The table lists quantities, nominal sizes and catalog
+references where the model specifies them. Select a row to highlight its
+components in 3D, or click a component in the preview to select its row.
+The model stays assembled. Selected parts appear opaque even inside the
+assembly, and surrounding parts are shown nearly transparent.
+An interface to complete in CAD highlights the relevant model body and leaves
+the quantity open.
 
-BOM and calculation windows support text search, previous/next matches and **Copy all**. Invalid configurations prevent geometry exports and CAD creation.
+The BOM window has its own view and selection. Use **Full report** for the full
+component inventory, machining and remaining requirements. Standalone BOM
+and calculation exports describe the complete source model. Selected geometry
+exports include a selective BOM and the source calculations. Text reports
+support search, previous/next matches and **Copy all**.
 
 ## Create in Autodesk Fusion
 

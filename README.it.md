@@ -1,6 +1,6 @@
 # RatioLab
 
-![RatioLab](src/ratiolab_resources/branding/ratiolab-logo-dark.png)
+![Banner di RatioLab con un riduttore planetario nell’area di progettazione](assets/screenshots/ratiolab-banner.png)
 
 [![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/X0M22AB2SK)
 
@@ -16,8 +16,6 @@ dal browser oppure creare e modificare progetti con un agente tramite il server 
 [Sito](https://ratiolab.dev) · [Prova nel browser](https://ratiolab.dev/app/) · [Download](#scarica-e-installa) · [Manuale](docs/user-guide.md) · [Discord](https://discord.gg/G8NVHNg6J)
 
 **Leggi questa introduzione in:** [English](README.md) · **Italiano** · [Español](docs/readme/es.md) · [Français](docs/readme/fr.md) · [Deutsch](docs/readme/de.md) · [Português (Portugal)](docs/readme/pt.md) · [Русский](docs/readme/ru.md) · [简体中文](docs/readme/zh-CN.md) · [தமிழ்](docs/readme/ta.md)
-
-![Area di lavoro di RatioLab con parametri, anteprima 3D e controlli del movimento](assets/screenshots/workspace.png)
 
 ## Scegli come lavorare
 

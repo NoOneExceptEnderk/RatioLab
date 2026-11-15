@@ -136,6 +136,48 @@ class CycloidalEccentricVisibilityGuiTests(unittest.TestCase):
             else:
                 self.assertTrue(all(len(p.holes) == 1 for _,p in selected))
 
+    def test_ring_roller_bearings_control_and_rotating_ring_preview(self):
+        from catalog import RING_ROLLER_CHOICES
+
+        a = self.app
+        self.load('dual', INPUT_SCHEMES[0])
+        module.gui_workflow.show_page(a, 'assembly')
+        self.assertEqual(a.ring_roller_bearing_selector.get_selected(), 0)
+        a.ring_roller_bearing_selector.set_selected(list(RING_ROLLER_CHOICES).index('692'))
+        pump(.1)
+        self.assertEqual(a.design.analysis['ring_rollers']['bearing_count'], 32)
+        self.assertNotIn('ring_output_support', a.design.analysis)
+        for flag in ('support', 'housing'):
+            a.view_options[flag].set_active(True)
+        self.assertEqual(len(a.components.visible_indices()), len(a.design.parts))
+        self.assertIsNone(a.canvas.get_error())
+        a.load_config_data(a.config())
+        self.assertEqual(a.design.values['ring_roller_bearing'], '692')
+        a.rebuild_options({'io_scheme': INPUT_SCHEMES[1]})
+        self.assertFalse(a.ring_roller_bearing_selector.get_sensitive())
+        self.assertEqual(a.design.analysis['ring_rollers']['bearing_count'], 0)
+        self.assertNotIn('ring_output_support', a.design.analysis)
+        names = {part.name for part in a.design.parts}
+        self.assertIn('Ring_pin_carrier', names)
+        self.assertTrue({'Bearing_ring_output_envelope', 'Ring_output_bearing_seat',
+                         'Attachment_ring_Hub', 'Attachment_ring_Flange'}.isdisjoint(names))
+
+    def test_bushing_selection_updates_the_visible_preview(self):
+        from catalog import RING_ROLLER_CHOICES
+
+        a = self.app
+        self.load('single', INPUT_SCHEMES[0])
+        module.gui_workflow.show_page(a, 'assembly')
+        code = 'GSM-0304-05'
+        a.ring_roller_bearing_selector.set_selected(list(RING_ROLLER_CHOICES).index(code))
+        pump(.1)
+        self.assertEqual(a.design.analysis['ring_rollers']['bushing_count'], 16)
+        visible = {a.design.parts[i].name for i in a.components.visible_indices()}
+        self.assertTrue({'Bushing_ring_1_1', 'Roller_ring_1_shell_1'} <= visible)
+        self.assertIsNone(a.canvas.get_error())
+        a.load_config_data(a.config())
+        self.assertEqual(a.design.values['ring_roller_bearing'], code)
+
     def test_direct_shaft_fields_keyed_preset_and_cam_bores_really_render(self):
         from printed_shaft import DESIGNS
         a=self.app

@@ -6,7 +6,7 @@ from xml.sax.saxutils import escape
 import json
 from math import radians
 
-from geometry import profile_sections, section_holes
+from geometry import profile_sections, section_holes, transformed
 from cad_export import filename
 from export_transaction import directory
 from solid_geometry import point, profile_report
@@ -66,6 +66,8 @@ def write_files(design, folder):
         sections = profile_sections(p)
         for station_index,(z, angle, outer) in enumerate(sections):
             loops = [outer]+section_holes(p,z,outer,station_index if p.stations else None)
+            if p.fixed_first_bore and angle:
+                loops[1] = transformed(loops[1], angle=-radians(angle))
             key = tuple(tuple(tuple(q) for q in loop) for loop in loops)
             if key not in distinct:
                 distinct[key] = dict(loops=loops, occurrences=[])

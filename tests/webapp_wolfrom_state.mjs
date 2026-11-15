@@ -4,6 +4,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
+import {webModules} from './webapp_modules.mjs';
 import {fileURLToPath} from 'node:url';
 const root=fileURLToPath(new URL('../',import.meta.url));
 const fixture=JSON.parse(fs.readFileSync(0,'utf8'));
@@ -24,6 +25,7 @@ class Element extends EventTarget {
   querySelectorAll(selector){return descendants(this).slice(1).filter(n=>n.tagName===selector.toUpperCase());}
   closest(selector){for(let n=this;n;n=n.parent){if(selector.startsWith('.')?n.classList.contains(selector.slice(1)):n.tagName===selector.toUpperCase())return n;}return null;}
   contains(other){return descendants(this).includes(other);}
+  getAnimations(){return [];}
   getBoundingClientRect(){return {left:20,right:320,top:80,width:300,height:250};}
   focus(){document.activeElement=this;}
   setSelectionRange(start,end){this.selectionStart=start;this.selectionEnd=end;}
@@ -42,12 +44,10 @@ globalThis.requestAnimationFrame=()=>0;globalThis.cancelAnimationFrame=()=>{};
 globalThis.localStorage={getItem:()=>null};
 const dm=new vm.SourceTextModule(fs.readFileSync(root+'webapp/document.js','utf8'));
 await dm.link(()=>{throw Error('Unexpected dependency');});await dm.evaluate();
-const preferencesModule=new vm.SourceTextModule(fs.readFileSync(root+'webapp/preferences.js','utf8'));
-await preferencesModule.link(()=>{throw Error('Unexpected preference dependency');});await preferencesModule.evaluate();
 const exp={...dm.namespace,storage:{readRecovery:()=>null,writeRecovery:()=>true,recent:()=>[]}};
 const di=new vm.SyntheticModule(Object.keys(exp),function(){for(const[k,v]of Object.entries(exp))this.setExport(k,v);});
 const dependency=(key,value)=>new vm.SyntheticModule([key],function(){this.setExport(key,value);});
-const deps={'./preferences.js':preferencesModule,'./document.js':di,'./engine-client.js':dependency('EngineClient',class{}),'./viewer.js':dependency('ModelViewer',class{}),'./tools.js':dependency('initTools',()=>{})};
+const deps={'./document.js':di,'./engine-client.js':dependency('EngineClient',class{}),'./viewer.js':dependency('ModelViewer',class{}),'./tools.js':dependency('initTools',()=>{})};
 const languageModule = new vm.SourceTextModule('export const LANGUAGES={}; export async function initLanguage(){return {setLanguage(){}};}');
 await languageModule.link(()=>{}); await languageModule.evaluate();
 deps['./ui-language.js']=languageModule;
@@ -76,7 +76,7 @@ export function setTestSchema(next){schema=structuredClone(next);}
 renderMetrics=()=>{};renderInspection=()=>{};
 let scheduled=[]; scheduleGeneration=delay=>scheduled.push(delay); export function scheduledGenerations(){return scheduled;}
 `;
-const app=new vm.SourceTextModule(source);await app.link(path=>deps[path]);await app.evaluate();const a=app.namespace;
+const app=new vm.SourceTextModule(source);await app.link(webModules(root,deps).resolve);await app.evaluate();const a=app.namespace;
 const descendants=e=>[e,...e.children.flatMap(descendants)];
 const texts=e=>descendants(e).map(n=>n.textContent??'').join(' ');
 const settle=()=>new Promise(resolve=>setImmediate(resolve));
@@ -206,7 +206,7 @@ assert.equal(a.doc.entries.center_extra.text,'0,1234567890123');assert.deepEqual
 // history entry, or normalization of the currently typed geometry spelling.
 const phaseDesign=a.snapshot().design,phaseDraft=structuredClone(a.doc.state),phaseHistory=structuredClone(a.doc.past),phaseCallCount=a.phaseCalls().length;
 el('phase-range').value='1.234';await a.scrubPreviewPhase();
-assert.equal(a.snapshot().phase,1.234);assert.equal(a.snapshot().design,phaseDesign);
+assert.equal(a.snapshot().phase,1.234*Math.PI/180);assert.equal(a.snapshot().design,phaseDesign);
 assert.deepEqual(a.phaseCalls().slice(phaseCallCount),['pose']);assert.deepEqual(a.doc.state,phaseDraft);assert.deepEqual(a.doc.past,phaseHistory);
-assert.equal(el('motion-phase').textContent,'1.23 rad');
+assert.equal(el('motion-phase').textContent,'Reference phase · 1.2°');
 console.log('Wolfrom browser state checks passed');

@@ -36,6 +36,45 @@ for code,d,D,B,da,Da,ra in [
     if code=='624':url=url.replace('/engineering/','/am-en/engineering/')
     BEARINGS[code]=Bearing(code,d,D,B,da,Da,ra,url)
 
+# These bearings act as the cycloidal mesh rollers. They are independent of
+# the shaft and bore bearing catalog and its automatic retaining-ring rules.
+RING_ROLLER_BEARINGS = {
+    code: Bearing(code, d, D, B, da, Da, ra, url, verified='2026-11-13')
+    for code, d, D, B, da, Da, ra, url in (
+        ('682', 2, 5, 1.5, 2.6, 4.4, .08, 'https://www.nsk.com/content/dam/nsk/common/catalogs/ctrgPdf/bearings/e1103c_partc.pdf'),
+        ('692', 2, 6, 2.3, 3.2, 4.8, .15, 'https://www.nsk.com/eu-en/engineering/692-esm-md.html'),
+        ('693', 3, 8, 3, 4.2, 6.8, .15, 'https://www.nsk.com/eu-en/engineering/693-esm-md.html'),
+    )
+}
+@dataclass(frozen=True)
+class RollerBushing:
+    code: str
+    d: float
+    D: float
+    B: float
+    installed_bore_min: float
+
+    @property
+    def label(self):
+        return f'Bushing · igus {self.code} · {self.d:g} × {self.D:g} × {self.B:g} mm'
+
+
+# iglide G product range, metric cylindrical sleeves (catalog p. 98).
+ROLLER_BUSHING_SOURCE = 'https://www.igus.com/ContentData/Products/Downloads/iglide_G300_FM_USen.pdf'
+RING_ROLLER_BUSHINGS = {
+    code: RollerBushing(code, d, D, B, bore)
+    for code, d, D, B, bore in (
+        ('GSM-0203-03', 2, 3.5, 3, 2.014),
+        ('GSM-0304-05', 3, 4.5, 5, 3.014),
+        ('GSM-0405-06', 4, 5.5, 6, 4.020),
+    )
+}
+RING_ROLLER_CHOICES = {
+    'none': 'Plain pins',
+    **{code: f'NSK {b.label}' for code, b in RING_ROLLER_BEARINGS.items()},
+    **{code: b.label for code, b in RING_ROLLER_BUSHINGS.items()},
+}
+
 MODES={'manual':'Free dimensions / no catalog','gear':'Bearing in bore','shaft':'Shaft support bearings'}
 FITS={'nominal':'Nominal catalog dimensions','custom':'Custom clearance / interference'}
 SUPPORTED={'spur','helical','double','planetary','cycloidal','parallel','internal'}

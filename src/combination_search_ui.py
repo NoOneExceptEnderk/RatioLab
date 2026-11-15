@@ -4,16 +4,20 @@
 from copy import deepcopy
 from math import isfinite, prod
 from pathlib import Path
+from sys import float_info
 from threading import Event, Thread
 from time import monotonic
 import gi
 gi.require_version('Gtk', '4.0')
 from gi.repository import Gtk, GLib, Gio
-from geometry import generate, INTEGER
+from geometry import generate, INTEGER, VARIANTS
 from project_document import equivalent
 from ratio_display import ratio_parts
 from workspace_tools import actions, details, heading, model_text
-from combination_search import FAMILIES, COUNT_KEYS, Settings, variables, parse_grid, search
+from combination_search import (FAMILIES, COUNT_KEYS, Settings, exceeds_quick_limit, matches, nominal_bounds,
+                                nominal_diameter, parse_grid, search, variables)
+from quick_combination_search import (RADIAL, TEETH, available_variants, bearing_modes, fixed_connection,
+                                      parse_ratio, quick_search, QuickResult, size_text, stage_count, variant_teeth)
 from gui_workflow import choice_dropdown, bind_numeric_entry, numeric_value, numeric_snapshot_text, set_numeric_value
 
 
@@ -35,8 +39,9 @@ class Controller:
         self.alive = True
         self.page = 0
         self.form_key = None
-        self.button = Gtk.Button(label='Find combinations…')
-        self.button.connect('clicked', lambda _: self.open())
+        self.title = 'Find combinations'
+        self.quick = False
+        self.quick_timer = 0
         self.summary = label('Finite ratio and nominal envelope search')
         container.register('search', self)
         app.win.connect('unrealize', lambda *_: self.close())
@@ -56,7 +61,9 @@ class Controller:
         key = (design.family, design.values.get('variant'), design.values.get('double_style')) if design else None
         if design is not None and key != self.form_key:
             self.populate()
-            self.status.set_text('Family or variant changed · ranges and ratio reset to the current model. Review settings before Search.')
+            message = ('Model changed · review the quick search settings' if self.quick else
+                       'Family or variant changed · ranges and ratio reset to the current model. Review settings before Search.')
+            self.status.set_text(message)
             return
         self.unavailable = ('Invalid current configuration. Complete the model numeric fields first.' if design is None else
                             'Ratio search requires a single fixed input/output ratio. Select a supported reducer assembly.' if design.family not in FAMILIES else None)
@@ -69,6 +76,7 @@ class Controller:
                 self.axes[name] = (locked, custom, value)
                 low, high = self.axis_controls[name]['bounds']
                 self.axis_controls[name]['current'].set_text(f'Current: {value:g} · allowed {low:g}–{high:g}')
+        self.sync_construction(design)
         self.update_domain()
 
     def update_context(self, design):
@@ -81,6 +89,9 @@ class Controller:
         self.context.set_tooltip_text(f'{design.family} / {values.get("variant", "standard")} · I/O {values.get("io_scheme", "fixed")}' + (f' / stage 2 {values["io_scheme2"]}' if 'io_scheme2' in values else ''))
 
     def invalidate(self, message='Results out of date · run a new search'):
+        if self.quick_timer:
+            GLib.source_remove(self.quick_timer)
+            self.quick_timer = 0
         self.serial += 1
         if self.cancel is not None:
             self.cancel.set()
@@ -106,20 +117,28 @@ class Controller:
             self.window.destroy()
             self.window = None
 
-    def open(self):
+    def open(self, quick=None):
         if self.window:
             self.window.present()
+            if quick is not None:
+                self.set_mode(quick)
+                self.focus_target()
             return
+        self.quick = bool(quick)
+        self.preview = None
+        self.preview_watch = None
         win = self.app.tools.panel('search')
         self.window = win
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8, margin_top=12, margin_bottom=12, margin_start=12, margin_end=12)
         win.set_child(box)
+        win.connect('map', lambda *_: self.sync_preview_visibility())
+        win.connect('unmap', lambda *_: self.sync_preview_visibility())
         self.fields = {}
         self.field_errors = {}
-        heading(box, 'Model examined')
+        self.context_heading = heading(box, 'Model examined')
         self.context = label(model_text(self.app.design))
         box.append(self.context)
-        heading(box, 'Analysis settings')
+        self.install_quick(box)
         setup = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
         self.setup = details(box, 'Edit search settings', setup)
         self.setup.set_expanded(True)
@@ -167,7 +186,7 @@ class Controller:
         report_scroll.set_child(self.report)
         self.scope = label('')
         setup.append(self.scope)
-        self.status = label('Choose a ratio and ranges, then Search.')
+        self.status = label('Choose a ratio, then Search.' if self.quick else 'Choose a ratio and ranges, then Search.')
         self.progress = Gtk.ProgressBar()
         buttons = actions(box)
         self.run_button = Gtk.Button(label='Search')
@@ -208,6 +227,16 @@ class Controller:
         self.selection_summary = label('Select a proposal to compare it with the current model.')
         compare.append(self.selection_summary)
         self.selection_summary.set_visible(False)
+        self.preview_inline = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, visible=False)
+        self.preview_inline.append(label('Proposal preview'))
+        compare.prepend(self.preview_inline)
+        self.preview_error = label('')
+        self.preview_error.set_visible(False)
+        compare.prepend(self.preview_error)
+        self.quick_outcome = label('')
+        self.quick_outcome.set_visible(False)
+        self.quick_outcome.add_css_class('search-proposal-summary')
+        box.append(self.quick_outcome)
         buttons = actions(box)
         self.apply_button = Gtk.Button(label='Apply selected')
         self.apply_button.connect('clicked', lambda _: self.apply_selected())
@@ -220,6 +249,9 @@ class Controller:
         self.save_button.set_sensitive(False)
         buttons.append(self.save_button)
         def close(*_):
+            self.quick_draft = (self.construction_key, {k: e.get_text() for k, e in self.quick_fields.items()},
+                                {k: self.choice(k) for k in self.quick_choices},
+                                self.construction_details.get_expanded())
             self.draft = dict(identity=self.app.document.token[0], key=self.form_key,
                 fields={key: numeric_snapshot_text(entry) for key, entry in self.fields.items()},
                 direction=self.direction.get_selected(), ranking=self.ranking.get_selected(),
@@ -231,7 +263,7 @@ class Controller:
             return False
         win.connect('close-request', close)
         self.setup.connect('notify::expanded', lambda *_: self.update_step_view())
-        heading(box, 'Results')
+        self.result_heading = heading(box, 'Results')
         box.append(self.status)
         box.append(compare)
         self.report_details = details(box, 'Full search report', report_scroll)
@@ -259,9 +291,301 @@ class Controller:
             self.update_domain()
         from workspace_tools import status_actions
         status_row,self.status_badge=status_actions(self.status,run_actions)
-        win.pin(status_row, buttons, self.progress)
+        win.pin(self.quick_outcome, status_row, buttons, self.progress)
+        draft = getattr(self, 'quick_draft', None)
+        if draft and draft[0] == self.construction_key:
+            _, fields, choices, expanded = draft
+            self.populating = True
+            try:
+                for key, value in fields.items():
+                    self.quick_fields[key].set_text(value)
+                for key, value in choices.items():
+                    if key in self.quick_choices and value in self.quick_choices[key][0]:
+                        keys, control = self.quick_choices[key]
+                        control.set_selected(keys.index(value))
+                self.construction_details.set_expanded(expanded)
+            finally:
+                self.populating = False
+        self.set_mode(self.quick)
         win.present()
-        self.fields['target'].grab_focus()
+        self.focus_target()
+        self.app.language.refresh()
+
+    def focus_target(self):
+        entry = self.quick_fields['target'] if self.quick else self.fields['target']
+        if not self.quick:
+            self.setup.set_expanded(True)
+        entry.grab_focus()
+        entry.select_region(0, -1)
+
+    def set_mode(self, quick):
+        if quick != self.quick:
+            self.quick = quick
+            self.invalidate('Search settings changed · run a new search')
+        self.quick_box.set_visible(quick)
+        self.setup.set_visible(not quick)
+        self.context_heading.set_visible(not quick)
+        self.context.set_visible(not quick)
+        self.result_heading.set_visible(not quick)
+        self.status.set_visible(not quick)
+        self.mode_button.set_label('Advanced search…' if quick else 'Quick search…')
+        self.apply_button.set_label('Apply proposal' if quick else 'Apply selected')
+        self.update_step_view()
+        self.update_domain()
+
+    def install_quick(self, box):
+        self.quick_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=7)
+        box.append(self.quick_box)
+        self.quick_fields, self.quick_rows = {}, {}
+        for key, title in (('target', 'Target ratio'), ('diameter', 'Maximum diameter (mm)'),
+                           ('x', 'Maximum X (mm)'), ('y', 'Maximum Y (mm)')):
+            row = Gtk.Box(spacing=7)
+            caption = label(title)
+            caption.set_hexpand(True)
+            row.append(caption)
+            entry = Gtk.Entry(width_chars=8, max_width_chars=10, max_length=64)
+            entry.set_placeholder_text('e.g. 5:1' if key == 'target' else 'Optional')
+            entry.update_property([Gtk.AccessibleProperty.LABEL], [title])
+            entry.connect('changed', lambda *_: self.request_changed())
+            entry.connect('activate', lambda *_: self.start() if self.run_button.get_sensitive() else None)
+            row.append(entry)
+            self.quick_box.append(row)
+            self.quick_rows[key] = row
+            self.quick_fields[key] = entry
+        self.construction_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        self.construction_details = details(self.quick_box, 'Construction', self.construction_box)
+        self.quick_error = label('')
+        self.quick_error.add_css_class('error')
+        self.quick_box.append(self.quick_error)
+        self.quick_choices = {}
+        self.construction_draft = {}
+        self.construction_key = None
+        self.mode_button = Gtk.Button(css_classes=['flat'], halign=Gtk.Align.START)
+        def switch(*_):
+            self.set_mode(not self.quick)
+            self.focus_target()
+        self.mode_button.connect('clicked', switch)
+        box.append(self.mode_button)
+
+    def add_choice(self, box, key, title, choices, selected, changed):
+        caption = label(title)
+        caption.add_css_class('field-label')
+        box.append(caption)
+        keys = tuple(choices)
+        control = choice_dropdown(list(choices.values()))
+        control.update_property([Gtk.AccessibleProperty.LABEL], [title])
+        control.set_selected(keys.index(selected) if selected in choices else 0)
+        box.append(control)
+        self.quick_choices[key] = keys, control
+        control.connect('notify::selected', changed)
+
+    def choice(self, key, default=None):
+        if key in self.quick_choices:
+            keys, control = self.quick_choices[key]
+            return keys[control.get_selected()]
+        return default
+
+    def sync_construction(self, design):
+        base = design.values if design else {}
+        family = design.family if design else None
+        key = family, self.app.document.token[0], tuple(base.get(k) for k in (
+            'variant', 'io_scheme', 'io_scheme2', 'bearing_mode', 'bearing',
+            'input_shaft_profile', 'output_shaft_profile', 'eccentric_design'))
+        if key == self.construction_key:
+            return
+        changed_family = self.construction_key is None or key[:2] != self.construction_key[:2]
+        changed_variant = self.construction_key is not None and key[2][0] != self.construction_key[2][0]
+        self.construction_key = key
+        self.populating = True
+        try:
+            while (child := self.construction_box.get_first_child()):
+                self.construction_box.remove(child)
+            self.quick_choices.clear()
+            self.construction_draft.clear()
+            available = family in FAMILIES
+            for name, row in self.quick_rows.items():
+                row.set_visible(name == 'target' or available and ((name == 'diameter') == (family in RADIAL)))
+                if changed_family:
+                    self.quick_fields[name].set_text('')
+            self.construction_details.set_visible(available)
+            if available:
+                ratio = abs(design.analysis['signed_ratio'])
+                if changed_family or changed_variant:
+                    self.quick_fields['target'].set_text(format(ratio, '.15g'))
+                self.variant_choices(family, base)
+                self.connection_choices(family, base)
+        finally:
+            self.populating = False
+
+    def variant_choices(self, family, base):
+        box = self.construction_box
+        self.construction_options = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        def changed(*_):
+            self.connection_choices(family, base)
+            self.request_changed()
+            self.app.language.refresh()
+        variants = available_variants(family, base['variant'])
+        if family in ('parallel', 'planetary'):
+            stages = {stage_count(family, variant) for variant in variants}
+            self.add_choice(box, 'stages', 'Number of stages',
+                            {None: 'Automatic', **{n: str(n) for n in sorted(stages)}},
+                            stage_count(family, base['variant']), changed)
+        if family in ('planetary', 'parallel', 'internal', 'wolfrom'):
+            self.add_choice(box, 'teeth', 'Tooth type', {None: 'Automatic', **TEETH},
+                            variant_teeth(family, base['variant']), changed)
+        elif family == 'cycloidal':
+            self.add_choice(box, 'variant', 'Cycloidal discs', {None: 'Automatic', **variants},
+                            base['variant'], changed)
+        elif len(variants) > 1:
+            self.add_choice(box, 'variant', 'Tooth type', {None: 'Automatic', **variants},
+                            base['variant'], changed)
+        box.append(self.construction_options)
+
+    def selected_variants(self, family, base):
+        return tuple(variant for variant in available_variants(family, base['variant'])
+                     if self.choice('variant') in (None, variant)
+                     and self.choice('stages') in (None, stage_count(family, variant))
+                     and self.choice('teeth') in (None, variant_teeth(family, variant)))
+
+    def connection_choices(self, family, base):
+        from catalog import BEARINGS, MODES
+        from shaft_connections import PORT_LABELS, PROFILES, profile_key, targets
+        box = self.construction_options
+        variants = self.selected_variants(family, base)
+        candidates = [dict(base, variant=v) for v in variants]
+        keys = ('bearing_mode', 'bearing', 'input_shaft_profile', 'output_shaft_profile')
+        self.construction_draft.update({k: self.choice(k) for k in keys if k in self.quick_choices})
+        previous = {k: self.construction_draft.get(k, base.get(k)) for k in keys}
+        while (child := box.get_first_child()):
+            box.remove(child)
+        for key in keys:
+            self.quick_choices.pop(key, None)
+        if not variants:
+            return
+        modes = {k: title for k, title in MODES.items()
+                 if any(k in bearing_modes(family, values) for values in candidates)}
+        mode = previous['bearing_mode'] if previous['bearing_mode'] in modes else 'manual'
+        if len(modes) > 1:
+            def mode_changed(*_):
+                self.connection_choices(family, base)
+                self.request_changed()
+                self.app.language.refresh()
+            self.add_choice(box, 'bearing_mode', 'Catalog ball bearings', modes, mode, mode_changed)
+            if mode != 'manual':
+                self.add_choice(box, 'bearing', 'NSK bearing',
+                                {code: b.label for code, b in BEARINGS.items()}, previous['bearing'],
+                                lambda *_: self.request_changed())
+        elif base.get('eccentric_design') == 'fdm_bolted':
+            box.append(label('Fixed bearings · NSK 6804'))
+        for port in ('input', 'output'):
+            key = profile_key(port)
+            if any(port in targets(family, values) for values in candidates):
+                self.add_choice(box, key, PORT_LABELS[port], PROFILES, previous[key],
+                                lambda *_: self.request_changed())
+            else:
+                box.append(label(PORT_LABELS[port]))
+                box.append(label(fixed_connection(family, base, port)))
+
+    def read_quick(self):
+        target, direction = parse_ratio(self.quick_fields['target'].get_text())
+        design = self.app.design
+        variants = self.selected_variants(design.family, design.values)
+        if not variants:
+            raise ValueError('Two-stage planetary reducers support spur or double-helical teeth.')
+        limits = {}
+        for key in ('diameter', 'x', 'y'):
+            if not self.quick_rows[key].get_visible():
+                continue
+            text = self.quick_fields[key].get_text().strip().replace(',', '.')
+            if not text:
+                continue
+            try:
+                number = float(text)
+                if not isfinite(number) or number <= 0:
+                    raise ValueError
+            except ValueError:
+                raise ValueError('Enter a positive size in mm.') from None
+            limits[key] = number
+        settings = Settings(target=target, direction=direction,
+                            max_xyz=(limits.get('x', float_info.max), limits.get('y', float_info.max), float_info.max),
+                            max_candidates=80, max_seconds=15, max_results=12)
+        options = {k: self.choice(k) for k in ('bearing_mode', 'bearing', 'input_shaft_profile',
+                                               'output_shaft_profile') if k in self.quick_choices}
+        return settings, variants, options, limits.get('diameter')
+
+    def sync_preview_visibility(self):
+        active = bool(self.preview and self.window and self.window.get_mapped())
+        if active:
+            self.place_preview()
+            if self.preview_watch is None:
+                clock = self.window.get_frame_clock()
+                if clock is not None:
+                    self.preview_watch = clock, clock.connect('after-paint', self.place_preview)
+        else:
+            self.app.search_preview.set_visible(False)
+            self.preview_inline.set_visible(False)
+            if self.preview_watch:
+                clock, handler = self.preview_watch
+                clock.disconnect(handler)
+                self.preview_watch = None
+
+    def place_preview(self, *_):
+        dock = self.app.tools
+        overlay = self.app.search_preview
+        inset = (dock.box.get_width() or dock.normal_width()) + dock.box.get_margin_end()
+        in_workspace = not dock.expanded and self.app.preview_overlay.get_width() - inset >= 120
+        if overlay.get_margin_end() != inset:
+            overlay.set_margin_end(inset)
+        parent = overlay if in_workspace else self.preview_inline
+        if self.preview.get_parent() is not parent:
+            self.detach_preview(self.preview)
+            if in_workspace:
+                overlay.set_child(self.preview)
+            else:
+                self.preview_inline.append(self.preview)
+            self.preview.set_size_request(1, 1 if in_workspace else 160)
+        healthy = self.preview.get_error() is None and not self.preview.failure
+        overlay.set_visible(in_workspace and healthy)
+        self.preview_inline.set_visible(not in_workspace and healthy)
+
+    def detach_preview(self, view):
+        parent = view.get_parent()
+        if parent is self.app.search_preview:
+            parent.set_child(None)
+        elif parent is self.preview_inline:
+            parent.remove(view)
+
+    def clear_preview(self):
+        view, self.preview = self.preview, None
+        self.sync_preview_visibility()
+        if view is not None:
+            self.detach_preview(view)
+        self.preview_error.set_visible(False)
+
+    def preview_proposal(self, proposal):
+        self.clear_preview()
+        try:
+            from preview3d import Preview3D
+            design = generate(self.app.family, deepcopy(proposal.values), quality=self.app.design.quality)
+            view = Preview3D()
+            view.set_size_request(1, 1)
+            view.show_support = True
+            view.set_theme(self.app.canvas.theme, self.app.canvas.palette)
+            view.set_design(design)
+            self.preview = view
+            self.app.search_preview_caption.set_text('Proposal preview · ' + ''.join(ratio_parts(proposal.ratio, 8)))
+            view.connect('realize', self.preview_failed)
+            self.sync_preview_visibility()
+        except (ValueError, RuntimeError) as error:
+            self.preview_error.set_text(f'Proposal preview unavailable: {error}')
+            self.preview_error.set_visible(True)
+
+    def preview_failed(self, view):
+        error = view.get_error()
+        if error or view.failure:
+            message = error.message if error else view.failure
+            self.preview_error.set_text(f'Proposal preview unavailable: {message}')
+            self.preview_error.set_visible(True)
 
     def numeric_entry(self, text):
         entry = Gtk.Entry(width_chars=5, max_width_chars=8,
@@ -290,11 +614,23 @@ class Controller:
         self.invalidate('Search request changed · review inputs, then Search')
         if self.window and hasattr(self, 'axes'):
             self.update_domain()
+            if self.quick and self.run_button.get_sensitive():
+                self.quick_timer = GLib.timeout_add(500, self.run_quick_draft)
+
+    def run_quick_draft(self):
+        if self.window and self.window.get_mapped() and self.quick and self.run_button.get_sensitive():
+            if self.thread is not None and self.thread.is_alive():
+                return True
+            self.quick_timer = 0
+            self.start()
+        self.quick_timer = 0
+        return False
 
     def populate(self):
         if not self.window:
             return
-        self.invalidate('Choose ranges, then Search to compare proposals')
+        self.invalidate('Choose a ratio to compare proposals' if self.quick else
+                        'Choose ranges, then Search to compare proposals')
         self.setup.set_expanded(True)
         self.populating = True
         while (child := self.axes_box.get_first_child()):
@@ -387,6 +723,7 @@ class Controller:
             ratio = app.design.analysis['signed_ratio']
             set_numeric_value(self.fields['target'], abs(ratio))
         self.populating = False
+        self.sync_construction(app.design if valid else None)
         self.update_domain()
 
     def update_axis_view(self, key):
@@ -398,6 +735,17 @@ class Controller:
         c['hint'].set_visible(custom)
 
     def update_domain(self):
+        if self.quick:
+            error = self.unavailable
+            if not error:
+                try:
+                    self.read_quick()
+                except ValueError as exc:
+                    error = str(exc)
+            self.quick_error.set_text(error or '')
+            self.quick_error.set_visible(bool(error))
+            self.run_button.set_sensitive(not error and self.cancel is None)
+            return
         if self.unavailable:
             self.scope.set_text(self.unavailable)
             self.run_button.set_sensitive(False)
@@ -508,7 +856,7 @@ class Controller:
         return settings
 
     def start(self, settings=None, axes=None):
-        if not self.alive or self.cancel is not None or not self.window:
+        if not self.alive or self.app.busy or self.cancel is not None or not self.window:
             return
         if self.thread is not None and self.thread.is_alive():
             self.status.set_text('Previous search is stopping · try again shortly')
@@ -527,9 +875,15 @@ class Controller:
             self.status.set_text('Family or variant changed · grids reset; review them before Search')
             return
         try:
-            settings = settings or self.read_settings()
-            settings.validate()
-            axes = self.read_axes() if axes is None else deepcopy(axes)
+            if self.quick and (settings is not None or axes is not None):
+                self.set_mode(False)
+            quick = self.quick
+            if quick:
+                settings, variants, options, diameter = self.read_quick()
+            else:
+                settings = settings or self.read_settings()
+                settings.validate()
+                axes = self.read_axes() if axes is None else deepcopy(axes)
         except ValueError as error:
             self.invalidate('Invalid search request: '+str(error))
             return
@@ -538,7 +892,7 @@ class Controller:
         self.revision = app.document.token
         self.design_key = self.key(app.design)
         serial, revision = self.serial, self.revision
-        base, family = deepcopy(app.design.values), app.family
+        base, family, quality = deepcopy(app.design.values), app.family, deepcopy(app.design.quality)
         event = Event()
         self.cancel = event
         self.run_button.set_sensitive(False)
@@ -552,7 +906,11 @@ class Controller:
                 GLib.idle_add(self.progress_update, serial, message, fraction)
         def worker():
             try:
-                result = search(family, base, axes, settings, event, progress)
+                if quick:
+                    result = quick_search(family, base, variants, options, settings, diameter, event, progress,
+                                          quality=quality)
+                else:
+                    result = search(family, base, axes, settings, event, progress, quality=quality)
                 result.revision = revision
                 error = None
             except Exception as exc:
@@ -573,6 +931,7 @@ class Controller:
             self.summary.set_text(message)
             if self.window:
                 self.status.set_text(message)
+                self.quick_outcome.set_visible(False)
                 self.progress.set_fraction(fraction)
         return False
 
@@ -591,6 +950,9 @@ class Controller:
         if error:
             self.invalidate(error)
             self.update_domain()
+            if self.quick:
+                self.quick_outcome.set_text(error)
+                self.quick_outcome.set_visible(True)
             return False
         self.result = result
         outcome = 'Complete finite search' if result.complete else 'PARTIAL search'
@@ -600,33 +962,54 @@ class Controller:
         if result.reason and result.reason != 'cancelled':
             message += '\n' + result.reason
         if not result.proposals:
-            message += '\n' + ('No matching proposals. Review ratio, ranges and size limits.' if result.complete
-                                else 'No proposals found in the candidates visited so far.')
-        if not result.complete and result.reason != 'cancelled':
+            if not result.complete:
+                message += '\nNo proposals found in the candidates visited so far.'
+            elif isinstance(result, QuickResult):
+                message += '\nNo matching proposals.'
+            else:
+                message += '\nNo matching proposals. Review ratio, ranges and size limits.'
+        if isinstance(result, QuickResult):
+            if not result.proposals and result.reason != 'cancelled':
+                if result.exclusions.get('size limits'):
+                    message += '\nGenerated candidates exceeded the size limit.'
+                if result.geometry_errors:
+                    message += '\n' + next(iter(result.geometry_errors))
+                if result.complete and not result.total:
+                    message += '\nNo tooth counts in the automatic ranges matched the ratio and construction.'
+            message += f'\nAutomatic ranges · ±{result.settings.tolerance_percent:g}% ratio'
+            if not result.complete and result.reason != 'cancelled':
+                message += '\nUse Advanced search for wider coverage.'
+        elif not result.complete and result.reason != 'cancelled':
             message += '\nReview ranges or raise Advanced budgets, then Search again for more coverage.'
         self.summary.set_text(message)
         if self.window:
             self.status.set_text(message)
-            self.progress.set_fraction(result.visited/result.total)
+            self.progress.set_fraction(result.visited/result.total if result.total else float(result.complete))
             self.update_domain()
             self.cancel_button.set_sensitive(False)
             self.save_button.set_sensitive(True)
             self.page = 0
             self.present_result()
+            if isinstance(result, QuickResult) and not result.proposals:
+                feedback = message.split('\n', 2)[2]
+                self.quick_outcome.set_text(feedback)
+                self.quick_outcome.set_visible(True)
         return False
 
     def update_step_view(self):
-        editing = self.setup.get_expanded()
+        editing = not self.quick and self.setup.get_expanded()
         self.results_button.set_visible(editing and self.result is not None)
         self.compare.set_visible(not editing and bool(self.result and self.result.proposals))
         self.report_details.set_visible(self.result is not None)
 
     def clear_rows(self):
         self.update_step_view()
+        self.clear_preview()
         while (child := self.list.get_first_child()):
             self.list.remove(child)
         self.page_label.set_text('')
         self.selection_summary.set_visible(False)
+        self.quick_outcome.set_visible(False)
         self.result_scroll.set_visible(False)
         self.pages.set_visible(False)
         for button in self.page_buttons:
@@ -638,11 +1021,11 @@ class Controller:
         self.clear_rows()
         self.report.get_buffer().set_text(self.result.text())
         self.selection_summary.set_text('Select a proposal to compare it with the current model.')
-        self.selection_summary.set_visible(bool(self.result.proposals))
+        self.selection_summary.set_visible(not self.quick and bool(self.result.proposals))
         proposals = self.result.proposals
         start = self.page*25
         self.result_scroll.set_visible(bool(proposals))
-        self.pages.set_visible(bool(proposals))
+        self.pages.set_visible(len(proposals) > 25)
         self.page_buttons[0].set_sensitive(self.page > 0)
         self.page_buttons[1].set_sensitive(start+25 < len(proposals))
         self.page_label.set_text(f'{start+1 if proposals else 0}–{min(len(proposals), start+25)} / {len(proposals)}')
@@ -656,18 +1039,30 @@ class Controller:
             content=Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
             content.append(label(f'Ratio (input/output): {magnitude}'))
             line=Gtk.Box(spacing=4);line.append(label(rotation));line.append(label(f'· error {proposal.error_percent:.6g}%'));content.append(line)
-            content.append(label(f'Overall XYZ: {" × ".join(f"{v:.6g}" for v in proposal.xyz)} mm'))
-            content.append(label(quality))
-            if proposal.changes:
-                content.append(label('Current → Proposed'))
-                for key,(old,new) in proposal.changes.items():
-                    line=Gtk.Box(spacing=4);line.append(label(self.titles.get(key,key)+':'));line.append(label(f'{old:.10g} → {new:.10g}'));content.append(line)
+            if self.quick:
+                content.append(label(size_text(self.app.family, proposal)))
+                content.append(label(VARIANTS[self.app.family][proposal.values['variant']]))
+                specs = {spec[0]: spec[1] for spec in variables(self.app.family, proposal.values)}
+                counts = [f'{specs[k]} {proposal.values[k]}' for k in COUNT_KEYS[self.app.family]
+                          if k in specs]
+                content.append(label(' · '.join(counts)))
+                if proposal.values.get('bearing_mode', 'manual') != 'manual':
+                    content.append(label(f"NSK {proposal.values['bearing']}"))
             else:
-                content.append(label('Current parameters (no change)'))
+                content.append(label(f'Overall XYZ: {" × ".join(f"{v:.6g}" for v in proposal.xyz)} mm'))
+                content.append(label(quality))
+                if proposal.changes:
+                    content.append(label('Current → Proposed'))
+                    for key,(old,new) in proposal.changes.items():
+                        line=Gtk.Box(spacing=4);line.append(label(self.titles.get(key,key)+':'));line.append(label(f'{old:.10g} → {new:.10g}'));content.append(line)
+                else:
+                    content.append(label('Current parameters (no change)'))
             row.set_child(content)
             signed_ratio = ''.join(ratio_parts(proposal.ratio, 12))
             row.set_tooltip_text(f'Signed input/output ratio: {signed_ratio}. Direction uses the current member axes.')
             self.list.append(row)
+        if self.quick and proposals:
+            self.list.select_row(self.list.get_row_at_index(0))
 
     def change_page(self, delta):
         if self.result is not None:
@@ -675,7 +1070,16 @@ class Controller:
             self.present_result()
 
     def selected(self, _, row):
-        if row is not None:
+        if row is None:
+            self.clear_preview()
+            self.quick_outcome.set_visible(False)
+        elif self.quick:
+            proposal = row.proposal
+            ratio = ''.join(ratio_parts(proposal.ratio, 8))
+            self.quick_outcome.set_text(f'{ratio}   ·   {size_text(self.app.family, proposal)}')
+            self.quick_outcome.set_visible(True)
+            self.preview_proposal(proposal)
+        else:
             c = row.proposal.comparison
             contact = c.get('min_profile_contact')
             contact_text = f'{contact:.6g}' if contact is not None else 'unavailable'
@@ -696,20 +1100,36 @@ class Controller:
         if not proposal.changes:
             return False
         try:
-            checked = generate(app.family, deepcopy(proposal.values),**({'quality':app.quality} if getattr(app,'quality',None) else {}))
+            checked = generate(app.family, deepcopy(proposal.values), quality=app.design.quality)
             if checked.values != proposal.values:
                 raise ValueError('Proposal normalization changed; run a new search.')
-            threshold = self.result.settings.min_profile_contact
+            settings = self.result.settings
+            minimum, maximum = nominal_bounds(checked)
+            if (not matches(checked.analysis['signed_ratio'], settings)
+                    or checked.analysis['signed_ratio'] != proposal.ratio
+                    or (minimum, maximum) != (proposal.minimum, proposal.maximum)):
+                raise ValueError('Proposal geometry changed; run a new search.')
+            limit = getattr(self.result, 'max_diameter', None)
+            if limit is not None and exceeds_quick_limit(nominal_diameter(checked), limit):
+                raise ValueError('Fresh candidate exceeds the maximum diameter.')
+            threshold = settings.min_profile_contact
             if threshold > 0:
                 contacts = [m.get('profile_contact_total') for m in checked.analysis.get('meshes', [])]
                 if not contacts or any(v is None or v < threshold for v in contacts):
                     raise ValueError('Fresh candidate does not meet the usable contact ratio limit.')
         except Exception as error:
             self.invalidate(f'Proposal cannot be applied: {error}')
+            self.update_domain()
+            if self.quick:
+                self.quick_outcome.set_text(self.status.get_text())
+                self.quick_outcome.set_visible(True)
             return False
         previous = deepcopy(app.project_snapshot())
         updated = deepcopy(previous)
-        updated['values'][app.family].update(deepcopy(checked.values))
+        from precise_numbers import SOURCE_KEY
+        target_values = updated['values'][app.family]
+        target_values.pop(SOURCE_KEY, None)
+        target_values.update(deepcopy(checked.values))
         for key in proposal.changes:
             updated['raw'].setdefault(app.family, {}).pop(key, None)
         app.document.barrier()
@@ -722,6 +1142,11 @@ class Controller:
         except Exception as error:
             app.restore_project_snapshot(previous)
             self.summary.set_text(f'Proposal not applied: {error}')
+            if self.window:
+                self.status.set_text(self.summary.get_text())
+                if self.quick:
+                    self.quick_outcome.set_text(self.summary.get_text())
+                    self.quick_outcome.set_visible(True)
             return False
         app.document.record(app.project_snapshot())
         if hasattr(app,'components'):app.components.refreshed(app.design)
@@ -732,6 +1157,9 @@ class Controller:
         self.summary.set_text('Proposal applied · Undo restores the previous parameters')
         if self.window:
             self.status.set_text(self.summary.get_text())
+            if self.quick:
+                self.quick_outcome.set_text(self.summary.get_text())
+                self.quick_outcome.set_visible(True)
         return True
 
     def save(self):

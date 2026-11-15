@@ -314,17 +314,28 @@ def write(path, parts, indices=None, *, explicit_topology=False):
     return metadata
 
 
-def write_files(design, folder):
+def write_files(design, folder, *, max_step_bytes=None):
     from geometry_quality import representation, summary
     design = representation(design, 'export')
     folder = Path(folder)
     components = folder/'step-parts'
     components.mkdir()
     indices=getattr(design,'source_indices',list(range(1,len(design.parts)+1)))
+    metadata = []
     for index, p in zip(indices,design.parts):
-        write(components/(filename(index,p.name)+'.step'), [p],indices=[index])
-    metadata = write(folder/'assembly.step', design.parts,indices=indices)
+        metadata.extend(write(components/(filename(index,p.name)+'.step'), [p],indices=[index]))
+    assembly = folder/'assembly.step'
+    part_bytes = sum(path.stat().st_size for path in components.iterdir())
+    # The placed parts already encode the whole model. Keep those files when
+    # the browser budget cannot also hold their duplicate assembly geometry.
+    include_assembly = max_step_bytes is None or 2*part_bytes < max_step_bytes
+    if include_assembly:
+        metadata = write(assembly, design.parts,indices=indices)
+        if max_step_bytes is not None and part_bytes + assembly.stat().st_size >= max_step_bytes:
+            assembly.unlink()
+            include_assembly = False
     (folder/'step-info.json').write_text(json.dumps(dict(units='mm', coordinates='nominal assembly',
+        **({'assembly_step':assembly.name if include_assembly else None} if max_step_bytes is not None else {}),
         scope=getattr(design,'export_scope',None), quality=summary(design), components=metadata, limitations='Sampled tooth contours and freeform surfaces remain planar. Cylinders replace only intact circle constructions with invariant axes/radii. Reported radial differences compare circular walls against the actual shared sampled wall triangles, including twist interpolation. Volume differences are theoretical CAD minus sampled geometry, not a CAD reader measurement. These values do not bound tooth-profile or freeform error.'),indent=2)+'\n',encoding='utf-8')
     return metadata
 

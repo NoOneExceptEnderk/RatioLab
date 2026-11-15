@@ -10,19 +10,20 @@ from copy import deepcopy
 from parallel_multistage import VARIANTS as PARALLEL_MULTISTAGE_VARIANTS
 from dataclasses import dataclass, field
 from itertools import product
-from math import isfinite, prod
+from math import hypot, isclose, isfinite, prod
 from time import monotonic
 from geometry import generate, get_specs, INTEGER
-from solid_geometry import rings, point
 from ratio_display import ratio_parts
+from precise_numbers import SOURCE_KEY, attach
 
-FAMILIES = ('parallel', 'internal', 'planetary', 'cycloidal', 'harmonic', 'worm', 'bevel', 'hypoid', 'face')
+FAMILIES = ('parallel', 'internal', 'planetary', 'cycloidal', 'harmonic', 'worm', 'bevel', 'hypoid', 'face', 'wolfrom')
 COUNT_KEYS = dict(parallel=('pinion', 'wheel', 'pinion2', 'wheel2', 'pinion3', 'wheel3'), internal=('pinion', 'wheel'),
                   planetary=('sun', 'planet', 'sun2', 'planet2', 'planets'),
                   cycloidal=('pins',), harmonic=('teeth',), worm=('teeth', 'starts'))
 COUNT_KEYS['bevel'] = ('pinion', 'wheel')
 COUNT_KEYS['hypoid'] = ('pinion', 'wheel')
 COUNT_KEYS['face'] = ('pinion', 'wheel')
+COUNT_KEYS['wolfrom'] = ('sun', 'planet', 'planet2', 'output_ring', 'planets')
 
 
 def variables(family, values):
@@ -107,17 +108,26 @@ def matches(ratio, settings):
 
 def estimated_ratio(family, values):
     """Cheap shared I/O equation, used only for pruning, never for accepted results."""
-    from kinematics import coefficients, solve
+    from kinematics import coefficients
     if family == 'parallel' and values['variant'] in PARALLEL_MULTISTAGE_VARIANTS:
-        from parallel_multistage import forward_ratio
-        ratio = forward_ratio(values)
+        from parallel_multistage import count, stage_key
+        ratio = prod(-values[stage_key('wheel', n)]/values[stage_key('pinion', n)]
+                     for n in range(1, count(values)+1))
         return 1/ratio if values['io_scheme'] == 'reverse' else ratio
+    if family == 'wolfrom':
+        # Same tooth-count equation as the Wolfrom kernel (see docs/technical/wolfrom.md).
+        s, p1, p2, ro = (values[k] for k in COUNT_KEYS[family][:4])
+        rf = s + 2*p1
+        determinant = p1*ro - rf*p2
+        return (s+rf)*p1*ro/(s*determinant) if ro > p2 and determinant else float('inf')
     if family in ('planetary', 'cycloidal', 'harmonic'):
         stages = 2 if family == 'planetary' and values['variant'] in ('two_stage', 'two_stage_double') else 1
         ratio = 1.
         for stage in range(1, stages+1):
-            scheme = values['io_scheme2' if stage == 2 else 'io_scheme']
-            ratio *= solve(coefficients(family, values, stage), scheme, 1.)['signed_ratio']
+            scheme = values.get('io_scheme2', values['io_scheme']) if stage == 2 else values['io_scheme']
+            driving, driven, _ = scheme.split('_')
+            terms = coefficients(family, values, stage)
+            ratio *= -terms[driven]/terms[driving]
         return ratio
     ratio = ((-1 if family in ('parallel', 'bevel', 'hypoid') else 1)*values['wheel']/values['pinion']
              if family in ('parallel', 'internal', 'bevel', 'hypoid', 'face') else values['worm_hand']*values['teeth']/values['starts'])
@@ -142,6 +152,41 @@ def nominal_bounds(design, check=lambda: None):
     if not all(map(isfinite, low+high)):
         raise ValueError('No finite solid geometry.')
     return tuple(low), tuple(high)
+
+
+def nominal_diameter(design, check=lambda: None):
+    """Diameter of the sampled assembly around its central ring axis (world +Z)."""
+    from rust_surfaces import surface
+    radius = 0.
+    for part in design.parts:
+        check()
+        snapshot = surface(part, check)
+        levels = snapshot.faces(check) if part.mesh else snapshot.geometry('solid_rings', check)
+        for level in levels:
+            check()
+            radius = max(radius, max(hypot(x, y) for loop in level for x, y, _ in loop))
+    return 2*radius
+
+
+def exceeds_quick_limit(length, limit):
+    # A sampled point on a circle can exceed its nominal radius by a few
+    # binary64 rounding units. Accept that rounding at the inclusive limit.
+    return length > limit and not isclose(length, limit, rel_tol=1e-12, abs_tol=0.)
+
+
+def locked_values(values, keys):
+    # Varying a numeric axis also varies the source expression for that axis.
+    result = {k: v for k, v in values.items() if k not in keys and k != SOURCE_KEY}
+    sources = {k: v for k, v in values.get(SOURCE_KEY, {}).items() if k not in keys}
+    if sources:
+        result[SOURCE_KEY] = sources
+    return result
+
+
+def parameter_changes(base, values, keys):
+    before, after = base.get(SOURCE_KEY, {}), values.get(SOURCE_KEY, {})
+    return {k: (base.get(k), values.get(k)) for k in keys if
+            k != SOURCE_KEY and (base.get(k) != values.get(k) or before.get(k) != after.get(k))}
 
 
 @dataclass
@@ -211,7 +256,7 @@ class Halt(Exception):
     pass
 
 
-def search(family, base, axes, settings=None, cancel=None, progress=lambda message, fraction: None):
+def search(family, base, axes, settings=None, cancel=None, progress=lambda message, fraction: None, *, quality=None):
     """Enumerate in insertion order. A generator call is a non-preemptible unit."""
     settings = deepcopy(settings or Settings())
     settings.validate()
@@ -248,38 +293,70 @@ def search(family, base, axes, settings=None, cancel=None, progress=lambda messa
                 grid.append(int(value) if key in INTEGER else value)
         grids[key] = tuple(grid)
     result = Result(family, base, grids, settings, prod(map(len, grids.values())))
+
+    def candidates():
+        for numbers in product(*grids.values()):
+            candidate = dict(base)
+            for key, number in zip(grids, numbers):
+                if number != base[key]:
+                    attach(candidate, key, number)
+            yield candidate
+
+    return evaluate(result, candidates(), started, cancel, progress, locked=locked_values(base, grids), quality=quality)
+
+
+def evaluate(result, candidates, started, cancel, progress, *, locked=None, radial=False,
+             max_diameter=None, quality=None):
+    """Validate and rank candidates from explicit grids or the desktop planner."""
+    family, settings, base, grids = result.family, result.settings, result.base, result.axes
+    seen = set()
+    exceeds = exceeds_quick_limit if locked is None else lambda length, limit: length > limit
+
     def exclude(reason):
         result.exclusions[reason] = result.exclusions.get(reason, 0)+1
+
     def check():
         if cancel is not None and cancel.is_set():
             raise Halt('cancelled')
         if monotonic()-started >= settings.max_seconds:
             raise Halt('time budget reached')
+
+    def rank(p):
+        if locked is None:
+            width, depth, length = p.xyz
+            footprint = p.comparison['diameter_mm']**2 if radial else width*depth
+            return round(p.error_percent, 10), footprint, length, p.sort_key
+        if settings.ranking == 'compact':
+            return p.comparison['envelope_volume_mm3'], p.sort_key
+        if settings.ranking == 'contact':
+            return -p.comparison['min_profile_contact'], p.sort_key
+        return p.sort_key
+
     try:
-        for numbers in product(*grids.values()):
+        for candidate in candidates:
             check()
             if result.visited >= settings.max_candidates:
                 raise Halt('candidate budget reached')
-            candidate = dict(base, **dict(zip(grids, numbers)))
             result.visited += 1
-            progress(f'Evaluating candidate {result.visited}/{result.total} · {result.generated} generated', result.visited/result.total)
+            progress(f'Evaluating candidate {result.visited}/{result.total} · {result.generated} generated',
+                     result.visited/result.total)
             if not matches(estimated_ratio(family, candidate), settings):
                 exclude('ratio')
                 continue
             check()
             result.generated += 1
             try:
-                design = generate(family, candidate)
+                design = generate(family, candidate, quality=quality) if quality else generate(family, candidate)
                 check()
-                # Derived values are locked too: no silent module/bore/width/option changes.
-                if any(design.values.get(k) != v for k, v in base.items() if k not in grids):
-                    exclude('locked parameters')
-                    result.rejected += 1
-                    continue
-                if any(design.values.get(k) != v for k, v in zip(grids, numbers)):
-                    exclude('normalized grid values')
-                    result.rejected += 1
-                    continue
+                if locked is not None:
+                    if locked_values(design.values, grids) != locked:
+                        exclude('locked parameters')
+                        result.rejected += 1
+                        continue
+                    if any(design.values.get(k) != candidate[k] for k in grids):
+                        exclude('normalized grid values')
+                        result.rejected += 1
+                        continue
                 ratio = design.analysis['signed_ratio']
                 result.valid += 1
                 if not matches(ratio, settings):
@@ -287,7 +364,9 @@ def search(family, base, axes, settings=None, cancel=None, progress=lambda messa
                     continue
                 minimum, maximum = nominal_bounds(design, check)
                 xyz = tuple(b-a for a, b in zip(minimum, maximum))
-                if any(length > limit for length, limit in zip(xyz, settings.max_xyz)):
+                diameter = nominal_diameter(design, check) if radial else None
+                if any(exceeds(length, limit) for length, limit in zip(xyz, settings.max_xyz)) or (
+                        max_diameter is not None and exceeds_quick_limit(diameter, max_diameter)):
                     exclude('size limits')
                     continue
                 contacts = [m.get('profile_contact_total') for m in design.analysis.get('meshes', [])]
@@ -300,24 +379,32 @@ def search(family, base, axes, settings=None, cancel=None, progress=lambda messa
                 comparison = dict(min_profile_contact=contact,
                                   warning_count=len(geometry_warnings(design)),
                                   envelope_volume_mm3=prod(xyz))
-                changes = {k: (base[k], design.values[k]) for k in grids if base[k] != design.values[k]}
-                # Grid values are deduplicated and every enumerated value must
-                # survive generation unchanged, so distinct tuples cannot alias.
+                keys = grids if locked is not None else dict.fromkeys((*base, *design.values))
+                changes = parameter_changes(base, design.values, keys)
+                if locked is None:
+                    if radial:
+                        comparison['diameter_mm'] = diameter
+                    identity = repr(sorted(design.values.items()))
+                    if identity in seen:
+                        exclude('duplicate geometry')
+                        continue
+                    seen.add(identity)
                 result.matched += 1
                 proposal = Proposal(deepcopy(design.values), ratio, abs(abs(ratio)-settings.target)/settings.target*100, minimum, maximum, changes, comparison)
                 result.proposals.append(proposal)
-                result.proposals.sort(key=lambda p: ((p.comparison['envelope_volume_mm3'], p.sort_key) if settings.ranking == 'compact' else
-                                                    (-p.comparison['min_profile_contact'], p.sort_key) if settings.ranking == 'contact' else p.sort_key))
+                result.proposals.sort(key=rank)
                 del result.proposals[settings.max_results:]
-            except (ValueError, KeyError, OverflowError, ZeroDivisionError):
+            except (ValueError, KeyError, OverflowError, ZeroDivisionError) as error:
                 exclude('invalid geometry')
+                if locked is None:
+                    message = str(error)
+                    result.geometry_errors[message] = result.geometry_errors.get(message, 0)+1
                 result.rejected += 1
             finally:
-                # Few expensive candidates still report each generator return;
-                # the GTK controller throttles these notifications to ~10 Hz.
                 progress(f'{result.visited}/{result.total} candidates · {result.generated} generated · {result.valid} valid', result.visited/result.total)
     except Halt as error:
         result.reason = str(error)
     result.elapsed = monotonic()-started
-    progress('Search complete' if result.complete else 'Partial search · '+result.reason, result.visited/result.total)
+    fraction = result.visited/result.total if result.total else 1.
+    progress('Search complete' if result.complete else 'Partial search · '+result.reason, fraction)
     return result

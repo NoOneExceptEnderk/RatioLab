@@ -1,6 +1,7 @@
 # SPDX-FileCopyrightText: 2026 NoOneExceptEnderk
 # SPDX-License-Identifier: GPL-3.0-only
 """Technical workspace composition. Geometry and file operations live in app.py."""
+from functools import cache
 from pathlib import Path
 import gi
 gi.require_version('Gtk', '4.0')
@@ -72,6 +73,8 @@ window.reducers { background: @rl_window; color: @rl_text; font-size: 14px; }
  .reducers .studio-header { min-height: 60px; padding: 0 15px; border-bottom: 1px solid @rl_line; background: @rl_window; }
 .reducers .studio-header button { font-size: 14px; line-height: 1.45em; min-height: 20px; padding: 6px 9px; }
 .reducers .studio-header menubutton > button { font-size: 14px; }
+.reducers .studio-header button.update-badge { border-radius: 999px; font-size: 13px; padding: 3px 12px; }
+.reducers .studio-header button.update-badge:hover { background: shade(@rl_accent, 0.92); }
 .reducers .studio-project > button { background: transparent; border-color: transparent; }
 .reducers .file-menu > contents { padding: 4px 0; border-radius: 5px; background: @rl_surface; }
 .reducers .file-menu button.model, .reducers .file-menu modelbutton { border: 0; border-radius: 0; background: transparent; background-image: none; box-shadow: none; padding: 6px 14px; min-height: 22px; font-size: 14px; }
@@ -80,7 +83,7 @@ window.reducers { background: @rl_window; color: @rl_text; font-size: 14px; }
 .reducers .file-menu modelbutton:focus-visible { outline: 2px solid @rl_focus; outline-offset: -2px; }
 .reducers .file-menu separator { margin: 4px 10px; }
 .reducers .studio-header windowcontrols button { background: transparent; border: 0; box-shadow: none; min-height: 28px; padding: 4px; }
-.reducers .brand-name { font-weight: 500; }
+.reducers .brand-name { font-size: 11px; font-weight: 600; }
 .reducers .studio-header .document-name { font-weight: 400; }
 .reducers .studio-header .muted { font-size: 11px; }
 .reducers .studio-toolbar { padding: 7px 12px; border-bottom: 1px solid @rl_line; }
@@ -93,6 +96,7 @@ window.reducers { background: @rl_window; color: @rl_text; font-size: 14px; }
 .reducers .sidebar spinbutton.parameter-input button { min-width: 12px; padding: 0; }
 .reducers .sidebar spinbutton.parameter-input text { padding-left: 9px; padding-right: 9px; }
 .reducers .sidebar spinbutton.parameter-input:focus-within text { padding-right: 9px; }
+.reducers .sidebar .quick-search-opener { min-height: 24px; padding: 4px 9px; margin-top: 3px; font-size: 12px; }
 .reducers .sidebar .parameter-heading { font-size: 12px; font-weight: 400; }
 .reducers .sidebar button.model-restore { font-size: 12px; line-height: 1.45em; }
 .reducers .sidebar .field-label { line-height: 1.45em; }
@@ -137,7 +141,6 @@ window.reducers { background: @rl_window; color: @rl_text; font-size: 14px; }
 .reducers .viewbar checkbutton { font-size: 12px; }
 .reducers .preview-frame { background: @rl_preview; }
 .reducers .preview-state { background: @rl_preview_state; color: @rl_preview_text; border: 1px solid @rl_preview_line; border-radius: 4px; padding: 5px 9px; font-size: 12px; }
-.reducers .preview-state.invalid { background: @rl_error_bg; color: @rl_error; border-color: @rl_error_line; }
 .reducers .playback-bar { padding: 6px 14px; border-top: 1px solid @rl_line; border-bottom: 1px solid @rl_line; }
 .reducers .playback-bar button { font-size: 14px; line-height: 1.45em; min-height: 20px; padding: 6px 9px; }
 .reducers .playback-bar > box > label { font-size: 11px; line-height: 1.45em; }
@@ -156,9 +159,12 @@ window.reducers { background: @rl_window; color: @rl_text; font-size: 14px; }
 .reducers .result-detail { font-size: 11px; line-height: 1.45em; margin-top: 0; }
 .reducers .results-strip > flowboxchild { padding: 0; }
 .reducers .metric-card:disabled { opacity: 0.5; }
-.reducers .warning-bar { background: @rl_warning_bg; border-top: 1px solid @rl_warning_line; padding: 7px 14px; }
+.reducers .warning-bar { background: @rl_warning_bg; border: 1px solid @rl_warning_line; border-radius: 8px; padding: 9px 12px; }
 .reducers .warning-bar.invalid { background: @rl_error_bg; border-color: @rl_invalid_line; }
 .reducers .warning-bar.invalid .study { color: @rl_error; }
+.reducers button.viewport-notice-count { background: @rl_warning_bg; border-color: @rl_warning_line; color: @rl_warning; min-height: 19px; padding: 3px 7px; font-size: 12px; }
+.reducers button.viewport-notice-count.invalid { background: @rl_error_bg; border-color: @rl_invalid_line; color: @rl_error; }
+.reducers button.notice-close { min-height: 20px; min-width: 20px; padding: 0; }
 .reducers .study { color: @rl_warning; font-size: 12px; }
 .reducers .error { color: @rl_error; font-size: 12px; }
 .reducers .derived { background: @rl_derived; }
@@ -240,25 +246,45 @@ window.reducers { background: @rl_window; color: @rl_text; font-size: 14px; }
 .reducers .choice-popover scrolledwindow, .reducers .choice-popover listview { padding: 0; border: 0; }
 .reducers progressbar trough { background: @rl_trough; }
 .reducers progressbar progress { background: @rl_accent; border-color: @rl_accent; }
-.reducers .tool-dock, .reducers .view-panel { background: alpha(@rl_surface, 0.89); border: 1px solid @rl_line; border-radius: 10px; }
-.reducers .view-panel { padding: 10px; }
+.reducers .tool-dock { background: alpha(@rl_surface, 0.89); border: 1px solid @rl_line; border-radius: 10px; }
 .reducers .cad-split { border-spacing: 0; border: 1px solid @rl_line; border-radius: 6px; background: @rl_surface; }
 .reducers .studio-header .cad-split button { font-size: 12px; line-height: 1.45em; min-height: 18px; padding: 7px 9px; border: 0; border-radius: 0; background: transparent; }
 .reducers .studio-header .cad-split menubutton > button { border-left: 1px solid @rl_line; padding: 7px; }
 .reducers .studio-header .cad-split button:hover { background: @rl_hover; }
-.reducers .cad-popover > contents { background: @rl_surface; border: 1px solid @rl_line; border-radius: 9px; padding: 12px; }
-.reducers .cad-popover .cad-menu-title { font-size: 14px; font-weight: 500; line-height: 1.45em; margin-bottom: 3px; }
+.reducers button.export-blocked, .reducers menubutton.export-blocked > button,
+.reducers .studio-header .cad-split.export-blocked button,
+.reducers .cad-popover.cad-popover button.export-blocked {
+    background: @rl_error_bg; color: @rl_error; border-color: @rl_error_line; opacity: 1;
+}
+.reducers .studio-header .cad-split.export-blocked { border-color: @rl_error_line; }
+.reducers .header-popover > contents { background: @rl_surface; border: 1px solid @rl_line; border-radius: 9px; padding: 12px; }
+.reducers .header-popover .header-menu-title { font-size: 14px; font-weight: 500; line-height: 1.45em; margin-bottom: 3px; }
 .reducers .cad-popover .cad-connection-row { padding: 10px 0; border-top: 1px solid @rl_line; }
 .reducers .cad-popover .cad-connection-name { font-size: 14px; line-height: 1.45em; }
 .reducers .cad-popover .cad-connection-status { font-size: 11px; line-height: 1.45em; color: @rl_muted; }
 .reducers .cad-popover .cad-connected { color: @rl_accent; }
-.reducers .cad-popover.cad-popover button { font-size: 12px; line-height: 1.45em; min-height: 18px; padding: 6px 9px; border: 1px solid @rl_line; border-radius: 6px; background: transparent; }
+.reducers .header-popover.header-popover button { font-size: 12px; line-height: 1.45em; min-height: 18px; padding: 6px 9px; border: 1px solid @rl_line; border-radius: 6px; background: transparent; }
 .reducers .cad-popover .cad-connection-row button { font-size: 14px; }
-.reducers .cad-popover button.flat { border-color: transparent; }
-.reducers .cad-popover button:hover { background: @rl_hover; }
-.reducers .cad-popover .cad-menu-footer { padding-top: 8px; border-top: 1px solid @rl_line; }
-.reducers .cad-popover .cad-menu-footer button { padding: 6px 3px; }
+.reducers .header-popover button.flat { border-color: transparent; }
+.reducers .header-popover button:hover { background: @rl_hover; }
+.reducers .header-popover .header-menu-footer { padding-top: 8px; border-top: 1px solid @rl_line; }
+.reducers .header-popover .header-menu-footer button { padding: 6px 3px; }
+.reducers .export-popover .header-menu-footer flowboxchild { padding: 0; }
 .reducers .tool-nav { padding: 13px 14px; border-bottom: 1px solid @rl_line; }
+.reducers .display-panel .tool-nav { padding-top: 5px; padding-bottom: 5px; }
+.reducers .display-options dropdown > button { padding-top: 3px; padding-bottom: 3px; }
+.reducers .display-options flowboxchild { padding: 0; }
+.reducers .bom-preview-panel { background: @rl_surface; border: 1px solid @rl_line; border-radius: 5px; padding: 6px; }
+.reducers .bom-table list { background: @rl_input; }
+.reducers .bom-row-content { padding: 7px 9px; }
+.reducers .bom-row-content label { font-variant-numeric: tabular-nums; }
+.reducers .bom-table-heading { background: @rl_surface; }
+.reducers .bom-table row { border-bottom: 1px solid @rl_line; padding: 0; }
+.reducers .bom-table row:selected { box-shadow: inset 3px 0 @rl_accent; }
+.reducers .bom-table row:selected { background: @rl_selected; color: @rl_text; }
+.reducers .bom-details { border-top: 1px solid @rl_line; padding-top: 10px; }
+.reducers .bom-cad { padding: 7px 9px; background: @rl_surface; border-left: 2px solid @rl_line; }
+.reducers .bom-count { color: @rl_accent; }
 .reducers .tool-nav button { padding: 3px 7px; font-size: 12px; }
 .reducers .overlay-category { color: @rl_muted; font-size: 11px; }
 .reducers .tool-nav .step-title { font-size: 14px; font-weight: 500; }
@@ -267,10 +293,12 @@ window.reducers { background: @rl_window; color: @rl_text; font-size: 14px; }
 .reducers .tool-nav button:checked { border-color: @rl_accent; background: @rl_selected; }
 .reducers .tool-dock list { background: @rl_input; border: 1px solid @rl_line; border-radius: 4px; }
 .reducers .tool-dock row { padding: 8px; border-bottom: 1px solid @rl_line; }
+.reducers .display-options dropdown > button row { border-bottom: 0; }
 .reducers .tool-dock row:selected { background: @rl_selected; color: @rl_text; }
 .reducers textview text { background: @rl_input; color: @rl_text; }
 .reducers .tool-dock flowboxchild { padding: 0; }
 .reducers .tool-dock .sidebar-actions { padding: 3px 12px; }
+.reducers .search-proposal-summary { font-weight: 600; padding: 6px 0; }
 .reducers.enlarged-text .results-strip { padding-top: 10px; padding-bottom: 10px; }
 .reducers .measurement { background: @rl_input; border: 1px solid @rl_line; border-radius: 5px; padding: 10px; font-variant-numeric: tabular-nums; }
 .reducers .document-name { font-weight: 600; }
@@ -300,6 +328,23 @@ class StatusLabel(Gtk.Label):
         return False
 
 
+@cache
+def notice_icon(kind):
+    import cairo
+    from app_paths import resource_path
+    return cairo.ImageSurface.create_from_png(str(resource_path(f'viewport-{kind}.png')))
+
+
+def draw_notice_icon(cr, width, height, kind, color):
+    source = notice_icon(kind)
+    iw, ih = source.get_width(), source.get_height()
+    scale = min(width / iw, height / ih)
+    cr.set_source_rgba(color.red, color.green, color.blue, color.alpha)
+    cr.translate((width - iw * scale) / 2, (height - ih * scale) / 2)
+    cr.scale(scale, scale)
+    cr.mask_surface(source)
+
+
 def workspace_glyph(name, color_source):
     """Self-contained outline symbols, available in frozen builds without themes."""
     size=19 if name=='cad-link' else 16
@@ -309,6 +354,9 @@ def workspace_glyph(name, color_source):
         name=widget.glyph_name
         color_widget=color_source.get_first_child() if isinstance(color_source,Gtk.MenuButton) else color_source
         color=color_widget.get_style_context().get_color()
+        if color_source.has_css_class('export-blocked'):
+            draw_notice_icon(cr, width, height, 'error', color)
+            return
         alpha=color.alpha*(.5 if name in ("undo","redo","folder","plug","cad-link","download") and not color_source.get_sensitive() else 1)
         cr.set_source_rgba(color.red,color.green,color.blue,alpha)
         cr.scale(width/24,height/24)
@@ -538,7 +586,11 @@ def apply_theme(app):
     config = app.workspace_preferences.get('theme_customizations')
     app.workspace_style.load_from_data(theme_css(app.workspace_theme, scale, config))
     if hasattr(app, 'canvas'):
-        app.canvas.set_theme(app.workspace_theme, theme_preferences.viewport(app.workspace_theme, config))
+        palette = theme_preferences.viewport(app.workspace_theme, config)
+        app.canvas.set_theme(app.workspace_theme, palette)
+        search = getattr(app, 'combination_search', None)
+        if search and getattr(search, 'preview', None):
+            search.preview.set_theme(app.workspace_theme, palette)
     if hasattr(app, 'axes'):
         app.axes.queue_draw()
     panel = getattr(app, 'settings', None)
@@ -603,9 +655,182 @@ def install_navigation(app, overlay):
     app.axes=cube;app.navigation_cube=cube;app.navigation_controls=navigation
 
 
+def position_display_panel(overlay, child, allocation, panel, button):
+    if child is not panel:
+        return False
+    valid, anchor = button.compute_bounds(overlay)
+    if not valid:
+        return False
+    right = round(anchor.get_x() + anchor.get_width())
+    top = round(anchor.get_y() + anchor.get_height()) + 6
+    _, natural_width, _, _ = panel.measure(Gtk.Orientation.HORIZONTAL, -1)
+    width = min(natural_width, right)
+    _, natural_height, _, _ = panel.measure(Gtk.Orientation.VERTICAL, width)
+    allocation.x = right - width
+    allocation.y = top
+    allocation.width = width
+    available_height = overlay.get_height() - top - 4
+    # In a short window, leave enough room to scroll the controls below the header.
+    root = overlay.get_root()
+    valid, viewport = overlay.compute_bounds(root)
+    if valid:
+        window_space = root.get_height() - round(viewport.get_y()) - top - 4
+        available_height = max(available_height, min(160, window_space))
+    allocation.height = min(natural_height, max(1, available_height))
+    return True
+
+
 def fit_camera(app):
     app.canvas.zoom=1.;app.canvas.pan_offset=(0.,0.,0.)
     app.canvas.queue_render();app.canvas.emit('view-changed','custom')
+
+
+def install_preview_notices(app, overlay):
+    def label(lines, visible=True):
+        return Gtk.Label(xalign=0, wrap=True, wrap_mode=Pango.WrapMode.WORD_CHAR,
+                         width_chars=1, max_width_chars=48, lines=lines, hexpand=True,
+                         visible=visible, ellipsize=Pango.EllipsizeMode.END,
+                         css_classes=['study'])
+
+    def card(invalid=False):
+        classes = ['warning-bar', 'invalid'] if invalid else ['warning-bar']
+        return Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4,
+                       visible=False, css_classes=classes)
+
+    def heading(parent, message, kind):
+        row = Gtk.Box(spacing=6)
+        row.append(message)
+        close = Gtk.Button(label='×', valign=Gtk.Align.START, tooltip_text='Close',
+                           css_classes=['flat', 'notice-close'])
+        close.update_property([Gtk.AccessibleProperty.LABEL], ['Close'])
+        close.connect('clicked', lambda _: select_notice(kind, close=True))
+        row.append(close)
+        parent.append(row)
+
+    def action(parent, title, callback):
+        button = Gtk.Button(label=title, halign=Gtk.Align.END, css_classes=['flat'])
+        button.connect('clicked', callback)
+        parent.append(button)
+        return button
+
+    def show_warning_details(button):
+        if geometry_error.get_visible() and app.canvas.design is not None:
+            from engineering import report_text
+            gui_workflow.show_report(app, 'Nominal calculation report', report_text(app.canvas.design))
+        else:
+            app.show_calculations(button)
+
+    app.warning_bar = warning = card()
+    app.study = label(3)
+    heading(warning, app.study, 'warning')
+    app.warning_details = action(warning, 'Details', show_warning_details)
+    app.geometry_error_bar = geometry_error = card(invalid=True)
+    app.geometry_error_label = label(3)
+    heading(geometry_error, app.geometry_error_label, 'error')
+    app.warning_context = label(2, visible=False)
+    geometry_error.append(app.warning_context)
+    app.error_reveal = action(geometry_error, 'Go to field', lambda _: gui_workflow.reveal_error(app))
+
+    rpm_notice = card(invalid=True)
+    app.motion_rate_error.set_max_width_chars(48)
+    app.motion_rate_error.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
+    app.motion_rate_error.set_hexpand(True)
+    heading(rpm_notice, app.motion_rate_error, 'error')
+    errors = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+    errors.append(geometry_error)
+    errors.append(rpm_notice)
+    pages = Gtk.Stack(hhomogeneous=False, vhomogeneous=False)
+    pages.add_named(warning, 'warning')
+    pages.add_named(errors, 'error')
+    notice = Gtk.Revealer(child=pages, halign=Gtk.Align.END, valign=Gtk.Align.END,
+                          transition_type=Gtk.RevealerTransitionType.SLIDE_UP, transition_duration=160)
+    counters = Gtk.Box(spacing=5, halign=Gtk.Align.START, valign=Gtk.Align.END, can_target=False)
+    for widget in (notice, counters):
+        margins(widget, 12)
+        overlay.add_overlay(widget)
+        overlay.set_measure_overlay(widget, False)
+        overlay.set_clip_overlay(widget, True)
+
+    buttons = {}
+    for kind, title in (('warning', 'Warnings'), ('error', 'Errors')):
+        classes = ['viewport-notice-count'] + (['invalid'] if kind == 'error' else [])
+        button = Gtk.Button(visible=False, tooltip_text=title, css_classes=classes)
+        content = Gtk.Box(spacing=5)
+        icon = Gtk.DrawingArea(content_width=14, content_height=14)
+        def draw(widget, cr, width, height, kind=kind, button=button):
+            color = button.get_style_context().get_color()
+            draw_notice_icon(cr, width, height, kind, color)
+        icon.set_draw_func(draw)
+        count_label = Gtk.Label()
+        content.append(icon)
+        content.append(count_label)
+        button.set_child(content)
+        button.connect('clicked', lambda _, kind=kind: select_notice(kind))
+        counters.append(button)
+        buttons[kind] = (button, count_label)
+    app.notice_counter = buttons['warning'][0]
+    app.error_counter = buttons['error'][0]
+
+    app.geometry_notice_messages = ()
+    app.geometry_notice_error = ''
+    app.motion_notice_message = ''
+    warning_key = error_key = None
+    opened = ''
+    def update(*_):
+        nonlocal warning_key, error_key, opened
+        identity = getattr(getattr(app, 'document', None), 'identity', None)
+        warnings = app.geometry_notice_messages if warning.get_visible() else ()
+        active_errors = tuple(filter(None, (
+            app.geometry_notice_error if geometry_error.get_visible() else '',
+            app.motion_notice_message if app.motion_rate_error.get_visible() else '',
+        )))
+        blocked = bool(active_errors)
+        for action in (app.export_menu, app.cad_action, app.cad_split, app.send_btn, app.fusion_send_btn):
+            if action.has_css_class('export-blocked') == blocked:
+                continue
+            if blocked:
+                action.add_css_class('export-blocked')
+            else:
+                action.remove_css_class('export-blocked')
+            icon = getattr(action, 'workspace_icon', None)
+            if icon is not None:
+                icon.queue_draw()
+        next_warning = (identity, warnings) if warnings else None
+        next_error = (identity, active_errors) if active_errors else None
+        if next_error and next_error != error_key:
+            opened = 'error'
+        elif next_warning and not next_error and next_warning != warning_key:
+            opened = 'warning'
+        elif opened == 'error' and not next_error:
+            opened = 'warning' if next_warning else ''
+        elif opened == 'warning' and not next_warning:
+            opened = 'error' if next_error else ''
+        warning_key, error_key = next_warning, next_error
+        rpm_notice.set_visible(app.motion_rate_error.get_visible())
+        canvas_visible = app.canvas.get_visible()
+        notice.set_visible(canvas_visible)
+        counters.set_visible(canvas_visible)
+        for kind, count in (('warning', len(warnings)), ('error', len(active_errors))):
+            button, count_label = buttons[kind]
+            button.set_visible(count > 0)
+            count_label.set_text(str(count))
+            button.update_state([Gtk.AccessibleState.EXPANDED], [int(opened == kind)])
+        if opened:
+            pages.set_visible_child_name(opened)
+        notice.set_reveal_child(bool(opened))
+
+    def select_notice(kind, close=False):
+        nonlocal opened
+        update()
+        opened = '' if close or opened == kind else kind
+        update()
+        if close:
+            buttons[kind][0].grab_focus()
+
+    app.update_preview_notices = update
+    for widget in (warning, geometry_error, app.motion_rate_error, app.canvas):
+        widget.connect('notify::visible', update)
+    update()
 
 
 def build(app, labels):
@@ -634,21 +859,21 @@ def build(app, labels):
     root = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
     app.win.set_child(root)
     header = Gtk.Box(spacing=12, css_classes=['studio-header'])
-    header_overlay = Gtk.Overlay()
-    header_overlay.set_child(header)
-    app.header_bar, app.header_start = header_overlay, header
+    header_start = Gtk.Box(spacing=12, valign=Gtk.Align.CENTER, hexpand=True)
+    header_actions = Gtk.Box(spacing=12, valign=Gtk.Align.CENTER)
+    header.append(header_start)
+    header.append(header_actions)
+    app.header_bar, app.header_start = header, header_start
     header_handle = Gtk.WindowHandle()
-    header_handle.set_child(header_overlay)
-    brand = Gtk.Box(spacing=8)
+    header_handle.set_child(header)
+    brand = Gtk.Box(spacing=6, valign=Gtk.Align.CENTER)
     logo = Gtk.Image.new_from_gicon(Gio.FileIcon.new(Gio.File.new_for_path(str(brand_dir/'ratiolab-icon.png'))))
     logo.set_pixel_size(20)
     brand.append(logo)
     brand.append(Gtk.Label(label='RatioLab', css_classes=['brand-name']))
     brand._ratiolab_no_translate = True
-    brand.set_halign(Gtk.Align.CENTER)
-    brand.set_valign(Gtk.Align.CENTER)
     brand.set_can_target(False)
-    header_overlay.add_overlay(brand)
+    header_start.append(brand)
     app.header_brand = brand
     title_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=1, hexpand=True)
     title_box.set_halign(Gtk.Align.START)
@@ -672,8 +897,8 @@ def build(app, labels):
     app.project_menu = project_menu
     app.file_menu = project_menu
     app.file_command_buttons = {}
-    header.append(project_menu)
-    header.append(title_box)
+    header_start.append(project_menu)
+    header_start.append(title_box)
     for command, title, callback in [('new','New project', app.new_project), ('open','Open project…', app.load_dialog),
                             ('save','Save', app.save_dialog), ('save-as','Save As…', app.save_as_dialog),
                             ('recent','Recent projects…', app.show_recent)]:
@@ -681,31 +906,35 @@ def build(app, labels):
         button.connect('clicked', lambda b, fn=callback: (project_popup.popdown(), fn(b)))
         app.file_command_buttons[command] = button
         app.file_buttons.append(button)
-    # Existing header consumers pack actions from right to left. Keep that
-    # contract while letting the project name use the available flexible space.
-    def pack_header_action(widget):
-        widget.set_valign(Gtk.Align.CENTER)
-        header.insert_child_after(widget, title_box)
-    header.pack_end = pack_header_action
-    gui_workflow.install_exports(app)
-    app.export_menu.set_label("Export")
-    header.pack_end(app.export_menu)
+    from update_ui import Controller
+    app.updates = Controller(app, header_actions.append)
+    update_button = app.updates.button
+    update_button.workspace_icon = workspace_glyph('download', update_button)
+    update_button.workspace_icon.set_valign(Gtk.Align.CENTER)
+    update_button.connect('state-flags-changed', lambda *_: update_button.workspace_icon.queue_draw())
+    update_content = Gtk.Box(spacing=6)
+    update_button.set_child(update_content)
+    update_content.append(update_button.workspace_icon)
+    update_content.append(app.updates.badge_label)
     gui_workflow.install_cad(app)
     app.cad_split.set_overflow(Gtk.Overflow.HIDDEN)
-    header.pack_end(app.cad_split)
-    from update_ui import Controller
-    app.updates = Controller(app, header)
+    header_actions.append(app.cad_split)
+    gui_workflow.install_exports(app)
+    app.export_menu.set_label("Export")
+    header_actions.append(app.export_menu)
     release_notes = Gtk.Button(label='Release notes and updates…')
     release_notes.connect('clicked', lambda *_: (project_popup.popdown(), app.updates.show(manual=True)))
     app.file_command_buttons['updates'] = release_notes
     window_controls = Gtk.WindowControls(side=Gtk.PackType.END)
-    header.append(window_controls)
-    child=header.get_first_child()
+    header_actions.append(window_controls)
+    child=header_actions.get_first_child()
     while child:
         child.set_valign(Gtk.Align.CENTER)
         child=child.get_next_sibling()
     decorate_action(app.cad_action,'cad-link',vector=True)
     decorate_action(app.export_menu,'download',vector=True)
+    for send_action in (app.send_btn, app.fusion_send_btn):
+        decorate_action(send_action, 'cad-link', vector=True)
     app.win.set_titlebar(header_handle)
     secondary = Gtk.Box(spacing=3, css_classes=['studio-toolbar'])
     app.secondary_toolbar = secondary
@@ -759,6 +988,19 @@ def build(app, labels):
     model_field.append(app.selector)
     import model_catalog_ui
     model_catalog_ui.install(app, model_field)
+    app.find_combinations_button = Gtk.Button(css_classes=['quick-search-opener'])
+    search_row = Gtk.Box(spacing=7)
+    search_caption = Gtk.Label(label='Find combinations…', xalign=0, hexpand=True, wrap=True,
+                               width_chars=1, wrap_mode=Pango.WrapMode.WORD_CHAR)
+    search_row.append(search_caption)
+    search_icon = workspace_glyph('search', app.find_combinations_button)
+    search_icon.set_content_width(15)
+    search_icon.set_content_height(15)
+    search_icon.set_valign(Gtk.Align.CENTER)
+    search_row.append(search_icon)
+    app.find_combinations_button.set_child(search_row)
+    app.find_combinations_button.connect('clicked', lambda *_: app.combination_search.open(quick=True))
+    model_field.append(app.find_combinations_button)
     app.family_hint = gui_workflow.text('', 'study')
     app.family_hint.set_visible(False)
     picker.append(app.family_hint)
@@ -824,18 +1066,36 @@ def build(app, labels):
     app.pick_mode.set_tooltip_text('Navigate: orbit and zoom. Select: click surfaces; Ctrl/Shift adds. Measure: pick two surface points.')
     visibility = Gtk.ToggleButton(tooltip_text='Display options')
     app.view_menu = visibility
-    view_panel=Gtk.Popover(autohide=True,has_arrow=True,position=Gtk.PositionType.BOTTOM)
-    view_panel.set_parent(visibility)
-    view_scroll=Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.NEVER,
-                                  min_content_width=240,max_content_height=380,propagate_natural_height=True)
-    view_panel.set_child(view_scroll)
-    view_body=Gtk.Box(orientation=Gtk.Orientation.VERTICAL,spacing=9,css_classes=['display-options'])
-    margins(view_body,12);view_scroll.set_child(view_body)
+    from workspace_tools import Dock, viewport_panel
+    view_panel = viewport_panel()
+    view_panel.add_css_class('display-panel')
+    margins(view_panel, 0)
+    view_header = Gtk.Box(spacing=3, css_classes=['tool-nav'])
+    view_header.append(Gtk.Label(label='Display options', xalign=0, hexpand=True,
+                                 wrap=True, css_classes=['step-title']))
+    close_view = Gtk.Button(icon_name='window-close-symbolic', css_classes=['flat'])
+    close_view.set_tooltip_text('Close dialog')
+    close_view.connect('clicked', lambda _: visibility.set_active(False))
+    view_header.append(close_view)
+    view_panel.append(view_header)
+    view_scroll = Gtk.ScrolledWindow(propagate_natural_height=True,
+                                     hscrollbar_policy=Gtk.PolicyType.NEVER)
+    view_panel.append(view_scroll)
+    view_body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=5,
+                        css_classes=['display-options'])
+    margins(view_body, 8)
+    view_body.set_margin_top(5)
+    view_body.set_margin_bottom(5)
+    view_scroll.set_child(view_body)
     app.view_panel=view_panel
     # Canonical preset controls retained for integrations; the cube is visible.
-    view_body.append(Gtk.Label(label='Display',xalign=0,css_classes=['step-title']))
-    view_body.append(Gtk.Label(label='Interaction',xalign=0,css_classes=['muted']))
-    view_body.append(app.pick_mode)
+    interaction = Gtk.Box(spacing=8)
+    interaction_label = Gtk.Label(label='Interaction', xalign=0, wrap=True,
+                                  css_classes=['muted'])
+    interaction_label.set_mnemonic_widget(app.pick_mode)
+    interaction.append(interaction_label)
+    interaction.append(app.pick_mode)
+    view_body.append(interaction)
     # Keep the existing theme preference API behind the direct on/off control.
     app.theme_selector = gui_workflow.choice_dropdown(['Dark', 'Light'])
     app.theme_selector.set_selected(THEMES.index(app.workspace_theme))
@@ -850,28 +1110,31 @@ def build(app, labels):
     apply_theme(app)
 
     app.view_options = {}
+    filters = Gtk.FlowBox(selection_mode=Gtk.SelectionMode.NONE, column_spacing=8,
+                          row_spacing=2, max_children_per_line=3)
+    view_body.append(filters)
     for key, title in [('support','Supports'), ('housing','Housing'), ('exploded','Exploded'), ('section','Section')]:
         check = Gtk.CheckButton(label=title)
         check.set_tooltip_text('Preview only. Export always uses nominal coordinates and its explicit component scope.')
         check.connect('toggled', app.change_view_options)
         # Keep the old binary API for existing integrations. The continuous
         # slider below is the only visible explosion control.
-        if key!='exploded':view_body.append(check)
+        if key != 'exploded':
+            filters.append(check)
         app.view_options[key] = check
     view_body.append(Gtk.Separator())
-    explode_box=Gtk.Box(orientation=Gtk.Orientation.VERTICAL,spacing=6,css_classes=['explode-control'])
+    explode_box = Gtk.Box(spacing=8, css_classes=['explode-control'])
     explode_title=Gtk.Label(label='Explode',xalign=0)
     explode_box.append(explode_title)
     app.explode_slider=Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL,0.,1.,.01)
     app.explode_slider.set_digits(2)
     app.explode_slider.set_draw_value(True)
-    app.explode_slider.set_size_request(220,-1)
+    app.explode_slider.set_value_pos(Gtk.PositionType.RIGHT)
     app.explode_slider.set_hexpand(True)
     app.explode_slider.update_property([Gtk.AccessibleProperty.LABEL],['Explode'])
     app.explode_slider.set_tooltip_text('Preview only · assembled 0 to fully exploded 1. Pauses motion. Exports use nominal coordinates.')
     app.explode_slider.connect('value-changed',app.change_view_options)
     explode_box.append(app.explode_slider)
-    explode_box.append(Gtk.Label(label='Preview only · nominal export coordinates',xalign=0,wrap=True,max_width_chars=30,css_classes=['muted']))
     view_body.append(explode_box)
     app.canvas.connect('display-state',lambda *_:app.sync_explosion_control())
     overlay = Gtk.Overlay(css_classes=['preview-frame'])
@@ -884,17 +1147,22 @@ def build(app, labels):
     app.viewport_paned.set_resize_start_child(True)
     right.append(app.viewport_paned)
     app.preview_overlay = overlay
-    from workspace_tools import Dock
+    app.search_preview = Gtk.Overlay(visible=False)
+    overlay.add_overlay(app.search_preview)
+    overlay.set_measure_overlay(app.search_preview, False)
+    app.search_preview_caption = Gtk.Label(label='Proposal preview', halign=Gtk.Align.START,
+                                           valign=Gtk.Align.START, css_classes=['preview-state'])
+    margins(app.search_preview_caption, 15)
+    app.search_preview.add_overlay(app.search_preview_caption)
+    app.search_preview_caption.set_can_target(False)
     app.tools = Dock(app, app.viewport_paned, toolbar)
     visibility.set_child(workspace_glyph('sliders',visibility))
     decorate_action(app.tools.menu,"wrench",vector=True)
     def toggle_view(button):
         if button.get_active():
             app.tools.hide()
-        if button.get_active():view_panel.popup()
-        else:view_panel.popdown()
+        view_panel.set_visible(button.get_active())
     visibility.connect('toggled', toggle_view)
-    view_panel.connect('closed',lambda *_:visibility.set_active(False))
     app.empty = Gtk.Label(label='Generating geometry…', css_classes=['preview-state'])
     app.empty.set_halign(Gtk.Align.START)
     app.empty.set_valign(Gtk.Align.START)
@@ -907,21 +1175,34 @@ def build(app, labels):
     app.hidden_hint.set_visible(False)
     overlay.add_overlay(app.hidden_hint)
     install_navigation(app, overlay)
+    app.workspace_extras = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+    right.append(app.workspace_extras)
+    playback = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, css_classes=['playback-bar'])
+    motion_controls.install(app, playback)
+    install_preview_notices(app, overlay)
     # Keep the tool overlay above the cube and preview hints.
     for panel in (app.tools.box,):
         overlay.remove_overlay(panel)
         overlay.add_overlay(panel)
         overlay.set_measure_overlay(panel, False)
+    overlay.add_overlay(view_panel)
+    overlay.set_measure_overlay(view_panel, False)
+    overlay.connect('get-child-position', position_display_panel, view_panel, visibility)
     overlay.add_overlay(toolbar)
     overlay.set_measure_overlay(toolbar, False)
-    app.workspace_extras = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
-    right.append(app.workspace_extras)
-    playback = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, css_classes=['playback-bar'])
-    motion_controls.install(app, playback)
     from interference_ui import Controller
     app.interference = Controller(app, app.tools)
     from combination_search_ui import Controller as SearchController
     app.combination_search = SearchController(app, app.tools)
+    from combination_search import FAMILIES as SEARCH_FAMILIES
+    def search_available(*_):
+        family = list(app.families)[app.selector.get_selected()]
+        app.find_combinations_button.set_sensitive(app.selector.get_sensitive() and family in SEARCH_FAMILIES)
+        app.find_combinations_button.set_tooltip_text(None if family in SEARCH_FAMILIES else
+            'Choose a supported reducer with a single input/output ratio.')
+    app.selector.connect('notify::selected', search_available)
+    app.selector.connect('notify::sensitive', search_available)
+    search_available()
     from components_ui import Controller as ComponentsController
     app.components = ComponentsController(app, app.tools)
     from gear_measurement_ui import Controller as MeasurementController
@@ -930,7 +1211,7 @@ def build(app, labels):
     app.backlash = BacklashController(app, app.tools)
     # Keep controller construction order for dependencies; present the approved
     # tool order using the same existing action rows and handlers.
-    for tool in ('components','search','interference','gear_measurement','backlash'):
+    for tool in ('components','interference','gear_measurement','backlash'):
         row=app.tools.controllers[tool].button.get_parent()
         app.tools.commands.remove(row)
         app.tools.commands.append(row)
@@ -949,21 +1230,6 @@ def build(app, labels):
     app.metric_cards.set_homogeneous(True)
     app.workspace_extras.append(app.metric_cards)
     app.workspace_extras.append(playback)
-    warning = Gtk.Box(spacing=10, css_classes=['warning-bar'])
-    app.warning_bar = warning
-    app.study = Gtk.Label(xalign=0, wrap=True, hexpand=True, css_classes=['study'])
-    app.study.set_lines(2)
-    app.study.set_max_width_chars(85)
-    warning.append(app.study)
-    details = Gtk.Button(label='Details', css_classes=['flat'])
-    details.connect('clicked', app.show_calculations)
-    warning.append(details)
-    app.warning_details = details
-    app.error_reveal = Gtk.Button(label='Go to field', css_classes=['flat'])
-    app.error_reveal.connect('clicked', lambda _: gui_workflow.reveal_error(app))
-    app.error_reveal.set_visible(False)
-    warning.append(app.error_reveal)
-    app.workspace_extras.append(warning)
     # Full text stays available through reports and notes, rather than occupying
     # a second permanent results area below the viewport.
     app.metrics = Gtk.Label(selectable=True)

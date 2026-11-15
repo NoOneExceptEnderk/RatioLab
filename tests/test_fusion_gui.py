@@ -225,15 +225,19 @@ class FusionGuiTests(unittest.TestCase):
 
     def test_parameter_edits_immediately_block_send_and_invalid_geometry_never_calls_client(self):
         a=self.app
+        controls = (a.export_menu, a.cad_action, a.cad_split, a.send_btn, a.fusion_send_btn)
         self.assertTrue(a.fusion_send_btn.get_sensitive())
         a.inputs['module'].set_text('unfinished')
         self.assertFalse(a.fusion_send_btn.get_sensitive())
+        self.assertTrue(all(not button.has_css_class('export-blocked') for button in controls))
         self.assertFalse(a.refresh())
+        self.assertTrue(all(button.has_css_class('export-blocked') for button in controls))
         with patch.object(module.fusion_connection,'Client') as client:
             a.send_fusion()
         client.assert_not_called()
         a.inputs['module'].set_text('2.5');a.refresh()
         self.assertTrue(a.fusion_send_btn.get_sensitive())
+        self.assertTrue(all(not button.has_css_class('export-blocked') for button in controls))
 
     def test_background_blocks_all_cad_mutations_and_restores_after_completion(self):
         a=self.app

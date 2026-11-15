@@ -28,11 +28,25 @@ def options(family):
         return result
     if family in PAIRS:
         a, b = PAIRS[family]
-        return {'forward': f'{a} → {b}', 'reverse': f'{b} → {a}'}
+        schemes = {'forward': f'{a} → {b}'}
+        if family != 'worm':
+            schemes['reverse'] = f'{b} → {a}'
+        return schemes
     return {}
 
 def default(family):
     return next(iter(options(family)), None)
+
+def migrate_saved_parameters(family, parameters):
+    """Convert a legacy saved worm arrangement at the document boundary."""
+    if family != 'worm':
+        return parameters
+    values = dict(parameters)
+    if values.get('io_scheme') == 'reverse':
+        values['io_scheme'] = 'forward'
+    values.pop('worm_static_friction', None)
+    return values
+
 
 def prepare(family, supplied):
     v = dict(supplied)
@@ -46,6 +60,8 @@ def prepare(family, supplied):
     scheme = v.get('io_scheme')
     if scheme is None:
         scheme = 'wave_circular_flex' if family == 'harmonic' and v.get('harmonic_output') == 'circular' else default(family)
+    if family == 'worm' and scheme == 'reverse':
+        raise ValueError('Worm drives support worm input and wheel output only.')
     if scheme not in opts:
         raise ValueError('Input/output arrangement unavailable for this family.')
     v['io_scheme'] = scheme
@@ -82,9 +98,9 @@ def solve(a, scheme, rpm):
 def apply(d):
     f = d.family
     v = d.values
-    from backdrivability import enforce
-    assessment = enforce(f, v)
-    if f in ('worm', 'harmonic'):
+    if f == 'harmonic':
+        from backdrivability import evaluate
+        assessment = evaluate(f, v)
         d.analysis['backdrivability'] = assessment
         if assessment['status'] != 'not_evaluated':
             d.notes.append(assessment['message'] + ' ' + assessment['limits'])
@@ -123,9 +139,10 @@ def apply(d):
             d.notes = [x for x in d.notes if not x.startswith(('Fixed ring;', 'Wave generator input;'))]
             if f == 'planetary':
                 reconfigure_planetary(d, record)
-            if f == 'cycloidal':
-                d.requirements.append('The ring/housing and pin flange have nominal interfaces for the current arrangement; size supports, seals and fasteners for the selected member.')
-        if f != 'planetary' and scheme != default(f):
+        ring_output = f == 'cycloidal' and record['stage_results'][0]['output'] == 'ring'
+        if ring_output:
+            d.requirements.append('Ring output: define the external support and frame attachment in CAD.')
+        elif f != 'planetary' and scheme != default(f):
             from mounting import coaxial
             coaxial(d, record)
         tag_members(d, record)
@@ -135,6 +152,9 @@ def apply(d):
                 old = p.name
                 p.name = p.name.replace('Shaft_input', 'Shaft_eccentric').replace('Shaft_output', 'Shaft_pincarrier').replace('Flange_output', 'Flange_pincarrier')
                 renamed[old] = p.name
+            connection = d.analysis.get('eccentric_connection')
+            if connection and 'part' in connection:
+                connection['part'] = renamed.get(connection['part'], connection['part'])
             for q in d.analysis.get('mount_interfaces', []):
                 q['anchor'] = renamed.get(q['anchor'], q['anchor'])
                 q['parts'] = [renamed.get(name, name) for name in q['parts']]
@@ -177,7 +197,8 @@ def apply(d):
     if d.analysis.get('signed_ratio') is not None:
         d.metrics.append(f"Input/output ratio {d.analysis['signed_ratio']:+.6g}:1")
     d.metrics.append('Inputs / outputs: ' + label)
-    d.notes.append('The kinematic arrangement is independent of the construction variant. Roles are saved in metadata and the BOM; no CAD motion constraints are created. Reverse configurations are kinematic relations, not a guarantee of backdrivability.')
+    if f != 'worm':
+        d.notes.append('The kinematic arrangement is independent of the construction variant. Roles are saved in metadata and the BOM; no CAD motion constraints are created. Reverse configurations are kinematic relations, not a guarantee of backdrivability.')
 
 def reconfigure_planetary(d, record):
     from mounting import planetary
@@ -187,7 +208,7 @@ def tag_members(d, record):
     f = d.family
     for p in d.parts:
         name = p.name.lower()
-        if 'bearing' in name:
+        if 'bearing' in name and not name.startswith('roller_ring_'):
             continue
         stage = 2 if name.startswith('s2_') else 1
         q = record['stage_results'][min(stage, len(record['stage_results'])) - 1]
@@ -200,15 +221,16 @@ def tag_members(d, record):
             elif any((x in name for x in ('planetcarrier', 'flange_output', 'pin_planet'))):
                 member = 'carrier'
         if f == 'cycloidal':
-            if name.startswith('disc_cycloidal'):
+            if name.startswith(('disc_cycloidal', 'bushing_disc_eccentric_')):
                 p.port = dict(stage=stage, member='disc', role='internal', rpm=q['rates_rpm']['output'], orbital_rpm=q['rates_rpm']['eccentric'])
-                p.color = (0.69, 0.59, 0.86)
+                if not p.catalog_code and not p.procurement:
+                    p.color = (0.69, 0.59, 0.86)
                 continue
             if any((x in name for x in ('eccentric', 'shaft_input'))):
                 member = 'eccentric'
             elif any((x in name for x in ('disc_cycloidal', 'pin_output', 'flange_output', 'shaft_output'))):
                 member = 'output'
-            elif any((x in name for x in ('roller_ring', 'housing', 'cover', 'seat_support'))):
+            elif name.startswith(('roller_ring_', 'bushing_ring_', 'pin_ring_', 'ring_pin_carrier')):
                 member = 'ring'
         if f == 'harmonic':
             member = 'flex' if 'flexspline' in name else 'circular' if 'circular_spline' in name else 'wave' if 'generator' in name else ''
@@ -217,5 +239,5 @@ def tag_members(d, record):
         if member:
             role = 'input' if member == q['input'] else 'output' if member == q['output'] else 'fixed'
             p.port = dict(stage=stage, member=member, role=role, rpm=q['rates_rpm'][member])
-            if not (f == 'cycloidal' and d.values.get('eccentric_design') == 'fdm_bolted' and p.procurement):
+            if not (f == 'cycloidal' and p.procurement):
                 p.color = {'input': (0.96, 0.66, 0.33), 'output': (0.23, 0.75, 0.65), 'fixed': (0.5, 0.55, 0.63)}[role]

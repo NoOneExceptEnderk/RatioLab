@@ -51,7 +51,10 @@ class CatalogTests(unittest.TestCase):
             buy = [r for r in rows if r['category'] == 'PURCHASE']
             self.assertEqual(len(buy), 1)
             self.assertEqual(buy[0]['quantity'], count)
-            self.assertTrue(any((r['category'] == 'TO BE DEFINED' for r in rows)))
+            if family == 'planetary':
+                self.assertTrue(any(r['category'] == 'TO BE DEFINED' for r in rows))
+            else:
+                self.assertTrue(any('Complete the external shafts' in text for text in d.requirements))
             self.assertEqual(sum((r['quantity'] for r in rows)), len(d.parts))
 
     def test_planet_pins_enlarge_carriers_when_needed(self):

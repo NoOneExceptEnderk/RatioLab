@@ -1,16 +1,19 @@
 # SPDX-FileCopyrightText: 2026 NoOneExceptEnderk
 # SPDX-License-Identifier: GPL-3.0-only
-"""Native File menu and centered brand must retain project and preference state."""
+"""Native title bar and File menu must retain project and preference state."""
 from copy import deepcopy
 import unittest
 from unittest.mock import patch
 import gi
 gi.require_version('Gtk','4.0')
-from gi.repository import Gtk, Gio
+from gi.repository import Gtk, Gdk, Gio
 import app as app_module
+from theme_preferences import BASE_PALETTES
 from ui_language import translate
+from updates import select_release
 import test_workspace_theme_preferences as fixtures
 from test_interference_gui import pump,wait_until
+from test_updates import release
 
 
 class HeaderLayoutTests(unittest.TestCase):
@@ -29,19 +32,19 @@ class HeaderLayoutTests(unittest.TestCase):
         while widget.get_parent() is not parent:widget=widget.get_parent()
         return widget
 
-    def assert_centered(self,a):
-        ok,b=a.header_brand.compute_bounds(a.win);self.assertTrue(ok)
-        self.assertAlmostEqual(b.get_x()+b.get_width()/2,a.win.get_width()/2,delta=1)
+    def assert_brand_before_file(self,a):
+        ok,brand=a.header_brand.compute_bounds(a.header_start);self.assertTrue(ok)
+        ok,file_menu=a.file_menu.compute_bounds(a.header_start);self.assertTrue(ok)
+        self.assertAlmostEqual(brand.get_x(),0,delta=1)
+        self.assertLessEqual(brand.get_x()+brand.get_width(),file_menu.get_x())
 
-    def test_file_top_left_centered_brand_and_theme_edited_only_in_settings(self):
+    def test_brand_before_file_and_theme_edited_only_in_settings(self):
         a=self.ready();toolbar=a.secondary_toolbar
-        self.assertIsInstance(a.header_bar,Gtk.Overlay)
         self.assertIs(a.file_menu,a.project_menu)
-        self.assertIs(a.file_menu,a.header_start.get_first_child())
         self.assertEqual(a.file_menu.get_label(),'File')
         self.assertIsInstance(a.file_menu.get_popover(),Gtk.PopoverMenu)
         self.assertFalse(a.file_menu.get_popover().get_has_arrow())
-        self.assert_centered(a)
+        self.assert_brand_before_file(a)
         self.assertIs(self.root_child(a.undo_button,toolbar),toolbar.get_first_child())
         controls=[a.undo_button,a.redo_button,a.family_chip,a.language_menu,a.settings_button]
         xs=[]
@@ -91,7 +94,7 @@ class HeaderLayoutTests(unittest.TestCase):
         a.cad_menu.popup();self.assertTrue(wait_until(a.cad_menu.get_popover().get_mapped))
         self.assertEqual(a.cad_stack.get_visible_child_name(),'compact');a.cad_menu.popdown()
 
-    def test_translated_header_center_and_native_menu_with_large_text_and_long_name(self):
+    def test_translated_header_and_native_menu_with_large_text_and_long_name(self):
         a=self.ready();before=deepcopy(a.project_snapshot());scene=a.canvas.scene;token=a.document.token
         a.project_title.set_text('A very long project filename that should ellipsize without moving RatioLab')
         for language in ('en','it','fr','ta'):
@@ -100,7 +103,7 @@ class HeaderLayoutTests(unittest.TestCase):
                 a.theme_selector.set_selected(mode)
                 for scale in (0,1,2):
                     a.text_size.set_selected(scale);pump(.14)
-                    self.assert_centered(a)
+                    self.assert_brand_before_file(a)
                     self.assertEqual(a.file_menu.get_label(),translate('File',language))
                     for widget in (a.file_menu,a.header_brand,a.project_title,a.undo_button,a.redo_button,
                                    a.family_chip,a.language_menu,a.settings_button,a.cad_split,a.export_menu):
@@ -113,6 +116,36 @@ class HeaderLayoutTests(unittest.TestCase):
                     self.assertFalse(a.theme_switch.get_mapped())
         self.assertEqual(a.project_snapshot(),before);self.assertIs(a.canvas.scene,scene)
         self.assertEqual(a.document.token,token)
+
+    def test_update_button_in_workspace_opens_existing_release_window(self):
+        a=self.ready();controller=a.updates;button=controller.button
+        self.assertFalse(button.get_mapped())
+        a.win.set_default_size(1366,768)
+        a.language.change('it')
+        a.text_size.set_selected(2)
+        controller.release=select_release([release('v0.2.5')], current='0.2.4', channel='stable')
+        controller.refresh()
+        self.assertTrue(wait_until(button.get_mapped))
+        self.assertTrue(wait_until(lambda:controller.badge_label.get_text()=='Aggiorna a 0.2.5'))
+        self.assertIsNone(controller.window)
+        for mode, theme in enumerate(('dark', 'light')):
+            a.theme_selector.set_selected(mode);pump(.15)
+            expected=Gdk.RGBA();self.assertTrue(expected.parse(BASE_PALETTES[theme]['on_accent']))
+            color=controller.badge_label.get_style_context().get_color()
+            for channel in ('red', 'green', 'blue'):
+                self.assertAlmostEqual(getattr(color,channel),getattr(expected,channel),delta=.01)
+        self.assertIs(button.get_next_sibling(),a.cad_split)
+        self.assertEqual(button.workspace_icon.glyph_name,'download')
+        self.assertTrue(button.workspace_icon.get_mapped())
+        self.assertEqual(button.workspace_icon.get_width(),button.workspace_icon.get_height())
+        self.assert_brand_before_file(a)
+        ok,badge=button.compute_bounds(a.win);self.assertTrue(ok)
+        ok,brand=a.header_brand.compute_bounds(a.win);self.assertTrue(ok)
+        self.assertLessEqual(brand.get_x()+brand.get_width(),badge.get_x())
+        button.emit('clicked')
+        self.assertTrue(wait_until(controller.window.get_mapped))
+        self.assertIs(controller.window.get_transient_for(),a.win)
+        self.assertEqual(controller.displayed_release.version,'0.2.5')
 
 
 if __name__=='__main__':unittest.main()

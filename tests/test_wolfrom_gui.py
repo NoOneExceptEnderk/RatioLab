@@ -258,7 +258,7 @@ class WolfromGuiTests(unittest.TestCase):
                 self.assertFalse(a.export_menu.get_sensitive())
                 self.assertFalse(a.motion_play.get_sensitive())
                 self.assertFalse(a.canvas.motion_valid)
-                self.assertIn('Last valid model', a.empty.get_text())
+                self.assertIn('last valid configuration', a.warning_context.get_text())
                 a.project_changed()
                 recovery = a.project_store.read_recovery(a.project_store.session, a.families)
                 self.assertEqual(recovery.current['raw']['wolfrom'][key], text)

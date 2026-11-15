@@ -29,7 +29,7 @@ Internal grooves follow the dimensions in the specified American Ring metric cat
 - **Gear with shaft-supporting bearings:** keyways and key, internal retaining rings in the bearing holders, external stops, shims and spacers in the axial stack. Fasteners connect the two bearing holders.
 - **Gear with a bearing in its bore:** outer-ring retention in the hub and spacers on the shaft. The key between that hub and shaft is omitted: the bearing must allow relative rotation.
 - **Planetary:** keyways and keys between shafts and sun gears, one per stage where space allows; keyway and key on the output end; internal stops in the selected supports/bearings and an output end retainer. Retention of planet pins in the flanges explicitly remains to be completed.
-- **Cycloidal:** internal retention of selected bearings, keyway/key and retainer on the output end, housing fasteners. The final connection of cams, pins and flange is still reported among the open requirements.
+- **Cycloidal:** internal retention of selected bearings, keyway/key and retainer on the pin-flange output end. The ring carrier fasteners and the final connections of the cams, pins and flange are specified in CAD.
 
 Keys and external retaining rings start from nominal diameters of 6, 8, 10 and 12 mm. If a shaft is not covered, the program reports the missing selection in the bill of materials without inventing a code. The smallest included type-B key is 8 mm long and requires at least 9 mm of hub. The output keyway is an interface: the hub of the accessory to be connected is not invented.
 

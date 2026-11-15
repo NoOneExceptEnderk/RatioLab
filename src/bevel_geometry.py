@@ -39,7 +39,7 @@ class SphericalProfile:
         return call('bevel_half', dict(profile=asdict(self),theta=theta))
 
     def point(self, theta, distance, side=1, phase=0):
-        if type(self) is not SphericalProfile and getattr(self,'_kernel_trace',None)!='circular':
+        if type(self) is not SphericalProfile and getattr(self,'_kernel_trace',None) not in ('circular','opposed'):
             azimuth = phase + self.trace(distance) + side * self.half_angle(theta)
             r = distance * sin(theta)
             return r * cos(azimuth), r * sin(azimuth), distance * cos(theta)
@@ -47,7 +47,7 @@ class SphericalProfile:
             distance=distance,side=side,phase=phase)))
 
     def section_point(self, theta, z, side=1, phase=0):
-        if type(self) is not SphericalProfile and getattr(self,'_kernel_trace',None)!='circular':
+        if type(self) is not SphericalProfile and getattr(self,'_kernel_trace',None) not in ('circular','opposed'):
             p = self.point(theta, z / cos(theta), side, phase)
             return p[0], p[1]
         return tuple(call('bevel_section_point', dict(profile=asdict(self),theta=theta,
@@ -80,7 +80,7 @@ def _sample(fn, lo, hi, tolerance, depth=0):
 
 
 def section(q, z, phase=0, tolerance=PROFILE_TOLERANCE):
-    if type(q) is SphericalProfile or getattr(q,'_kernel_trace',None)=='circular':
+    if type(q) is SphericalProfile or getattr(q,'_kernel_trace',None) in ('circular','opposed'):
         return [tuple(p) for p in call('bevel_section', dict(profile=asdict(q),
             z=z,phase=phase,tolerance=tolerance))]
     """One counterclockwise planar heel contour, repeated tooth by tooth."""

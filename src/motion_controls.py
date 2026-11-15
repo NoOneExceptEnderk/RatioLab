@@ -270,7 +270,6 @@ def install(app, container):
     show_phase()
     error = Gtk.Label(xalign=0, wrap=True, css_classes=['motion-input-error'])
     error.set_visible(False)
-    container.append(error)
     app.motion_rate_error = error
     app.motion_rate_editing = False
     app.motion_input_invalid = False
@@ -320,7 +319,12 @@ def install(app, container):
             app.error_field = 'input_rpm'
             entry.add_css_class('field-error')
             error.set_text(str(exc))
+            app.motion_notice_message = str(exc)
             error.set_visible(True)
+            if hasattr(app, 'update_preview_notices'):
+                app.update_preview_notices()
+                app.status.remove_css_class('error')
+                app.status_text('')
             for name in ('export_menu','send_btn','fusion_send_btn'):
                 action=getattr(app,name,None)
                 if action is not None:action.set_sensitive(False)

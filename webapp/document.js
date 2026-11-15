@@ -41,6 +41,15 @@ const contextKey = options => ['variant', 'double_style', 'configuration', 'rati
 const numeric = schema => [...schema.fields, ...schema.options.filter(f => f.type === 'number' || f.type === 'integer')];
 const fingerprint = state => JSON.stringify(state);
 
+function migrateWormDraft(state) {
+  const worm = state?.families?.worm;
+  if (!worm) return state;
+  if (worm.options.io_scheme === 'reverse') worm.options.io_scheme = 'forward';
+  delete worm.options.worm_static_friction;
+  for (const entries of Object.values(worm.contexts)) delete entries.worm_static_friction;
+  return state;
+}
+
 export class BrowserDocument extends EventTarget {
   constructor() {
     super();
@@ -88,6 +97,29 @@ export class BrowserDocument extends EventTarget {
   }
   selectFamily(family, schema) {
     this.checkpoint(); this.state.family = family; this.ensure(schema); this.changed();
+  }
+  applyProposal(schema, values) {
+    const previous = clone(this.entries);
+    const options = {};
+    for (const f of schema.options) if (f.type !== 'number' && f.type !== 'integer') {
+      options[f.key] = values[f.key] ?? f.default;
+    }
+    const entries = {};
+    for (const f of numeric(schema)) {
+      if (!Object.hasOwn(values, f.key)) continue;
+      const old = previous[f.key], parsed = numberValue(old, f);
+      const source = values[SOURCE_KEY]?.[f.key];
+      const oldSource = old?.typed && parsed.value === values[f.key]
+        && decimalIdentity(old.text) !== decimalIdentity(String(parsed.value))
+        ? old.text.trim().replace(',', '.') : old?.source;
+      entries[f.key] = parsed.value === values[f.key] && JSON.stringify(oldSource) === JSON.stringify(source)
+        ? old : automatic(values[f.key], source);
+    }
+    this.checkpoint();
+    this.draft.options = options;
+    this.draft.contexts[contextKey(options)] = entries;
+    this.ensure(schema, values);
+    this.changed();
   }
   editNumber(key, text) {
     this.checkpoint(`${this.family}:${contextKey(this.draft.options)}:${key}`);
@@ -146,11 +178,16 @@ export class BrowserDocument extends EventTarget {
   }
   replace(family, schema, values = {}, name = 'Untitled design', {recovery, quality, component_sheets} = {}) {
     this.identity = id(); ++this.revision; this.name = name;
-    this.state = recovery ? clone(recovery.state) : {family, families: {}};
+    this.state = recovery ? migrateWormDraft(clone(recovery.state)) : {family, families: {}};
     if (!recovery && quality && Object.keys(quality).length) this.state.quality=clone(quality);
     if (!recovery && component_sheets && Object.keys(component_sheets).length) this.state.component_sheets=clone(component_sheets);
     this.ensure(schema, values); this.past = []; this.future = []; this.coalesce = null;
-    this.saved = recovery ? recovery.saved : fingerprint(this.state); this.changed();
+    this.saved = recovery ? recovery.saved : fingerprint(this.state);
+    if (recovery && this.state.families.worm) {
+      try { this.saved = fingerprint(migrateWormDraft(JSON.parse(this.saved))); }
+      catch { /* An invalid saved fingerprint leaves the recovered draft dirty. */ }
+    }
+    this.changed();
   }
   setQuality(value) {
     if (!value || typeof value !== 'object' || Array.isArray(value) || Object.entries(value).some(([key,v]) => !['preview_mm','export_mm'].includes(key) || typeof v !== 'number' || !Number.isFinite(v) || v <= 0)) throw Error('Surface thresholds must be positive finite numbers in mm.');

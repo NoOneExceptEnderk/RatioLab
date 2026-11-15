@@ -47,7 +47,7 @@ const languageModule = new vm.SourceTextModule('export const LANGUAGES={}; expor
 await languageModule.link(()=>{}); await languageModule.evaluate();
 modules['./ui-language.js']=languageModule;
 
-for(const name of ['document','viewer','preferences','settings','controls','themes'])await load('./'+name+'.js');
+for(const name of ['document','viewer','bom-view','preferences','settings','controls','themes','ratio-display'])await load('./'+name+'.js');
 function dependency(name,value){return new vm.SyntheticModule([name],function(){this.setExport(name,value);});}
 modules['./engine-client.js']=dependency('EngineClient',class{});
 modules['./tools.js']=dependency('initTools',()=>{});

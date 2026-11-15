@@ -120,6 +120,8 @@ def apply_kinematics(design):
                                        shaft_rates_rpm=speed, input_shaft=n if reverse else 0,
                                        output_shaft=0 if reverse else n)
     for part in design.parts:
+        if 'shaft' not in part.port:
+            continue
         shaft = part.port['shaft']
         role = 'input' if shaft == (n if reverse else 0) else 'output' if shaft == (0 if reverse else n) else 'intermediate'
         part.port.update(member=f'shaft_{shaft}', role=role, rpm=speed[shaft])

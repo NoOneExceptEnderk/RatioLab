@@ -107,7 +107,7 @@ class UpdateFlowTests(unittest.TestCase):
             self.thread_ids.append(threading.get_ident());return self.prepared
         def do_detect():
             self.thread_ids.append(threading.get_ident());return self.installation
-        controller=update_ui.Controller(self.app,self.app.header,fetch=fetch or (lambda:[self.record]),
+        controller=update_ui.Controller(self.app,self.app.header.pack_end,fetch=fetch or (lambda:[self.record]),
             launch=self.opened.append,detect=detect or do_detect,download=download or do_download,
             prepare=prepare or do_prepare,cache=self.folder/'cache')
         self.controllers.append(controller);return controller

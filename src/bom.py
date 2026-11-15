@@ -7,6 +7,11 @@ from math import hypot
 from catalog import BEARINGS
 
 
+def presentation(design):
+    from bom_view import build
+    return build(design)
+
+
 def port_properties(p):
     if not p.port:return {}
     names={'sun':'Sun','carrier':'Carrier','ring':'Ring','eccentric':'Eccentric','output':'Pin flange','wave':'Wave generator','flex':'Flexspline','circular':'Circular spline','cam':'Cam','cage':'Cage','case':'Housing','satellite_upper':'Upper planet','disc':'Orbiting disc'}
@@ -78,10 +83,20 @@ def as_text(bom):
         lines+=['MACHINING PRESENT IN THE MODEL']
         names={'groove_external':'External retaining ring groove','groove_internal':'Internal retaining ring groove','keyway_shaft':'Shaft keyway','keyway_hub':'Hub keyway','clearance_hole':'Through hole','spacer_dimensions':'Spacer to manufacture'}
         names.update(through_bolt_pair='Two off-axis through holes',bolt_head_counterbore='Recessed bolt head and washer seats')
+        names.update(d_shaft_bore='D-shaped bore', keyed_shaft_bore='Bore with through keyway')
         for row in bom['machining']:
             op=row['operation'];details=[]
             if op['type']=='profile_indexing':
                 lines.append(f'  {row["position"]} · Internal profile orientation {op["angle_deg"]:.6f}° relative to {op["datum"]}')
+                continue
+            if op['type'] in ('d_shaft_bore', 'keyed_shaft_bore') and 'port' in op:
+                dimensions = [f"shaft Ø {op['diameter_mm']:g} mm", f"diametral allowance {op['diametral_allowance_mm']:g} mm"]
+                if 'flat_depth_mm' in op:
+                    dimensions.append(f"flat depth {op['flat_depth_mm']:g} mm")
+                else:
+                    dimensions.append(f"key {op['key_width_mm']:g} × {op['key_height_mm']:g} mm")
+                dimensions.append(f"clocking {op['clocking_deg']:g}°")
+                lines.append(f'  {row["position"]} · {names[op["type"]]} · '+', '.join(dimensions))
                 continue
             for key,label in [('diameter','Ø'),('width','width'),('b','b'),('depth','depth'),('inner_diameter','Inner Ø'),('outer_diameter','Outer Ø'),('length','length'),('z0','start z'),('z1','end z')]:
                 if key in op:details.append(f'{label} {op[key]:.3f}')

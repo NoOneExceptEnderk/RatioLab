@@ -19,7 +19,7 @@ const nodes=new Map();const el=id=>{if(!nodes.has(id))nodes.set(id,new Element()
 globalThis.document=Object.assign(new EventTarget(),{getElementById:el,querySelectorAll:()=>[],activeElement:null});
 globalThis.localStorage={getItem:()=>null};
 let nextFrame=0;globalThis.requestAnimationFrame=()=>++nextFrame;globalThis.cancelAnimationFrame=()=>{};
-const {modules,load}=webModules(root);
+const {modules,load,resolve}=webModules(root);
 for(const name of ['document','preferences','settings','controls','themes'])await load('./'+name+'.js');
 const stub=values=>new vm.SyntheticModule(Object.keys(values),function(){for(const [key,value] of Object.entries(values))this.setExport(key,value);});
 Object.assign(modules,{
@@ -44,7 +44,7 @@ doc.addEventListener('change',onDocumentChange);
 export function state(){return {phase,design,posePending,ratePending,rateEditing,viewer};}
 export function slider(active){speedSliderActive=active;}
 `;
-const app=new vm.SourceTextModule(source);await app.link(path=>modules[path]);await app.evaluate();const a=app.namespace;
+const app=new vm.SourceTextModule(source);await app.link(resolve);await app.evaluate();const a=app.namespace;
 const settle=()=>new Promise(resolve=>setImmediate(resolve));
 const gates=[];let canonical={input_rpm:60};let designId=1;
 const engine={request(method,payload){return new Promise(resolve=>gates.push({method,payload,resolve}));}};

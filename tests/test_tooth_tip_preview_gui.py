@@ -191,7 +191,7 @@ class ToothTipPreviewGuiTests(unittest.TestCase):
         a.inputs['semitopping_mm'].set_text('4')
         self.assertTrue(wait_until(lambda: not a.pending))
         self.assertIs(a.canvas.tooth_detail, detail)
-        self.assertIn('Last valid', a.empty.get_text())
+        self.assertIn('last valid configuration', a.warning_context.get_text())
         self.assertFalse(a.export_menu.get_sensitive())
         self.edit(a, 'semitopping_mm', '.15')
         self.assertIsNot(a.canvas.tooth_detail, detail)

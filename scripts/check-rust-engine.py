@@ -26,7 +26,7 @@ CORE=(
     'test_internal_pair_correction','test_cylindrical_validation',
     'test_tooth_profiles','test_tooth_thickness','test_tooth_tips','test_tooth_tip_preview','test_tooth_view_geometry','test_qol_fields_camera','test_engineering',
     'test_motion','test_motion_rates','test_stl_export',
-    'test_parallel_multistage','test_rack_geometry','test_project_document','test_backlash_solver',
+    'test_parallel_multistage','test_rack_geometry','test_bevel_opposed_traces','test_project_document','test_backlash_solver',
     'test_webapp_project_import',
 )
 GUI=('test_geometry_quality_gui','test_geometry_refresh_gui','test_window_remap_gui',

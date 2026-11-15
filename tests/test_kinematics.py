@@ -60,7 +60,7 @@ class KinematicTests(unittest.TestCase):
         self.assertEqual(b.analysis['signed_ratio'], -30)
 
     def test_reverse_pairs_and_no_stale_forces(self):
-        for family in ('parallel', 'internal', 'worm'):
+        for family in ('parallel', 'internal'):
             a = generate(family)
             b = generate(family, {'io_scheme': 'reverse'})
             self.assertAlmostEqual(a.analysis['signed_ratio'] * b.analysis['signed_ratio'], 1)
@@ -68,9 +68,6 @@ class KinematicTests(unittest.TestCase):
             self.assertTrue(any((p.port.get('role') == 'output' for p in b.parts)))
             for q in b.analysis.get('meshes', []):
                 self.assertNotIn('forces', q)
-        unknown = generate('worm', {'io_scheme': 'reverse'})
-        self.assertEqual(unknown.analysis['backdrivability']['status'], 'indeterminate')
-        self.assertTrue(any('static tooth friction is missing' in note for note in unknown.notes))
 
     def test_roundtrip_bom_and_ports(self):
         d = generate('planetary', {'variant': 'two_stage_double', 'io_scheme': 'sun_ring_carrier', 'io_scheme2': 'carrier_sun_ring'})

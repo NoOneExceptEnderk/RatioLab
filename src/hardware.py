@@ -264,13 +264,18 @@ def apply_hardware(d):
         elif v['hardware_shims']:shim(d,output,start,'Shim_output')
         d.requirements.append('Planet pins: flange retention must still be completed; output end rings do not retain every internal support.')
     elif d.family=='cycloidal':
-        output=next(p for p in d.parts if p.name=='Shaft_output');cover=next(p for p in d.parts if p.name=='Cover_output');start=cover.z+cover.width+.5
+        output = next(p for p in d.parts if p.name == 'Shaft_output')
+        support = next((p for p in d.parts if p.name == 'Bearing_block_output'), None)
+        flange = support or next(p for p in d.parts if p.name == 'Flange_output')
+        start = flange.z + flange.width + .5
         if v['hardware_keys']:key_pair(d,output,start=start)
         if v['hardware_retaining']:external_stop(d,output,max(start+9,output.z+output.width-1),True,'Retainer_output')
         elif v['hardware_shims']:shim(d,output,start,'Shim_output')
+        if v['hardware_bolts']:
+            d.requirements.append('Specify ring carrier mounting fasteners in CAD.')
         d.requirements.append('Eccentric cams, pins and output flange connection: size the remaining fasteners and retainers.')
     if v['hardware_retaining']:internal_stops(d)
-    if v['hardware_bolts']:fasteners(d)
+    if v['hardware_bolts'] and d.family != 'cycloidal':fasteners(d)
     for p in d.parts:
         if p.machining:rebuild(p)
     count=sum(bool(p.procurement) for p in d.parts)

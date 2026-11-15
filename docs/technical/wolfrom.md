@@ -114,10 +114,14 @@ unresolved. None of these checks certifies cutter access or manufacturing.
 Adjacent planet tip circles, bores, axial gaps and nominal carrier/pin geometry
 must fit. The model describes ideal motion and nominal solids. Strength,
 durability, efficiency, elastic load distribution, bearing selection and
-physical backdrivability are not predicted from a high reduction ratio. The
-finite combination-search and interactive gauge tools do not currently include
-this family; per-gear nominal metrology remains available in its calculation
-report.
+physical backdrivability are not predicted from a high reduction ratio. Finite combination search varies the four independent tooth counts and, in
+explicit grids, the compound planet count. For a desired signed ratio i, the
+desktop quick search estimates the output ring count from
+`Ro = Rf P2 / (P1 (1 − (1 + Rf/S)/i))` and tests nearby integers. It retains
+only candidates that regenerate through the normal phase, root, clearance and
+contact checks. The reported diameter encloses the generated solids around
+world +Z in the nominal pose. Interactive gauge measurements and per-gear
+nominal metrology use the generated tooth profiles.
 
 ## Independent numerical example
 

@@ -118,6 +118,14 @@ assert.equal(a.doc.entries.input_rpm.text,'31,1234567890123');assert.equal(a.doc
 assert.equal(a.testState().design,initial);assert.equal(initial.buffers,mesh);assert.equal(a.doc.dirty,false);
 assert.equal(a.testState().phase,1.234);assert.equal(a.testState().playing,true);
 
+// Repairing an incomplete speed to its accepted value still commits the rate.
+reset();edit('-');assert.equal(el('preview-error').hidden,false);
+assert.equal(el('export-document').disabled,true);assert.equal(el('export-document').dataset.blocked,'true');
+edit(String(fixture.values.input_rpm));assert.equal(await a.commitRates(),true);
+assert.deepEqual(calls.map(c=>c.method),['rates']);
+assert.equal(a.currentValid(),true);assert.equal(el('preview-error').hidden,true);
+assert.equal(el('export-document').disabled,false);assert.equal(el('export-document').dataset.blocked,'false');
+
 // Incomplete text stays visible and blocks every source download path.
 reset();edit('-');const validRate=a.testState().design.values.input_rpm;
 assert.equal(await a.saveProject(),false);assert.equal(await a.runExport('stl'),false);await a.exportDialog();

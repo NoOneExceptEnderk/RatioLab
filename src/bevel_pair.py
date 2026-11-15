@@ -6,12 +6,14 @@ Custom planar blanks, not a standard manufacturing tooth system. See
 docs/technical/bevel-pair.md for reference equations, frames and limits.
 """
 from dataclasses import dataclass, asdict
+from math import cos
 from rust_geometry import call, call_geometry
 from bevel_geometry import SphericalProfile, PROFILE_TOLERANCE
 
 VARIANTS = {'straight': 'Straight teeth · 90° shafts',
             'spiral': 'Spiral teeth · 90° shafts',
-            'zerol': 'Zerol-style · circular trace'}
+            'zerol': 'Zerol-style · circular trace',
+            'herringbone': 'Herringbone'}
 TRACE_TOLERANCE = .003
 
 SPECS = [
@@ -33,11 +35,11 @@ CATALOG_REASON = ('Bevel pairs generate two bored gear blanks. Design shafts, '
 
 def trace_specs(variant):
     fields = []
-    if variant == 'spiral':
+    if variant in ('spiral', 'herringbone'):
         fields.append(('spiral_angle', 'Unsigned spiral angle [°]', 35, 0, 45, 1))
     elif variant == 'zerol':
         fields.append(('trace_radius', 'Developed trace curvature radius [mm]', 50, 1, 1000, 1))
-    if variant in ('spiral', 'zerol'):
+    if variant in ('spiral', 'zerol', 'herringbone'):
         fields.append(('spiral_hand', 'Pinion local trace hand (−1 / +1)', 1, -1, 1, 2))
     return fields
 
@@ -58,7 +60,22 @@ class CircularProfile(SphericalProfile):
     def derivative_bounds(self, low, high):return tuple(self._call('derivative_bounds',low=low,high=high))
 
 
+@dataclass(frozen=True)
+class OpposedProfile(SphericalProfile):
+    """Paired opposite-hand logarithmic traces evaluated in Rust."""
+    opposed_trace: dict
+    _kernel_trace = 'opposed'
+
+    def trace(self, distance):
+        return call('bevel_pair_generator', dict(action='trace', profile=asdict(self), distance=distance))
+
+    def section_trace(self, z, theta):
+        return self.trace(z / cos(theta))
+
+
 def _profile(p):
+    if 'opposed_trace' in p:
+        return OpposedProfile(**p)
     return (CircularProfile if 'mean_distance' in p else SphericalProfile)(**p)
 
 
@@ -106,4 +123,7 @@ def build(d):
         d.notes.append('Zerol-style: circular tooth trace on the developed pitch cone, tangent to the generator at mean face distance. '
                        'Custom spherical involute flanks, not the industrial Gleason octoidal profile, cutter settings or crowning. '
                        'Reported engagement is a conservative lower bound; marginal valid geometries can be refused.')
+    if variant == 'herringbone':
+        d.notes.append('The herringbone trace reverses hand smoothly at a shared spherical distance. '
+                       'The nominal geometry does not determine thrust or load sharing.')
     d.requirements.append(CATALOG_REASON)

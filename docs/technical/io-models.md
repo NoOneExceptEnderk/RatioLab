@@ -2,7 +2,7 @@
 
 # Models adapted to input and output connections
 
-The **Drive · input and output** panel also modifies the geometric connections of alternative arrangements. The base configurations retain the existing models and compatibility.
+The **Drive · input and output** panel selects which members drive the mechanism, provide the output and attach to the frame. It also adapts the geometric connections.
 
 <a id="cosa-cambia"></a>
 
@@ -12,7 +12,7 @@ The **Drive · input and output** panel also modifies the geometric connections 
 |---|---|
 | Planetary, including double-helical | Shafts and retainers that assumed a fixed ring are removed; independent hubs for the sun, carrier and ring. Carrier passages leave the central shaft clear. Old covers that would intersect the new mounts are removed |
 | Two-stage planetary | Output of the first stage and input of the second connected by two hubs and an intermediate plate: the connection changes with the selected members. External mounts and fixed members remain independent |
-| Single-/double-disc cycloidal | Connections to the eccentric shaft, pin flange and ring housing. Incompatible old shafts and covers are removed for the moving housing. The roller seat follows the ring member |
+| Single-/double-disc cycloidal | The ring wall spans the disc stack. Plain pins are integral circular lobes. Optional roller bearings use pockets. Ring output uses the solid ring and leaves the external support and frame attachment to CAD |
 | Harmonic, cup/flat cup/hat | Flexspline mount only on the bottom/diaphragm or rigid flange; generator shaft and annular ring mount on the open side. The flexible toothed part is not treated as a rigid hub |
 
 
@@ -28,18 +28,15 @@ Hubs touch the face of the indicated member or occupy its bore as a nominal shaf
 
 When you choose a new arrangement with adapted mounts, **Supports** is enabled to show them. You can hide them again. Preview, STEP, STL and bill of materials use the same solids; JSON and metadata retain the existing arrangement identifiers. The JSON report contains `mount_interfaces`, with member, role, supporting part, axis and dimensions; `interstage_mounting` describes the connection between the two stages.
 
-Alternative planetary and cycloidal arrangements require manual dimensions and automatic hardware disabled: the old standard seats assume a fixed ring. The panel provides a button for switching to manual dimensions.
+Alternative planetary and cycloidal arrangements use manual shaft dimensions. The panel provides a button for switching to manual dimensions. Cycloidal ring rollers are selected independently in Assembly.
 
 <a id="limiti-meccanici"></a>
 
 ## Mechanical limits
 
-Worm wheel input is checked against the explicit static tooth friction and
-reference-cylinder geometry. Known static self-locking requests are refused;
-unknown friction remains an explicitly indeterminate ideal relation. Output-driven
-strain-wave arrangements require measured hardware breakaway data before a
-physical conclusion can be drawn. The shared check also applies to configuration
-files and headless operations. See the [criterion and limits](calculations.md#static-worm-backdrivability).
+Worm drives use worm input and wheel output. Output-driven strain-wave
+arrangements require hardware-specific breakaway data. See
+[Strain-wave backdrivability](calculations.md#strain-wave-backdrivability).
 
 These are **nominal mounts**, not industrial joints already sized for service. The holes are actually present, but do not represent a selection of commercial bolts. Torque transfer between shaft and hub (key, spline, clamping or another method) remains to be defined, together with tolerances, bearings, axial retainers and frame. Contact between two solids does not automatically create a CAD constraint.
 

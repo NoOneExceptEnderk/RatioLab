@@ -1,6 +1,6 @@
 # RatioLab
 
-![RatioLab](../../src/ratiolab_resources/branding/ratiolab-logo-dark.png)
+![கோள் பற்சக்கரக் குறைப்பான் காட்டும் RatioLab பதாகை](../../assets/screenshots/ratiolab-banner.png)
 
 [![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/X0M22AB2SK)
 
@@ -9,8 +9,6 @@
 [பதிவிறக்கம்](#download-and-install) · [பயனர் வழிகாட்டி (ஆங்கிலத்தில்)](../user-guide.md) · [English](../../README.md) · [Italiano](../../README.it.md) · [சிக்கலைத் தெரிவிக்க](https://github.com/NoOneExceptEnderk/RatioLab/issues) · [Discord](https://discord.gg/G8NVHNg6J)
 
 **மொழிகள்:** [English](../../README.md) · [Italiano](../../README.it.md) · [Español](es.md) · [Français](fr.md) · [Deutsch](de.md) · [Português (Portugal)](pt.md) · [Русский](ru.md) · [简体中文](zh-CN.md) · **தமிழ்**
-
-![RatioLab பணிப்பகுதி](../../assets/screenshots/workspace.png)
 
 <a id="download-and-install"></a>
 

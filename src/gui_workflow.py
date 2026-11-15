@@ -13,7 +13,7 @@ CATALOG = {'spur': ('Spur gear', 'A single gear: choose the tooth count, module 
 ADVANCED = {'pressure', 'backlash', 'profile_shift', 'addendum', 'dedendum', 'clearance', 'assembly_clearance', 'face_addendum', 'output_clearance', 'profile_tolerance', 'wave_clearance', 'wave_factor'}
 CATALOG['differential'] = ('Bevel differential', 'Spherical involute gears: wrist with two inputs or classic carrier input with two side outputs.')
 CATALOG['wolfrom'] = ('Wolfrom / 3K reducer', 'Sun input, first ring fixed, second ring output. Two rigidly joined planet rims.')
-CATALOG['bevel'] = ('Bevel gear pair', 'Straight, spiral or circular Zerol-style tooth traces on 90° shafts. Custom spherical involute flanks, independent bores and reversible ports.')
+CATALOG['bevel'] = ('Bevel gear pair', 'Straight, spiral, Zerol-style or herringbone teeth on 90° shafts. Spherical involute flanks and reversible ports.')
 CATALOG['rack'] = ('Rack and pinion','Finite linear rack with spur, helical or double-helical teeth and a matching pinion. Shared motion and export geometry.')
 CATALOG['face'] = ('Face gear pair','Generated face wheel with 90° shaft directions and adjustable offset. Spur, helical or joined/separated double-helical pinion.')
 CATALOG['hypoid'] = ('Hypoid gear pair', 'Offset 90° shafts with a pinion generated from a custom spiral master wheel. Supported offset up to 6% of reference cone distance; geometry limits are checked.')
@@ -369,6 +369,7 @@ def install_sections(app, left):
         ('loads','Nominal operating loads','motion',False),
         ('bearings','Bearings & fits','assembly',True),
         ('hardware','Standard hardware','assembly',False),
+        ('shaft_connections','Shaft connections','assembly',False),
         ('housing','Housing & flanges','assembly',True),
     ]:
         section = (app.io_frame if key=='io' else Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
@@ -396,6 +397,12 @@ def install_sections(app, left):
     app.fields.set_visible_child_name('geometry')
 
 
+def configure_header_popup(popup):
+    popup.set_has_arrow(False)
+    popup.set_halign(Gtk.Align.END)
+    popup.set_offset(0, 8)
+
+
 def install_cad(app):
     app.active_cad = None
     app.fusion_has_document = False
@@ -405,10 +412,8 @@ def install_cad(app):
     app.cad_menu.set_tooltip_text('Choose and connect a CAD')
     app.cad_split.append(app.cad_action)
     app.cad_split.append(app.cad_menu)
-    popup = Gtk.Popover(css_classes=['cad-popover'])
-    popup.set_has_arrow(False)
-    popup.set_halign(Gtk.Align.END)
-    popup.set_offset(0,8)
+    popup = Gtk.Popover(css_classes=['header-popover', 'cad-popover'])
+    configure_header_popup(popup)
     app.cad_popup_open=False
     stack=Gtk.Stack(hhomogeneous=False,vhomogeneous=False)
     stack.set_size_request(266,-1)
@@ -420,7 +425,7 @@ def install_cad(app):
     card_view.set_child(stack)
     popup.set_child(card_view)
     compact=Gtk.Box(orientation=Gtk.Orientation.VERTICAL,spacing=0)
-    compact.append(Gtk.Label(label='CAD Connections',xalign=0,css_classes=['cad-menu-title']))
+    compact.append(Gtk.Label(label='CAD Connections',xalign=0,css_classes=['header-menu-title']))
     app.cad_compact_buttons={};app.cad_compact_status={}
     app.cad_pending_connection=None
     app.cad_connection_rows=[]
@@ -436,7 +441,7 @@ def install_cad(app):
         row.append(connect);compact.append(row)
         app.cad_compact_buttons[key]=connect;app.cad_compact_status[key]=status
         app.cad_connection_rows.append(row)
-    footer=Gtk.Box(orientation=Gtk.Orientation.VERTICAL,css_classes=['cad-menu-footer'])
+    footer=Gtk.Box(orientation=Gtk.Orientation.VERTICAL,css_classes=['header-menu-footer'])
     app.cad_setup_button=Gtk.Button(css_classes=['flat'])
     app.cad_setup_button.update_property([Gtk.AccessibleProperty.LABEL],['Setup & connection status'])
     footer_content=Gtk.Box(spacing=6)
@@ -705,9 +710,9 @@ def geometry_groups(app, specs):
                            for stage in (1,2,3)
                            for key in ('pinion','wheel','module','width','helix','gap','pressure','backlash','profile_shift','center_extra'))
     order = {key: i for i, key in enumerate(main_order)}
-    app.sections['housing'][0].set_label('Shaft layout' if multistage else 'Housing & flanges')
     specs = sorted(specs, key=lambda s: order.get(s[0], len(order)))
-    app.sections['housing'][0].set_label('Shaft layout' if multistage else 'Housing & flanges')
+    app.sections['housing'][0].set_label('Shaft layout' if multistage else
+                                        'Ring carrier & flanges' if app.family == 'cycloidal' else 'Housing & flanges')
     app.field_feedback, app.linked_notes, app.field_containers = {}, {}, {}
     app.input_geometry_groups = {}
     app.geometry_derived = {}
@@ -725,6 +730,9 @@ def geometry_groups(app, specs):
         if app.family=='cycloidal' and key.startswith('eccentric_'):
             from printed_shaft import direct_field_active
             if not direct_field_active(key, app.option_values.get('eccentric_design')):continue
+        from shaft_connections import field_active, field_port
+        connection_port = field_port(key)
+        if connection_port and not field_active(key, app.option_values):continue
         if key in inactive or key=='input_rpm' or app.family=='differential' and key=='spiral_hand' or (key.startswith('print_') and app.option_values.get('eccentric_design')!='fdm_bolted'):
             continue
         page = 'geometry'
@@ -738,6 +746,8 @@ def geometry_groups(app, specs):
             target, page = app.sections['bearings'][1], 'assembly'
         elif app.family=='cycloidal' and key.startswith('eccentric_'):
             target, page = app.eccentric_design_box, 'assembly'
+        elif connection_port:
+            target, page = app.shaft_connection_fields[connection_port], 'assembly'
         elif multistage and (key.startswith('layout_angle') or key in ('stage_gap','hub_wall','assembly_clearance')):
             target, page = app.sections['housing'][1], 'assembly'
         elif multistage and re.fullmatch(r'(pinion|wheel|module|width|helix|gap|pressure|backlash|profile_shift|center_extra)([23]?)', key):
@@ -1053,11 +1063,17 @@ def update_geometry_warning(app, design):
         app.family_hint.set_text(notice)
         app.family_hint.set_visible(bool(notice))
     if hasattr(app, 'warning_bar'):
-        app.warning_bar.remove_css_class('invalid')
+        if hasattr(app, 'warning_context'):
+            app.warning_context.set_visible(False)
+        app.geometry_notice_messages = tuple(warnings) or ((notice,) if notice else ())
         app.warning_bar.set_visible(bool(message))
         app.warning_details.set_visible(True)
         app.warning_details.set_tooltip_text(message)
         app.study.set_tooltip_text(message)
+        if hasattr(app, 'geometry_error_bar'):
+            app.geometry_error_bar.set_visible(False)
+        if hasattr(app, 'update_preview_notices'):
+            app.update_preview_notices()
 
 
 def action(menu, title, description, callback):
@@ -1073,18 +1089,43 @@ def action(menu, title, description, callback):
 def install_exports(app):
     app.export_menu = Gtk.MenuButton(label='Export…')
     app.export_menu.add_css_class('primary')
-    popup = Gtk.Popover()
+    # Nested dropdowns can leave GTK's outer popup grab out of sync. Let
+    # the main window dismiss Export and keep the menu button's own toggle.
+    popup = Gtk.Popover(autohide=False, css_classes=['header-popover', 'export-popover'])
+    configure_header_popup(popup)
+    outside_click = Gtk.GestureClick(button=0, propagation_phase=Gtk.PropagationPhase.CAPTURE)
+    def dismiss_outside(gesture, _count, x, y):
+        if not popup.get_mapped():
+            return
+        target = app.win.pick(x, y, Gtk.PickFlags.DEFAULT)
+        if target is None or target is app.export_menu or target.is_ancestor(app.export_menu):
+            return
+        gesture.set_state(Gtk.EventSequenceState.CLAIMED)
+        popup.popdown()
+    outside_click.connect('pressed', dismiss_outside)
+    app.win.add_controller(outside_click)
+    escape = Gtk.EventControllerKey(propagation_phase=Gtk.PropagationPhase.CAPTURE)
+    def dismiss_on_escape(_, key, _code, _state):
+        if key != Gdk.KEY_Escape or not popup.get_mapped():
+            return False
+        focus = app.win.get_focus()
+        if focus is not None and isinstance(focus.get_native(), Gtk.Popover) and focus.get_native() != popup:
+            return False
+        popup.popdown()
+        return True
+    escape.connect('key-pressed', dismiss_on_escape)
+    app.win.add_controller(escape)
     body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
-    for setter in (body.set_margin_start, body.set_margin_end, body.set_margin_top, body.set_margin_bottom):
-        setter(12)
     layout = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
     popup.set_child(layout)
-    scroll = Gtk.ScrolledWindow(max_content_height=390, propagate_natural_height=True)
+    scroll = Gtk.ScrolledWindow(min_content_width=266, max_content_width=266,
+                                max_content_height=390, propagate_natural_width=True,
+                                propagate_natural_height=True)
     scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
     layout.append(scroll)
     scroll.set_child(body)
     app.export_menu.set_popover(popup)
-    scope_label = text('Export scope', 'step-title')
+    scope_label = text('Export scope', 'header-menu-title')
     body.append(scope_label)
     app.export_scope = choice_dropdown(['Complete assembly', 'Selected components'])
     scope_label.set_mnemonic_widget(app.export_scope)
@@ -1161,13 +1202,16 @@ def install_exports(app):
         app.export_format.set_selected(next(i for i, item in enumerate(formats) if item[0] == kind))
         update_scope()
     app.open_export = open_export
-    footer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8, margin_start=12, margin_end=12, margin_bottom=12)
+    footer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8,
+                     css_classes=['header-menu-footer'])
     layout.append(footer)
-    footer.append(Gtk.Separator())
     footer.append(text('Destination folder', 'field-label'))
     app.output_label = text(str(app.output_dir))
+    app.output_label.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
+    app.output_label.set_width_chars(1)
     footer.append(app.output_label)
-    folders = Gtk.Box(spacing=6)
+    folders = Gtk.FlowBox(selection_mode=Gtk.SelectionMode.NONE, column_spacing=6,
+                          row_spacing=4, max_children_per_line=2)
     footer.append(folders)
     choose = Gtk.Button(label='Change folder…')
     choose.connect('clicked', lambda _: choose_output(app))
@@ -1232,9 +1276,10 @@ def install_shortcuts(app):
     from keyboard_shortcuts import Controller
     app.keyboard = Controller(app)
 
-def show_report(app, title, content):
+def show_report(app, title, content, *, parent=None):
     """Browsable report with text search, selection and copying."""
-    win = Gtk.Window(title=title, transient_for=app.win, application=app)
+    win = Gtk.Window(title=title, transient_for=parent or app.win, application=app,
+                     modal=parent is not None, destroy_with_parent=parent is not None)
     win.set_default_size(850, 650)
     win.add_css_class('reducers')
     body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)

@@ -6,6 +6,75 @@ published packages and their verification results.
 
 ## Unreleased
 
+## 0.2.5 — 2026-11-15
+
+### Added
+
+- **Tools → Bill of materials** links the additional component table to a
+  3D view for all 15 families on desktop and web. The selected parts are
+  opaque within a nearly transparent assembly. Rows show nominal quantities
+  and sizes or identify connections to complete in CAD.
+
+- **Assembly → Bearings & fits** adds optional bushings for planetary and
+  Wolfrom planets, the classic differential spider, cycloidal eccentrics,
+  cylindrical gear shaft supports, and worm journals. Cycloidal output pins
+  can use separate replaceable sleeves.
+
+- **Cycloidal ring rollers** can use igus cylindrical bushings in separate
+  roller shells. The model and bill of materials include one bushing per pin
+  per disc.
+
+- **Find combinations** opens below the model catalog on desktop and in the
+  browser. Search by ratio and optional assembly size, preview and apply a
+  proposal in one Undo step, or open the advanced search from the panel. The
+  shortcut replaces the duplicate Tools entry.
+- **Wolfrom / 3K** tooth counts are searchable in the quick search on desktop
+  and in the browser, and through explicit grids on desktop, web and MCP.
+
+- Select D-shaped or keyed through-bores for external shafts on compatible
+  reducer inputs and outputs, independently of standard hardware.
+
+### Changed
+
+- **README banner** replaces the separate workspace screenshot in all nine languages.
+- **Cycloidal bearing colors** match across roller, shaft and eccentric bearings in previews and CAD exports.
+- Cycloidal drives use a ring with integral roller lobes for plain pins, or a
+  ring with pockets for optional catalog bearings. Ring output uses the
+  solid ring and leaves its external mounting to CAD.
+- **Bevel gear pair** adds **Herringbone** teeth with engagement checks and CAD
+  exports on desktop and in the browser. Projects saved with the experimental
+  grooved variant need a supported tooth form.
+- Show desktop Display options in a compact right-hand preview panel styled like Tools.
+
+- Show model warnings and validation errors as notifications in the lower-right
+  corner of the 3D preview on desktop and web.
+- Close preview notifications with × and reopen them from separate warning and
+  error counters.
+- Mark export and desktop CAD send controls with a red error icon when model
+  validation blocks export.
+- Keep preview warnings and errors in the 3D viewport without repeating them
+  in the footer.
+- The desktop header highlights available updates with an accent-colored
+  button that opens the existing release notes and updates window.
+- The desktop title bar places the compact RatioLab logo and name before File.
+- Worm drives use worm input and wheel output. Open older wheel-driven
+  projects with worm input and retire the static friction control.
+
+### Fixed
+
+- Match the desktop Export menu to the compact CAD Connections panel.
+- Dismiss the desktop Export menu by clicking Export again or clicking outside
+  after choosing the export scope or format.
+- Keep desktop component selection and surface measurement responsive on dense
+  3D previews by testing sampled facets directly in the geometry kernel.
+- **Section view** fills the cut through solid material while preserving bores
+  and gaps on desktop and in the browser.
+- **Exploded view** uses component bounds to separate the assembly on desktop
+  and in the browser. A gradual opening is available when the sampled surfaces
+  can separate along a verified translation path.
+- **Double-helical planetary** views open gradually by stage. Each stage's
+  sun, planets and ring stay in mesh while other parts follow clear paths.
+
 ## 0.2.4 — 2026-11-11
 
 ### Fixed

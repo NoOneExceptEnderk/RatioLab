@@ -47,6 +47,11 @@ def prepare(supplied):
     allowed.update(('variant', 'io_scheme', 'double_style', 'helix', 'gap'))
     allowed.update(catalog_options('wolfrom', {}))
     allowed.update(hardware_options('wolfrom', {}))
+    from shaft_connections import fields, ports, profile_key
+    allowed.update(row[0] for row in fields('wolfrom'))
+    allowed.update(profile_key(port) for port in ports('wolfrom'))
+    from bushings import FIELDS
+    allowed.update(FIELDS['wolfrom'])
     unknown = set(supplied) - allowed
     if unknown:
         raise ValueError('Unsupported Wolfrom parameter(s): ' + ', '.join(sorted(unknown)) + '. Only zero-shift two-rim geometry is supported; fixed_ring and module2 are derived.')
@@ -119,12 +124,18 @@ def validate(v):
     if separation is not None and separation <= 2*max(tips)+c:
         raise ValueError('Adjacent Wolfrom compound addendum circles overlap or lack assembly clearance; reduce planet count or dimensions.')
     # Shafts/pins traverse the layers; plates and hubs are axially separate.
-    pin = rb-c
+    from bushings import selected
+    bushing = selected(v, 'compound_bushing')
+    pin = bushing.d/2 if bushing else rb-c
     if a <= m1*(v['sun']/(2*cb)+1)+pin+c:
         raise ValueError('Wolfrom carrier pins intersect the sun addendum envelope.')
     hub = min(roots[1:])*.7
     if hub <= rb+.25:
         raise ValueError('Wolfrom compound hub has no positive material around its bore.')
+    if bushing and hub <= pin+max(c, (bushing.installed_bore_min-bushing.d)/2)+.5:
+        raise ValueError('Wolfrom compound hub leaves insufficient material around the carrier pin.')
+    if bushing and a-pin <= rb+c+.5:
+        raise ValueError('Wolfrom carrier pin seat is too close to the central bore.')
     carrier = a+pin+max(.5,v['plate']*.5)
     return dict(q, pin_radius_mm=pin, hub_radius_mm=hub,
                 carrier_radius_mm=carrier, adjacent_center_separation_mm=separation,
@@ -150,7 +161,9 @@ def build(d):
     from geometry import gear_part, Part, circle, polar
     from internal_mesh import plan_planetary_internal_pair, validate_axial_pair
     from engineering import mesh
+    from bushings import selected, require_length, require_wall, sleeve
     v = d.values
+    bushing = selected(v, 'compound_bushing')
     envelope = validate(v)
     phase = assembly_phases(v['sun'], v['planet'], v['planet2'], v['output_ring'], v['planets'])
     m1, m2 = v['module'], envelope['module2_mm']
@@ -191,7 +204,8 @@ def build(d):
     def gear(name, teeth, module, width, z, member, role, group, body_phase=0, center=(0,0), plan=None, **metadata):
         from tooth_tips import parameters as tip_parameters
         tip_role=('planet2' if metadata.get('layer')==2 else 'planet') if member=='planet' else 'output_ring' if member=='output' else member
-        p = gear_part(name,teeth,module,pa,b,width,v['bore'],center,body_phase,
+        bore = bushing.D if bushing and member == 'planet' else v['bore']
+        p = gear_part(name,teeth,module,pa,b,width,bore,center,body_phase,
                       helix=beta if member=='sun' else -beta,
                       internal=plan is not None,rim=v['rim'],zoff=z,
                       ha=plan['ring_addendum_coefficient'] if plan else 1,
@@ -200,7 +214,7 @@ def build(d):
             p.double = True
             p.gap = gap
             p.core_radius = min(hypot(x,y) for x,y in p.outer)*.96
-            if not p.internal and v['bore']/2 >= p.core_radius-.25:
+            if not p.internal and bore/2 >= p.core_radius-.25:
                 raise ValueError('Wolfrom bore too large for the continuous double helix hub.')
         p.profile_metadata['wolfrom'] = dict(rigid_group=group, body_phase_rad=body_phase,
                                             common_clocking_rad=phase['common_clocking_rad'], **metadata)
@@ -230,7 +244,16 @@ def build(d):
             failure = validate_axial_pair(planet, rings[layer-1], teeth, (rf,ro)[layer-1])
             if failure:
                 raise ValueError(f'Wolfrom layer {layer}: {failure}')
-        p = Part(f'Compound_{j}_hub',circle(hub),[circle(rb)],v['layer_gap'],w1,center,role='gear')
+            if bushing:
+                width_key = 'width' if layer == 1 else 'width2'
+                require_length(bushing, width, 'compound_bushing', width_key)
+                require_wall(planet, bushing, 'compound_bushing', width_key, 'module')
+                planet.fixed_first_bore = True
+                planet.holes[0] = circle(bushing.D/2)
+                sleeve(d, bushing, f'Compound_{j}_bushing_{layer}', z+(width-bushing.B)/2,
+                       center=center, port=planet.port, bom_kind='compound_bushing')
+        hub_bore = max(pin+c, bushing.installed_bore_min/2) if bushing else rb
+        p = Part(f'Compound_{j}_hub',circle(hub),[circle(hub_bore)],v['layer_gap'],w1,center,role='gear')
         p.profile_metadata['wolfrom'] = dict(rigid_group=group, body_phase_rad=item['planet_phase_rad'],
                                             common_clocking_rad=phase['common_clocking_rad'], compound=j)
         add(p,'planet','internal',group,compound=j)
@@ -242,8 +265,10 @@ def build(d):
         add(Part(name,circle(carrier),[circle(rb+c)]+pinholes,t,z,role='support'),
             'carrier','internal','wolfrom_carrier')
     for j,center in enumerate(centers,1):
-        add(Part(f'Carrier_pin_{j}',circle(pin),[],top+2*c+2*t,-c-t,center,role='support'),
+        add(Part(f'Carrier_pin_{j}',circle(pin),[],top+2*c+2*t,-c-t,center,role='support',bom_kind='compound_pin'),
             'carrier','internal','wolfrom_carrier')
+    if bushing:
+        d.requirements.append('Compound planet bushings: two seats per planet flank the joining hub. Check pin deflection, bore alignment, load distribution and axial restraint.')
     add(Part('Shaft_input',circle(rb),[],w1+c+t+4,-c-t-4,role='gear'),
         'sun','input','wolfrom_sun')
     # Check actual generated root envelopes as well as theoretical radii.

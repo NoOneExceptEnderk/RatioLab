@@ -1,8 +1,8 @@
 # Bevel gear pair
 
 The **Bevel gear pair** family creates two bored gear blanks on intersecting
-shafts at **90°**, with straight, logarithmic spiral or circular Zerol-style tooth
-traces. Tooth counts, outer module, pitch-cone face width,
+shafts at **90°**, with straight, logarithmic spiral, circular Zerol-style or
+herringbone tooth traces. Tooth counts, outer module, pitch-cone face width,
 transverse pressure angle, outer tangential backlash and both bores are editable.
 Input and output can be swapped. Shafts, supports, bearing seats, fasteners and
 axial retention are completed in CAD. No automatic stock hardware is inferred.
@@ -160,3 +160,68 @@ manufacturing accuracy are not certified by it.
 Saved projects contain only the fields active for their tooth type. Straight
 projects remain compatible and retain their original geometry. No variant adds
 shaft offset: hypoid pairs are outside this implementation.
+
+## Herringbone
+
+**Herringbone** uses the same
+spherical involutes, bores, pitch cones and rolling equation. The local pinion
+hand applies to the heel band. The toe band reverses it, and the wheel uses the
+opposite pinion hand at every actual apex distance. The unsigned spiral
+angle is 0–45° and applies to the logarithmic segments.
+
+Let S be pitch-cone distance in mm at an axial station, r the actual spherical
+distance in mm, and polar angle t measured from the member's own positive
+shaft. Then r = S cos(delta)/cos(t). For both members use the same scalar
+function F and reversal radius r0:
+
+```
+u = ln(r/r0)
+k_i = h_i tan(beta)/sin(delta_i)
+theta_i(r) = k_i [F(u) - F(ln(R/r0))]
+```
+
+Angles in the expression are radians. The logarithmic branches use the angle
+and cone conventions of Franco, Cumbicus and Estrems, 2025 preprint v1,
+§3.2 equations (8)–(9), with their lambda mapped to beta and gamma to delta.
+The piecewise F below is specific to RatioLab. On every sphere,
+`zp theta_p + zw theta_w = 0` because `sin(delta_i) = m z_i/(2 R)`.
+At fixed r these phase shifts are equivalent to a matched roll of the
+straight spherical profiles. For smooth F, differentiating in r adds a
+multiple of the relative velocity to the radial tangent. The common-normal
+condition of Wang et al., §4 equation (22), therefore holds at the
+corresponding ideal flank contact. This includes the smooth V transition.
+The original outer tangential backlash j scales to j r/R on each pitch sphere.
+
+The join follows a sphere at `r0 = R - b/2`. With `e = b/(4 r0)` the trace
+uses `F(u) = |u|` for `|u| >= e` and
+`F(u) = (u² + e²)/(2e)` inside. Values and first derivatives agree at both
+ends, and the pitch trace is tangent to a generator at the centre. The join
+is C1 with piecewise bounded curvature. Its arc and the mating arc are
+calculated from the same r, including the centre. The V is rounded across a
+fixed fraction of the face instead of introducing an abrupt crease or a
+cutter fillet. The paired phase law above governs the entire working
+surface. The cap-trimmed action domain is connected and the phase varies
+continuously on it, so the sampled phase interval is a conservative lower
+bound on ideal engagement. Each flank must exceed one tooth pitch. At zero
+spiral angle the sampled solid is exactly the straight variant.
+
+For the joined trace, the station bound for a vertex
+`f(S) = a S exp(i theta(C S))` uses
+`a |k| [sqrt(1+k²) + 1/e]/S_min`. This follows from
+`|F'| <= 1` and `|F''| <= 1/e` in log radius. The same bound applies
+to intervals that cross a C1 join. The herringbone sweep also refines the common
+flank-vertex sequence in each axial station and at intermediate planes.
+STEP and STL use the sampled surfaces. SVG/DXF retain the planar sections.
+The browser's standalone STEP archive keeps each placed component. If adding
+the duplicate assembly file would exceed the archive budget, the archive omits
+it and records the omission in `step-info.json`. Large exports, including
+complete packages, remain subject to the browser's 128 MiB uncompressed limit.
+
+[ISO 23509-1:2025, edition 1](https://www.iso.org/standard/85503.html) covers
+bevel and hypoid macrogeometry. Its public contents identify spiral bevels
+in §5.2.3, spiral hand in §5.4, and inner/outer spiral angle in §8.7.1.
+The full text of those clauses and their applicability to the herringbone construction were unavailable for verification. The design
+uses the spherical-involute and trace references above for its equations.
+ISO 21771:2007, ISO 53:1998 and ISO 1328-1:1995 concern cylindrical gearing.
+The nominal CAD surfaces establish neither ISO 17485 accuracy grades nor
+ISO 10300 load capacity, axial thrust or load sharing.

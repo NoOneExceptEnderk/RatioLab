@@ -58,7 +58,13 @@ class Generator:
 
 def build(d):
     from geometry import part_from_kernel
-    result=call_geometry('construction_face',dict(values=d.values))
+    from shaft_connections import bore_profile, profile_key
+    values = d.values
+    port = 'input' if values['io_scheme'] == 'reverse' else 'output'
+    if values.get(profile_key(port), 'standard') != 'standard':
+        bore, _ = bore_profile(values, port, values['output_bore']/2)
+        values = dict(values, output_bore_profile=bore)
+    result=call_geometry('construction_face',dict(values=values))
     d.parts.extend(part_from_kernel(p['name'],p) for p in result['parts'])
     d.analysis.update(result['analysis'])
     q=result['analysis']['face_gear']

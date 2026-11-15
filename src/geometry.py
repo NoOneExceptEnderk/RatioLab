@@ -94,6 +94,8 @@ def get_specs(family, variant=None, double_style=None):
         specs += trace_specs(variant or 'straight')
     if family in VARIANTS:
         variant = variant or next(iter(VARIANTS[family]))
+        if family == 'bevel' and variant == 'double_spiral':
+            raise ValueError('The grooved Double spiral bevel variant was removed. Open this project in the earlier local build to retain its geometry.')
         if variant not in VARIANTS[family]:
             raise ValueError('Unknown variant')
         if family in ('planetary', 'cycloidal'):
@@ -111,7 +113,7 @@ def get_specs(family, variant=None, double_style=None):
             if variant == 'double':
                 specs += [('gap', 'Central groove in each layer [mm]', 1, 0, 10, .1)]
         elif family == 'cycloidal':
-            specs += [('input_shaft', 'Input shaft diameter [mm]', 4, 2, 30, 0.5), ('output_shaft', 'Output shaft diameter [mm]', 8, 3, 40, 0.5), ('housing_wall', 'Housing thickness [mm]', 4, 2, 15, 0.5)]
+            specs += [('input_shaft', 'Input shaft diameter [mm]', 4, 2, 30, 0.5), ('output_shaft', 'Output shaft diameter [mm]', 8, 3, 40, 0.5), ('housing_wall', 'Ring carrier wall [mm]', 4, 2, 15, 0.5)]
         elif family in ('parallel', 'internal'):
             from parallel_multistage import tooth_type
             teeth_type = tooth_type(variant)
@@ -133,6 +135,8 @@ def get_specs(family, variant=None, double_style=None):
         if variant in ('two_stage', 'two_stage_double'):
             specs += [('stage_gap', 'Additional stage spacing [mm]', 0, 0, 30, 0.5)]
     if family == 'cycloidal':
+        specs = [(k, 'Ring contact radius [mm]' if k == 'pin_radius' else label, d, lo, hi, step)
+                 for k, label, d, lo, hi, step in specs]
         specs += [('output_clearance', 'Output pin radial clearance [mm]', 0.1, 0, 0.8, 0.01), ('profile_tolerance', 'Profile sampling tolerance [mm]', 0.01, 0.002, 0.05, 0.002)]
         if variant == 'dual':
             specs += [('disc_gap', 'Disc spacing [mm]', 0.2, 0.05, 10, 0.05)]
@@ -167,7 +171,8 @@ def get_specs(family, variant=None, double_style=None):
     if family in ('bevel','hypoid','rack','face') or family == 'parallel' and variant in PARALLEL_MULTISTAGE_VARIANTS:
         specs = [(k, label, d, -100000 if k == 'input_rpm' else lo, hi, st) for k, label, d, lo, hi, st in specs]
     if family == 'rack':specs=[(k,label,12 if k=='input_rpm' else d,lo,hi,st) for k,label,d,lo,hi,st in specs]
-    return specs
+    from shaft_connections import fields as connection_fields
+    return specs + connection_fields(family)
 INTEGER = {'teeth', 'sun', 'planet', 'planets', 'pins', 'output_count', 'starts', 'sun2', 'planet2', 'pinion', 'wheel', 'pinion2', 'wheel2', 'worm_hand', 'rollers', 'crown_teeth', 'segments', 'planet_teeth', 'pairs', 'friction_faces', 'crank_teeth', 'cranks', 'spring_count', 'coils', 'bolt_count', 'bevel_pinion'}
 INTEGER.update(('side_teeth', 'output_teeth', 'spiral_hand', 'output_ring'))
 INTEGER.update(('pinion3', 'wheel3', 'rack_teeth'))
@@ -180,7 +185,7 @@ def defaults(family, variant=None):
         from differential_wrist import OPTION_DEFAULTS
         v.update(OPTION_DEFAULTS)
     if family == 'cycloidal':
-        v['eccentric_design'] = 'integral'
+        v.update(eccentric_design='integral', ring_roller_bearing='none')
     if family=='face' and variant=='double_helical':v.update(double_style='joined',gap=0)
     return v
 
@@ -234,7 +239,7 @@ def validate(family, supplied):
     if family == 'cycloidal':
         supplied.setdefault('output_clearance', supplied.get('clearance', 0.1))
         supplied.setdefault('disc_gap', supplied.get('assembly_clearance', 0.2))
-    from catalog import prepare, options
+    from catalog import RING_ROLLER_CHOICES, prepare, options
     supplied = prepare(family, supplied)
     from hardware_catalog import prepare as prepare_hardware, options as hardware_options
     supplied = prepare_hardware(family, supplied)
@@ -245,7 +250,14 @@ def validate(family, supplied):
         values.update(wrist_options(supplied))
     if family == 'cycloidal':
         values['eccentric_design'] = supplied.get('eccentric_design', 'integral')
+        bearing = supplied.get('ring_roller_bearing', 'none')
+        if not isinstance(bearing, str) or bearing not in RING_ROLLER_CHOICES:
+            raise ParameterError('cycloidal.ring_roller_bearing', ('ring_roller_bearing',), 'Select a ring roller construction from the list.', kind='input')
+        values['ring_roller_bearing'] = bearing
+    from shaft_connections import field_active as connection_field_active, field_port
     for key, label, default, low, high, step in get_specs(family, variant, style):
+        if field_port(key) and key not in supplied and not connection_field_active(key, supplied):
+            continue
         v = supplied.get(key, default)
         if isinstance(v, bool):
             raise ParameterError('number.required', (key,), f'{label}: a numeric value is required', kind='input')
@@ -302,9 +314,12 @@ def validate(family, supplied):
                 raise ValueError('Second stage input/output arrangement unavailable.')
     values.update(options(family, supplied))
     values.update(hardware_options(family, supplied))
-    from backdrivability import physical_inputs, enforce
-    values.update(physical_inputs(family, supplied))
-    enforce(family, values)
+    from shaft_connections import options as connection_options
+    values.update(connection_options(family, supplied))
+    from bushings import options as bushing_options, selected as selected_bushing
+    values.update(bushing_options(family, supplied))
+    if 'worm_static_friction' in supplied:
+        raise ValueError('Static worm tooth friction is no longer a design parameter.')
     if family in ('spur', 'helical', 'double', 'planetary', 'harmonic', 'worm', 'parallel', 'internal'):
         m = values['module']
         z = values.get('teeth', values.get('sun', 24))
@@ -334,7 +349,8 @@ def validate(family, supplied):
                 raise ParameterError('planetary.overlap', (sun_key,planet_key,'planets','module','backlash'), 'Planet envelopes overlap.', 'Reduce the number of planets or the planet tooth count, or increase the sun tooth count. Recheck equal spacing.')
             if values['bore'] < 2:
                 raise ParameterError('planetary.bore_minimum', ('bore',), 'The assembly requires a bore of at least 2 mm for shafts and pins.', 'Increase the bore.', limits={'bore':dict(lower=2)})
-            if values['bore'] / 2 >= m * (min(zs, zp) / 2 - 1.25) - 0.5:
+            bore_teeth = zs if selected_bushing(values, 'planet_bushing') else min(zs, zp)
+            if values['bore'] / 2 >= m * (bore_teeth / 2 - 1.25) - 0.5:
                 raise ParameterError('planetary.bore_root', ('bore','module',sun_key,planet_key), 'Bores too large for the sun or planets.', 'Reduce the bore or increase the module or tooth count.')
     if family == 'planetary' and variant in ('double', 'two_stage_double'):
         if values['gap'] >= min(values['width'], values.get('width2', values['width'])) - 1:
@@ -475,9 +491,9 @@ def involute(z, m, pressure=20, backlash=0.15, internal=False, samples=4, depth_
     return [tuple(p) for p in result['points']]
 
 
-def cycloid(n, R, e, pin, clearance=0, samples=None, tolerance=0.01):
+def cycloid(n, R, e, pin, clearance=0, samples=None, tolerance=0.01, *, pin_field='pin_radius'):
     from rust_geometry import call
-    with field_context(dict(n='pins',radius='radius',eccentricity='eccentric',pin='pin_radius',clearance='clearance')):
+    with field_context(dict(n='pins',radius='radius',eccentricity='eccentric',pin=pin_field,clearance='clearance')):
         result = call('cycloid_profile', dict(n=n, radius=R, eccentricity=e, pin=pin,
             clearance=clearance, samples=samples, tolerance=tolerance))
     return [tuple(p) for p in result['points']]
@@ -516,6 +532,10 @@ class Part:
     profile_metadata: dict = field(default_factory=dict)
     # Surface interpolation only; the sampled 2D tooth profile has its own error.
     surface_tolerance_mm: float = 0.02
+    fixed_first_bore: bool = False
+    # Functional identity for the interactive assembly BOM. This is UI
+    # metadata, independent of preview roles and canonical export part codes.
+    bom_kind: str = ''
 
 def profile_sections(p):
     if p.stations:
@@ -773,6 +793,11 @@ def generate(family, supplied=None, *, quality=None):
     apply_kinematics(d)
     from printed_shaft import omit_reference_shafts
     omit_reference_shafts(d)
+    from shaft_connections import apply as apply_shaft_connections
+    apply_shaft_connections(d)
+    if family in ('parallel', 'internal', 'spur', 'helical', 'double', 'worm'):
+        from bushings import supports as add_bushing_supports
+        add_bushing_supports(d)
     from engineering import attach_report
     attach_report(d)
     if any((p.mesh or p.frame or p.stations or p.double or (abs(p.twist) > 1e-08) for p in d.parts)):

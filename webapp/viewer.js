@@ -9,6 +9,7 @@ attribute vec3 aPosition, aNormal, aMaterial;
 uniform mat4 uModel;
 uniform vec3 uCenter, uProjection, uExplode, uFlexCenter;
 uniform vec2 uOrbit;
+uniform float uSection, uSectionY;
 uniform vec4 uFlexShape, uFlexBody, uArcFirst, uArcSecond;
 varying vec3 vNormal, vWorld;
 vec3 camera(vec3 p){float c=cos(uOrbit.x),s=sin(uOrbit.x),a=cos(uOrbit.y),b=sin(uOrbit.y);vec3 q=vec3(c*p.x-s*p.y,s*p.x+c*p.y,p.z);return vec3(q.x,a*q.y-b*q.z,b*q.y+a*q.z);}
@@ -39,31 +40,40 @@ vec2 waveFrame(float u,float d,float w,float flex,float wave,out vec2 tangent){
  return mix((uFlexBody.x+d)*vec2(cu,su),E,w);
 }
 void main(){
+ if(uSection==3.0){
+  vec3 n=camera(vec3(0,1,0));
+  float z=(uSectionY-uCenter.y-dot(n.xy,aPosition.xy/uProjection.xy))/n.z;
+  gl_Position=vec4(aPosition.xy,-z*uProjection.z,1);
+  vNormal=n; vWorld=vec3(0,uSectionY,0);
+  return;
+ }
  vec3 p=aPosition,nn=aNormal;
  if(uFlexBody.w>0.5){
   vec2 oldT,newT;
   p.xy=waveFrame(aMaterial.x,aMaterial.y,aMaterial.z,uFlexShape.x,uFlexShape.y,newT)+uFlexCenter.xy;
-  waveFrame(aMaterial.x,aMaterial.y,aMaterial.z,0.0,0.0,oldT);
-  vec2 oldN=vec2(oldT.y,-oldT.x),newN=vec2(newT.y,-newT.x);
-  nn.xy=dot(nn.xy,oldT)*newT+dot(nn.xy,oldN)*newN;
+  if(uSection!=2.0){
+   waveFrame(aMaterial.x,aMaterial.y,aMaterial.z,0.0,0.0,oldT);
+   vec2 oldN=vec2(oldT.y,-oldT.x),newN=vec2(newT.y,-newT.x);
+   nn.xy=dot(nn.xy,oldT)*newT+dot(nn.xy,oldN)*newN;
+  }
  }
  vWorld=(uModel*vec4(p,1.0)).xyz+uExplode;
  vec3 cp=camera(vWorld-uCenter);
  vNormal=camera(mat3(uModel)*nn);
- gl_Position=vec4(cp.x*uProjection.x,cp.y*uProjection.y,-cp.z*uProjection.z,1.0);
+ gl_Position=vec4(cp.x*uProjection.x,cp.y*uProjection.y,uSection==2.0?0.0:-cp.z*uProjection.z,1.0);
 }`;
 const FRAGMENT = `
-precision mediump float;
+precision highp float;
 uniform vec3 uColor;
-uniform float uSection, uSectionY, uSelected;
+uniform float uSection, uSectionY, uSelected, uPicking, uOpacity;
 uniform vec3 uSelectionColor;
 varying vec3 vNormal, vWorld;
 void main(){
- if(uSection>0.5 && vWorld.y>uSectionY)discard;
+ if((uSection==1.0 && vWorld.y>uSectionY)||(uSection==2.0 && vWorld.y>=uSectionY))discard;
  vec3 n=normalize(vNormal);
  float d=max(dot(n,normalize(vec3(-0.35,-0.25,1.0))),0.0);
  vec3 color=mix(uColor,uSelectionColor,uSelected*0.65);
- gl_FragColor=vec4(color*(0.48+0.52*d),1.0);
+ gl_FragColor=vec4(color*(uPicking>0.5?1.0:uSection==3.0?0.85:0.48+0.52*d),uOpacity);
 }`;
 export const identityMatrix = () => [1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1];
 // Exact inverse of camera() and uProjection in VERTEX. The near plane is
@@ -112,19 +122,21 @@ export function hitCube(patches,x,y) {
 }
 
 export class ModelViewer extends EventTarget {
-  constructor(canvas) {
+  constructor(canvas, {guides = true} = {}) {
     super(); this.canvas = canvas; this.meshes = []; this.design = null; this.frame = null;
     this.selected = new Set(); this.hidden = new Set(); this.supports = false; this.housing = false;
     this.explosion = 0; this.section = false; this.yaw = -35*Math.PI/180; this.pitch = -55*Math.PI/180; this.zoom = 1; this.panOffset=[0,0,0]; this.panMode=false;
-    this.center = [0,0,0]; this.radius = 30; this.lost = false; this.disposed = false; this.captureBusy = false;
+    this.center = [0,0,0]; this.radius = this.explodedRadius = 30; this.lost = false; this.disposed = false; this.captureBusy = false;
     this.zoomSpeed = 1; this.rotationSpeed = 1; this.invertZoom = false;
     this.mouseNavigation='ratiolab';this.selectionColor=[0.98,0.65,0.30];this.gridColor=null;this.managedShortcuts=false;
+    this.guides = guides;
+    this.contextOpacity = null; this.pickableIndices = null;
     this.events = new AbortController(); const signal = this.events.signal;
-    this.gl = canvas.getContext('webgl', {antialias: true, alpha: true, preserveDrawingBuffer: true});
+    this.gl = canvas.getContext('webgl', {antialias: true, alpha: true, stencil: true, preserveDrawingBuffer: true});
     if (!this.gl) throw Error('WebGL is unavailable. Enable hardware acceleration or use another WebGL-capable browser.');
     this.initialize();
     canvas.addEventListener('webglcontextlost', event => {
-      event.preventDefault(); this.lost = true; this.release(); this.program = null;
+      event.preventDefault(); this.lost = true; this.release(); this.program = this.sectionQuad = null;
       this.dispatchEvent(new CustomEvent('context', {detail: {lost: true}}));
     }, {signal});
     canvas.addEventListener('webglcontextrestored', () => {
@@ -155,7 +167,7 @@ export class ModelViewer extends EventTarget {
       else if (event.key === '-') { this.zoom = Math.max(.12,this.zoom/1.15); this.render(); }
       else if (event.key.startsWith('Arrow')) { event.preventDefault(); if (event.key === 'ArrowLeft') this.yaw -= .12; if (event.key === 'ArrowRight') this.yaw += .12; if (event.key === 'ArrowUp') this.pitch -= .12; if (event.key === 'ArrowDown') this.pitch += .12; this.pitch = Math.max(-Math.PI,Math.min(Math.PI,this.pitch)); this.render(); this.dispatchEvent(new Event('camera')); }
     }, {signal});
-    this.installCube();
+    if (guides) this.installCube();
     this.resizeObserver = new ResizeObserver(() => this.render()); this.resizeObserver.observe(canvas);
   }
   initialize() {
@@ -170,7 +182,7 @@ export class ModelViewer extends EventTarget {
       this.program = program; this.attributes = {};
       for (const name of ['aPosition','aNormal','aMaterial']) this.attributes[name] = gl.getAttribLocation(program,name);
       this.uniforms = {};
-      for (const name of ['uModel','uCenter','uProjection','uOrbit','uExplode','uColor','uSection','uSectionY','uSelected','uSelectionColor','uFlexShape','uFlexBody','uArcFirst','uArcSecond','uFlexCenter']) this.uniforms[name] = gl.getUniformLocation(program,name);
+      for (const name of ['uModel','uCenter','uProjection','uOrbit','uExplode','uColor','uSection','uSectionY','uSelected','uSelectionColor','uFlexShape','uFlexBody','uArcFirst','uArcSecond','uFlexCenter','uPicking','uOpacity']) this.uniforms[name] = gl.getUniformLocation(program,name);
       gl.enable(gl.DEPTH_TEST); gl.disable(gl.CULL_FACE); gl.clearColor(0,0,0,0);
     } catch (error) { if (program) gl.deleteProgram(program); throw error; }
     finally { for (const shader of shaders) gl.deleteShader(shader); }
@@ -219,9 +231,17 @@ export class ModelViewer extends EventTarget {
   setVisibility(index, visible) { if (visible) this.hidden.delete(index); else this.hidden.add(index); this.render(); }
   setSelection(indices) { this.selected = new Set(indices); this.render(); }
   get cameraCenter() { return this.center.map((v,i)=>v+this.panOffset[i]); }
+  get explosionScale() {
+    const view = Number(this.supports) + 2 * Number(this.housing);
+    const gradual = this.design?.explosion_gradual_views?.includes(view);
+    const minimum = gradual ? 0 : this.design?.explosion_minimum ?? 0;
+    return this.explosion ? minimum + this.explosion * (1 - minimum) : 0;
+  }
+  get cameraRadius() { return this.radius + this.explosionScale * (this.explodedRadius - this.radius); }
   panBy(dx,dy) {
     const rect=this.canvas.getBoundingClientRect();
-    const delta=cameraPanDelta(dx,dy,this,rect.width,rect.height);
+    const {yaw,pitch,zoom}=this;
+    const delta=cameraPanDelta(dx,dy,{yaw,pitch,zoom,radius:this.cameraRadius},rect.width,rect.height);
     this.panOffset=this.panOffset.map((v,i)=>v+delta[i]);
   }
   orient(direction) {
@@ -298,42 +318,47 @@ export class ModelViewer extends EventTarget {
       minimum[i] = Math.min(minimum[i],part.bounds_mm.minimum[i]); maximum[i] = Math.max(maximum[i],part.bounds_mm.maximum[i]);
     }
     this.visibleBounds = {minimum,maximum}; this.center = minimum.map((v,i) => (v+maximum[i])/2);
-    let squared = 1;
+    let squared = 1, explodedSquared = 1;
     // The desktop radius is the furthest sampled surface point from the centre,
     // rather than the diagonal of a bounding box including hidden supports.
     for (const part of visible) {
       const positions = new Float32Array(this.design.buffers[part.mesh.positions]);
-      for (let i=0;i<positions.length;i+=3) squared = Math.max(squared,(positions[i]-this.center[0])**2+(positions[i+1]-this.center[1])**2+(positions[i+2]-this.center[2])**2);
+      const [dx,dy,dz] = this.explosionOffset(part, 1);
+      for (let i=0;i<positions.length;i+=3) {
+        const x=positions[i]-this.center[0], y=positions[i+1]-this.center[1], z=positions[i+2]-this.center[2];
+        squared = Math.max(squared,x*x+y*y+z*z);
+        explodedSquared = Math.max(explodedSquared,(x+dx)**2+(y+dy)**2+(z+dz)**2);
+      }
     }
     this.radius = Math.sqrt(squared);
+    this.explodedRadius = Math.sqrt(Math.max(squared,explodedSquared));
   }
   projectVector([x,y,z]) {
     const c=Math.cos(this.yaw),s=Math.sin(this.yaw),a=Math.cos(this.pitch),b=Math.sin(this.pitch);
     return [c*x-s*y,a*(s*x+c*y)-b*z,b*(s*x+c*y)+a*z];
   }
-  explosionOffset(part) {
-    const direction=part.bounds_mm.minimum.map((v,i)=>(v+part.bounds_mm.maximum[i])/2-this.center[i]);
-    if (Math.hypot(...direction)<this.radius*.025) direction[2]=((part.index%2)*2-1)*this.radius*.15;
-    return direction.map(v=>v*this.explosion*1.7);
+  explosionOffset(part, scale = this.explosionScale) {
+    return (part.explosion_offset_mm ?? [0,0,0]).map(value => value * scale);
   }
   pickState(clientX,clientY) {
     if (!this.design || this.lost || this.captureBusy) throw Error('The preview is unavailable for picking.');
     const rect=this.canvas.getBoundingClientRect(), visible=this.meshes.filter(m=>this.isVisible(m.part));
-    const state={yaw:this.yaw,pitch:this.pitch,zoom:this.zoom,center:this.cameraCenter,radius:this.radius,width:this.canvas.width,height:this.canvas.height};
-    const payload={...cameraRay(state,2*(clientX-rect.left)/rect.width-1,1-2*(clientY-rect.top)/rect.height),visible_indices:visible.map(m=>m.part.index),matrices:visible.map(m=>({index:m.part.index,matrix:[...m.matrix]})),explosion_offsets:visible.map(m=>({index:m.part.index,offset:this.explosionOffset(m.part)})),animated:!!visible.some(m=>m.deformation || m.matrix.some((v,i)=>v!==identityMatrix()[i]))};
+    const state={yaw:this.yaw,pitch:this.pitch,zoom:this.zoom,center:this.cameraCenter,radius:this.cameraRadius,width:this.canvas.width,height:this.canvas.height};
+    const identity = identityMatrix();
+    const payload={...cameraRay(state,2*(clientX-rect.left)/rect.width-1,1-2*(clientY-rect.top)/rect.height),visible_indices:visible.map(m=>m.part.index),matrices:visible.map(m=>({index:m.part.index,matrix:this.explosion ? identity : [...m.matrix]})),explosion_offsets:visible.map(m=>({index:m.part.index,offset:this.explosionOffset(m.part)})),animated:!this.explosion && visible.some(m=>m.deformation || m.matrix.some((v,i)=>v!==identity[i]))};
     if (this.section) payload.section_y=this.center[1];
     return {payload,key:JSON.stringify([state,rect.left,rect.top,rect.width,rect.height,payload.visible_indices,payload.matrices,payload.explosion_offsets,payload.section_y,visible.map(m=>m.deformation)])};
   }
   updateGuides(width,height) {
     const grid = document.getElementById('viewport-grid');
     if (!grid) return;
-    const cache = JSON.stringify([width,height,this.center,this.panOffset,this.radius,this.yaw,this.pitch,this.zoom,!!this.design,this.gridColor]);
+    const cache = JSON.stringify([width,height,this.center,this.panOffset,this.cameraRadius,this.yaw,this.pitch,this.zoom,!!this.design,this.gridColor]);
     if (cache === this.guideCache) return; this.guideCache = cache;
     const ns = 'http://www.w3.org/2000/svg', element = (name,attrs) => {
       const el = document.createElementNS(ns,name); for (const [key,value] of Object.entries(attrs)) el.setAttribute(key,String(value)); return el;
     };
     grid.replaceChildren(); grid.setAttribute('viewBox',`0 0 ${width} ${height}`);
-    const projection = .86/this.radius*this.zoom*Math.min(width,height)/2;
+    const projection = .86/this.cameraRadius*this.zoom*Math.min(width,height)/2;
     if (this.design) {
       const bounds=this.visibleBounds ?? this.design.bounds_mm;
       const span=Math.max(bounds.maximum[0]-bounds.minimum[0],bounds.maximum[1]-bounds.minimum[1],10);
@@ -351,41 +376,149 @@ export class ModelViewer extends EventTarget {
     }
   }
 
-  render({indices = null, nominal = false} = {}) {
+  renderSectionCap(vertexCount) {
+    const gl = this.gl, u = this.uniforms, position = this.attributes.aPosition;
+    if (!this.sectionQuad) {
+      this.sectionQuad = gl.createBuffer();
+      gl.bindBuffer(gl.ARRAY_BUFFER,this.sectionQuad);
+      gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,0, 1,-1,0, -1,1,0, 1,1,0]),gl.STATIC_DRAW);
+    }
+    // Along a viewing ray, an odd number of crossings on the kept side
+    // means the plane intersects solid material at this pixel.
+    gl.uniform1f(u.uSection,2);
+    gl.stencilMask(1); gl.clear(gl.STENCIL_BUFFER_BIT);
+    gl.enable(gl.STENCIL_TEST); gl.disable(gl.DEPTH_TEST);
+    gl.depthMask(false); gl.colorMask(false,false,false,false);
+    gl.stencilFunc(gl.ALWAYS,0,1); gl.stencilOp(gl.KEEP,gl.KEEP,gl.INVERT);
+    gl.drawArrays(gl.TRIANGLES,0,vertexCount);
+
+    gl.colorMask(true,true,true,true); gl.depthMask(true); gl.enable(gl.DEPTH_TEST);
+    gl.stencilMask(0); gl.stencilFunc(gl.EQUAL,1,1); gl.stencilOp(gl.KEEP,gl.KEEP,gl.KEEP);
+    gl.uniform1f(u.uSection,3);
+    gl.bindBuffer(gl.ARRAY_BUFFER,this.sectionQuad); gl.vertexAttribPointer(position,3,gl.FLOAT,false,0,0);
+    for (const attribute of [this.attributes.aNormal,this.attributes.aMaterial]) gl.disableVertexAttribArray(attribute);
+    gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
+    gl.disable(gl.STENCIL_TEST); gl.uniform1f(u.uSection,1);
+  }
+
+  render({indices = null, nominal = false, picking = false} = {}) {
     if (this.lost || this.disposed || !this.program) return;
     const gl = this.gl, canvas = this.canvas, rect = canvas.getBoundingClientRect(), dpr = Math.min(2,globalThis.devicePixelRatio || 1);
     const width = Math.max(1,Math.round(rect.width*dpr)), height = Math.max(1,Math.round(rect.height*dpr));
-    if (canvas.width !== width || canvas.height !== height) { canvas.width = width; canvas.height = height; }
+    if (!picking && (canvas.width !== width || canvas.height !== height)) { canvas.width = width; canvas.height = height; }
     gl.viewport(0,0,width,height); gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT); gl.useProgram(this.program);
-    const u = this.uniforms, scale = .86/this.radius*this.zoom, aspect = width/height;
-    if (this.guides !== false) this.updateGuides(rect.width,rect.height);
-    this.renderCube();
-    gl.uniform3fv(u.uCenter,nominal ? this.center : this.cameraCenter); gl.uniform2f(u.uOrbit,this.yaw,this.pitch);
-    gl.uniform3f(u.uProjection,scale/Math.max(1,aspect),scale*Math.min(1,aspect),1/(this.radius*4));
-    gl.uniform3fv(u.uSelectionColor,this.selectionColor);
-    gl.uniform1f(u.uSection, !nominal && this.section ? 1 : 0); gl.uniform1f(u.uSectionY,this.center[1]);
-    const selected = indices && new Set(indices);
-    for (const mesh of this.meshes) {
-      const part = mesh.part;
-      // An explicit subset is the export scope, including selected support or
-      // housing parts currently hidden in the regular inspection view.
-      if (selected ? !selected.has(part.index) : !this.isVisible(part)) continue;
-      gl.uniformMatrix4fv(u.uModel,false,mesh.matrix); gl.uniform3fv(u.uColor,part.color);
-      gl.uniform1f(u.uSelected,!nominal && this.selected.has(part.index) ? 1 : 0);
-      gl.uniform3fv(u.uExplode,nominal ? [0,0,0] : this.explosionOffset(part));
-      const flex = mesh.deformation;
-      gl.uniform4fv(u.uFlexShape,flex ? [angle(flex[0]),angle(flex[1]),flex[2],flex[3]] : [0,0,1,1]);
-      gl.uniform4fv(u.uFlexBody,flex ? [flex[4],flex[5],flex[6],1] : [1,1,0,0]);
-      const coefficients = this.design?.motion.wave_arc_coefficients ?? [0,0,0,0,0,0,0,0];
-      gl.uniform4fv(u.uArcFirst,coefficients.slice(0,4)); gl.uniform4fv(u.uArcSecond,coefficients.slice(4,8));
-      gl.uniform3fv(u.uFlexCenter,[...(part.center ?? [0,0]),0].slice(0,3));
-      for (const [channel, attribute] of [['positions','aPosition'],['normals','aNormal'],['material','aMaterial']]) {
-        const location = this.attributes[attribute];
-        if (mesh.gpu[channel]) { gl.bindBuffer(gl.ARRAY_BUFFER,mesh.gpu[channel]); gl.enableVertexAttribArray(location); gl.vertexAttribPointer(location,3,gl.FLOAT,false,0,0); }
-        else { gl.disableVertexAttribArray(location); gl.vertexAttrib3f(location,0,0,0); }
-      }
-      gl.drawArrays(gl.TRIANGLES,0,part.mesh.vertex_count);
+    const u = this.uniforms, radius = nominal ? this.radius : this.cameraRadius, scale = .86/radius*this.zoom, aspect = width/height;
+    if (!picking) {
+      if (this.guides !== false) this.updateGuides(rect.width,rect.height);
+      this.renderCube();
     }
+    gl.uniform1f(u.uPicking,Number(picking));
+    gl.uniform3fv(u.uCenter,nominal ? this.center : this.cameraCenter); gl.uniform2f(u.uOrbit,this.yaw,this.pitch);
+    gl.uniform3f(u.uProjection,scale/Math.max(1,aspect),scale*Math.min(1,aspect),1/(radius*4));
+    gl.uniform3fv(u.uSelectionColor,this.selectionColor);
+    const section = !nominal && this.section;
+    const capVisible = section && Math.abs(Math.cos(this.yaw)*Math.sin(this.pitch)) > 1e-6;
+    gl.uniform1f(u.uSection,section ? 1 : 0); gl.uniform1f(u.uSectionY,this.center[1]);
+    const selected = indices && new Set(indices);
+    const exploded = !nominal && this.explosion > 0, identity = exploded && identityMatrix();
+    // Explicit export indices can include hidden support and housing parts.
+    const meshes = this.meshes.filter(({part}) =>
+      (selected ? selected.has(part.index) : this.isVisible(part)) &&
+      (!picking || !this.pickableIndices || this.pickableIndices.has(part.index)));
+    let passes = [{meshes}];
+    if (this.contextOpacity !== null && this.selected.size && !nominal && !section) {
+      const context = meshes.filter(({part}) => !this.selected.has(part.index));
+      const focus = meshes.filter(({part}) => this.selected.has(part.index));
+      // Limit the translucent context to the nearest surface before painting
+      // the fully opaque selected parts over it.
+      passes = picking ? [{meshes:context}] : [
+        {meshes:context, depthOnly:true}, {meshes:context, ghost:true}];
+      passes.push({meshes:focus, clearDepth:true});
+    }
+    const coefficients = this.design?.motion.wave_arc_coefficients ?? [0,0,0,0,0,0,0,0];
+    gl.uniform4fv(u.uArcFirst,coefficients.slice(0,4)); gl.uniform4fv(u.uArcSecond,coefficients.slice(4,8));
+    for (const pass of passes) {
+      gl.depthMask(!pass.ghost);
+      if (pass.clearDepth) gl.clear(gl.DEPTH_BUFFER_BIT);
+      gl.depthFunc(pass.ghost ? gl.EQUAL : gl.LESS);
+      gl.colorMask(!pass.depthOnly,!pass.depthOnly,!pass.depthOnly,!pass.depthOnly);
+      if (pass.ghost) {
+        gl.enable(gl.BLEND);
+        gl.blendFuncSeparate(gl.SRC_ALPHA,gl.ONE_MINUS_SRC_ALPHA,gl.ONE,gl.ONE_MINUS_SRC_ALPHA);
+      } else gl.disable(gl.BLEND);
+      gl.uniform1f(u.uOpacity,pass.ghost ? this.contextOpacity : 1);
+      for (const mesh of pass.meshes) {
+        const part = mesh.part;
+        const id=part.index+1;
+        gl.uniformMatrix4fv(u.uModel,false,exploded ? identity : mesh.matrix);
+        gl.uniform3fv(u.uColor,picking ? [id&255,(id>>8)&255,(id>>16)&255].map(value=>value/255) : part.color);
+        gl.uniform1f(u.uSelected,!picking && !nominal && this.selected.has(part.index) ? 1 : 0);
+        gl.uniform3fv(u.uExplode,nominal ? [0,0,0] : this.explosionOffset(part));
+        const flex = exploded ? null : mesh.deformation;
+        gl.uniform4fv(u.uFlexShape,flex ? [angle(flex[0]),angle(flex[1]),flex[2],flex[3]] : [0,0,1,1]);
+        gl.uniform4fv(u.uFlexBody,flex ? [flex[4],flex[5],flex[6],1] : [1,1,0,0]);
+        gl.uniform3fv(u.uFlexCenter,[...(part.center ?? [0,0]),0].slice(0,3));
+        for (const [channel, attribute] of [['positions','aPosition'],['normals','aNormal'],['material','aMaterial']]) {
+          const location = this.attributes[attribute];
+          if (mesh.gpu[channel]) { gl.bindBuffer(gl.ARRAY_BUFFER,mesh.gpu[channel]); gl.enableVertexAttribArray(location); gl.vertexAttribPointer(location,3,gl.FLOAT,false,0,0); }
+          else { gl.disableVertexAttribArray(location); gl.vertexAttrib3f(location,0,0,0); }
+        }
+        gl.drawArrays(gl.TRIANGLES,0,part.mesh.vertex_count);
+        if (capVisible) this.renderSectionCap(part.mesh.vertex_count);
+      }
+    }
+    gl.colorMask(true,true,true,true);
+    gl.depthMask(true);
+    gl.depthFunc(gl.LESS);
+    gl.disable(gl.BLEND);
+  }
+  partIdFrame(clientX, clientY) {
+    // Use an opaque, single-sample target so edge blending and the default
+    // canvas antialiasing cannot turn two adjacent IDs into a third one.
+    if (!this.design || this.lost || this.disposed || this.captureBusy || this.section || this.frame) return null;
+    const gl=this.gl, rect=this.canvas.getBoundingClientRect(), dpr=Math.min(2,globalThis.devicePixelRatio || 1);
+    const width=Math.round(rect.width*dpr), height=Math.round(rect.height*dpr);
+    if (!width || !height) return null;
+    const atPoint=clientX !== undefined;
+    const x=atPoint ? Math.floor((clientX-rect.left)*width/rect.width) : 0;
+    const y=atPoint ? height-1-Math.floor((clientY-rect.top)*height/rect.height) : 0;
+    if (x<0 || y<0 || x>=width || y>=height) return null;
+    const savedFramebuffer=gl.getParameter(gl.FRAMEBUFFER_BINDING);
+    const savedRenderbuffer=gl.getParameter(gl.RENDERBUFFER_BINDING);
+    const savedTexture=gl.getParameter(gl.TEXTURE_BINDING_2D);
+    const dither=gl.isEnabled(gl.DITHER);
+    const target=gl.createFramebuffer(), color=gl.createTexture(), depth=gl.createRenderbuffer();
+    try {
+      if (!(target && color && depth)) return null;
+      gl.bindFramebuffer(gl.FRAMEBUFFER,target);
+      gl.bindTexture(gl.TEXTURE_2D,color);
+      gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.NEAREST);
+      gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.NEAREST);
+      gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
+      gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,width,height,0,gl.RGBA,gl.UNSIGNED_BYTE,null);
+      gl.framebufferTexture2D(gl.FRAMEBUFFER,gl.COLOR_ATTACHMENT0,gl.TEXTURE_2D,color,0);
+      gl.bindRenderbuffer(gl.RENDERBUFFER,depth);
+      gl.renderbufferStorage(gl.RENDERBUFFER,gl.DEPTH_COMPONENT16,width,height);
+      gl.framebufferRenderbuffer(gl.FRAMEBUFFER,gl.DEPTH_ATTACHMENT,gl.RENDERBUFFER,depth);
+      if (gl.checkFramebufferStatus(gl.FRAMEBUFFER)!==gl.FRAMEBUFFER_COMPLETE) return null;
+      gl.disable(gl.DITHER);
+      this.render({picking:true});
+      const w=atPoint?1:width, h=atPoint?1:height;
+      const result=new Uint8Array(w*h*4);
+      gl.readPixels(x,y,w,h,gl.RGBA,gl.UNSIGNED_BYTE,result);
+      return result;
+    } finally {
+      if (dither) gl.enable(gl.DITHER);
+      gl.bindFramebuffer(gl.FRAMEBUFFER,savedFramebuffer);
+      gl.bindRenderbuffer(gl.RENDERBUFFER,savedRenderbuffer);
+      gl.bindTexture(gl.TEXTURE_2D,savedTexture);
+      gl.deleteFramebuffer(target);gl.deleteRenderbuffer(depth);gl.deleteTexture(color);
+    }
+  }
+  pickComponent(x,y) {
+    const pixels=this.partIdFrame(x,y);
+    return pixels ? (pixels[0]+256*pixels[1]+65536*pixels[2]-1) : -1;
   }
   async captureNominal(frame, indices = null) {
     if (this.lost || !this.design || this.captureBusy) throw Error('The preview is not available for capture.');
@@ -400,5 +533,5 @@ export class ModelViewer extends EventTarget {
       return new Uint8Array(await blob.arrayBuffer());
     } finally { this.captureBusy = false; if (this.design === design) { if (previous) this.applyFrame(previous,false); this.render(); } }
   }
-  dispose() { this.disposed = true; this.events.abort(); this.resizeObserver.disconnect(); this.release(); if (this.program) this.gl.deleteProgram(this.program); this.program = null; this.design = null; }
+  dispose() { this.disposed = true; this.events.abort(); this.resizeObserver.disconnect(); this.release(); if (this.program) this.gl.deleteProgram(this.program); if (this.sectionQuad) this.gl.deleteBuffer(this.sectionQuad); this.sectionQuad = this.program = this.design = null; }
 }

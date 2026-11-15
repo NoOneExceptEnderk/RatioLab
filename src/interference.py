@@ -141,7 +141,7 @@ def expected_interface(d,i,j):
             return 'Constructed Wolfrom mesh · boundary contact expected, intersection is suspect'
     if f=='planetary':
         stage=lambda n:2 if n.startswith('s2_') else 1
-        if stage(names[0])==stage(names[1]) and any('planet_' in n and 'pin_' not in n for n in names) and any('_sun' in n or n.endswith('_ring') for n in names):
+        if stage(names[0])==stage(names[1]) and any('planet_' in n and 'pin_' not in n and not n.endswith('_bushing') for n in names) and any('_sun' in n or n.endswith('_ring') for n in names):
             return 'Constructed planetary mesh · boundary contact expected, intersection is suspect'
     if f=='cycloidal' and any(n.startswith('disc_cycloidal') for n in names) and any(n.startswith(('roller_ring','pin_output')) for n in names):
         return 'Constructed disc/roller interface · boundary contact expected, intersection is suspect'
