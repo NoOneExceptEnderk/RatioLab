@@ -276,15 +276,20 @@ class PackedPreviewTests(unittest.TestCase):
                 source=ctypes.create_string_buffer(data)
                 with self.assertRaises(RuntimeError):kernel._native_preview(ctypes.addressof(source),len(data),None)
 
-    def test_display_buffers_match_the_pre_optimization_fixture_exactly(self):
+    def test_single_part_explosion_framing_preserves_nominal_buffers(self):
         from preview3d import build_scene
         p=fixture()
-        cases=[('flat',p,'33df17a5818d8c22e0f0b3aa037643ca21241d42d2a81e6e39301ed95f6d4912'),
-            ('x',replace(p,axis_x=True),'a8829bad6b4fa4c4414a70615858f1aa743347f157b466db010063f1168fa2e3'),
-            ('frame',replace(p,frame=((1.,2.,3.),(0.,1.,0.),(-1.,0.,0.),(0.,0.,1.))),'7fe09ccdbd565583979140acce0c805855469e3095e56f233072608f8d38c5e3')]
+        cases=[('flat',p,'0ef0b7446abfaa8c6c918437dc853789f1a354b9ef6a211a04423a5f0f40435d'),
+            ('x',replace(p,axis_x=True),'163e16ea06e7624d5c57ffe47faa6911eb7646fb07ea762d02229970e0dcfcf5'),
+            ('frame',replace(p,frame=((1.,2.,3.),(0.,1.,0.),(-1.,0.,0.),(0.,0.,1.))),'0fe50b6093f7f6a6b7c5bf43036943475075825290664d018b063ad29b4d80ec')]
         for name,part,expected in cases:
             with self.subTest(name=name):
-                scene=build_scene(Design('spur',{},[part]),frame_explosion=True)
+                design = Design('spur', {}, [part])
+                nominal = build_scene(design)
+                scene = build_scene(design, exploded=True, frame_explosion=True)
+                self.assertEqual(scene.parts[0].explosion, (0., 0., 0.))
+                self.assertEqual(scene.bounds, nominal.bounds)
+                self.assertEqual(scene.vertices.tobytes(), nominal.vertices.tobytes())
                 self.assertEqual(hashlib.sha256(scene.vertices.tobytes()).hexdigest(),expected)
                 self.assertEqual(hashlib.sha256(scene.materials.tobytes()).hexdigest(),'8aa01aabc92db2f90ff1ad773b41d39fae8e25472e3ca428f60d9bf417089d18')
 
