@@ -629,16 +629,19 @@ class NativeNoticesTests(unittest.TestCase):
                 with self.assertRaisesRegex(RuntimeError, 'Unsafe path'):
                     support.vendored_windows_notices(component)
 
-    def test_all_five_missing_msys2_notices_produce_complete_offline_inventory(self):
+    def test_missing_msys2_notices_produce_complete_offline_inventory(self):
         registry = json.loads((support._msys_notice_root/'registry.json').read_text(encoding='utf-8'))
+        installed = {record['name']: record for record in registry['components']
+                     if not record.get('required_supplement')}
         records = [dict(name=record['name'], version=record['version'], provider='MSYS2 UCRT64',
                         source='https://packages.msys2.org/packages/'+record['name'],
                         license_declarations=record['license_declarations'], _licenses=[])
-                   for record in registry['components'] if not record.get('required_supplement')]
+                   for record in installed.values()]
         builder = dict(name='builder', version='1', provider='PyPI', source='https://example.invalid',
                        license_declarations=['fixture'],
                        _licenses=[ROOT/'packaging/fonts/LICENSE-DejaVu.txt'])
-        binaries = [(f'component{index}.dll', f'/fixture/{index}', 'BINARY') for index in range(5)]
+        binaries = [(f'component{index}.dll', f'/fixture/{index}', 'BINARY')
+                    for index in range(len(records))]
         with tempfile.TemporaryDirectory() as temporary, \
                 patch.object(support, 'component_for_binary', side_effect=records), \
                 patch.object(support, 'pip_component', return_value=builder), \
@@ -647,7 +650,8 @@ class NativeNoticesTests(unittest.TestCase):
             report = json.loads((Path(temporary)/'components.json').read_text())
             self.assertTrue(report['complete'])
             msys = [item for item in report['components'] if item['provider'] == 'MSYS2 UCRT64']
-            self.assertEqual(len(msys), 5)
+            self.assertCountEqual([(item['name'], item['version']) for item in msys],
+                                  [(record['name'], record['version']) for record in records])
             for item in msys:
                 self.assertTrue(item['notices_present'])
                 self.assertEqual(len(item['notice_provenance']['source_recipe_sha256']), 64)
