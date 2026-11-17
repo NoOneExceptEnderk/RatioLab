@@ -35,6 +35,7 @@ class ProjectApp(ProjectActions, Gtk.Application):
         self.header=Gtk.HeaderBar();self.win.set_titlebar(self.header)
         self.win.connect('close-request',self.close_project)
         self.project_alive=True;self.project_dialog=None;self.busy=False;self.messages=[]
+        self.language=SimpleNamespace(language='en')
         self.document=Document({'edit':0},folder/'project.json')
         self.document.record({'edit':1})
         self.project_store=SimpleNamespace(session=folder/'recovery.json')
