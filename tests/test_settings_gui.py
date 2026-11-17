@@ -2,15 +2,19 @@
 # SPDX-License-Identifier: GPL-3.0-only
 """Actual GTK/OpenGL preference changes must leave the current project intact."""
 from copy import deepcopy
+import json
 from math import isclose
 import unittest
 from unittest.mock import patch
 import gi
 gi.require_version('Gtk', '4.0')
-from gi.repository import Gtk, Gdk
+from gi.repository import Gtk, Gdk, Gio
 import app_paths
+import gui_workflow
+from mcp_clients import CLIENTS
+import mcp_registration
 import test_workspace_theme_preferences as fixtures
-from test_interference_gui import pump
+from test_interference_gui import pump, wait_until
 
 
 class SettingsTests(unittest.TestCase):
@@ -31,7 +35,7 @@ class SettingsTests(unittest.TestCase):
         app.lookup_action('settings').activate(None)
         self.assertIs(panel.dialog, dialog)
         self.assertEqual(app.get_accels_for_action('app.settings'), ['<Control>comma'])
-        for name in ('controls', 'general', 'appearance'):
+        for name in ('controls', 'general', 'mcp', 'appearance'):
             panel.tabs[name].set_active(True)
             pump(.03)
             self.assertEqual(panel.stack.get_visible_child_name(), name)
@@ -121,6 +125,108 @@ class SettingsTests(unittest.TestCase):
         self.assertEqual(restarted.output_dir, self.root/'exports')
         self.assertEqual(app_paths.load_preferences()['custom'], {'keep': 7})
         self.assertEqual(app_paths.load_preferences()['recent'], ['example.json'])
+
+    def test_mcp_workspace_persists_and_copies_client_configuration(self):
+        app = self.launch()
+        panel = app.settings
+        panel.present()
+        panel.tabs['mcp'].set_active(True)
+        self.assertEqual(list(panel.mcp_copy), list(CLIENTS))
+        self.assertTrue(all(not button.get_sensitive() for button in panel.mcp_copy.values()))
+        self.assertTrue(all(not button.get_sensitive() for button in panel.mcp_add.values()))
+        self.assertEqual(panel.mcp_browse.get_label(), 'Choose folder…')
+        panel.mcp_search.set_text('OpEnCoDe')
+        self.assertTrue(wait_until(lambda: [key for key, row in panel.mcp_rows.items()
+                                          if row.get_visible()] == ['opencode']))
+        panel.mcp_search.set_text('missing MCP client')
+        self.assertTrue(wait_until(panel.mcp_empty.get_visible))
+        panel.mcp_search.set_text('')
+        self.assertTrue(wait_until(lambda: all(row.get_visible() for row in panel.mcp_rows.values())))
+        document = deepcopy(app.project_snapshot())
+
+        workspace = self.root / 'MCP Ω ⚙'
+        workspace.mkdir()
+        panel.mcp_browse.emit('clicked')
+        self.assertEqual(panel.stack.get_visible_child_name(), 'mcp-folder')
+        chooser = panel.mcp_chooser
+        chooser.set_current_folder(Gio.File.new_for_path(str(workspace)))
+        self.assertTrue(wait_until(lambda: chooser.get_file() is not None
+                                  and chooser.get_file().get_path() == str(workspace)))
+        panel.mcp_folder_page.get_last_child().get_last_child().emit('clicked')
+        self.assertEqual(app_paths.load_preferences()['mcp_workspace'], str(workspace))
+        self.assertEqual(app.project_snapshot(), document)
+        self.assertTrue(all(button.get_sensitive() for button in panel.mcp_copy.values()))
+
+        def copied(kind):
+            panel.mcp_copy[kind].emit('clicked')
+            clipboard = panel.dialog.get_clipboard()
+            received = []
+            clipboard.read_text_async(None, lambda cb, result: received.append(cb.read_text_finish(result)))
+            self.assertTrue(wait_until(lambda: received))
+            return received[0]
+
+        config = json.loads(copied('generic'))['mcpServers']['ratiolab']
+        self.assertEqual(config['args'][-2:], ['--workspace', str(workspace)])
+        toml = copied('codex')
+        self.assertTrue(toml.startswith('[mcp_servers.ratiolab]\n'))
+        self.assertIn('command = ' + json.dumps(config['command'], ensure_ascii=False), toml)
+        self.assertIn('args = ' + json.dumps(config['args'], ensure_ascii=False), toml)
+        for client in ('antigravity', 'gemini', 'claude-desktop', 'cline', 'kiro', 'continue'):
+            with self.subTest(client=client):
+                self.assertEqual(json.loads(copied(client)), {'mcpServers': {'ratiolab': config}})
+        for client in ('claude', 'cursor', 'copilot'):
+            with self.subTest(client=client):
+                entry = {'type': 'stdio', **config}
+                if client == 'copilot':
+                    entry['tools'] = ['*']
+                self.assertEqual(json.loads(copied(client)), {'mcpServers': {'ratiolab': entry}})
+        opencode = {'type': 'local', 'command': [config['command'], *config['args']]}
+        if 'env' in config:
+            opencode['environment'] = config['env']
+        self.assertEqual(json.loads(copied('opencode')), {'mcp': {'ratiolab': opencode}})
+        self.assertEqual(json.loads(copied('zed')), {'context_servers': {'ratiolab': config}})
+
+        for client, (_, _, url) in CLIENTS.items():
+            if url is None:
+                continue
+            button = panel.mcp_copy[client]
+            link = button.get_prev_sibling()
+            self.assertEqual(link.get_uri(), url)
+            with patch.object(gui_workflow, 'open_link', return_value=True) as open_link:
+                self.assertTrue(link.emit('activate-link'))
+                open_link.assert_called_once_with(app, url)
+
+        cursor_path = self.root/'cursor'/ 'mcp.json'
+        with patch.object(mcp_registration, 'config_path', return_value=cursor_path):
+            panel.mcp_add['cursor'].emit('clicked')
+            self.assertTrue(wait_until(lambda: panel.mcp_add['cursor'].get_label() == 'Added'))
+        self.assertTrue(panel.mcp_feedback['cursor'].get_visible())
+        self.assertEqual(json.loads(cursor_path.read_text())['mcpServers']['ratiolab'],
+                         {'type': 'stdio', **config})
+        project = self.root/'Continue project'
+        project.mkdir()
+        panel.mcp_add['continue'].emit('clicked')
+        chooser = panel.mcp_chooser
+        chooser.set_current_folder(Gio.File.new_for_path(str(project)))
+        self.assertTrue(wait_until(lambda: chooser.get_file() is not None
+                                  and chooser.get_file().get_path() == str(project)))
+        panel.mcp_folder_page.get_last_child().get_last_child().emit('clicked')
+        self.assertTrue(wait_until(lambda: panel.mcp_add['continue'].get_label() == 'Added'))
+        self.assertEqual(json.loads((project/'.continue/mcpServers/ratiolab.json').read_text()),
+                         {'mcpServers': {'ratiolab': config}})
+
+        panel.mcp_browse.emit('clicked')
+        self.assertTrue(panel._key_pressed(None, Gdk.KEY_Escape, 0, Gdk.ModifierType(0)))
+        self.assertEqual(panel.stack.get_visible_child_name(), 'mcp')
+        self.assertIsNone(panel.mcp_chooser)
+        panel.mcp_browse.emit('clicked')
+        panel.dialog.response(Gtk.ResponseType.CLOSE)
+        self.assertIsNone(panel.mcp_chooser)
+        app.win.destroy()
+        restarted = self.launch()
+        reopened = restarted.settings
+        reopened.present()
+        self.assertEqual(reopened.mcp_path.get_text(), str(workspace))
 
     def test_language_sync_and_failed_writes_keep_session_usable(self):
         app = self.launch()

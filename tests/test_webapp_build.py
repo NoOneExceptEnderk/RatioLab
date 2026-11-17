@@ -81,12 +81,13 @@ class BuildTests(unittest.TestCase):
             self.assertEqual(runtime['indexURL'], 'https://cdn.jsdelivr.net/pyodide/v314.0.7/full/')
             self.assertNotIn('runtime/pyodide.mjs', manifest['files'])
             self.assertTrue({'LICENSE', 'COPYRIGHT', 'source.zip', 'source-fonts.zip', 'engine.zip'} <= set(first))
-            self.assertEqual(set(builder.ASSETS), {'rust-engine.js', 'engine-client.js', 'worker.js', 'index.html', 'app.css', 'app.js', 'bom-view.js', 'model-catalog.js', 'choice-menu.js', 'ui-language.js', 'viewer.js', 'document.js', 'preferences.js', 'settings.js', 'themes.js', 'controls.js', 'ui-catalog.js', 'tools.js', 'ratio-display.js', 'tools.css', 'help-illustrations.json'})
+            self.assertEqual(set(builder.ASSETS), {'rust-engine.js', 'engine-client.js', 'worker.js', 'index.html', 'app.css', 'app.js', 'bom-view.js', 'component-sheets.js', 'sheet-pdf.js', 'model-catalog.js', 'choice-menu.js', 'ui-language.js', 'viewer.js', 'document.js', 'preferences.js', 'settings.js', 'mcp-settings.js', 'themes.js', 'controls.js', 'ui-catalog.js', 'tools.js', 'ratio-display.js', 'tools.css', 'help-illustrations.json'})
             self.assertEqual(set(builder.BRANDING), {'ratiolab-icon.png', 'ratiolab-logo-dark.png'})
             for name in builder.ASSETS:
                 self.assertEqual(first[name], (ROOT/'webapp'/name).read_bytes())
             for name in builder.BRANDING:
                 self.assertEqual(first['branding/'+name], (ROOT/'src/ratiolab_resources/branding'/name).read_bytes())
+            self.assertEqual(first['setup-guide.png'], (ROOT/'src/ratiolab_resources/setup-guide.png').read_bytes())
             expected_static = set(builder.ASSETS) | {'branding/'+name for name in builder.BRANDING} | {'runtime.json', 'bundle-manifest.json', 'LICENSE', 'COPYRIGHT', 'source.zip', 'source-fonts.zip', 'engine.zip', 'README.txt', 'serve.py'} | {'notices/'+name for name in builder.NOTICES}
             expected_static |= set(builder.UI_RESOURCES) | {'fonts/'+name for name in builder.FONTS}
             expected_static |= {'ratiolab_geometry.wasm', 'rust-notices.zip'}
@@ -105,6 +106,7 @@ class BuildTests(unittest.TestCase):
             for name in builder.NOTICES:
                 self.assertEqual(first['notices/'+name], (ROOT/'webapp/notices'/name).read_bytes())
             with ZipFile(output/'source.zip') as archive:
+                self.assertEqual(archive.read('src/mcp_clients.py'), (ROOT/'src/mcp_clients.py').read_bytes())
                 for name in builder.RECIPES:
                     self.assertEqual(archive.read('scripts/'+name), (ROOT/'scripts'/name).read_bytes())
                 self.assertIn('docs/web-app.md', archive.namelist())

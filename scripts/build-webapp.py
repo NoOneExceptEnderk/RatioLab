@@ -22,18 +22,18 @@ ROOT = Path(__file__).resolve().parents[1]
 # A new dependency must be reviewed and added explicitly, never collected blindly.
 MODULES = (
     'app_paths', 'assemblies', 'backdrivability', 'backlash_solver', 'bevel_geometry', 'bevel_pair', 'hypoid_geometry', 'rack_geometry', 'face_geometry', 'face_herringbone', 'bom', 'bom_view', 'bushings',
-    'cad_contract', 'curved_cad', 'curved_cylindrical', 'cylindrical_validation', 'cad_export', 'catalog', 'collision_geometry', 'combination_search', 'component_geometry', 'differential_wrist', 'engineering',
-    'export_transaction', 'parameter_errors', 'component_sheets', 'gear_measurement', 'geartrains', 'geometry', 'geometry_error_budget', 'geometry_quality', 'hardware', 'shaft_connections',
+    'cad_contract', 'curved_cad', 'curved_cylindrical', 'cylindrical_validation', 'cad_export', 'catalog', 'collision_geometry', 'combination_search', 'component_geometry', 'component_labels', 'differential_wrist', 'engineering',
+    'empty_field_search', 'export_transaction', 'parameter_errors', 'component_sheets', 'gear_measurement', 'geartrains', 'geometry', 'geometry_error_budget', 'geometry_quality', 'hardware', 'shaft_connections',
     'hardware_catalog', 'interference', 'kinematics', 'motion', 'mounting', 'package_export',
     'pair_assembly', 'parallel_multistage', 'quick_combination_search', 'parameter_help', 'printed_shaft', 'profile_export',
-    'selected_export', 'solid_geometry', 'special_drives', 'standard_parts', 'theme_preferences', 'mouse_navigation',
-    'stl_export', 'precise_numbers', 'ratio_display', 'rust_geometry', 'rust_surfaces', 'tool_capabilities', 'tooth_profiles', 'tooth_tips', 'view_navigation', 'internal_mesh', 'wave_envelope', 'wave_geometry', 'worm_geometry', 'wolfrom',
+    'selected_export', 'sheet_content', 'solid_geometry', 'special_drives', 'standard_parts', 'theme_preferences', 'mouse_navigation', 'ui_language',
+    'stl_export', 'precise_numbers', 'ratio_display', 'rust_geometry', 'rust_surfaces', 'tool_capabilities', 'tooth_profiles', 'tooth_tips', 'tooth_view', 'view_navigation', 'internal_mesh', 'wave_envelope', 'wave_geometry', 'worm_geometry', 'wolfrom',
 )
-RESOURCES = ('__init__.py', 'version.json', 'bearing-catalog.json', 'hardware-catalog.json')
+RESOURCES = ('__init__.py', 'version.json', 'bearing-catalog.json', 'hardware-catalog.json', 'ui-translations.json')
 ASSETS = ('rust-engine.js', 'engine-client.js', 'worker.js', 'index.html', 'app.css',
-          'app.js', 'bom-view.js', 'model-catalog.js', 'choice-menu.js', 'ui-language.js', 'viewer.js', 'document.js', 'preferences.js', 'settings.js', 'themes.js', 'controls.js', 'ui-catalog.js', 'tools.js', 'ratio-display.js', 'tools.css', 'help-illustrations.json')
+          'app.js', 'bom-view.js', 'component-sheets.js', 'sheet-pdf.js', 'model-catalog.js', 'choice-menu.js', 'ui-language.js', 'viewer.js', 'document.js', 'preferences.js', 'settings.js', 'mcp-settings.js', 'themes.js', 'controls.js', 'ui-catalog.js', 'tools.js', 'ratio-display.js', 'tools.css', 'help-illustrations.json')
 MODEL_IMAGES = tuple('model-catalog/'+key+'.png' for key in ('spur','helical','double','planetary','cycloidal','harmonic','worm','parallel','internal','differential','wolfrom','bevel','hypoid','rack','face'))
-UI_RESOURCES = ('ui-translations.json', 'viewport-warning.png', 'viewport-error.png', *MODEL_IMAGES)
+UI_RESOURCES = ('ui-translations.json', 'viewport-warning.png', 'viewport-error.png', 'setup-guide.png', *MODEL_IMAGES)
 FONTS = ('NotoSansCJK-Regular.ttc', 'NotoSansTamil-Regular.ttf', 'LICENSE-NotoCJK.txt', 'LICENSE-NotoTamil.txt', 'SOURCE-NOTO.json')
 BRANDING = ('ratiolab-icon.png', 'ratiolab-logo-dark.png')
 LEGAL = ('LICENSE', 'COPYRIGHT')
@@ -201,6 +201,7 @@ def build(output, runtime_dir=None, external_runtime=False, root=ROOT):
             'Font licences and provenance are included in both archives.\n'
         ).encode('utf-8')
         source['src/keyboard_shortcuts.py'] = (root/'src/keyboard_shortcuts.py').read_bytes()
+        source['src/mcp_clients.py'] = (root/'src/mcp_clients.py').read_bytes()
         source['webapp/catalog.json'] = encoded(metadata(root))
         source.update({name: (root/name).read_bytes() for name in LEGAL})
         source.update({'webapp/'+name: (root/'webapp'/name).read_bytes() for name in (*ASSETS, 'runtime.json', 'engine_bridge.py')})

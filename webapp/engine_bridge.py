@@ -206,6 +206,7 @@ def schema(family, parameters=None):
         tips = tip_group(family,supplied.get('variant'),key)
         if tips:
             fields[-1]['tooth_tip_group'] = tips[1]
+            fields[-1]['tooth_tip_member'] = tips[0]
         if port := field_port(key):
             fields[-1]['shaft_connection_port'] = port
     options = option_definitions(family)
@@ -319,12 +320,10 @@ class Engine:
         self.buffers = []
         self.query = None
         self.proposal = None
-        self.surfaces = {}
         self.progress = lambda message, fraction: None
 
     def invalidate_queries(self):
         self.query = self.proposal = None
-        self.surfaces.clear()
 
     def remember(self, method, data, text, proposal=None):
         # One completed query and at most one candidate assembly. No history of
@@ -345,9 +344,17 @@ class Engine:
         self.buffers.append(data)
         return index
 
-    def project(self):
+    def project(self, args=None):
         from geometry_quality import project
-        return project(self.design)
+        value = project(self.design)
+        if args is not None and 'component_sheets' in args:
+            from component_sheets import normalize
+            metadata = normalize(args['component_sheets'])
+            if metadata:
+                value['component_sheets'] = metadata
+            else:
+                value.pop('component_sheets', None)
+        return value
 
     def generate(self, family, parameters, quality=None, component_sheets=None):
         from component_sheets import normalize as normalize_sheets
@@ -413,6 +420,9 @@ class Engine:
     def pack_design(self, design, plan):
         """Pack an independent assembly without replacing the active source."""
         from component_geometry import preview_explosion_layout
+        from component_labels import component_title
+        from bom import part_info
+        from tooth_view import supported as has_tooth_view
         import stl_export
         from solid_geometry import PALETTE,profile_report,sampling_report
         from engineering import geometry_warnings
@@ -421,7 +431,7 @@ class Engine:
         values = design.values
         if len(design.parts) > 256:
             raise BridgeError('resource_limit', 'The browser supports at most 256 components.')
-        parts, boxes, triangles = [], [], 0
+        parts, boxes, triangles, purchases = [], [], 0, 0
         lower, upper = [float('inf')]*3, [-float('inf')]*3
         for index, part in enumerate(design.parts):
             from rust_surfaces import surface
@@ -446,9 +456,13 @@ class Engine:
             if materials:mesh['material']=self.add_buffer(materials)
             for axis in range(3):
                 lower[axis] = min(lower[axis], lo[axis]); upper[axis] = max(upper[axis], hi[axis])
+            info = part_info(part)
+            purchases += info['category'] == 'PURCHASE'
             parts.append(dict(index=index, source_index=index+1, name=part.name, role=part.role,
+                              title=component_title(part), bom_code=info['code'], tooth_view=has_tooth_view(part),
                               color=part.color if part.color != (.35, .72, .9) else PALETTE[index % len(PALETTE)],
                               bounds_mm=dict(minimum=lo, maximum=hi), mesh=mesh, port=part.port,
+                              preview_cap_corners=packed.get('preview_cap_corners', ()),
                               center=part.center, frame=part.frame, axis_x=part.axis_x,
                               profile_geometry=profile_report(shown), manufacturing=part.manufacturing,
                               preview_sampling=sampling_report(shown)))
@@ -456,7 +470,7 @@ class Engine:
         for part, offset in zip(parts, offsets):
             part['explosion_offset_mm'] = offset
         return dict(design_id=self.design_id, family=design.family, values=design.values, metrics=design.metrics,
-                    notes=design.notes, warnings=geometry_warnings(design), requirements=design.requirements,
+                    notes=design.notes, warnings=geometry_warnings(design), requirements=design.requirements, purchase_count=purchases,
                     analysis=design.analysis, quality=design.quality, representation=summary(design), parts=parts, triangle_count=triangles,
                     tool_capabilities=capabilities(design),
                     bounds_mm=dict(minimum=lower, maximum=upper), explosion_minimum=explosion_minimum,
@@ -767,7 +781,9 @@ class Engine:
 
     def pick(self, args):
         design = self.require(args)
-        import component_geometry as component
+        from component_geometry import pick_displayed
+        from geometry_quality import part as preview_part
+        from rust_surfaces import surface
         origin = vector(args.get('ray_origin'), 'ray_origin')
         direction = vector(args.get('ray_direction'), 'ray_direction')
         if sum(x*x for x in direction) < 1e-24:
@@ -801,17 +817,20 @@ class Engine:
                 raise BridgeError('invalid_arguments', 'Picking matrices must be rigid column-major transforms.')
         if animated and set(transforms) != set(indices):
             raise BridgeError('invalid_arguments', 'Animated picking requires the actual current matrix of every visible part.')
-        surfaces = []
-        for index in indices:
-            if index not in self.surfaces:
-                from geometry_quality import part
-                self.surfaces[index] = component.triangles(part(design,design.parts[index],'preview'))
-            ts = self.surfaces[index]
-            matrix, offset = transforms.get(index, motion.IDENTITY), offsets.get(index, (0, 0, 0))
-            if matrix != motion.IDENTITY or offset != (0, 0, 0):
-                ts = tuple(tuple(tuple(a+b for a, b in zip(motion.transform(matrix, q), offset)) for q in t) for t in ts)
-            surfaces.append((index, ts))
-        hit = component.pick(origin, direction, surfaces, section_y=section)
+        def displayed_surfaces():
+            for index in indices:
+                matrix = transforms.get(index, motion.IDENTITY)
+                offset = offsets.get(index, (0, 0, 0))
+                if any(offset):
+                    # The viewer adds the explosion offset in world coordinates.
+                    x, y, z = (value + shift for value, shift in zip(matrix[12:15], offset))
+                    matrix = (*matrix[:12], x, y, z, matrix[15])
+                snapshot = surface(preview_part(design, design.parts[index], 'preview'))
+                yield index, snapshot, None if matrix == motion.IDENTITY else matrix
+
+        # Use the same per-surface Rust raycast as the desktop. The bounded
+        # surface cache can reuse snapshots prepared for the browser meshes.
+        hit = pick_displayed(origin, direction, displayed_surfaces(), section, sys.float_info.max)
         return dict(design_id=self.design_id, hit=None if hit is None else dict(source_index=hit[0], point=hit[1], triangle=hit[2]),
                     basis='Discrete sampled surface facets in mm; no analytic CAD measurement.')
 
@@ -838,7 +857,7 @@ class Engine:
             design = subset(original, indices, self.design_id)
         else:
             design = original
-        config = self.project()
+        config = self.project(args)
         files = []
         if kind == 'project':
             if indices is not None:
@@ -884,6 +903,73 @@ class Engine:
         return dict(design_id=self.design_id, name=filename, mime=mime, bytes=len(data), buffer=self.add_buffer(data),
                     scope=getattr(design, 'export_scope', None), files=files, component_count=len(design.parts))
 
+    def minimum_fields(self, args):
+        from empty_field_search import Request, prepare
+        family = family_check(args.get('family'))
+        parameters = args.get('parameters', {})
+        if not isinstance(parameters, dict):
+            raise BridgeError('invalid_parameters', 'Parameters must be an object with string keys.')
+        fields = {field['key']:field for field in schema(family, parameters)['fields']
+                  if not field['inactive'] and field['key'] != 'input_rpm'}
+        keys = args.get('keys')
+        if not isinstance(keys, list) or not keys or any(
+                not isinstance(key, str) or key not in fields or key not in parameters for key in keys):
+            raise BridgeError('invalid_parameters', 'Select numeric model fields to search.')
+        bounds = tuple((key, tuple(fields[key][name] for name in ('minimum','maximum','step')))
+                       for key in dict.fromkeys(keys))
+        return dict(values=prepare(Request(family, parameters, bounds, None, args.get('quality') or {}), lambda: True))
+
+    def tooth_view(self, args):
+        from rust_surfaces import surface
+        from tooth_view import component_index, prepare_view, visible_context
+        from view_navigation import paper_orientation
+        design = self.require(args)
+        if 'field' in args:
+            try:
+                index = component_index(design, args['field'])
+            except StopIteration:
+                raise ValueError('Tooth view requires one supported gear.') from None
+        else:
+            index = args.get('index')
+        view = prepare_view(design, index)
+        visible = args.get('visible_indices')
+        if not isinstance(visible, list) or any(type(i) is not int or not 0 <= i < len(design.parts) for i in visible):
+            raise ValueError('Invalid visible component list.')
+        _, occluded = visible_context(design, index, view, set(visible) | {index})
+        ghosts = []
+        for part in view.ghosts or ():
+            _, positions, normals, _ = surface(part).web_mesh(triangle_limit=MAX_TRIANGLES)
+            ghosts.append(dict(color=part.color, mesh=dict(positions=self.add_buffer(positions),
+                              normals=self.add_buffer(normals), vertex_count=len(positions)//12)))
+        return dict(design_id=self.design_id, index=index, name=design.parts[index].name,
+                    target=view.target, radius=view.radius, orientation=paper_orientation(view.direction, view.up),
+                    occluded_indices=occluded, ghosts=ghosts)
+
+    def component_sheet(self, args):
+        import component_sheets as sheets
+        design = self.require(args)
+        index = args.get('index')
+        if type(index) is not int or not 0 <= index < len(design.parts):
+            raise ValueError('Select one current component.')
+        metadata = args.get('metadata')
+        if args.get('action') == 'draft':
+            return dict(draft=sheets.draft(design,index,metadata), company_fields=sheets.COMPANY_FIELDS,
+                        part_fields=sheets.PART_FIELDS, max_checks=sheets.MAX_CHECKS)
+        if args.get('action') != 'apply':
+            raise ValueError('Unknown component sheet action.')
+        values = sheets.apply(design,index,metadata,args['company'],args['fields'],args['checks'])
+        reply = dict(metadata=values)
+        if args.get('pdf'):
+            from datetime import datetime, timezone
+            from sheet_content import document_plans, output_language
+            revision = args.get('revision','')
+            if type(revision) is int and values != sheets.normalize(metadata):
+                revision += 1
+            report = sheets.report(design,index,values,args.get('project',''),revision)
+            report.update(language=output_language(args.get('language','en')),generated_at=datetime.now(timezone.utc).isoformat())
+            reply.update(report=report,pages=document_plans(report))
+        return reply
+
     def call(self, method, args):
         # Preserve the accepted Wolfrom source and its query leases on rejection.
         # A failed RPC never returns that source as a result for the new draft.
@@ -899,7 +985,7 @@ class Engine:
             method == 'import_project' and retained_source)
         if not transactional:
             return self._call(method, args)
-        retained = dict(self.__dict__, buffers=list(self.buffers), surfaces=dict(self.surfaces))
+        retained = dict(self.__dict__, buffers=list(self.buffers))
         try:
             return self._call(method, args, transactional=True)
         except Exception:
@@ -915,6 +1001,9 @@ class Engine:
             raise BridgeError('invalid_arguments', 'RPC payload must be an object.')
         if method == 'catalog': return catalog()
         if method == 'schema': return schema(args.get('family'), args.get('parameters'))
+        if method == 'minimum_fields': return self.minimum_fields(args)
+        if method == 'tooth_view': return self.tooth_view(args)
+        if method == 'component_sheet': return self.component_sheet(args)
         if method == 'validate': return dict(family=family_check(args.get('family')), values=parameters_check(args['family'], args.get('parameters', {})))
         if method == 'generate': return self.generate(args.get('family'), args.get('parameters', {}), args.get('quality'), args.get('component_sheets'))
         if method == 'quality': return self.set_quality(args)
@@ -946,7 +1035,7 @@ class Engine:
             return result
         if method == 'project':
             self.require(args)
-            return dict(design_id=self.design_id, project=self.project())
+            return dict(design_id=self.design_id, project=self.project(args))
         if method == 'pose': return self.pose(args)
         if method == 'export': return self.export(args)
         if method == 'search_preview': return self.search_apply(args, preview=True)

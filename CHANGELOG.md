@@ -6,6 +6,28 @@ published packages and their verification results.
 
 ## Unreleased
 
+## 0.2.6 — 2026-11-17
+
+### Desktop
+
+- **Settings → MCP** remembers the project and export folder, offers searchable
+  client profiles with setup guides and copy controls, and registers RatioLab
+  directly in supported local clients.
+
+### Web
+
+The web controls below were published on 2026-11-16.
+
+- **Settings → MCP** offers 12 searchable client profiles and a generic JSON
+  option, setup guides, and copyable TOML or JSON. If clipboard access fails,
+  the configuration stays selectable.
+- **Motion controls** put Play, Initial pose, the phase slider, and I/O on the
+  first row, with input RPM below. Playback speed and the summary are under
+  **Motion → Motion details**.
+- **Dimensions** matches the desktop’s open and closed chevrons, compact
+  tooth-tip groups, and dividers for **Advanced tooth geometry** and
+  **All model parameters**.
+
 ## 0.2.5 — 2026-11-15
 
 ### Added
@@ -74,6 +96,15 @@ published packages and their verification results.
   can separate along a verified translation path.
 - **Double-helical planetary** views open gradually by stage. Each stage's
   sun, planets and ring stay in mesh while other parts follow clear paths.
+
+### Web updates
+
+- Match browser workspace and Tools icons to the desktop and use the same
+  reset arrow in Appearance and Controls.
+- The browser workspace follows the desktop Dimensions layout and compact
+  Display options. Expanded tools use the workspace, Isolate can restore the
+  previous visibility, and the 3D camera frames the assembled and exploded poses.
+- Select and measure browser preview surfaces using the shared Rust raycast.
 
 ## 0.2.4 — 2026-11-11
 

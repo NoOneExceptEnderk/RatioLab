@@ -4,6 +4,37 @@ RatioLab includes a local MCP server and a Python headless service. They use the
 
 ## Start the server
 
+In the desktop app, open **Settings → MCP**, choose a local folder for your
+projects and exports, then select **Add to client** beside your client.
+RatioLab registers its server in the client's user configuration. For Continue,
+choose the client project where the configuration should be added. Reload the
+client if it does not pick up the change automatically.
+
+Codex registration uses the local Codex CLI. For the JSON-based clients,
+RatioLab updates the `ratiolab` server entry and preserves other entries and
+JSONC comments. If a client uses an alternative profile or a customized Codex
+entry, **Copy configuration** and **Setup guide** are available for manual setup.
+The client starts the server as a local subprocess with the selected folder.
+
+The desktop panel provides these presets:
+
+| Client | Configuration file |
+| --- | --- |
+| [Codex](https://learn.chatgpt.com/docs/extend/mcp?surface=cli) | `~/.codex/config.toml` |
+| [Claude Code](https://code.claude.com/docs/en/mcp#user-scope) | `~/.claude.json` |
+| [OpenCode](https://opencode.ai/docs/migrate-v1/#mcp-servers) | `opencode.json`, using the format accepted by both V1 and V2 |
+| [Antigravity](https://antigravity.google/docs/mcp) | `~/.gemini/config/mcp_config.json` |
+| [Cursor](https://cursor.com/docs/mcp#configuration-locations) | `~/.cursor/mcp.json` |
+| [GitHub Copilot](https://code.visualstudio.com/docs/agents/reference/mcp-configuration) | `mcp-config.json` |
+| [Gemini CLI](https://geminicli.com/docs/tools/mcp-server/) | `~/.gemini/settings.json` |
+| [Claude Desktop](https://modelcontextprotocol.io/docs/develop/connect-local-servers) | `claude_desktop_config.json` |
+| [Cline](https://docs.cline.bot/mcp/mcp-overview) | `cline_mcp_settings.json` |
+| [Kiro](https://kiro.dev/docs/mcp/configuration/) | `~/.kiro/settings/mcp.json` |
+| [Zed](https://zed.dev/docs/ai/mcp) | `settings.json` |
+| [Continue](https://docs.continue.dev/customize/deep-dives/mcp) | `.continue/mcpServers/ratiolab.json` |
+
+**MCP JSON** provides a generic `mcpServers` entry for other local clients.
+
 From a source checkout, with Python 3.10 or newer:
 
 ```sh

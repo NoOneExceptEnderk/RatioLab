@@ -19,7 +19,7 @@ PREFERENCES_FILENAME = 'ui-preferences.json'
 LEGACY_PREFERENCES_FILENAME = 'preferenze-ui.json'
 UI_DEFAULTS = dict(theme='dark', language='en', text_scale=1, hover_help=True,
                    zoom_speed=1, rotation_speed=1, invert_zoom=False, mouse_navigation='ratiolab',
-                   theme_customizations=theme_defaults(), tooth_tip_steps={})
+                   theme_customizations=theme_defaults(), tooth_tip_steps={}, mcp_workspace='')
 
 
 def ui_preferences(data):
@@ -48,6 +48,8 @@ def ui_preferences(data):
         elif key == 'mouse_navigation':
             from mouse_navigation import PROFILES
             valid = isinstance(value, str) and value in PROFILES
+        elif key == 'mcp_workspace':
+            valid = isinstance(value, str) and '\x00' not in value and Path(value).is_absolute()
         elif type(default) is bool:
             valid = type(value) is bool
         else:
@@ -84,6 +86,25 @@ def bundle_dir():
     """PyInstaller's immutable runtime root, including macOS bundle symlinks."""
     root = getattr(sys, '_MEIPASS', None)
     return Path(root) if getattr(sys, 'frozen', False) and root else None
+
+
+def mcp_launch(workspace):
+    """Return the stdio launch settings for this RatioLab installation."""
+    executable = Path(sys.executable)
+    args = ['--workspace', workspace]
+    if getattr(sys, 'frozen', False):
+        name = 'RatioLab-MCP.exe' if sys.platform == 'win32' else 'RatioLab-MCP'
+        executable = executable.with_name(name)
+        return dict(command=str(executable), args=args) if executable.is_file() else None
+
+    if sys.platform == 'win32' and executable.name.lower() == 'pythonw.exe':
+        executable = executable.with_name('python.exe')
+    if not executable.is_file():
+        return None
+    config = dict(command=str(executable), args=['-m', 'ratiolab_mcp', *args])
+    if MODULE_ROOT != SOURCE_ROOT:
+        config['env'] = {'PYTHONPATH': str(MODULE_ROOT)}
+    return config
 
 
 def require_gtk_version(gtk):

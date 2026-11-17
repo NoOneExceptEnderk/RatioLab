@@ -31,6 +31,8 @@
 .candidate-preview:empty {display:none;}
 .candidate-preview canvas {width:100%;height:200px;display:block;background:#11161d;border:1px solid #38414d;box-sizing:border-box;touch-action:none;}
 .surface-tools {display:flex;flex-direction:column;gap:8px;padding:8px;border-bottom:1px solid #38414d;}
+.surface-tools p {margin:0;}
+.surface-tools p:empty {display:none;}
 .surface-message {margin:0;font-size:calc(12px * var(--text-scale,1));line-height:1.5;overflow-wrap:anywhere;}
 .quick-construction {display:grid;gap:8px;margin-top:6px;}
 

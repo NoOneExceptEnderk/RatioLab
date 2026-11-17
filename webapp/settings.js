@@ -1,9 +1,37 @@
 // SPDX-FileCopyrightText: 2026 NoOneExceptEnderk
 // SPDX-License-Identifier: GPL-3.0-only
-import {THEME_CATALOG,normalizeThemes,themePalette,viewPalette,hexColor,changeThemeColor,exportTheme,importTheme} from './themes.js';
+import {THEME_CATALOG,normalizeThemes,themePalette,viewPalette,hexColor,contrast,changeThemeColor,exportTheme,importTheme} from './themes.js';
 import {COMMANDS,CONTROL_PRESETS,MOUSE_PROFILES,MOUSE_SUMMARIES,presetBindings,shortcutLabel,normalizeSequence} from './controls.js';
+import {renderMcpSettings} from './mcp-settings.js';
 const make=(tag,text=null,cls='')=>{const n=document.createElement(tag);if(text!==null)n.textContent=text;if(cls)n.className=cls;return n;};
 const technical=n=>{n.dataset.noI18n='';return n;};
+
+function drawThemePreview(canvas,palette,viewport) {
+  const context=canvas.getContext('2d'), {width,height}=canvas;
+  if (!context) return;
+  const fill=(color,x,y,w,h)=>{context.fillStyle=color;context.fillRect(x,y,w,h);};
+  fill(palette.window,0,0,width,height);
+  fill(palette.surface,0,0,width,12);
+  fill(palette.surface,0,14,width*.23,height-14);
+  for (const [y,size] of [[21,.16],[31,.13],[41,.15]]) fill(palette.muted,5,y,width*size,2);
+  fill(palette.accent,5,51,width*.14,5);
+  const background=hexColor(viewport.background);
+  fill(background,width*.25,14,width*.75,height-14);
+  context.beginPath();
+  for (let y=26;y<height;y+=12) { context.moveTo(width*.26,y);context.lineTo(width,y); }
+  for (let x=Math.floor(width*.26);x<width;x+=14) { context.moveTo(x,14);context.lineTo(x,height); }
+  context.strokeStyle=hexColor(viewport.grid);context.lineWidth=.6;context.stroke();
+  for (const [cx,cy,radius,color] of [[width*.58,height*.53,18,palette.accent],[width*.81,height*.71,12,palette.muted]]) {
+    context.beginPath();
+    for (let i=0;i<48;++i) {
+      const angle=i*Math.PI/24, r=radius*(i%4===0 || i%4===3 ? .82 : 1);
+      const x=cx+r*Math.cos(angle), y=cy+r*Math.sin(angle);
+      if (i===0) context.moveTo(x,y);else context.lineTo(x,y);
+    }
+    context.closePath();context.fillStyle=color;context.fill();
+    context.beginPath();context.arc(cx,cy,radius*.32,0,Math.PI*2);context.fillStyle=background;context.fill();
+  }
+}
 
 export class SettingsPanel {
   constructor(api) {
@@ -14,7 +42,7 @@ export class SettingsPanel {
     document.getElementById('settings-done').addEventListener('click',()=>this.close());
     document.getElementById('settings-apply').addEventListener('click',()=>this.applyPrecision());
     this.pages={};this.tabs={};
-    for(const [key,title]of Object.entries({appearance:'Appearance',controls:'Controls',precision:'Model precision',general:'General'})) {
+    for(const [key,title]of Object.entries({appearance:'Appearance',controls:'Controls',precision:'Model precision',general:'General',mcp:'MCP'})) {
       const tab=make('button',title);tab.type='button';tab.id='settings-tab-'+key;tab.setAttribute('role','tab');tab.setAttribute('aria-controls','settings-page-'+key);tab.addEventListener('click',()=>this.select(key));
       document.getElementById('settings-tabs').append(tab);this.tabs[key]=tab;
       const page=make('section',null,'settings-page');page.id='settings-page-'+key;page.setAttribute('role','tabpanel');page.setAttribute('aria-labelledby',tab.id);page.append(make('h2',title));document.getElementById('settings-pages').append(page);this.pages[key]=page;
@@ -36,13 +64,23 @@ export class SettingsPanel {
     if(this.modal.open){this.select(page);return;}
     ++this.session;this.message('Preferences apply immediately. Model precision uses Apply.');this.refresh();this.select(page);this.modal.showModal();this.tabs[page].focus();this.api.translate?.();
   }
-  close(){this.cancelCapture();clearTimeout(this.boundsTimer);++this.boundsSerial;++this.session;this.precisionInputs=null;this.modal.close();document.getElementById('open-settings').focus();}
+  close(){
+    this.cancelCapture();clearTimeout(this.boundsTimer);++this.boundsSerial;++this.session;this.precisionInputs=null;
+    if (this.saveMcp) {
+      this.saveMcp();
+      this.pages.mcp.replaceChildren();
+      this.saveMcp=null;
+    }
+    this.modal.close();document.getElementById('open-settings').focus();
+  }
   select(key) {
     if(this.page!==key)this.cancelCapture();if(key!=='precision'){clearTimeout(this.boundsTimer);++this.boundsSerial;}this.page=key;
     for(const [name,page]of Object.entries(this.pages)){const active=name===key;page.hidden=!active;this.tabs[name].setAttribute('aria-selected',String(active));this.tabs[name].tabIndex=active?0:-1;}
     document.getElementById('settings-apply').hidden=key!=='precision';
+    document.getElementById('settings-message').hidden=key==='mcp';
     if(key==='precision'&&!this.precisionInputs)this.precision();
     else if(key==='precision')this.scheduleBounds();
+    else if(key==='mcp'&&!this.saveMcp)this.saveMcp=renderMcpSettings(this.pages.mcp,this.api);
     this.api.translate?.();
   }
   appearance() {
@@ -50,21 +88,28 @@ export class SettingsPanel {
     this.row(page,'Color mode',this.choice({dark:'Dark',light:'Light'},this.prefs.theme,value=>{this.api.change('theme',value);this.appearance();this.api.translate?.();}));
     const mode=this.prefs.theme,config=normalizeThemes(this.prefs.theme_customizations),cards=make('div',null,'theme-cards');
     const names={...THEME_CATALOG.presets,...(config.imported[mode]?{custom:config.imported[mode].name}:{})};
+    const previews=new Map();
+    const contrastValue=make('p',null,'muted');
     for(const [key,name]of Object.entries(names)) {
       const button=make('button',null,'theme-card');button.type='button';button.setAttribute('aria-pressed',String(config.active[mode]===key));button.setAttribute('aria-label',name);
-      const p=themePalette(mode,config,key),swatch=make('span',null,'theme-swatch');swatch.style.background=p.window;
-      for(const role of ['surface','accent','input','text']){const stripe=make('i');stripe.style.background=p[role];swatch.append(stripe);}button.append(swatch,technical(make('span',name)));
+      const preview=make('canvas',null,'theme-preview');preview.width=142;preview.height=78;preview.setAttribute('aria-hidden','true');
+      button.append(preview,technical(make('span',name)));previews.set(key,preview);
       button.addEventListener('click',()=>{const next=normalizeThemes(this.prefs.theme_customizations);next.active[mode]=key;this.api.change('theme_customizations',next);this.appearance();this.api.translate?.();});cards.append(button);
     }
-    page.append(cards);
+    const refreshPreviews=themes=>{
+      for (const [key,preview] of previews) drawThemePreview(preview,themePalette(mode,themes,key),viewPalette(mode,themes,key));
+      const colors=themePalette(mode,themes);
+      contrastValue.textContent=`Text contrast: ${contrast(colors.text,colors.window).toFixed(1)}:1`;
+    };
+    refreshPreviews(config);page.append(make('h3','Theme presets'),cards);
     for(const [group,title,roles]of [['colors','Interface colors',THEME_CATALOG.interface_roles],['viewport','3D view colors',THEME_CATALOG.view_roles]]) {
       const details=make('details',null,'theme-colors'),summary=make('summary',title);details.append(summary);
       for(const [role,label]of Object.entries(roles)) {
         const value=group==='colors'?themePalette(mode,config)[role]:hexColor(viewPalette(mode,config)[role]);
-        const controls=make('span',null,'theme-color-controls'),picker=make('input'),hex=make('input'),reset=make('button','↶','flat');
+        const controls=make('span',null,'theme-color-controls'),picker=make('input'),hex=make('input'),reset=make('button','↺','flat');
         picker.type='color';picker.value=value;picker.setAttribute('aria-label',label);hex.type='text';hex.value=value;hex.className='theme-hex';hex.setAttribute('aria-label',label+' · #RRGGBB');hex.maxLength=7;
         reset.type='button';reset.title='Restore preset color';reset.setAttribute('aria-label','Restore preset color');
-        const apply=value=>{try{const next=changeThemeColor(this.prefs.theme_customizations,mode,group,role,value);this.api.change('theme_customizations',next);const current=group==='colors'?themePalette(mode,next)[role]:hexColor(viewPalette(mode,next)[role]);picker.value=hex.value=current;hex.setAttribute('aria-invalid','false');}catch(error){hex.setAttribute('aria-invalid','true');this.message(error.message);}};
+        const apply=value=>{try{const next=changeThemeColor(this.prefs.theme_customizations,mode,group,role,value);this.api.change('theme_customizations',next);const current=group==='colors'?themePalette(mode,next)[role]:hexColor(viewPalette(mode,next)[role]);picker.value=hex.value=current;hex.setAttribute('aria-invalid','false');refreshPreviews(next);}catch(error){hex.setAttribute('aria-invalid','true');this.message(error.message);}};
         picker.addEventListener('input',()=>apply(picker.value));hex.addEventListener('change',()=>apply(hex.value));hex.addEventListener('keydown',event=>{if(event.key==='Enter'){event.preventDefault();apply(hex.value);}});reset.addEventListener('click',()=>apply(null));controls.append(picker,hex,reset);this.row(details,label,controls);
       }
       page.append(details);
@@ -73,7 +118,8 @@ export class SettingsPanel {
     reset.addEventListener('click',()=>{const next=normalizeThemes(this.prefs.theme_customizations);delete next.overrides[mode+':'+next.active[mode]];this.api.change('theme_customizations',next);this.appearance();this.api.translate?.();});
     exportButton.addEventListener('click',()=>{const theme=exportTheme(this.prefs.theme,this.prefs.theme_customizations);this.api.download(new Blob([JSON.stringify(theme,null,2)+'\n'],{type:'application/json'}),'RatioLab-theme.json');});
     importButton.addEventListener('click',()=>file.click());file.addEventListener('change',async()=>{const chosen=file.files[0],session=this.session;file.value='';if(!chosen)return;try{if(chosen.size>128*1024)throw Error('Theme file is too large.');const document=await chosen.text();if(!this.modal.open||session!==this.session)return;const imported=importTheme(document,this.prefs.theme_customizations);this.prefs.theme=imported.mode;this.api.change('theme_customizations',imported.config);this.appearance();this.api.translate?.();}catch(error){this.message(error.message);}});
-    actions.append(reset,exportButton,importButton,file);page.append(actions);
+    actions.append(importButton,exportButton,reset,file);page.insertBefore(actions,page.querySelector('.theme-colors'));
+    page.append(contrastValue);
     this.row(page,'Text size',this.choice({'1':'100%','1.25':'125%','1.5':'150%'},this.prefs.text_scale,value=>this.api.change('text_scale',Number(value))));
   }
   controls() {
@@ -88,7 +134,7 @@ export class SettingsPanel {
     const invert=make('input');invert.type='checkbox';invert.checked=this.prefs.invert_zoom;invert.addEventListener('change',()=>this.api.change('invert_zoom',invert.checked));this.row(page,'Invert zoom direction',invert);
     page.append(make('h3','Keyboard shortcuts'));this.note(page,'View shortcuts apply when the 3D view has keyboard focus. Text editing keeps its own shortcuts.');
     for(const [key,label]of Object.entries(COMMANDS)) {
-      const controls=make('span',null,'shortcut-controls'),binding=make('button',null,'shortcut-binding'),reset=make('button','↶','flat');binding.type=reset.type='button';binding.append(this.prefs.keyboard_shortcuts.bindings[key].length?technical(make('span',shortcutLabel(this.prefs.keyboard_shortcuts.bindings[key]))):make('span','Unassigned'));reset.title='Restore preset binding';reset.setAttribute('aria-label','Restore preset binding');
+      const controls=make('span',null,'shortcut-controls'),binding=make('button',null,'shortcut-binding'),reset=make('button','↺','flat');binding.type=reset.type='button';binding.append(this.prefs.keyboard_shortcuts.bindings[key].length?technical(make('span',shortcutLabel(this.prefs.keyboard_shortcuts.bindings[key]))):make('span','Unassigned'));reset.title='Restore preset binding';reset.setAttribute('aria-label','Restore preset binding');
       binding.addEventListener('click',()=>this.record(key,binding));reset.addEventListener('click',()=>{try{this.api.shortcuts.assign(key,presetBindings(this.prefs.keyboard_shortcuts.preset)[key]);this.controls();}catch(error){this.message(error.message.replace('{message0}',COMMANDS[error.command]??''));}this.api.translate?.();});controls.append(binding,reset);this.row(page,label,controls);controls.previousElementSibling.id='shortcut-command-'+key;binding.firstChild.id='shortcut-value-'+key;binding.setAttribute('aria-labelledby','shortcut-command-'+key+' shortcut-value-'+key);
     }
     const restore=make('button','Restore RatioLab controls');restore.addEventListener('click',()=>{this.api.shortcuts.applyPreset('ratiolab');this.controls();this.api.translate?.();});page.append(restore);

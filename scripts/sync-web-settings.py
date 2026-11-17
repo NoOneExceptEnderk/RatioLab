@@ -17,6 +17,7 @@ def catalog(root=ROOT):
         result = importlib.util.module_from_spec(spec); spec.loader.exec_module(result)
         return result
     theme = module('theme_preferences'); mouse = module('mouse_navigation')
+    mcp = module('mcp_clients')
     # Keyboard data precedes the GTK-dependent normalizer. Evaluate only these
     # reviewed literal/comprehension assignments, with no imports or UI code.
     names = {'COMMANDS', 'DEFAULTS', 'PRESETS', '_ORTHOGRAPHIC', '_OVERRIDES'}
@@ -28,12 +29,18 @@ def catalog(root=ROOT):
     palettes = {mode: {preset: dict(colors=theme.palette(mode, preset=preset),
                                     viewport=theme.viewport(mode, preset=preset))
                        for preset in theme.PRESETS} for mode in theme.MODES}
+    launch = {'command': '__RATIOLAB_MCP_COMMAND__',
+              'args': ['--workspace', '__RATIOLAB_MCP_WORKSPACE__']}
+    clients = {key: dict(name=name, filename=filename, guide=guide,
+                         template=mcp.configuration(key, launch))
+               for key, (name, filename, guide) in mcp.CLIENTS.items()}
     return dict(themes=dict(presets=theme.PRESETS, interface_roles=theme.INTERFACE_ROLES,
                            view_roles=theme.VIEW_ROLES, palettes=palettes),
                 mouse=dict(profiles=mouse.PROFILES, summaries=mouse.SUMMARIES),
                 keyboard=dict(commands=values['COMMANDS'], presets=values['PRESETS'],
                               bindings={key: dict(values['DEFAULTS'], **value)
-                                        for key, value in values['_OVERRIDES'].items()}))
+                                        for key, value in values['_OVERRIDES'].items()}),
+                mcp=clients)
 
 
 def source(root=ROOT):

@@ -35,6 +35,7 @@ let poseCompletion = Promise.resolve();
 let scrubCompletion = null, scrubTarget = null;
 let previousRevision = -1, schemaPending = false, initialClean = true, recovery = storage.readRecovery(), fatal = false;
 let fields = new Map(), errors = {}, advancedOpen = false, lastFamily = null;
+let toothFocus = null, toothRequest = 0, restoringFieldFocus = false;
 // Operating edits retain the last valid motion while blocking source exports.
 const speedKeys = new Set(['input_rpm','input_b_rpm','output_difference_rpm']);
 let rateEditing = false, rateSource = null, ratePending = false, nominalFrame = null;
@@ -112,11 +113,14 @@ function updateActions() {
   const valid = currentValid();
   const documentReady = documentActionReady();
   for (const id of ['save-document','save-as-document','export-document']) $(id).disabled = !documentReady;
-  for (const id of ['show-bom','show-report']) $(id).disabled = !valid;
-  if (analysisActive) for (const id of ['save-document','save-as-document','export-document','show-bom','show-report','reset-motion']) $(id).disabled = true;
-  $('show-notes').disabled = !design;
+  for (const id of ['tool-bom','tool-report']) $(id).disabled = !valid || analysisActive;
+  if (analysisActive) for (const id of ['save-document','save-as-document','export-document','reset-motion']) $(id).disabled = true;
+  for (const button of $('component-exports')?.querySelectorAll('button') ?? []) {
+    const count = viewer?.selected.size ?? 0;
+    button.disabled = !valid || analysisActive || (button.id === 'export-component-sheets' ? count !== 1 : count === 0);
+  }
+  $('tool-notes').disabled = !design;
   $('find-combinations').disabled = !valid || !design?.tool_capabilities?.search?.available;
-  for (const [id,source] of [['tool-bom','show-bom'],['tool-report','show-report'],['tool-notes','show-notes']]) $(id).disabled = $(source).disabled;
   for(const button of $('tools-menu-extension').querySelectorAll('[data-tool]')){
     const capability=design?.tool_capabilities?.[button.dataset.tool];
     button.title=valid?(capability?.reason??''):'Complete the model fields and wait for valid geometry.';
@@ -142,21 +146,24 @@ function updateActions() {
   document.title = `${doc.dirty ? '• ' : ''}${doc.name === 'Untitled design' ? defaultPageTitle : `${doc.name} · RatioLab`}`;
 }
 function setPlaying(value) {
+  if (value) closeToothDetail(false);
   if (value && !analysisActive) events.dispatchEvent(new Event('playstart'));
   playing = value && !analysisActive && motionAvailable() && design.motion.supported && !viewer?.lost;
   $('play-motion').setAttribute('aria-pressed',String(playing));
-  $('play-motion').textContent = playing ? 'Pause' : phase ? 'Resume motion' : 'Start motion';
+  $('motion-play-label').textContent = playing ? 'Pause' : 'Play';
   $('playback-hint').textContent = playing ? 'Playing' : '';
   $('phase-range').dataset.playing = String(playing);
   syncPhaseStripes();
   lastTick = 0;
-  if (playing) { viewer.explosion = 0; $('explosion').value = '0'; viewer.render(); if (!animationFrame) animationFrame = requestAnimationFrame(tick); }
+  if (playing) { viewer.explosion = 0; syncDisplayControls(); viewer.render(); if (!animationFrame) animationFrame = requestAnimationFrame(tick); }
   else { cancelAnimationFrame(animationFrame); animationFrame = 0; }
 }
 function invalidate(message = 'Updating geometry…') {
   // Python analyses are synchronous. Stop that worker BEFORE callers queue the
   // new schema/import/generation, so a source edit cannot wait behind old work.
   if (analysisActive) { analysisActive = false; sourceParameters = null; engine.cancel('The source changed during analysis.'); }
+  minimumJob = null;
+  if (toothFocus && (toothFocus.identity !== doc.identity || toothFocus.family !== doc.family)) closeToothDetail(false);
   validToken = null; ++operationSerial; rateEditing = false; rateSource = null; ratePending = false;
   sliderRateQueued = false; speedSliderActive = false; speedSliderPreview = null; speedSliderKeyActive = false;
   scrubTarget = null; setPlaying(false); errors = {};
@@ -203,7 +210,7 @@ function classify(spec) {
   }
   if (motionKeys.has(key)) return ['motion', ['input_torque','efficiency','pull_force'].includes(key) ? 'Nominal operating loads' : 'Drive connections'];
   if (key.startsWith('hardware_')) return ['assembly','Standard hardware'];
-  if (key.startsWith('bearing') || ['ring_roller_bearing','fit','seat_allowance','shaft_allowance','shoulder'].includes(key)) return ['assembly','Bearings & fits'];
+  if (['bearing','bearing_mode','ring_roller_bearing','fit','seat_allowance','shaft_allowance','shoulder'].includes(key)) return ['assembly','Bearings & fits'];
   if (key.startsWith('eccentric_')) return ['assembly','Eccentric shaft construction'];
   if (assemblyKeys.has(key) || key.startsWith('print_')) return ['assembly', doc.family === 'cycloidal' ? 'Ring carrier & flanges' : 'Housing & flanges'];
   if (spec.advanced) return ['dimensions','Advanced · profile & clearances'];
@@ -385,6 +392,63 @@ function placeFloatingOverlays() {
 function scheduleOverlayPlacement() {
   if (!overlayPlacementFrame) overlayPlacementFrame = requestAnimationFrame(placeFloatingOverlays);
 }
+function toothStepControl(spec, caption) {
+  const key = doc.family+':'+spec.key, range = spec.maximum-spec.minimum;
+  const fallback = spec.step ?? 1, stored = preferences.tooth_tip_steps[key];
+  let increment = stored > 0 && stored <= range ? stored : fallback;
+  const label = node('label',null,'tooth-step'), input = node('input');
+  input.type = 'text'; input.inputMode = 'decimal'; input.value = String(increment);
+  input.setAttribute('aria-label',caption+' · Step size');
+  label.append(node('span','Step size'),input);
+  function update(commit) {
+    const parsed = numberValue({text:input.value,typed:true},{type:'number',minimum:0,maximum:range});
+    const valid = parsed.value > 0;
+    input.setAttribute('aria-invalid',String(!valid));
+    input.title = valid ? 'Step size' : 'Enter a finite step greater than zero and no larger than the field range.';
+    if (!valid) return;
+    increment = parsed.value;
+    if (commit && preferences.tooth_tip_steps[key] !== increment) changePreference('tooth_tip_steps',{...preferences.tooth_tip_steps,[key]:increment});
+  }
+  input.addEventListener('input',()=>update(false));
+  input.addEventListener('change',()=>update(true));
+  input.addEventListener('keydown',event=>{if(event.key==='Enter'){event.preventDefault();update(true);}});
+  return {label, increment:()=>increment};
+}
+function closeToothDetail(animate=true) {
+  if (!toothFocus && !viewer?.toothDetail && !viewer?.toothAnimation) return;
+  toothFocus = null; ++toothRequest; viewer.leaveToothDetail(true,animate);
+  $('tooth-detail-controls').hidden = true;
+}
+function focusTooth(target) {
+  if (!design || design.family !== doc.family || $('pick-mode').value === 'measure') return;
+  const key = target.member ?? target.name;
+  if (toothFocus?.identity === doc.identity && toothFocus.key === key) return;
+  toothFocus = {...target,key,identity:doc.identity,family:doc.family,reset:true};
+  refreshToothDetail();
+}
+async function refreshToothDetail() {
+  const focus = toothFocus;
+  if (!focus) return;
+  if (focus.identity !== doc.identity || focus.family !== doc.family) { closeToothDetail(); return; }
+  if (!currentValid()) return;
+  const token = currentToken(), source = design, serial = ++toothRequest;
+  const index = focus.field ? null : source.parts.find(part=>part.name===focus.name && part.tooth_view)?.index;
+  if (!focus.field && index == null) { closeToothDetail(); return; }
+  const visible = source.parts.filter(part=>viewer.isVisible(part)).map(part=>part.index);
+  setPlaying(false);
+  try {
+    const detail = await engine.request('tooth_view',{design_id:source.design_id,visible_indices:visible,...(focus.field ? {field:focus.field} : {index})});
+    if (serial !== toothRequest || toothFocus !== focus || !isCurrent(token) || source !== design) return;
+    viewer.showToothDetail(detail,focus.reset);
+    focus.reset = false;
+    $('reset-tooth-camera').hidden = !focus.field;
+    $('tooth-detail-controls').hidden = false;
+  } catch (error) {
+    if (serial !== toothRequest || toothFocus !== focus || !isCurrent(token)) return;
+    closeToothDetail();
+    if (error.name !== 'AbortError') status(error.message,'warning');
+  }
+}
 function makeField(spec, {top = false} = {}) {
   const key = spec.key, linked = linkedFields().has(key), row = node('div',null,'field'); row.dataset.field = key;
   const heading = node('div',null,'field-top'); const labelText = top ? (spec.option_key ? spec.label : key === 'variant' ? ['internal','bevel','rack','face'].includes(doc.family) ? 'Tooth type' : 'Construction' : key === 'configuration' ? 'Configuration' : labels[key] ?? displayKey(key)) : spec.label ?? labels[key] ?? displayKey(key);
@@ -410,18 +474,36 @@ function makeField(spec, {top = false} = {}) {
     input.setAttribute('aria-invalid',String(!!errors[key]));
     input.title = `${caption}${spec.minimum != null ? ' · minimum '+spec.minimum : ''}${spec.maximum != null ? ', maximum '+spec.maximum : ''}`;
     input.addEventListener('input',() => { doc.editNumber(key,input.value); applyFieldErrors(); });
-    input.addEventListener('keydown',event => { if (event.key === 'Enter') { event.preventDefault(); clearTimeout(generationTimer); scheduleGeneration(0); } });
+    const step = spec.tooth_tip_group ? toothStepControl(spec,caption) : null;
+    if (step && !linked) input.addEventListener('focus',()=>{
+      if (!restoringFieldFocus) focusTooth({field:key,member:spec.tooth_tip_member});
+    });
+    if (!linked) input.addEventListener('blur',() => {if (!restoringFieldFocus) commitEmptyField(spec,input);});
+    const stepBy=delta=>{
+      if (input.disabled || input.readOnly || busy || schemaPending) return;
+      const parsed = numberValue(doc.entries[key],spec);
+      if (parsed.error || parsed.omitted) { input.focus(); return; }
+      const value = Math.max(spec.minimum ?? -Infinity,Math.min(spec.maximum ?? Infinity,parsed.value+delta*(step?.increment() ?? spec.step ?? 1)));
+      doc.checkpoint(`${doc.family}:${key}:step`);
+      doc.entries[key] = {text:step ? String(value) : automaticText(value),exact:value,typed:false};
+      doc.changed();
+    };
+    input.addEventListener('keydown',event => {
+      if (step && ['ArrowUp','ArrowDown'].includes(event.key)) {
+        event.preventDefault();stepBy(event.key==='ArrowUp'?1:-1);return;
+      }
+      if (event.key !== 'Enter') return;
+      event.preventDefault();
+      if (linked || !commitEmptyField(spec,input)) scheduleGeneration(0);
+    });
     const wrap = node('div',null,'field-input'), spin = node('div',null,'numeric-control'); spin.append(input);
     if (!linked) for (const delta of [1,-1]) {
       const button = node('button',delta < 0 ? '−' : '+'); button.type = 'button';
       button.setAttribute('aria-label',`${delta < 0 ? 'Decrease' : 'Increase'} ${caption}`); button.disabled = busy || schemaPending;
-      button.addEventListener('click',() => {
-        const parsed = numberValue(doc.entries[key],spec); if (parsed.error || parsed.omitted) { input.focus(); return; }
-        const value = Math.max(spec.minimum ?? -Infinity,Math.min(spec.maximum ?? Infinity,parsed.value+delta*(spec.step ?? 1)));
-        doc.checkpoint(`${doc.family}:${key}:step`); doc.entries[key] = {text:automaticText(value),exact:value,typed:false}; doc.changed();
-      }); spin.append(button);
+      button.addEventListener('click',() => stepBy(delta)); spin.append(button);
     }
     wrap.append(spin); row.append(wrap);
+    if (step) { row.classList.add('tooth-tip-field'); row.append(step.label); }
     if (linked) {
       const note = node('div',null,'linked-note'); note.append(node('span',linkedDescription(key)+' '));
       const source = node('button','Change source…','text-button'); source.addEventListener('click',() => {
@@ -452,14 +534,20 @@ function renderFields() {
   if (!schema || !doc.draft) return;
   closeParameterHelp();
   const container = $('parameters'), top = $('variant-fields'), scroll = container.scrollTop, focused = document.activeElement?.dataset.key;
+  const motionDetails = $('motion-preview-options');
   const selection = document.activeElement?.selectionStart, selectionEnd = document.activeElement?.selectionEnd;
-  fields = new Map(); container.classList.remove('direct-motion-panel'); container.replaceChildren(); top.replaceChildren();
+  fields = new Map(); container.classList.remove('direct-motion-panel');
+  restoringFieldFocus = true;
+  try { container.replaceChildren(); top.replaceChildren(); } finally { restoringFieldFocus = false; }
   for (const spec of schema.parallel_selectors ?? schema.options.filter(f => f.key === 'variant')) top.append(makeField(spec,{top:true}));
   if (schema.parallel_selector_notice) top.append(node('div',schema.parallel_selector_notice,'linked-note'));
-  const groups = new Map(); let remaining = null;
-  const primaryKeys = new Set(({face:['pinion','wheel','module','width','offset','helix','radial_setting','gap'],rack:['pinion','rack_teeth','module','width','helix','gap','base'],hypoid:['pinion','wheel','module','offset','width','spiral_angle'],bevel:['pinion','wheel','module','width','spiral_angle','trace_radius','spiral_hand'],parallel:['pinion','wheel','module','width'],internal:['pinion','wheel','module','width'],planetary:['sun','planet','module','width'],wolfrom:['sun','planet','module','width'],cycloidal:['pins','radius','pin_radius','eccentric'],worm:['starts','wheel','module','diameter'],differential:['side_teeth','output_teeth','module','width'],harmonic:['teeth','module','width','wall']}[doc.family]) ?? ['teeth','module','width','helix']);
+  const groups = new Map();
+  const dimensionSections = new Map();
+  const advancedGeometry = 'Advanced · profile & clearances';
+  const secondaryGeometry = ['Output connection','Shafts & bores'];
+  let remaining = null;
   function remainingParameters() {
-    if (!remaining) { remaining = node('details',null,'all-model-parameters'); remaining.open = remainingParametersOpen; remaining.addEventListener('toggle',() => { remainingParametersOpen = remaining.open; }); remaining.append(node('summary','All model parameters')); const body = node('div',null,'remaining-parameter-fields'); remaining.append(body); container.append(remaining); }
+    if (!remaining) { remaining = node('details',null,'all-model-parameters geometry-disclosure'); remaining.open = remainingParametersOpen; remaining.addEventListener('toggle',() => { remainingParametersOpen = remaining.open; }); remaining.append(node('summary','All model parameters')); const body = node('div',null,'remaining-parameter-fields'); remaining.append(body); container.append(remaining); }
     return remaining.children[1];
   }
   const connectionOptions = schema.options.filter(f => f.shaft_connection_port);
@@ -472,15 +560,23 @@ function renderFields() {
   for (const spec of specs) {
     if (doc.family === 'cycloidal' && ['hardware_bolts','hardware_screw'].includes(spec.key)) continue;
     if (spec.key === 'input_rpm' || spec.key === 'harmonic_output' || spec.key === 'io_scheme2' && !['two_stage','two_stage_double'].includes(doc.draft.options.variant) || spec.key === 'double_style' && (doc.family === 'double' || !['double','two_stage_double','three_stage_double','double_helical'].includes(doc.draft.options.variant)) || spec.inactive || spec.key.startsWith('print_') && doc.draft.options.eccentric_design !== 'fdm_bolted') continue;
-    const [page, classifiedGroup] = classify(spec); if (page !== tab) continue;
-    const group = page === 'dimensions' && classifiedGroup === 'Main geometry' && !primaryKeys.has(spec.key) ? 'Additional geometry' : classifiedGroup;
+    const [page, group] = classify(spec); if (page !== tab) continue;
+    if (page === 'dimensions' && ['configuration','ratio_mode','double_style'].includes(spec.key)) {
+      container.append(makeField(spec));
+      continue;
+    }
     if (!groups.has(group)) {
       let section, target;
-      if (group.endsWith('· tooth tips') || ['Advanced · profile & clearances','Nominal operating loads','Drive connections','Bearings & fits','Standard hardware','Housing & flanges','Ring carrier & flanges','Eccentric shaft construction','Shaft layout','Stage 1','Stage 2','Stage 3'].includes(group)) {
-        section = node('details'); const groupKey = `${tab}:${group}`; section.open = group.startsWith('Advanced') ? advancedOpen : parameterGroupOpen.get(groupKey) ?? (!group.endsWith('· tooth tips') && !['Nominal operating loads','Standard hardware','Eccentric shaft construction'].includes(group));
+      const advanced = group === advancedGeometry;
+      const toothTips = group.endsWith('· tooth tips');
+      if (advanced || toothTips || secondaryGeometry.includes(group) || ['Nominal operating loads','Drive connections','Bearings & fits','Standard hardware','Housing & flanges','Ring carrier & flanges','Eccentric shaft construction','Shaft layout','Stage 1','Stage 2','Stage 3'].includes(group)) {
+        section = node('details');
+        if (page === 'dimensions') section.className = advanced ? 'geometry-disclosure' : 'geometry-section';
+        const groupKey = `${tab}:${group}`;
+        section.open = advanced ? advancedOpen : parameterGroupOpen.get(groupKey) ?? (!toothTips && !['Nominal operating loads','Standard hardware','Eccentric shaft construction'].includes(group));
         section.addEventListener('toggle',() => parameterGroupOpen.set(groupKey,section.open));
-        section.append(node('summary',group.startsWith('Advanced') ? 'Advanced tooth geometry' : group==='Drive connections'?'Drive · input and output':group)); target = node('div',null,'field-group'); section.append(target);
-        if (group.startsWith('Advanced')) section.addEventListener('toggle',() => { advancedOpen = section.open; });
+        section.append(node('summary',advanced ? 'Advanced tooth geometry' : group==='Drive connections'?'Drive · input and output':group)); target = node('div',null,'field-group'); section.append(target);
+        if (advanced) section.addEventListener('toggle',() => { advancedOpen = section.open; });
       } else { section = target = node('div',null,'field-group'); if (group === 'Main geometry') section.className += ' primary-geometry'; else target.append(node('h3',group)); }
       groups.set(group,target);
       if (group === 'Eccentric shaft construction' && doc.family === 'cycloidal' && doc.draft.options.eccentric_design !== 'fdm_bolted') {
@@ -497,16 +593,14 @@ function renderFields() {
         select.addEventListener('change',update);apply.addEventListener('click',()=>applyEccentricPreset(proposals.find(p=>p.id===select.value)));
         select.disabled=busy||schemaPending;update();target.append(select,apply,reason);
       }
-      if (page === 'dimensions' && !['Main geometry','Advanced · profile & clearances','Stage 1','Stage 2','Stage 3'].includes(group)) remainingParameters().append(section);
-      else if (remaining) container.insertBefore(section,remaining); else container.append(section);
+      if (page === 'dimensions') dimensionSections.set(group,section);
+      else container.append(section);
     }
     if (spec.key === 'io_scheme' || spec.key === 'io_scheme2') {
       const target=groups.get(group),drive=makeDriveConnections(spec);target.append(drive);
       if(drive.classList.contains('direct-drive')) target.parentElement.classList.add('direct-drive-section');
     }
-    else if (spec.key === 'configuration' || spec.key === 'ratio_mode' || spec.key === 'double_style') {
-      const field = makeField(spec), firstGroup = [...container.children].find(child => !child.classList.contains('field')); container.insertBefore(field,firstGroup ?? null);
-    } else if (!(doc.draft.options.bearing_mode === 'manual' && ['bearing','fit','shoulder','seat_allowance','shaft_allowance'].includes(spec.key)) && !(doc.draft.options.hardware_mode === 'none' && spec.key.startsWith('hardware_') && spec.key !== 'hardware_mode')) groups.get(group).append(makeField(spec));
+    else if (!(doc.draft.options.bearing_mode === 'manual' && ['bearing','fit','shoulder','seat_allowance','shaft_allowance'].includes(spec.key)) && !(doc.draft.options.hardware_mode === 'none' && spec.key.startsWith('hardware_') && spec.key !== 'hardware_mode')) groups.get(group).append(makeField(spec));
     if (spec.key === 'planets' || spec.key === 'pins') {
       const derived = node('div',null,'derived-row');
       const value = design && validToken && isCurrent(validToken) && design.family === doc.family ? spec.key === 'planets' ? doc.family === 'wolfrom' ? design.analysis.wolfrom.fixed_ring_teeth : design.values.sun+2*design.values.planet : design.values.pins-1 : null;
@@ -527,13 +621,22 @@ function renderFields() {
   if (multistage && tab === 'assembly') {
     container.prepend(node('p','Centre-line turns change the top-view layout; shaft axes stay parallel. Multistage supports use manual dimensions; automatic bearing seats and hardware cover single-stage pairs only.','subtle'));
   }
-  const primary = groups.get('Main geometry');
-  if (primary) {
-    let pair = null;
-    for (const child of [...primary.children]) {
-      if (!child.classList.contains('field')) { pair = null; primary.append(child); continue; }
-      if (!pair || pair.children.length === 2) { pair = node('div',null,'parameter-pair'); primary.append(pair); }
-      pair.append(child);
+  if (tab === 'dimensions') {
+    for (const [group,section] of dimensionSections) {
+      if (group !== advancedGeometry && !secondaryGeometry.includes(group)) container.append(section);
+    }
+    if (dimensionSections.has(advancedGeometry)) container.append(dimensionSections.get(advancedGeometry));
+    for (const group of secondaryGeometry) {
+      if (dimensionSections.has(group)) remainingParameters().append(dimensionSections.get(group));
+    }
+    // Use the same named pairs as GTK. Other fields keep the full row.
+    for (const [left,right] of [['pinion','wheel'],['sun','planet'],['sun2','planet2'],['module','width']]) {
+      const first = fields.get(left)?.row;
+      const second = fields.get(right)?.row;
+      if (!first || !second || first.parentElement !== second.parentElement) continue;
+      const pair = node('div',null,'parameter-pair');
+      first.before(pair);
+      pair.append(first,second);
     }
   }
   if (!container.children.length) container.append(node('p','No additional parameters for this model.','empty-state'));
@@ -541,16 +644,21 @@ function renderFields() {
     const drive=groups.get('Drive connections')?.parentElement;
     if(drive)container.prepend(drive);
     const paired=!!container.querySelector('.direct-drive');
-    const note = node('p',doc.family === 'differential' ? doc.draft.options.configuration === 'classic' ? 'Set carrier input C in the motion bar. Prescribe B−A here to explore the two outputs; this is a speed boundary condition, not another motor.' : 'Input A is set in the motion bar. Set input B here. Both signs use the same world +X direction; the shafts face opposite sides.' : paired?'Motor → input · Load → output':'Set input speed and playback in the motion bar. Operating assumptions are not allowable loads.','subtle');
-    if(paired){container.classList.add('direct-motion-panel');note.classList.add('drive-footer');note.title='Set input speed and playback in the motion bar. Operating assumptions are not allowable loads.';container.append(note);}else container.prepend(note);
+    const operatingNote = 'Set input speed in the motion bar. Operating assumptions are not allowable loads.';
+    const note = node('p',doc.family === 'differential' ? doc.draft.options.configuration === 'classic' ? 'Set carrier input C in the motion bar. Prescribe B−A here to explore the two outputs; this is a speed boundary condition, not another motor.' : 'Input A is set in the motion bar. Set input B here. Both signs use the same world +X direction; the shafts face opposite sides.' : paired?'Motor → input · Load → output':operatingNote,'subtle');
+    if(paired){container.classList.add('direct-motion-panel');note.classList.add('drive-footer');note.title=operatingNote;container.append(note);}else container.prepend(note);
     if (doc.family === 'differential') {
       note.classList.add('motion-notation');
       appendMotionDemos(container);
       note.after(container.querySelector('.motion-demos'));
     }
   }
+  motionDetails.hidden = tab !== 'motion';
+  container.append(motionDetails);
   if (focused && fields.has(focused)) {
-    const input = fields.get(focused).input; input.focus({preventScroll:true});
+    const input = fields.get(focused).input;
+    restoringFieldFocus = true;
+    try { input.focus({preventScroll:true}); } finally { restoringFieldFocus = false; }
     if (input.type === 'text' && selection != null) input.setSelectionRange(selection,selectionEnd);
   }
   container.scrollTop = scroll; syncMotionControl(); updateModelChip();
@@ -573,6 +681,12 @@ function chooseInspection(name) {
   if (activeTool !== name) events.dispatchEvent(new CustomEvent('toolswitch',{detail:{key:name}}));
   inspection = name; activeTool = name; revealDock('inspection',name === 'components' ? 'Components & measurements' : 'Analysis tools');
   renderInspection();
+}
+function setPickMode(mode) {
+  const select = $('pick-mode');
+  if (select.value === mode) return;
+  select.value = mode;
+  select.dispatchEvent(new Event('change',{bubbles:true}));
 }
 function updateModelChip() {
   const family = familyDefinition(); if (!family) return;
@@ -608,6 +722,43 @@ async function refreshSchema() {
     if (serial === schemaSerial && isCurrent(token) && error.name !== 'AbortError') { schemaPending = false; setPreviewError(error.message); handleFatal(error); updateActions(); }
     return false;
   }
+}
+let minimumJob = null, minimumContext = null;
+const committedEmptyFields = new Set();
+const currentMinimumContext = () => JSON.stringify([doc.identity,doc.family,doc.draft?.options]);
+function commitEmptyField(spec,input) {
+  if (input.value.trim() || spec.optional || input.readOnly || !design || design.family !== doc.family) return false;
+  const context = currentMinimumContext();
+  if (minimumContext !== context) { committedEmptyFields.clear(); minimumContext = context; }
+  committedEmptyFields.add(spec.key);
+  startMinimumSearch();
+  return true;
+}
+function startMinimumSearch() {
+  if (!committedEmptyFields.size || minimumContext !== currentMinimumContext() ||
+      !design || design.family !== doc.family || !schema || schemaPending || busy || startup) return false;
+  if (minimumJob) return true;
+  if (analysisActive) return false;
+  const parsed = doc.values(schema,linkedFields()), keys = Object.keys(parsed.errors);
+  if (!keys.length || keys.some(key => !committedEmptyFields.has(key) || doc.entries[key]?.text.trim() ||
+      !Number.isFinite(design.values[key]))) return false;
+  const parameters = {...design.values,...parsed.values};
+  if (!parsed.values._decimal_inputs) delete parameters._decimal_inputs;
+  const job = minimumJob = {token:currentToken(),family:doc.family};
+  analysisActive = true; clearTimeout(generationTimer); setPlaying(false); updateActions();
+  status('Searching for the minimum compatible value…','warning');
+  engine.request('minimum_fields',{family:job.family,parameters,keys,quality:doc.state.quality || {}}).then(result => {
+    if (minimumJob !== job || !isCurrent(job.token)) return;
+    minimumJob = null; analysisActive = false;
+    for (const key of keys) committedEmptyFields.delete(key);
+    doc.resolveEmptyFields(result.values);
+  }).catch(error => {
+    if (minimumJob !== job || !isCurrent(job.token)) return;
+    minimumJob = null; analysisActive = false;
+    if (error.name !== 'AbortError') status(error.message,'error');
+    updateActions();
+  });
+  return true;
 }
 function scheduleGeneration(delay = 300) {
   clearTimeout(generationTimer); if (!catalog || startup || busy) return;
@@ -661,9 +812,14 @@ function handleFatal(error) {
   if (!engine?.failure) return;
   fatal = true; validToken = null; setPlaying(false); stageMessage('The calculation engine stopped',error.message,{retry:true}); updateActions();
 }
-async function onDocumentChange() {
+async function onDocumentChange(event) {
   if (speedSliderPreview && !isCurrent(speedSliderPreview.token)) {
     speedSliderPreview = null; speedSliderActive = false; speedSliderKeyActive = false;
+  }
+  if (event?.sheetOnly && design && !analysisActive && validToken?.identity===doc.identity && validToken.revision===previousRevision) {
+    validToken = currentToken(); previousRevision = doc.revision;
+    renderInspection(); updateActions(); saveRecovery();
+    return;
   }
   updateActions(); saveRecovery();
   if (doc.revision === previousRevision || startup) return;
@@ -686,7 +842,7 @@ async function onDocumentChange() {
   // Schema replies carry the same identity/revision guard as geometry replies.
   // A later keystroke starts its own schema request, so a stale schema cannot
   // replace labels, defaults, context drafts or edit text.
-  const refreshed = await refreshSchema(); if (refreshed) scheduleGeneration();
+  const refreshed = await refreshSchema(); if (refreshed && !startMinimumSearch()) scheduleGeneration();
 }
 
 async function requestPose(nextPhase) {
@@ -739,6 +895,7 @@ function syncPhaseControl() {
   if(scrubTarget===null)$('phase-range').value=String(limits||degrees>=0&&degrees<=360?degrees:((degrees%360)+360)%360);
 }
 function scrubPreviewPhase() {
+  closeToothDetail(false);
   setPlaying(false); scrubTarget = Number($('phase-range').value)*Math.PI/180;
   if (scrubCompletion) return scrubCompletion;
   const source = design, token = currentToken();
@@ -784,17 +941,23 @@ function isQualityEdit() {
     (JSON.stringify(sourceParameters.quality || {})!==JSON.stringify(doc.state.quality || {}) || !validToken);
 }
 async function applyQuality() {
-  const token=currentToken(), source=design, frame=viewer.frame, wasPlaying=playing;
-  const selected=[...viewer.selected], hidden=[...viewer.hidden], currentPhase=phase;
+  const token=currentToken(), source=design, wasPlaying=playing;
   clearTimeout(generationTimer);setPlaying(false);validToken=null;generationRunning=true;
   setPreviewError();
   const serial=++operationSerial;updateActions();status('Preparing surface detail…','warning');
   events.dispatchEvent(new CustomEvent('invalidate',{detail:{token}}));
+  const frame=viewer.frame, selected=[...viewer.selected], hidden=[...viewer.hidden], currentPhase=phase;
   try {
     const result=await engine.request('quality',{design_id:source.design_id,quality:doc.state.quality || {}});
     if (!isCurrent(token) || serial!==operationSerial) return;
     if (result.buffers_retained) { design={...source,...result,buffers:source.buffers};viewer.design=design; }
-    else { viewer.setDesign(result,{fit:false});design=result;viewer.hidden=new Set(hidden);if(frame)viewer.applyFrame(frame); }
+    else {
+      viewer.setDesign(result,{fit:false});
+      design=result;
+      viewer.hidden=new Set(hidden);
+      viewer.updateFraming();
+      if(frame)viewer.applyFrame(frame);
+    }
     generationRunning=false;validToken=token;rememberSourceParameters();phase=currentPhase;
     // Returning from an invalid draft can reuse this accepted source. Refresh
     // its field diagnostics as well as its representation and document token.
@@ -832,6 +995,7 @@ const unscaleRPM = value => Math.sign(value)*Math.expm1(Math.abs(value));
 function syncMotionControl() {
   const spec = schema?.fields.find(f => f.key === 'input_rpm');
   const input = $('motion-rpm'); input.disabled = !spec || busy || schemaPending;
+  for (const id of ['rpm-minus','rpm-plus','rpm-slider']) $(id).disabled = input.disabled;
   if (!spec || !doc.draft) return;
   input.value = speedSliderPreview ? String(speedSliderPreview.value) : doc.entries.input_rpm?.text ?? '';
   // A family edit can arrive before its async schema: include the actual
@@ -847,7 +1011,6 @@ function syncMotionControl() {
   $('rpm-slider').min = scaleRPM(low); $('rpm-slider').max = scaleRPM(high);
   if (!speedSliderActive) $('rpm-slider').value = scaleRPM(value);
   $('rpm-slider').setAttribute('aria-valuetext',`${speedSliderPreview?.value ?? value} rpm`);
-  for (const id of ['rpm-minus','rpm-plus','rpm-slider']) $(id).disabled = input.disabled;
   $('motion-rpm').title = doc.family === 'wolfrom' ? 'Signed sun input speed. Positive rotation is counterclockwise viewed from +Z toward the XY plane.' : spec.label;
   $('motion-caption').textContent = doc.family === 'wolfrom' ? 'Sun input speed' : doc.family === 'differential' ? doc.draft.options.configuration === 'classic' ? 'Carrier input speed' : 'Input A speed' : doc.family === 'planetary' && ['two_stage','two_stage_double'].includes(doc.draft.options.variant) ? 'Input speed · stage 1' : 'Input speed';
 }
@@ -947,7 +1110,7 @@ async function resetMotion() {
     const pose = await engine.request('pose',{design_id:source.design_id,phases:[0]});
     if (!isCurrent(token) || source !== design) return false;
     viewer.applyFrame(pose.frames[0]); nominalFrame = clone(pose.frames[0]); syncPhaseControl();
-    $('play-motion').textContent = 'Start motion'; status('Initial pose'); return true;
+    status('Initial pose'); return true;
   } catch (error) { if (error.name !== 'AbortError') { status(error.message,'error'); handleFatal(error); } return false; }
   finally {
     busy = false; updateActions();
@@ -1033,7 +1196,7 @@ function makeDriveConnections(spec) {
         const result=node('div',null,'drive-result'),value=node('strong',(Math.abs(output.rpm)>=.005&&Math.abs(output.rpm)<1e7)||output.rpm===0?output.rpm.toFixed(2):output.rpm.toExponential(2));
         value.append(node('small','rpm'));result.append(node('span','Nominal output'),value);body.append(result);
       }
-      const reset=node('button',null,'flat drive-reset');reset.innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 11a9 9 0 1 1 2.1 5.8M3 4v7h7"/></svg>';reset.append(node('span','Reset arrangement'));reset.disabled=busy||schemaPending;
+      const reset=node('button',null,'flat drive-reset');reset.innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 11A9 9 0 1 1 5.9 17.7M3 4v7h7"/></svg>';reset.append(node('span','Reset arrangement'));reset.disabled=busy||schemaPending;
       reset.addEventListener('click',()=>changeOption(spec.key,spec.default));body.append(reset);
       if (spec.help) bindParameterHelp(body,spec,body.querySelector('input,select,button') ?? body);
     } else for (const choice of spec.choices) {
@@ -1073,13 +1236,36 @@ function makeDriveConnections(spec) {
   return body;
 }
 function selectView(name) {
+  closeToothDetail(false);
   viewer.setView(name);
 }
-let dockMode = null, dockOrigin = 'open-tools-panel';
+function fitModel() { closeToothDetail(false); viewer.fitCurrent(); }
+let dockMode = null, dockOrigin = 'open-tools-panel', workspaceScroll = null;
+function setToolExpanded(expanded) {
+  if (expanded && dockMode !== 'inspection') return;
+  const dock = $('tool-dock');
+  if (expanded === dock.classList.contains('expanded')) return;
+  const workspace = dock.closest('.workspace');
+  const scrollers = [$('parameters'),dock.closest('.model-workspace')];
+  if (expanded) workspaceScroll = scrollers.map(element => element.scrollTop);
+  dock.classList.toggle('expanded',expanded);
+  workspace.classList.toggle('tool-expanded',expanded);
+  const button = $('expand-tool-dock');
+  const label = expanded ? 'Restore workspace' : 'Expand tool';
+  button.setAttribute('aria-pressed',String(expanded));
+  button.setAttribute('aria-label',label);
+  button.textContent = label;
+  if (!expanded && workspaceScroll) {
+    scrollers.forEach((element,index) => { element.scrollTop = workspaceScroll[index]; });
+    workspaceScroll = null;
+  }
+}
 function revealDock(mode,title) {
+  if (mode !== 'inspection') setToolExpanded(false);
   dockMode = mode; $('tool-dock').hidden = false; $('tool-panel-title').textContent = title; $('tool-panel-category').textContent = mode === 'view' ? 'Display' : 'Tools';
   $('tools-menu-extension').hidden = mode !== 'tools'; $('view-panel').hidden = mode !== 'view'; $('inspection-panel').hidden = mode !== 'inspection';
   $('tools-back').hidden = mode !== 'inspection';
+  $('expand-tool-dock').hidden = mode !== 'inspection';
   $('open-view-panel').setAttribute('aria-expanded',String(mode === 'view'));
   $('open-tools-panel').setAttribute('aria-expanded',String(mode !== 'view'));
   $('find-combinations').setAttribute('aria-expanded',String(mode === 'inspection' && activeTool === 'search'));
@@ -1088,6 +1274,15 @@ function closeDisplayMenu() {
   const restoreFocus=$('view-panel').contains(document.activeElement);
   $('view-panel').hidden=true;$('open-view-panel').setAttribute('aria-expanded','false');
   if(restoreFocus)$('open-view-panel').focus({preventScroll:true});
+}
+function syncDisplayControls() {
+  for (const [id,key] of [['show-supports','supports'],['show-housing','housing'],['section-view','section']]) {
+    $(id).checked = viewer[key];
+  }
+  const value = viewer.explosion.toFixed(2);
+  $('explosion').value = value;
+  $('explosion').setAttribute('aria-valuetext',value);
+  $('explosion-value').value = value;
 }
 function openPreviewPanel(mode) {
   if (mode==='view') {
@@ -1103,12 +1298,14 @@ function openPreviewPanel(mode) {
 function closeToolDock() {
   closeDisplayMenu();
   if ($('tool-dock').hidden) return;
+  setToolExpanded(false);
   $('tool-dock').hidden = true; dockMode = null;
   $('open-view-panel').setAttribute('aria-expanded','false'); $('open-tools-panel').setAttribute('aria-expanded','false');
   $('find-combinations').setAttribute('aria-expanded','false');
   $(dockOrigin).focus({preventScroll:true}); events.dispatchEvent(new Event('toolclose'));
 }
 function setDockPanel(key,body,{title = key, origin = 'open-tools-panel'} = {}) {
+  closeToothDetail(false);
   if (activeTool !== key) events.dispatchEvent(new CustomEvent('toolswitch',{detail:{key}}));
   activeTool = key; inspection = key; dockOrigin = origin; revealDock('inspection',title);
   $('inspection-panel').replaceChildren(body); $('inspection-panel').setAttribute('aria-label',title);
@@ -1116,8 +1313,8 @@ function setDockPanel(key,body,{title = key, origin = 'open-tools-panel'} = {}) 
 }
 function openTool(key) {
   dockOrigin = 'open-tools-panel';
+  closeParameterHelp();
   if (key === 'components') return chooseInspection('components');
-  if (key === 'search') closeParameterHelp();
   toolControllers.get(key)?.open({quick:key==='search'});
 }
 function registerTool(key,{label = key,open,inMenu = true}) {
@@ -1173,6 +1370,7 @@ function showNotes() {
 async function cancelOperations() {
   if (cancellation) return cancellation;
   analysisActive = false;
+  minimumJob = null; committedEmptyFields.clear();
   clearTimeout(generationTimer); ++schemaSerial; ++operationSerial; setPlaying(false);
   generationRunning = false; rateEditing = false; rateSource = null; ratePending = false; schemaPending = false; busy = false;
   validToken = null; fatal = false; posePending = false;
@@ -1276,35 +1474,136 @@ function appendMessages(target, title, values, warning = false) {
   }
   target.append(section);
 }
+function componentInspector(panel) {
+  const existing = panel.querySelector('.component-inspector');
+  if (existing) return existing;
+  const root = node('div',null,'component-inspector'), tabs = node('div',null,'component-tabs'), body = node('div');
+  tabs.setAttribute('role','tablist'); tabs.setAttribute('aria-label','Components & measurements');
+  body.id = 'component-inspector-body'; body.setAttribute('role','tabpanel');
+  for (const [mode,title] of [['select','Parts'],['measure','Measure']]) {
+    const button = node('button',title);
+    button.type = 'button'; button.id = 'component-tab-'+mode;
+    button.setAttribute('role','tab'); button.setAttribute('aria-controls',body.id);
+    button.addEventListener('click',() => {
+      if (mode === 'measure' || $('pick-mode').value === 'measure') setPickMode(mode);
+    });
+    tabs.append(button);
+  }
+  tabs.addEventListener('keydown',event => {
+    if (!['ArrowLeft','ArrowRight','Home','End'].includes(event.key)) return;
+    event.preventDefault();
+    const target = event.key === 'Home' ? tabs.firstChild : event.key === 'End' ? tabs.lastChild :
+      (document.activeElement === tabs.firstChild ? tabs.lastChild : tabs.firstChild);
+    target.click();
+    target.focus({preventScroll:true});
+  });
+  root.append(tabs,body); panel.replaceChildren(root);
+  return root;
+}
+function renderComponentParts(body,detailsOpen) {
+  const actions = node('div',null,'component-actions'), all = node('button','Select all','text-button'), clear = node('button','Clear selection','text-button');
+  all.id = 'select-all-components'; clear.id = 'clear-component-selection';
+  all.addEventListener('click',() => { viewer.setSelection(design.parts.map(p => p.index)); renderInspection(); });
+  clear.addEventListener('click',() => { viewer.setSelection([]); renderInspection(); });
+  actions.append(all,clear,node('span',`${viewer.selected.size} selected`)); body.append(actions);
+  const list = node('div',null,'component-list');
+  const head = node('div',null,'component-row header');
+  head.append(node('span','SEL'),node('span','VIEW'),node('span','COMPONENT'),node('span','ROLE')); list.append(head);
+  for (const part of design.parts) {
+    const row = node('div',null,'component-row'+(viewer.selected.has(part.index) ? ' selected' : ''));
+    const checkbox = node('input'); checkbox.type = 'checkbox'; checkbox.id = 'select-component-'+part.index;
+    checkbox.checked = viewer.selected.has(part.index); checkbox.setAttribute('aria-label',`Select ${part.name}`);
+    checkbox.addEventListener('change',() => {
+      const selection = new Set(viewer.selected);
+      if (checkbox.checked) selection.add(part.index); else selection.delete(part.index);
+      viewer.setSelection(selection); renderInspection();
+    });
+    const visible = !viewer.hidden.has(part.index), eye = node('button',visible ? '◉' : '○','visibility');
+    eye.id = 'show-component-'+part.index;
+    eye.setAttribute('aria-pressed',String(visible)); eye.setAttribute('aria-label',`${visible ? 'Hide' : 'Show'} ${part.name}`);
+    eye.title = viewer.isVisible(part) ? 'Visible' : 'Hidden by component or support/housing filter';
+    eye.addEventListener('click',() => { viewer.setVisibility(part.index,!visible); renderInspection(); refreshToothDetail(); });
+    const name = node('span',String(part.index+1).padStart(3,'0')+' · '+(part.title ?? part.name.replaceAll('_',' ')),'component-name'); name.title = part.name;
+    row.append(checkbox,eye,name,node('span',displayKey(part.role),'component-role')); list.append(row);
+  }
+  body.append(list);
+  const indices = selectedIndices();
+  const details = node('details',null,'component-details'); details.open = detailsOpen;
+  details.append(node('summary','Component details · nominal bounds in mm'));
+  const descriptions = node('ul');
+  const xyz = values => values.map(value => Number(value.toFixed(6))).join(', ');
+  for (const index of indices) {
+    const part = design.parts[index], {minimum,maximum} = part.bounds_mm;
+    const description = node('li');
+    const limits = node('dl');
+    for (const [label,point] of [['Minimum',minimum],['Maximum',maximum]]) {
+      limits.append(node('dt',label),node('dd',xyz(point)+' mm'));
+    }
+    description.append(node('strong',part.title ?? part.name),node('div',part.name),node('div',displayKey(part.role)),
+      limits,node('div',xyz(maximum.map((value,i) => value-minimum[i]))+' mm'));
+    if (part.bom_code) description.append(node('div','BOM · '+part.bom_code));
+    descriptions.append(description);
+  }
+  details.append(indices.length ? descriptions : node('p','No current selection')); body.append(details);
+  const exports = node('div',null,'component-exports');
+  exports.id = 'component-exports';
+  exports.append(node('p',`Export ${indices.length} selected components · nominal pose · includes hidden selections`));
+  const formats = node('div',null,'tool-actions');
+  for (const [format,title] of [['step','STEP'],['stl','STL'],['profiles','DXF / SVG'],['package','Package']]) {
+    const button = node('button',title);
+    button.type = 'button'; button.id = 'export-selected-'+format;
+    button.disabled = !indices.length || !currentValid();
+    button.addEventListener('click',() => exportDialog({initialFormat:format,initialScope:'selected'}));
+    formats.append(button);
+  }
+  const sheet = node('button','PDF sheets…');
+  sheet.type = 'button'; sheet.id = 'export-component-sheets';
+  sheet.disabled = indices.length !== 1 || !currentValid();
+  sheet.addEventListener('click',async()=>{
+    try {
+      const {openComponentSheet}=await import('./component-sheets.js');
+      await openComponentSheet(globalThis.ratiolab,indices[0]);
+    } catch (error) { status(error.message,'error'); }
+  });
+  formats.append(sheet);
+  exports.append(formats); body.append(exports);
+}
 function renderInspection() {
-  const panel = $('inspection-panel'); $('component-count').textContent = `${design?.parts.length ?? 0} components`;
+  const panel = $('inspection-panel');
+  const total = design?.parts.length ?? 0, purchases = design?.purchase_count ?? 0;
+  const count = $('component-count');
+  count.textContent = `${total} components`;
+  if (purchases) count.append(document.createTextNode(` · ${purchases} to purchase`));
   if (activeTool !== 'components' && activeTool !== 'tools') return;
+  if (inspection === 'components' && design) {
+    const root = componentInspector(panel), body = root.lastChild;
+    const measuring = $('pick-mode').value === 'measure', tabId = 'component-tab-'+(measuring ? 'measure' : 'select');
+    for (const button of root.firstChild.children) {
+      const selected = button.id === tabId;
+      button.setAttribute('aria-selected',String(selected)); button.tabIndex = selected ? 0 : -1;
+    }
+    const panelScroll = body.getAttribute('aria-labelledby') === tabId ? panel.scrollTop : 0;
+    body.setAttribute('aria-labelledby',tabId);
+    const focused = body.contains(document.activeElement) ? document.activeElement.id : '';
+    const detailsOpen = body.querySelector('.component-details')?.open ?? false;
+    const listScroll = body.querySelector('.component-list')?.scrollTop ?? 0;
+    body.replaceChildren();
+    if (!measuring) {
+      renderComponentParts(body,detailsOpen);
+      body.querySelector('.component-list').scrollTop = listScroll;
+    }
+    events.dispatchEvent(new CustomEvent('components',{detail:{panel:body,measuring}}));
+    panel.scrollTop = panelScroll;
+    if (focused) $(focused)?.focus({preventScroll:true});
+    return;
+  }
   panel.replaceChildren();
-  $('note-count').textContent = design ? design.warnings.length+design.requirements.length+design.notes.length : 0;
   if (inspection === 'tools') {
     const content = node('div',null,'results-list');
     const extension = node('div'); extension.id = 'analysis-tools-extension'; content.append(extension); panel.append(content); events.dispatchEvent(new Event('tools')); return;
   }
   if (!design) { panel.append(node('p','Generate a design to inspect its components and calculations.','empty-state')); return; }
-  if (inspection === 'components') {
-    const actions = node('div',null,'component-actions'), all = node('button','Select all','text-button'), clear = node('button','Clear selection','text-button');
-    all.addEventListener('click',() => { viewer.setSelection(design.parts.map(p => p.index)); renderInspection(); });
-    clear.addEventListener('click',() => { viewer.setSelection([]); renderInspection(); });
-    actions.append(all,clear,node('span',`${viewer.selected.size} selected · selection defines export scope`)); panel.append(actions);
-    const head = node('div',null,'component-row header'); head.append(node('span','SEL'),node('span','VIEW'),node('span','COMPONENT'),node('span','ROLE'),node('span','ENVELOPE · MM')); panel.append(head);
-    for (const part of design.parts) {
-      const row = node('div',null,'component-row'+(viewer.selected.has(part.index) ? ' selected' : ''));
-      const checkbox = node('input'); checkbox.type = 'checkbox'; checkbox.checked = viewer.selected.has(part.index); checkbox.setAttribute('aria-label',`Select ${part.name}`);
-      checkbox.addEventListener('change',() => { const selection = new Set(viewer.selected); if (checkbox.checked) selection.add(part.index); else selection.delete(part.index); viewer.setSelection(selection); renderInspection(); });
-      const visible = !viewer.hidden.has(part.index), eye = node('button',visible ? '◉' : '○','visibility'); eye.setAttribute('aria-pressed',String(visible)); eye.setAttribute('aria-label',`${visible ? 'Hide' : 'Show'} ${part.name}`);
-      eye.title = viewer.isVisible(part) ? 'Visible' : 'Hidden by component or support/housing filter';
-      eye.addEventListener('click',() => { viewer.setVisibility(part.index,!visible); renderInspection(); });
-      const name = node('span',part.name.replaceAll('_',' '),'component-name'); name.title = part.name;
-      const size = part.bounds_mm.minimum.map((v,i) => Number((part.bounds_mm.maximum[i]-v).toFixed(2))).join(' × ');
-      row.append(checkbox,eye,name,node('span',displayKey(part.role),'component-role'),node('span',size,'component-size')); panel.append(row);
-    }
-    events.dispatchEvent(new CustomEvent('components',{detail:{panel}}));
-  } else if (inspection === 'results') {
+  if (inspection === 'results') {
     const content = node('div',null,'results-list');
     if (!currentValid()) content.append(node('p','These calculations describe the last valid preview.','note-warning'));
     content.append(node('h3','Canonical calculation results'));
@@ -1384,7 +1683,7 @@ function initSettings() {
   shortcuts=new ShortcutController({preferences,blocked:()=>$('app-dialog').open||settingsUI.modal.open||viewer.captureBusy,
     viewport:target=>target===$('model-canvas'),changed:()=>changePreference('keyboard_shortcuts',preferences.keyboard_shortcuts),
     run:command=>{
-      if(command==='view-fit'){viewer.fitCurrent();return;}
+      if(command==='view-fit'){fitModel();return;}
       if(command.startsWith('view-')){selectView(command==='view-iso'?'isometric':command.slice(5));return;}
       const id={new:'new-document',open:'open-document',save:'save-document','save-as':'save-as-document',undo:'undo',redo:'redo',export:'export-document',settings:'open-settings'}[command];if(id&&!$(id).disabled)$(id).click();
     }});
@@ -1410,6 +1709,37 @@ function changePreference(key, value) {
   applyPreferences();
   $('preference-error').hidden = savePreferences(preferences);
   $('settings-error').hidden=$('preference-error').hidden;
+}
+function installParameterDivider() {
+  const divider = $('parameter-divider'), workspace = divider.parentElement;
+  if (!workspace) return;
+  let width, drag = null;
+  const maximum = () => Math.max(230,Math.min(580,Math.floor(workspace.clientWidth*.48)));
+  const show = value => {
+    const limit = maximum();
+    width = Math.max(230,Math.min(limit,Math.round(value)));
+    workspace.style.setProperty('--parameter-width',width+'px');
+    divider.setAttribute('aria-valuenow',String(width)); divider.setAttribute('aria-valuemax',String(limit));
+  };
+  const save = () => {
+    preferences.parameter_width=width;
+    $('preference-error').hidden=savePreferences(preferences);
+  };
+  show(preferences.parameter_width);
+  new ResizeObserver(()=>show(drag ? width : preferences.parameter_width)).observe(workspace);
+  divider.addEventListener('pointerdown',event=>{
+    if (event.button!==0) return;
+    event.preventDefault(); divider.focus({preventScroll:true});
+    drag={id:event.pointerId,x:event.clientX,width}; divider.setPointerCapture(event.pointerId);
+  });
+  divider.addEventListener('pointermove',event=>{if(drag?.id===event.pointerId)show(drag.width+event.clientX-drag.x);});
+  divider.addEventListener('pointerup',event=>{if(drag?.id===event.pointerId){drag=null;save();}});
+  divider.addEventListener('lostpointercapture',()=>{if(drag){drag=null;show(preferences.parameter_width);}});
+  divider.addEventListener('keydown',event=>{
+    const bounds={ArrowLeft:width-12,ArrowRight:width+12,Home:230,End:maximum()};
+    if (!Object.hasOwn(bounds,event.key)) return;
+    event.preventDefault(); show(bounds[event.key]); save();
+  });
 }
 async function protectChanges() {
   if (!doc.dirty) return true;
@@ -1499,7 +1829,7 @@ async function saveProject({saveAs = false} = {}) {
   const {token,current} = snapshot;
   busy = true; renderFields(); updateActions();
   try {
-    const result = await engine.request('export',{design_id:current.design_id,kind:'project'});
+    const result = await engine.request('export',{design_id:current.design_id,kind:'project',component_sheets:doc.state.component_sheets || {}});
     if (!documentSnapshotMatches(snapshot)) return false;
     let name = doc.name === 'Untitled design' ? `${doc.family}.config.json` : doc.name.endsWith('.json') ? doc.name : doc.name+'.config.json';
     if (saveAs) {
@@ -1514,16 +1844,16 @@ async function saveProject({saveAs = false} = {}) {
   finally { busy = false; renderFields(); updateActions(); }
 }
 let lastExport = null;
-async function exportDialog() {
+async function exportDialog({initialFormat = 'step',initialScope = 'all'} = {}) {
   const snapshot = await confirmDocumentAction(); if (!snapshot || busy || !documentSnapshotMatches(snapshot)) return;
   const body = node('div'), group = node('label',null,'dialog-field'), format = node('select');
   format.id = 'export-format'; format.setAttribute('aria-label','Export format'); group.htmlFor = format.id; group.append(node('span','Export format'),format);
   for (const [key,label] of [['step','STEP · CAD solids + metadata'],['stl','STL · printable meshes + metadata'],['profiles','SVG + DXF · planar profiles'],['bom','Component list · CSV + JSON'],['report','Calculation report · TXT + JSON'],['package','Complete package · all formats + preview'],['project','Project · editable RatioLab JSON']]) { const option = node('option',label); option.value = key; format.append(option); }
-  body.append(group);
+  format.value = initialFormat; body.append(group);
   const selection = selectedIndices(), scopeGroup = node('label',null,'dialog-field'), scope = node('select');
   scope.id = 'export-scope'; scope.setAttribute('aria-label','Export scope'); scopeGroup.htmlFor = scope.id; scopeGroup.append(node('span','Export scope'),scope);
   for (const [key,title] of [['all','Complete assembly'],['selected','Selected components']]) { const option=node('option',title);option.value=key;scope.append(option); }
-  scope.value='all'; body.append(scopeGroup);
+  scope.value=initialScope; body.append(scopeGroup);
   const count=node('p'), names=node('details'), nameList=node('pre',null,'document-text');
   names.append(node('summary','Components'),nameList);nameList.dataset.noI18n='';body.append(count,names);
   const note=node('p','Nominal assembly coordinates · visibility does not change scope.','export-scope');body.append(note);
@@ -1562,7 +1892,8 @@ async function runExport(kind, indices = null) {
   if(indices!==null&&source!==snapshot.current) { status('The selected components changed. Select current components before exporting.','error');return false; }
   const {token,current} = snapshot; busy = true; setPlaying(false); updateActions(); renderFields(); status(`Preparing ${kind} export…`,'warning');
   try {
-    const payload = {design_id:current.design_id,kind}; if (indices!==null) payload.indices = indices;
+    const payload = {design_id:current.design_id,kind,component_sheets:doc.state.component_sheets || {}};
+    if (indices!==null) payload.indices = indices;
     if (kind === 'package') {
       // Rates can add phase offsets. Preserve the generation-time construction
       // frame rather than mistaking the updated plan's phase zero for nominal.
@@ -1632,12 +1963,13 @@ async function boot({retry = false} = {}) {
 }
 
 function setup() {
-  try { viewer = new ModelViewer($('model-canvas')); }
+  try { viewer = new ModelViewer($('model-canvas'),{frameExplosion:true,measurementOverlay:$('viewport-measurements')}); }
   catch (error) { stageMessage('3D preview unavailable',error.message); return; }
   applyPreferences();
   initSettings();
+  installParameterDivider();
   viewer.addEventListener('context',({detail}) => {
-    if (detail.lost) { setPlaying(false); stageMessage('Graphics context lost','The browser will try to restore the preview.'); }
+    if (detail.lost) { closeToothDetail(false); setPlaying(false); stageMessage('Graphics context lost','The browser will try to restore the preview.'); }
     else { $('stage-message').hidden = !!design; status('Graphics context restored.'); }
     updateActions();
   });
@@ -1697,9 +2029,8 @@ function setup() {
   $('cancel-generation').addEventListener('click',cancelOperations);
   $('recover-document').addEventListener('click',recoverDocument);
   $('fit-view').addEventListener('click',() => viewer.fit());
-  for (const [id,key] of [['show-supports','supports'],['show-housing','housing'],['section-view','section']]) $(id).addEventListener('change',() => { viewer[key] = $(id).checked; if (key !== 'section') viewer.updateFraming(); viewer.render(); renderInspection(); });
-  $('explosion').addEventListener('input',() => { setPlaying(false); viewer.explosion = Number($('explosion').value); viewer.render(); });
-  $('surface-quality').addEventListener('click',qualityDialog);
+  for (const [id,key] of [['show-supports','supports'],['show-housing','housing'],['section-view','section']]) $(id).addEventListener('change',() => { viewer[key] = $(id).checked; if (key !== 'section') { viewer.updateFraming(); refreshToothDetail(); } viewer.render(); renderInspection(); });
+  $('explosion').addEventListener('input',() => { setPlaying(false); viewer.explosion = Number($('explosion').value); syncDisplayControls(); viewer.render(); });
   $('play-motion').addEventListener('click',() => setPlaying(!playing)); $('reset-motion').addEventListener('click',resetMotion);
   $('phase-range').addEventListener('input',scrubPreviewPhase); $('motion-io').addEventListener('click',() => switchTab('motion'));
   $('motion-rpm').addEventListener('input',() => doc.editNumber('input_rpm',$('motion-rpm').value));
@@ -1730,8 +2061,11 @@ function setup() {
     $('language-menu').hidden = true; status(error.message,'error');
   });
   $('close-tool-dock').addEventListener('click',closeToolDock);
-  $('cube-home').addEventListener('click',()=>viewer.fit());
-  $('cube-fit').addEventListener('click',()=>viewer.fitCurrent());
+  $('close-tooth-detail').addEventListener('click',()=>{closeToothDetail();$('model-canvas').focus({preventScroll:true});});
+  $('reset-tooth-camera').addEventListener('click',()=>viewer.resetToothCamera());
+  events.addEventListener('design',refreshToothDetail);
+  $('cube-home').addEventListener('click',()=>{closeToothDetail(false);viewer.fit();});
+  $('cube-fit').addEventListener('click',fitModel);
   $('pan-view').addEventListener('click',()=>{
     viewer.panMode=!viewer.panMode;$('pan-view').setAttribute('aria-pressed',String(viewer.panMode));
     $('model-canvas').classList.toggle('pan-active',viewer.panMode);
@@ -1740,18 +2074,26 @@ function setup() {
     if (!$('view-panel').hidden && !$('view-panel').contains(event.target) && !$('open-view-panel').contains(event.target) && !event.target.closest?.('.choice-popup')) closeDisplayMenu();
   });
   $('open-view-panel').addEventListener('click',() => openPreviewPanel('view'));
+  $('close-display').addEventListener('click',closeDisplayMenu);
   $('open-tools-panel').addEventListener('click',() => openPreviewPanel('tools'));
   $('find-combinations').addEventListener('click',() => openTool('search'));
   $('tools-back').addEventListener('click',() => openPreviewPanel('tools'));
-  $('expand-tool-dock').addEventListener('click',() => { const expanded = $('tool-dock').classList.toggle('expanded'); $('expand-tool-dock').setAttribute('aria-pressed',String(expanded)); $('expand-tool-dock').setAttribute('aria-label',expanded ? 'Compact panel' : 'Expand panel'); });
+  $('expand-tool-dock').addEventListener('click',() => setToolExpanded(!$('tool-dock').classList.contains('expanded')));
   const overview = {help:{title:'Model & dimensions',meaning:'Choose a generator family and construction, then set the dimensions of the mechanism. The preview uses the current valid design.',effect:'Dimensions contains geometry and advanced profile controls. Motion configures inputs, outputs and operating rates. Assembly contains connections, bearings, fits and hardware. Linked dimensions show Change source; invalid edits stay visible until corrected.'}};
   const catalogOpener = $('model-catalog-open');
   bindParameterHelp(catalogOpener,overview,catalogOpener,{clickToOpen:false});
   catalogOpener.setAttribute('aria-keyshortcuts','F1');
-  for (const [id,source] of [['tool-bom','show-bom'],['tool-report','show-report'],['tool-notes','show-notes']]) $(id).addEventListener('click',() => $(source).click());
+  $('tool-bom').addEventListener('click',() => showDocuments('bom'));
+  $('tool-report').addEventListener('click',() => showDocuments('report'));
+  $('tool-notes').addEventListener('click',showNotes);
   for (const button of document.querySelectorAll('[data-tool]')) button.addEventListener('click',() => openTool(button.dataset.tool));
-  $('pick-mode').addEventListener('change',() => { if ($('pick-mode').value !== 'navigate') openTool('components'); events.dispatchEvent(new CustomEvent('pickmode',{detail:{mode:$('pick-mode').value}})); });
-  $('show-bom').addEventListener('click',() => showDocuments('bom')); $('show-report').addEventListener('click',() => showDocuments('report')); $('show-notes').addEventListener('click',showNotes); $('warning-details').addEventListener('click',showNotes);
+  $('pick-mode').addEventListener('change',() => {
+    const mode = $('pick-mode').value;
+    if (mode === 'measure') closeToothDetail(false);
+    if (mode === 'measure' && (activeTool !== 'components' || dockMode !== 'inspection')) openTool('components');
+    events.dispatchEvent(new CustomEvent('pickmode',{detail:{mode}}));
+  });
+  $('warning-details').addEventListener('click',showNotes);
   for (const [id, kind] of [['notice-count', 'warning'], ['error-count', 'error']]) {
     $(id).addEventListener('click', () => {
       openNotice = openNotice === kind ? '' : kind;
@@ -1813,11 +2155,13 @@ function setup() {
       if (!currentValid()) throw Error('Wait for a valid current model.');
       doc.applyProposal(answer.schema, answer.values);
     },
-    requestPose, setPlaying, showDialog:dialog, downloadBlob, cancelOperations,
+    requestPose, setPlaying, syncDisplayControls, showDialog:dialog, downloadBlob, cancelOperations, reportStatus:status,
+    get language() { return preferences.language; },
     async pauseForAnalysis() { setPlaying(false); await poseCompletion; },
     setAnalysisActive(value) { analysisActive = !!value; if (value) setPlaying(false); updateActions(); },
     restoreInspection(frame,savedPhase,selection) { setPlaying(false); viewer.applyFrame(frame); phase = savedPhase; syncPhaseControl(); viewer.setSelection(selection); renderInspection(); },
     openTool, closeToolDock, setDockPanel, registerTool,
+    setPickMode, focusTooth, refreshToothDetail,
     get pickMode() { return $('pick-mode').value; },
     get nominalFrame() { return nominalFrame ? clone(nominalFrame) : null; },
     get playing() { return playing; },

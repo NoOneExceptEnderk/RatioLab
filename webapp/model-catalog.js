@@ -67,7 +67,12 @@ export function initModelCatalog({getCatalog,getSelection,onApply,onClose=()=>{}
   }
   function filter() {
     const query=search.value.trim().toLocaleLowerCase();let count=0;
-    for(const [key,card] of cards){const family=getCatalog().families.find(f=>f.key===key);card.hidden=!(card.textContent+' '+family.label+' '+key).toLocaleLowerCase().includes(query);if(!card.hidden)++count;}
+    for(const [key,card] of cards){
+      const family=getCatalog().families.find(f=>f.key===key);
+      const text=[card.textContent,family.label,key,family.description].join(' ');
+      card.hidden=!text.toLocaleLowerCase().includes(query);
+      if(!card.hidden)++count;
+    }
     empty.hidden=!!count;
   }
   opener.addEventListener('click',()=>{
@@ -77,6 +82,9 @@ export function initModelCatalog({getCatalog,getSelection,onApply,onClose=()=>{}
     choose(catalog.families.find(f=>f.key===document.getElementById('family').value)??catalog.families[0]);filter();dialog.showModal();search.focus();
   });
   dialog.addEventListener('close',onClose);
+  search.addEventListener('keydown',event=>{
+    if(event.key==='Escape'){event.preventDefault();dialog.close();}
+  });
   search.addEventListener('input',filter);
   apply.addEventListener('click',()=>{onApply(selected,options);dialog.close();});
   dialog.addEventListener('click',event=>{if(event.target===dialog){const r=dialog.getBoundingClientRect();if(event.clientX<r.left||event.clientX>r.right||event.clientY<r.top||event.clientY>r.bottom)dialog.close();}});

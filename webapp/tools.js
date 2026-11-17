@@ -60,7 +60,8 @@ export class QueryState {
 
 export function initTools(api) {
   const state=new QueryState(token=>api.matches(token)), panels=new Map();
-  let active=null,recovery=null,recoveryMessage=null,preview=null,savedView=null,inspectionSerial=0,pickSerial=0,samples=[],sampleKey=null,pickMessage='Click a visible sampled surface.',nominalInspection=false;
+  let active=null,recovery=null,recoveryMessage=null,preview=null,savedView=null,inspectionSerial=0,pickSerial=0,samples=[],pickMessage='',nominalInspection=false;
+  let savedIsolation = null;
   const current=()=>api.snapshot();
   const searchContext=snapshot=>JSON.stringify([snapshot.token.identity,snapshot.family,snapshot.parameters.variant,
     snapshot.parameters.double_style,snapshot.parameters.io_scheme,snapshot.parameters.io_scheme2,
@@ -82,8 +83,8 @@ export function initTools(api) {
     // never identify a replacement worker/source by a recycled numeric ID.
     if(!api.matches(saved.token) && !(saved.source && api.viewer.design===saved.source))return;
     Object.assign(api.viewer,saved.options);api.viewer.hidden=new Set(saved.hidden);
-    for(const [id,key]of [['show-supports','supports'],['show-housing','housing'],['section-view','section']]){const input=document.getElementById(id);if(input)input.checked=saved.options[key];}
-    const explosion=document.getElementById('explosion');if(explosion)explosion.value=String(saved.options.explosion);
+    api.syncDisplayControls();
+    api.viewer.updateFraming();
     api.restoreInspection(saved.frame,saved.phase,saved.selection);
   }
   function restoreView() {
@@ -98,6 +99,32 @@ export function initTools(api) {
     const snapshot=current();if(!snapshot || !api.viewer.frame)return null;
     if(!savedView)savedView={token:copy(snapshot.token),source:api.viewer.design,frame:copy(api.viewer.frame),phase:snapshot.phase,selection:[...api.viewer.selected],hidden:[...api.viewer.hidden],options:{supports:api.viewer.supports,housing:api.viewer.housing,section:api.viewer.section,explosion:api.viewer.explosion}};
     return savedView;
+  }
+  function updateVisibility(hidden,supports,housing) {
+    const viewer = api.viewer;
+    viewer.hidden = new Set(hidden);
+    viewer.supports = supports;
+    viewer.housing = housing;
+    api.syncDisplayControls();
+    viewer.updateFraming();
+    viewer.render();
+    api.refreshToothDetail?.();
+  }
+  function isolateSelection() {
+    const viewer = api.viewer;
+    if (!viewer.design || !viewer.selected.size) return;
+    restoreView();
+    savedIsolation ??= {source:viewer.design,hidden:[...viewer.hidden],supports:viewer.supports,housing:viewer.housing};
+    const hidden = viewer.design.parts.filter(part => !viewer.selected.has(part.index)).map(part => part.index);
+    updateVisibility(hidden,true,true);
+    api.refreshInspection();
+  }
+  function restoreIsolation() {
+    const saved = savedIsolation;
+    savedIsolation = null;
+    if (saved && saved.source === api.viewer.design) {
+      updateVisibility(saved.hidden,saved.supports,saved.housing);
+    }
   }
   function clearResults(message='Settings changed · run again.') {
     state.result=null;disposePreview();restoreView();
@@ -389,8 +416,8 @@ export function initTools(api) {
     await api.pauseForAnalysis();if(!state.usable(result))return;
     const saved=rememberView();if(!saved)return;const serial=++inspectionSerial;
     api.viewer.hidden.clear();api.viewer.supports=api.viewer.housing=true;api.viewer.section=false;api.viewer.explosion=0;
-    for(const id of ['show-supports','show-housing']){const input=document.getElementById(id);if(input)input.checked=true;}
-    const section=document.getElementById('section-view');if(section)section.checked=false;const explosion=document.getElementById('explosion');if(explosion)explosion.value='0';
+    api.syncDisplayControls();
+    api.viewer.updateFraming();
     const ok=await api.requestPose(row.phase_degrees*Math.PI/180);
     if(serial!==inspectionSerial || !state.usable(result) || active!==p.key){applySavedView(saved);return;}
     if(ok){
@@ -666,50 +693,136 @@ export function initTools(api) {
 
   api.engine.addEventListener('progress',({detail})=>{const run=state.run;if(!run || !state.current(run) || detail.stage!=='analysis' || detail.method!==run.method)return;const p=panels.get(run.panel);p.summary.textContent=detail.message||detail.detail;if(Number.isFinite(detail.fraction))p.progress.value=Math.max(0,Math.min(1,detail.fraction));});
   api.events.addEventListener('querybegin',()=>{clearResults('A new query superseded the previous report.');controls();});
-  api.events.addEventListener('invalidate',()=>{++pickSerial;samples=[];sampleKey=null;pickMessage='Model changed · samples cleared.';state.invalidate();clearResults(recoveryMessage ?? 'Model changed · run a new query.');if(active)updateContext(panels.get(active));controls();});
-  api.events.addEventListener('design',()=>{samples=[];sampleKey=null;if(active==='metrology')populateParts(m);if(active==='search')loadSearch(s);if(active)updateContext(panels.get(active));controls();});
-  api.events.addEventListener('toolswitch',({detail})=>{if(active && detail.key!==active){drop('Tool changed · run a fresh query.');active=null;}if(detail.key!=='components'){++pickSerial;samples=[];sampleKey=null;}});
-  api.events.addEventListener('toolclose',()=>{drop('Tool closed.');active=null;++pickSerial;samples=[];sampleKey=null;restoreView();});
-  api.events.addEventListener('playstart',()=>{restoreView();++pickSerial;samples=[];sampleKey=null;});
+  function clearSamples(message='') {
+    ++pickSerial;
+    if (samples.length) {
+      samples = [];
+      api.viewer.setMeasurementPoints(samples);
+    }
+    pickMessage = message;
+  }
+  function leaveMeasurement() {
+    if (api.pickMode === 'measure') api.setPickMode('select');
+    else clearSamples();
+  }
+  api.events.addEventListener('invalidate',()=>{clearSamples();state.invalidate();clearResults(recoveryMessage ?? 'Model changed · run a new query.');restoreIsolation();if(active)updateContext(panels.get(active));controls();});
+  api.events.addEventListener('design',()=>{clearSamples();if(active==='metrology')populateParts(m);if(active==='search')loadSearch(s);if(active)updateContext(panels.get(active));controls();});
+  api.events.addEventListener('toolswitch',({detail})=>{
+    if(active && detail.key!==active){drop('Tool changed · run a fresh query.');active=null;}
+    if(detail.key!=='components'){
+      if(savedIsolation || nominalInspection){restoreView();restoreIsolation();}
+      leaveMeasurement();
+    }
+  });
+  api.events.addEventListener('toolclose',()=>{drop('Tool closed.');active=null;leaveMeasurement();restoreView();restoreIsolation();});
+  api.events.addEventListener('playstart',()=>{clearSamples();restoreView();api.refreshInspection();});
+  api.viewer.addEventListener('measurementinvalidate',() => {
+    clearSamples();
+    api.refreshInspection();
+  });
 
-  function surfaceControls(panel) {
+  function partControls(panel) {
     const body=el('div',null,'surface-tools'),actions=el('div',null,'tool-actions');
-    const isolate=button('Isolate selected',()=>{if(!api.viewer.selected.size)return;for(const part of api.viewer.design.parts)api.viewer.hidden[api.viewer.selected.has(part.index)?'delete':'add'](part.index);api.viewer.render();api.refreshInspection();});isolate.disabled=!api.viewer.selected.size;
-    actions.append(isolate,button('Show all',()=>{api.viewer.hidden.clear();api.viewer.supports=api.viewer.housing=true;for(const id of ['show-supports','show-housing'])document.getElementById(id).checked=true;api.viewer.render();api.refreshInspection();}));
+    const isolate = button('Isolate',isolateSelection);
+    isolate.id = 'isolate-selected-components';
+    isolate.disabled = !api.viewer.selected.size;
+    const restore = button('Restore view',() => {
+      restoreView();
+      restoreIsolation();
+      api.refreshInspection();
+    });
+    restore.id = 'restore-component-view'; restore.disabled = !savedIsolation;
+    actions.append(isolate,restore);
     const selected=[...api.viewer.selected],gauges=current()?.design.tool_capabilities?.metrology?.components;
+    const part=selected.length===1 ? current()?.design.parts[selected[0]] : null;
+    const teeth=button('View teeth',()=>api.focusTooth({name:part.name}));
+    teeth.disabled=!part?.tooth_view; actions.append(teeth);
     if(selected.length===1&&gauges?.includes(selected[0]))actions.append(button('Gear metrology…',()=>api.openTool('metrology')));
     body.append(actions);
-    if(api.pickMode!=='navigate') {
-      body.append(el('p',api.pickMode==='measure'?'Choose two surface points. Distance is point-to-point Euclidean distance between sampled facets; it is not the minimum gap.':'Click a visible surface to select its component. Ctrl / Shift adds or removes. Drag to orbit.','tool-note'),el('p',pickMessage,'surface-message'));
-      for(const [index,point]of samples.entries())body.append(el('p',`Point ${index+1}: [${point.join(', ')}] mm`,'tool-note'));
-      body.append(button('Clear samples',()=>{++pickSerial;samples=[];sampleKey=null;pickMessage='Click a visible sampled surface.';api.refreshInspection();}),button('Nominal surface pose',async()=>{await api.pauseForAnalysis();if(!rememberView())return;api.viewer.applyFrame({parts:api.viewer.meshes.map(mesh=>({index:mesh.part.index,matrix:identityMatrix(),deformation:null}))});nominalInspection=true;++pickSerial;samples=[];sampleKey=null;pickMessage='Nominal construction surfaces · paused. Animated flexible surfaces are unsupported.';api.refreshInspection();}),button('Restore preview',()=>{restoreView();samples=[];sampleKey=null;api.refreshInspection();}));
-    }
+    if (api.pickMode === 'select' && pickMessage) body.append(el('p',pickMessage,'surface-message'));
     panel.prepend(body);
   }
-  api.events.addEventListener('components',({detail})=>surfaceControls(detail.panel));
-  api.events.addEventListener('pickmode',()=>{samples=[];sampleKey=null;++pickSerial;pickMessage='Click a visible sampled surface.';api.refreshInspection();});
+  const xyz = point => point.map(value=>value.toFixed(6)).join(', ');
+  function measurementControls(panel) {
+    const body = el('div',null,'surface-tools'), actions = el('div',null,'tool-actions');
+    body.append(el('p','Pick point A, then point B on visible surfaces.','surface-message'));
+    const clear = button('Clear points',() => { clearSamples(); api.refreshInspection(); });
+    clear.id = 'clear-measurement-points';
+    const useNominal = button('Use nominal pose',async () => {
+      const serial = ++pickSerial;
+      await api.pauseForAnalysis();
+      if (serial !== pickSerial || api.pickMode !== 'measure' || !rememberView()) return;
+      const viewer = api.viewer;
+      const frame = {parts:viewer.meshes.map(mesh=>({index:mesh.part.index,matrix:identityMatrix(),deformation:null}))};
+      clearSamples('Nominal assembly pose');
+      nominalInspection = true; viewer.section = false; viewer.explosion = 0;
+      api.syncDisplayControls(); viewer.updateFraming();
+      api.restoreInspection(frame,0,[...viewer.selected]);
+    });
+    useNominal.id = 'use-nominal-measurement-pose';
+    actions.append(clear,useNominal);
+    if (nominalInspection) actions.append(button('Restore preview',() => {
+      clearSamples(); restoreView(); api.refreshInspection();
+    }));
+    body.append(actions);
+    for (const [i,{index,point}] of samples.entries()) {
+      const part = api.viewer.design.parts[index];
+      const source = String(index+1).padStart(3,'0')+' '+part.name;
+      const description = el('p',['AB'[i],source,'XYZ ('+xyz(point)+') mm'].join(' · '),'tool-note');
+      description.dataset.measurementPoint = 'AB'[i];
+      body.append(description);
+    }
+    const result = el('p',pickMessage || 'No measurement · click two visible surface points in Measure mode','surface-message');
+    result.setAttribute('role','status'); body.append(result);
+    if (samples.length === 2) {
+      const [a,b] = samples.map(sample=>sample.point);
+      body.append(el('p','B − A · ΔXYZ: ('+xyz(b.map((value,i)=>value-a[i]))+') mm','tool-note'));
+    }
+    body.append(el('p','Sampled surfaces · mm · first pick pauses motion.','tool-note'));
+    panel.append(body);
+  }
+  api.events.addEventListener('components',({detail:{panel,measuring}})=>{
+    if (measuring) measurementControls(panel); else partControls(panel);
+  });
+  api.events.addEventListener('pickmode',()=>{clearSamples();if(api.pickMode!=='measure' && nominalInspection)restoreView();api.refreshInspection();});
   api.viewer.addEventListener('surfaceclick',async({detail})=>{
-    if(api.pickMode==='navigate' || state.run || recovery)return;
+    if(api.pickMode==='navigate' || state.run || recovery || api.viewer.toothDetail)return;
     const mode=api.pickMode,snapshot=current();if(!snapshot)return;api.setPlaying(false);const serial=++pickSerial;
     try {
       const clicked=api.viewer.pickState(detail.clientX,detail.clientY);
       await api.pauseForAnalysis();if(serial!==pickSerial || !api.matches(snapshot.token))return;
       const view=api.viewer.pickState(detail.clientX,detail.clientY);
       if(view.key!==clicked.key)return;
-      if(mode==='measure' && sampleKey!==view.key){samples=[];sampleKey=view.key;}
       const hit=await api.request('pick',view.payload);
-      const valid=()=>serial===pickSerial && api.matches(snapshot.token) && api.pickMode===mode && api.viewer.pickState(detail.clientX,detail.clientY).key===view.key;
-      if(!valid())return;
-      if(!hit.hit){pickMessage='No visible sampled surface at this point.';api.refreshInspection();return;}
+      const valid=()=>serial===pickSerial && api.matches(snapshot.token) && api.pickMode===mode;
+      if(!valid() || api.viewer.pickState(detail.clientX,detail.clientY).key!==view.key)return;
+      if(!hit.hit){
+        pickMessage='No visible sampled surface at this point.';
+        if(mode==='measure')clearSamples(pickMessage);
+        else if(!detail.add)api.viewer.setSelection([]);
+        api.refreshInspection();
+        return;
+      }
       if(mode==='select') {
         const selected=detail.add?new Set(api.viewer.selected):new Set();if(selected.has(hit.hit.source_index))selected.delete(hit.hit.source_index);else selected.add(hit.hit.source_index);api.viewer.setSelection(selected);pickMessage=`${selected.has(hit.hit.source_index)?'Selected':'Deselected'} ${snapshot.design.parts[hit.hit.source_index].name}.`;
       } else {
-        if(samples.length===2)samples=[];samples.push(copy(hit.hit.point));
-        if(samples.length===2){const distance=await api.request('surface_distance',{points:copy(samples)});if(!valid())return;pickMessage=`Point-to-point Euclidean distance: ${distance.distance_mm} mm. B − A · ΔXYZ: ${samples[1].map((v,i)=>v-samples[0][i]).join(', ')} mm. ${distance.basis}`;}
-        else pickMessage='First sampled point retained. Choose the second surface point.';
+        if(samples.length===2)samples=[];
+        samples.push({index:hit.hit.source_index,point:copy(hit.hit.point)});
+        api.viewer.setMeasurementPoints(samples);
+        if(samples.length===2){
+          const [a,b]=samples.map(sample=>sample.point);
+          const distance=await api.request('surface_distance',{points:[a,b]});if(!valid())return;
+          pickMessage=`A–B straight distance: ${distance.distance_mm.toFixed(6)} mm`;
+        } else pickMessage='First sampled point retained. Choose the second surface point.';
       }
       api.refreshInspection();
-    }catch(error){if(serial===pickSerial && api.matches(snapshot.token)){pickMessage=error.message+' Use Nominal surface pose for flexible geometry.';api.refreshInspection();}}
+    } catch (error) {
+      if (serial === pickSerial && api.matches(snapshot.token)) {
+        pickMessage = error.code === 'unsupported_pose'
+          ? 'Animated flex/warp surface picking unavailable · Components → Use nominal pose' : error.message;
+        api.refreshInspection();
+      }
+    }
   });
   controls();
   return {state,panels};

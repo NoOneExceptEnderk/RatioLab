@@ -3,7 +3,7 @@
 //! Pack the existing sampled surface into GPU buffers; no resampling or new gear formula.
 use crate::{
     precision::{self, Result},
-    solid::P3,
+    solid::{P3, Part, Section},
     surfaces::{self, Surface},
     wave::Wave,
 };
@@ -207,6 +207,21 @@ pub(crate) fn wave_weight(z: f64, w: &Value) -> Result<f64> {
     })
 }
 
+fn cap_plane_corners(part: &Part, (z, angle, outer): &Section) -> [P3; 4] {
+    let (s, c) = angle.to_radians().sin_cos();
+    let mut limits = Bounds::new();
+    for [x, y] in outer {
+        limits.add([x * c - y * s, x * s + y * c, 0.]);
+    }
+    [
+        [limits.lo[0], limits.lo[1]],
+        [limits.hi[0], limits.lo[1]],
+        [limits.hi[0], limits.hi[1]],
+        [limits.lo[0], limits.hi[1]],
+    ]
+    .map(|point| part.point(point, *z, 0.))
+}
+
 pub(crate) fn web_packet(original: &Value) -> Result<Vec<u8>> {
     let a = precision::sampled_arguments(original)?;
     let surface = surfaces::get(&a)?;
@@ -286,8 +301,17 @@ pub(crate) fn web_packet(original: &Value) -> Result<Vec<u8>> {
     if count == 0 {
         return Err("Component has no mesh".into());
     }
+    // The desktop includes its cap planes in the exploded camera envelope.
+    let mut cap_corners = Vec::new();
+    if p.mesh.is_empty() {
+        let sections = surface.sections()?;
+        for section in [&sections[0], &sections[sections.len() - 1]] {
+            cap_corners.extend(cap_plane_corners(p, section).map(f32_point));
+        }
+    }
     let meta=serde_json::to_vec(&json!({"format":"ratiolab.web-mesh-buffer/1","triangles":count,
-        "position_floats":positions.len(),"normal_floats":normals.len(),"material_floats":materials.len(),"bounds":[bounds.lo,bounds.hi]})).map_err(|e|e.to_string())?;
+        "position_floats":positions.len(),"normal_floats":normals.len(),"material_floats":materials.len(),"bounds":[bounds.lo,bounds.hi],
+        "preview_cap_corners":cap_corners})).map_err(|e|e.to_string())?;
     let size = 5 + meta.len() + 4 * (positions.len() + normals.len() + materials.len());
     if size > crate::buffers::MAX_BYTES {
         return Err("Web mesh response exceeds its resource limit".into());
@@ -371,7 +395,6 @@ pub(crate) fn packet(original: &Value) -> Result<Vec<u8>> {
             let side_end = b.position();
             let mut edge_loops: Vec<Vec<P3>> = Vec::new();
             for (index, normal) in [(0, "bottom_normal"), (levels.len() - 1, "top_normal")] {
-                let (z, angle, outer) = &sections[index];
                 let caploops = &levels[index];
                 let n = value(&meta[normal])?;
                 let begin = b.position();
@@ -381,23 +404,7 @@ pub(crate) fn packet(original: &Value) -> Result<Vec<u8>> {
                     }
                 }
                 let fan = [begin, b.position() - begin];
-                let angle = angle.to_radians();
-                let (c, s) = (angle.cos(), angle.sin());
-                let rotated: Vec<_> = outer
-                    .iter()
-                    .map(|q| [q[0] * c - q[1] * s, q[0] * s + q[1] * c])
-                    .collect();
-                let mut limits = Bounds::new();
-                for q in rotated {
-                    limits.add([q[0], q[1], 0.]);
-                }
-                let corners = [
-                    [limits.lo[0], limits.lo[1]],
-                    [limits.hi[0], limits.lo[1]],
-                    [limits.hi[0], limits.hi[1]],
-                    [limits.lo[0], limits.hi[1]],
-                ]
-                .map(|q| p.point(q, *z, 0.));
+                let corners = cap_plane_corners(p, &sections[index]);
                 let begin = b.position();
                 b.triangle(corners[0], corners[1], corners[2], Some(n))?;
                 b.triangle(corners[0], corners[2], corners[3], Some(n))?;

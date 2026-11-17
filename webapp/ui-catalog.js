@@ -878,5 +878,85 @@ export const UI_CATALOG = {
         ]
       }
     }
+  },
+  "mcp": {
+    "codex": {
+      "name": "Codex",
+      "filename": "~/.codex/config.toml",
+      "guide": "https://learn.chatgpt.com/docs/extend/mcp?surface=cli",
+      "template": "[mcp_servers.ratiolab]\ncommand = \"__RATIOLAB_MCP_COMMAND__\"\nargs = [\"--workspace\", \"__RATIOLAB_MCP_WORKSPACE__\"]\n"
+    },
+    "claude": {
+      "name": "Claude Code",
+      "filename": "~/.claude.json",
+      "guide": "https://code.claude.com/docs/en/mcp#user-scope",
+      "template": "{\n  \"mcpServers\": {\n    \"ratiolab\": {\n      \"type\": \"stdio\",\n      \"command\": \"__RATIOLAB_MCP_COMMAND__\",\n      \"args\": [\n        \"--workspace\",\n        \"__RATIOLAB_MCP_WORKSPACE__\"\n      ]\n    }\n  }\n}\n"
+    },
+    "opencode": {
+      "name": "OpenCode",
+      "filename": "opencode.json",
+      "guide": "https://opencode.ai/docs/migrate-v1/#mcp-servers",
+      "template": "{\n  \"mcp\": {\n    \"ratiolab\": {\n      \"type\": \"local\",\n      \"command\": [\n        \"__RATIOLAB_MCP_COMMAND__\",\n        \"--workspace\",\n        \"__RATIOLAB_MCP_WORKSPACE__\"\n      ]\n    }\n  }\n}\n"
+    },
+    "antigravity": {
+      "name": "Antigravity",
+      "filename": "mcp_config.json",
+      "guide": "https://antigravity.google/docs/mcp",
+      "template": "{\n  \"mcpServers\": {\n    \"ratiolab\": {\n      \"command\": \"__RATIOLAB_MCP_COMMAND__\",\n      \"args\": [\n        \"--workspace\",\n        \"__RATIOLAB_MCP_WORKSPACE__\"\n      ]\n    }\n  }\n}\n"
+    },
+    "cursor": {
+      "name": "Cursor",
+      "filename": "~/.cursor/mcp.json",
+      "guide": "https://cursor.com/docs/mcp#configuration-locations",
+      "template": "{\n  \"mcpServers\": {\n    \"ratiolab\": {\n      \"type\": \"stdio\",\n      \"command\": \"__RATIOLAB_MCP_COMMAND__\",\n      \"args\": [\n        \"--workspace\",\n        \"__RATIOLAB_MCP_WORKSPACE__\"\n      ]\n    }\n  }\n}\n"
+    },
+    "copilot": {
+      "name": "GitHub Copilot",
+      "filename": "mcp-config.json",
+      "guide": "https://code.visualstudio.com/docs/agents/reference/mcp-configuration",
+      "template": "{\n  \"mcpServers\": {\n    \"ratiolab\": {\n      \"type\": \"stdio\",\n      \"command\": \"__RATIOLAB_MCP_COMMAND__\",\n      \"args\": [\n        \"--workspace\",\n        \"__RATIOLAB_MCP_WORKSPACE__\"\n      ],\n      \"tools\": [\n        \"*\"\n      ]\n    }\n  }\n}\n"
+    },
+    "gemini": {
+      "name": "Gemini CLI",
+      "filename": "~/.gemini/settings.json",
+      "guide": "https://geminicli.com/docs/tools/mcp-server/",
+      "template": "{\n  \"mcpServers\": {\n    \"ratiolab\": {\n      \"command\": \"__RATIOLAB_MCP_COMMAND__\",\n      \"args\": [\n        \"--workspace\",\n        \"__RATIOLAB_MCP_WORKSPACE__\"\n      ]\n    }\n  }\n}\n"
+    },
+    "claude-desktop": {
+      "name": "Claude Desktop",
+      "filename": "claude_desktop_config.json",
+      "guide": "https://modelcontextprotocol.io/docs/develop/connect-local-servers",
+      "template": "{\n  \"mcpServers\": {\n    \"ratiolab\": {\n      \"command\": \"__RATIOLAB_MCP_COMMAND__\",\n      \"args\": [\n        \"--workspace\",\n        \"__RATIOLAB_MCP_WORKSPACE__\"\n      ]\n    }\n  }\n}\n"
+    },
+    "cline": {
+      "name": "Cline",
+      "filename": "cline_mcp_settings.json",
+      "guide": "https://docs.cline.bot/mcp/mcp-overview",
+      "template": "{\n  \"mcpServers\": {\n    \"ratiolab\": {\n      \"command\": \"__RATIOLAB_MCP_COMMAND__\",\n      \"args\": [\n        \"--workspace\",\n        \"__RATIOLAB_MCP_WORKSPACE__\"\n      ]\n    }\n  }\n}\n"
+    },
+    "kiro": {
+      "name": "Kiro",
+      "filename": "~/.kiro/settings/mcp.json",
+      "guide": "https://kiro.dev/docs/mcp/configuration/",
+      "template": "{\n  \"mcpServers\": {\n    \"ratiolab\": {\n      \"command\": \"__RATIOLAB_MCP_COMMAND__\",\n      \"args\": [\n        \"--workspace\",\n        \"__RATIOLAB_MCP_WORKSPACE__\"\n      ]\n    }\n  }\n}\n"
+    },
+    "zed": {
+      "name": "Zed",
+      "filename": "settings.json",
+      "guide": "https://zed.dev/docs/ai/mcp",
+      "template": "{\n  \"context_servers\": {\n    \"ratiolab\": {\n      \"command\": \"__RATIOLAB_MCP_COMMAND__\",\n      \"args\": [\n        \"--workspace\",\n        \"__RATIOLAB_MCP_WORKSPACE__\"\n      ]\n    }\n  }\n}\n"
+    },
+    "continue": {
+      "name": "Continue",
+      "filename": ".continue/mcpServers/ratiolab.json",
+      "guide": "https://docs.continue.dev/customize/deep-dives/mcp",
+      "template": "{\n  \"mcpServers\": {\n    \"ratiolab\": {\n      \"command\": \"__RATIOLAB_MCP_COMMAND__\",\n      \"args\": [\n        \"--workspace\",\n        \"__RATIOLAB_MCP_WORKSPACE__\"\n      ]\n    }\n  }\n}\n"
+    },
+    "generic": {
+      "name": "MCP JSON",
+      "filename": "",
+      "guide": null,
+      "template": "{\n  \"mcpServers\": {\n    \"ratiolab\": {\n      \"command\": \"__RATIOLAB_MCP_COMMAND__\",\n      \"args\": [\n        \"--workspace\",\n        \"__RATIOLAB_MCP_WORKSPACE__\"\n      ]\n    }\n  }\n}\n"
+    }
   }
 };

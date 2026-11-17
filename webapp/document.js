@@ -40,6 +40,11 @@ const contextKey = options => ['variant', 'double_style', 'configuration', 'rati
   'bearing_mode', 'fit', 'eccentric_design', 'hardware_mode'].map(key => options[key] ?? '').join('|');
 const numeric = schema => [...schema.fields, ...schema.options.filter(f => f.type === 'number' || f.type === 'integer')];
 const fingerprint = state => JSON.stringify(state);
+function sheetsOnly(before,after) {
+  const {component_sheets:oldSheets,...oldGeometry}=before;
+  const {component_sheets:newSheets,...newGeometry}=after;
+  return fingerprint(oldGeometry)===fingerprint(newGeometry) && fingerprint(oldSheets)!==fingerprint(newSheets);
+}
 
 function migrateWormDraft(state) {
   const worm = state?.families?.worm;
@@ -72,7 +77,11 @@ export class BrowserDocument extends EventTarget {
     this.coalesce = key ? {key, time: now} : null;
     this.future = []; ++this.revision;
   }
-  changed() { this.dispatchEvent(new Event('change')); }
+  changed(sheetOnly = false) {
+    const event = new Event('change');
+    event.sheetOnly = sheetOnly;
+    this.dispatchEvent(event);
+  }
   ensure(schema, initial = {}) {
     let draft = this.draft;
     if (!draft) {
@@ -125,6 +134,12 @@ export class BrowserDocument extends EventTarget {
     this.checkpoint(`${this.family}:${contextKey(this.draft.options)}:${key}`);
     this.entries[key] = {text, typed: true}; this.changed();
   }
+  resolveEmptyFields(values) {
+    for (const [key,text] of Object.entries(values)) this.entries[key] = {text,typed:true};
+    ++this.revision;
+    this.barrier();
+    this.changed();
+  }
   editOption(key, value) {
     this.editOptions({[key]: value});
   }
@@ -168,13 +183,15 @@ export class BrowserDocument extends EventTarget {
   }
   undo() {
     if (!this.past.length) return false;
-    this.future.push(clone(this.state)); this.state = this.past.pop();
-    ++this.revision; this.coalesce = null; this.changed(); return true;
+    const before = this.state;
+    this.future.push(clone(before)); this.state = this.past.pop();
+    ++this.revision; this.coalesce = null; this.changed(sheetsOnly(before,this.state)); return true;
   }
   redo() {
     if (!this.future.length) return false;
-    this.past.push(clone(this.state)); this.state = this.future.pop();
-    ++this.revision; this.coalesce = null; this.changed(); return true;
+    const before = this.state;
+    this.past.push(clone(before)); this.state = this.future.pop();
+    ++this.revision; this.coalesce = null; this.changed(sheetsOnly(before,this.state)); return true;
   }
   replace(family, schema, values = {}, name = 'Untitled design', {recovery, quality, component_sheets} = {}) {
     this.identity = id(); ++this.revision; this.name = name;
@@ -195,6 +212,11 @@ export class BrowserDocument extends EventTarget {
     this.checkpoint();
     if (Object.keys(value).length) this.state.quality=clone(value); else delete this.state.quality;
     this.changed();return true;
+  }
+  setComponentSheets(value) {
+    if (fingerprint(value)===fingerprint(this.state.component_sheets || {})) return false;
+    this.checkpoint(); this.state.component_sheets=clone(value);
+    this.changed(true);return true;
   }
   markSaved(name = this.name) { this.name = name; this.saved = fingerprint(this.state); this.changed(); }
   recovery() { return {format: 'ratiolab-browser-recovery/1', name: this.name, state: clone(this.state), saved: this.saved, time: Date.now()}; }

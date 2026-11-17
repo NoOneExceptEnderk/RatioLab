@@ -6,7 +6,8 @@ from pathlib import Path
 root = Path(__file__).resolve().parents[2]
 resources = root/'src/ratiolab_resources'
 datas = [(str(resources/name), 'ratiolab_resources') for name in
-         ('bearing-catalog.json', 'hardware-catalog.json', 'ui-translations.json', 'viewport-warning.png', 'viewport-error.png')]
+         ('bearing-catalog.json', 'hardware-catalog.json', 'ui-translations.json',
+          'viewport-warning.png', 'viewport-error.png', 'setup-guide.png')]
 datas += [(str(root/name), 'ratiolab_resources') for name in ('LICENSE', 'COPYRIGHT', 'CHANGELOG.md')]
 datas += [(str(resources/'version.json'), 'ratiolab_resources')]
 datas += [(str(resources/'branding'/name), 'ratiolab_resources/branding') for name in

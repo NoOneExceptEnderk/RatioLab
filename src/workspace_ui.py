@@ -53,6 +53,24 @@ window.reducers { background: @rl_window; color: @rl_text; font-size: 14px; }
 .reducers.settings-panel .settings-page-title { font-size: 22px; font-weight: 600; padding-bottom: 5px; }
 .reducers.settings-panel .settings-row { min-height: 32px; }
 .reducers.settings-panel .settings-row dropdown { min-width: 160px; }
+.reducers.settings-panel.mcp-settings-active .settings-heading { background: @rl_surface; }
+.reducers.settings-panel .mcp-workspace,
+.reducers.settings-panel .mcp-list { background: @rl_surface; border: 1px solid @rl_line; border-radius: 9px; }
+.reducers.settings-panel .mcp-workspace { padding: 12px 14px; }
+.reducers.settings-panel .mcp-section { font-size: 15px; font-weight: 600; }
+.reducers.settings-panel .mcp-row { min-height: 45px; padding: 7px 12px; }
+.reducers.settings-panel .mcp-row + .mcp-row { border-top: 1px solid @rl_line; }
+.reducers.settings-panel .mcp-row:hover { background: alpha(@rl_hover, 0.56); }
+.reducers.settings-panel .mcp-client-name { font-size: 14px; font-weight: 600; }
+.reducers.settings-panel .mcp-filename { font-family: monospace; }
+.reducers.settings-panel button.mcp-add { background: @rl_selected; border-color: @rl_line; font-weight: 600; }
+.reducers.settings-panel button.mcp-add:hover { background: @rl_hover; border-color: @rl_accent; }
+.reducers.settings-panel button.mcp-icon-action { min-width: 28px; padding: 4px; color: @rl_muted; }
+.reducers.settings-panel button.mcp-icon-action:hover { background: @rl_hover; color: @rl_text; }
+.reducers.settings-panel .mcp-empty { padding: 16px; }
+.reducers.settings-panel .mcp-client-scroll scrollbar { background: @rl_window; border: 0; }
+.reducers.settings-panel .mcp-client-scroll scrollbar trough { background: @rl_window; }
+.reducers.settings-panel .mcp-client-scroll scrollbar slider { background: @rl_muted; border: 2px solid @rl_window; }
 .reducers.settings-panel .settings-shortcut { color: @rl_muted; font-size: 12px; font-family: monospace; }
 .reducers.settings-panel .settings-shortcuts .settings-row { min-height: 26px; }
 .reducers.settings-panel .shortcut-binding { min-width: 156px; font-family: monospace; font-size: 12px; }
@@ -329,14 +347,14 @@ class StatusLabel(Gtk.Label):
 
 
 @cache
-def notice_icon(kind):
+def png_icon(filename):
     import cairo
     from app_paths import resource_path
-    return cairo.ImageSurface.create_from_png(str(resource_path(f'viewport-{kind}.png')))
+    return cairo.ImageSurface.create_from_png(str(resource_path(filename)))
 
 
-def draw_notice_icon(cr, width, height, kind, color):
-    source = notice_icon(kind)
+def draw_png_icon(cr, width, height, filename, color):
+    source = png_icon(filename)
     iw, ih = source.get_width(), source.get_height()
     scale = min(width / iw, height / ih)
     cr.set_source_rgba(color.red, color.green, color.blue, color.alpha)
@@ -345,15 +363,22 @@ def draw_notice_icon(cr, width, height, kind, color):
     cr.mask_surface(source)
 
 
+def draw_notice_icon(cr, width, height, kind, color):
+    draw_png_icon(cr, width, height, f'viewport-{kind}.png', color)
+
+
 def workspace_glyph(name, color_source):
     """Self-contained outline symbols, available in frozen builds without themes."""
-    size=19 if name=='cad-link' else 16
+    size={'cad-link': 19, 'setup-guide': 20}.get(name, 16)
     area=Gtk.DrawingArea(content_width=size,content_height=size)
     area.glyph_name=name
     def draw(widget,cr,width,height):
         name=widget.glyph_name
         color_widget=color_source.get_first_child() if isinstance(color_source,Gtk.MenuButton) else color_source
         color=color_widget.get_style_context().get_color()
+        if name == 'setup-guide':
+            draw_png_icon(cr, width, height, 'setup-guide.png', color)
+            return
         if color_source.has_css_class('export-blocked'):
             draw_notice_icon(cr, width, height, 'error', color)
             return

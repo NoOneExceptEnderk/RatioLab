@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ratiolab"
-version = "0.2.5"
+version = "0.2.6"
 description = "Parametric gears and reducers with a GTK 4 and OpenGL preview"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -46,7 +46,7 @@ py-modules = [
   "bevel_geometry", "differential_wrist", "engineering", "cylindrical_validation", "external_programs", "export_feedback", "fusion_connection", "geartrains", "geometry", "geometry_quality", "geometry_error_budget", "quality_ui", "geometry_refresh", "parameter_errors", "gl_loader", "gui_workflow", "parameter_help", "parameter_help_ui", "parameter_help_diagrams",
   "hardware", "hardware_catalog", "install_desktop", "io_controls", "backdrivability", "gear_measurement", "gear_measurement_ui", "backlash_solver", "backlash_ui",
   "component_geometry", "components_ui", "empty_fields", "selected_export", "pair_assembly", "combination_search", "combination_search_ui", "quick_combination_search", "collision_geometry", "interference", "interference_ui", "kinematics", "motion", "motion_controls", "mounting", "preview3d", "tool_capabilities",
-  "project_document", "project_ui", "package_export", "parallel_multistage", "printed_shaft", "profile_export", "ratiolab_agent", "ratiolab_mcp", "ratiolab_checks", "ratiolab_cli", "result_controls", "shaft_connections", "solid_geometry",
+  "project_document", "project_ui", "package_export", "parallel_multistage", "printed_shaft", "profile_export", "ratiolab_agent", "ratiolab_mcp", "mcp_clients", "mcp_registration", "ratiolab_checks", "ratiolab_cli", "result_controls", "shaft_connections", "solid_geometry",
   "precise_numbers", "ratio_display", "rust_geometry", "rust_surfaces", "special_drives", "bevel_pair", "hypoid_geometry", "rack_geometry", "face_geometry", "face_herringbone", "wolfrom", "worm_geometry", "wave_geometry", "wave_envelope", "tooth_profiles", "tooth_tips", "tooth_tip_preview", "tooth_tip_ui", "internal_mesh", "standard_parts", "stl_export", "workspace_ui", "workspace_tools", "model_catalog_ui", "navigation_cube", "view_navigation",
 ]
 
@@ -55,4 +55,4 @@ build_py = "build_support.ratiolab_build.BuildPy"
 bdist_wheel = "build_support.ratiolab_build.BdistWheel"
 
 [tool.setuptools.package-data]
-ratiolab_resources = ["native/*", "*.json", "viewport-warning.png", "viewport-error.png", "branding/*.json", "branding/*.png", "model-catalog/*.png", "icons/hicolor/index.theme", "icons/hicolor/*/apps/*.png", "fusion_addin/RatioLabBridge/*.py", "fusion_addin/RatioLabBridge/*.manifest"]
+ratiolab_resources = ["native/*", "*.json", "viewport-warning.png", "viewport-error.png", "setup-guide.png", "branding/*.json", "branding/*.png", "model-catalog/*.png", "icons/hicolor/index.theme", "icons/hicolor/*/apps/*.png", "fusion_addin/RatioLabBridge/*.py", "fusion_addin/RatioLabBridge/*.manifest"]

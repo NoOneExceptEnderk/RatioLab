@@ -14,6 +14,7 @@ ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT/'webapp'))
 import engine_bridge
 from geometry_quality import PRESETS,deviation,with_quality
+import mcp_clients
 import theme_preferences as themes
 import mouse_navigation as mouse
 
@@ -24,7 +25,10 @@ class WebSettingsTests(unittest.TestCase):
         messages=['Browser-reserved shortcuts use the available equivalents shown below. Closing windows remains a browser action.',
             'CAD connections and automatic application updates are available in the desktop program.',
             'View shortcuts apply when the 3D view has keyboard focus. Text editing keeps its own shortcuts.',
-            'Release notes','Restore preset binding','Restore preset color','Two-key sequence','Unassigned']
+            'Release notes','Restore preset binding','Restore preset color','Two-key sequence','Unassigned',
+            'MCP executable','Enter absolute local paths. Use ratiolab-mcp for a Python wheel.',
+            'Use RatioLab Desktop to register clients automatically.',
+            'Clipboard unavailable. Copy the configuration below.']
         for language,values in catalog['translations'].items():
             for message in messages:self.assertTrue(values.get(message),(language,message))
 
@@ -82,3 +86,24 @@ class WebSettingsTests(unittest.TestCase):
             chords.append(dict(profile=profile,bits=dom,shift=shift,control=control,alt=alt,panMode=pan,expected=mouse.drag_mode(profile,bits,shift=shift,control=control,alt=alt,pan_mode=pan)))
         result=subprocess.run([node,'--experimental-vm-modules',str(ROOT/'tests/webapp_settings.mjs')],input=json.dumps(dict(palettes=palettes,chords=chords)),capture_output=True,text=True,timeout=45)
         self.assertEqual(result.returncode,0,result.stdout+'\n'+result.stderr)
+
+    def test_browser_mcp_catalog_and_configurations_match_desktop(self):
+        node = os.environ.get('RATIOLAB_TEST_NODE') or shutil.which('node') or shutil.which('nodejs')
+        if not node:
+            self.skipTest('Node.js is required for browser MCP checks')
+        paths = [
+            dict(command='/opt/RatioLab Café/RatioLab-MCP', workspace='/home/utente/Progetti "riduttori"'),
+            dict(command=r'C:\Program Files\RatioLab\RatioLab-MCP.exe', workspace=r'C:\Users\Utente\Progetti'),
+            dict(command=r'\\server\tools\RatioLab-MCP.exe', workspace=r'\\server\progetti\Riduttori'),
+            dict(command='ratiolab-mcp', workspace='/home/utente/__RATIOLAB_MCP_COMMAND__'),
+        ]
+        payload = dict(clients=mcp_clients.CLIENTS, cases=[
+            dict(paths=entry, expected={
+                client: mcp_clients.configuration(client, dict(command=entry['command'],
+                                                              args=['--workspace', entry['workspace']]))
+                for client in mcp_clients.CLIENTS
+            }) for entry in paths
+        ])
+        result = subprocess.run([node, '--experimental-vm-modules', str(ROOT/'tests/webapp_mcp.mjs')],
+                                input=json.dumps(payload), capture_output=True, text=True, timeout=45)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)

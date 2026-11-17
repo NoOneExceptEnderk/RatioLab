@@ -81,16 +81,31 @@ selectors use the full sidebar width, and each planetary stage remains
 independent. Wolfrom's fixed-member speeds remain available in **Motion details**.
 
 Choose a family/construction, edit Dimensions, Motion and Assembly, and inspect
-the live model. Precise numeric fields accept decimal points or commas;
-incomplete entries remain visible and block exports until valid. Orbit, zoom,
+the live model. Precise numeric fields accept decimal points or commas. Confirm
+an empty model field to search for a compatible minimum. Malformed numbers
+remain visible and block exports until valid. Orbit, zoom,
 Fit, animation, exploded/section views and component selection are available.
 Right mouse drag pans; left drag orbits. The upper-right orientation cube supports
 face, edge and corner snaps and dragging. Its Home, Fit, Pan and Display controls
 replace the old View panel, retaining all display options in the sliders menu.
 
-**Display options** and **Tools** use panels over the right of the model, without
-reducing preview width. The results band sits above the motion controls, with
-the progressive RPM slider, playback speed and preview phase available directly.
+**Display options** and **Tools** open over the right of the model. **Expand tool**
+temporarily gives the active tool the workspace. In **Components & measurements → Parts**,
+**Restore view** brings back the visibility in use before **Isolate**. Use the
+format buttons there to open the export dialog with **Selected components**
+already chosen. A click on empty viewport space clears the selection unless
+Ctrl or Shift is held. In **Measure**, click two visible surfaces to place
+markers A and B and see their straight-line distance in mm. Click empty space
+or **Clear points** to start again.
+From **Parts**, **View teeth** opens the nominal close-up for a supported gear.
+Focusing a **tooth tips** field opens its member's detail view. The **Step size**
+beside each field controls its increment. **PDF sheets…** edits the selected
+component's production and inspection plan and downloads the two PDFs and sheet
+data in one archive.
+The results band sits above two rows of motion controls. The first has **Play**,
+**Initial pose**, the phase slider and **I/O**. The second has the progressive
+input RPM slider and the exact speed field. The playback multiplier is available
+under **Motion → Motion details** and controls preview animation speed.
 Scrubbing phase pauses the preview without editing project parameters or export
 geometry; a reference turn is not necessarily a complete assembly cycle. Rack
 travel remains finite. Hover over parameters for adjacent help; the information
@@ -98,8 +113,8 @@ button and F1 also open it. The pointer can enter the guide, and leaving both
 guide and parameter dismisses it. Original schematics can be expanded.
 CAD connections and native updates remain desktop features.
 
-For cylindrical models, **Dimensions → All model parameters** contains a
-collapsed **tooth tips** group for each active member/stage. Topping removal,
+For cylindrical models, **Dimensions** contains a collapsed **tooth tips**
+group for each active member/stage. Topping removal,
 semitopping height and normal ramp angle reach the same Rust construction as
 the desktop. Both amounts default to zero. See the
 [tooth-tip workflow, supported members and examples](https://github.com/NoOneExceptEnderk/RatioLab/blob/main/docs/tooth-tips.md).
@@ -127,13 +142,20 @@ archive name, file inventory and component list. Preparing a download does not
 verify that the browser saved it to disk.
 
 **File** is the upper-left dropdown for New, Open, Recent, recovery, Save,
-Save As and Reset defaults. RatioLab branding is centered; the original CAD and
-Export icons stay on the right. **Settings** in the toolbar (Ctrl+,) opens the
-shared **Appearance**, **Controls**, **Model precision**, **General** sidebar.
+Save As and Reset defaults. RatioLab branding precedes File. CAD and Export
+stay on the right. Drag the parameter divider to adjust the column width or
+focus it and use the arrow keys. **Settings** in the toolbar (Ctrl+,) opens the
+shared **Appearance**, **Controls**, **Model precision**, **General** and **MCP** sidebar.
 The theme switch now lives under Appearance, with editable palettes and portable
 `ratiolab-theme/1` import/export. CAD presets set both keyboard and mouse controls;
 browser-reserved shortcuts have available equivalents displayed in the editor.
 See [workspace preferences](preferences.md#browser-differences).
+
+In **Settings → MCP**, enter the absolute paths to the installed `RatioLab-MCP`
+executable (`RatioLab-MCP.exe` on Windows) and the workspace, then copy the configuration
+for your client. A Python wheel provides the `ratiolab-mcp` command. The web
+app remembers these paths in this browser. Use RatioLab Desktop for folder
+selection and automatic registration.
 
 **Language** also remains available in the toolbar. Settings are saved for this
 browser origin independently of projects, history and numeric precision.

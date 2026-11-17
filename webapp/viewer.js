@@ -9,10 +9,16 @@ attribute vec3 aPosition, aNormal, aMaterial;
 uniform mat4 uModel;
 uniform vec3 uCenter, uProjection, uExplode, uFlexCenter;
 uniform vec2 uOrbit;
-uniform float uSection, uSectionY;
+uniform float uSection, uSectionY, uRoll;
 uniform vec4 uFlexShape, uFlexBody, uArcFirst, uArcSecond;
 varying vec3 vNormal, vWorld;
-vec3 camera(vec3 p){float c=cos(uOrbit.x),s=sin(uOrbit.x),a=cos(uOrbit.y),b=sin(uOrbit.y);vec3 q=vec3(c*p.x-s*p.y,s*p.x+c*p.y,p.z);return vec3(q.x,a*q.y-b*q.z,b*q.y+a*q.z);}
+vec3 camera(vec3 p){
+ float c=cos(uOrbit.x),s=sin(uOrbit.x),a=cos(uOrbit.y),b=sin(uOrbit.y);
+ vec3 q=vec3(c*p.x-s*p.y,s*p.x+c*p.y,p.z);
+ vec3 r=vec3(q.x,a*q.y-b*q.z,b*q.y+a*q.z);
+ float u=cos(uRoll),v=sin(uRoll);
+ return vec3(u*r.x-v*r.y,v*r.x+u*r.y,r.z);
+}
 float waveSin(float angle){
  float x=mod(angle+3.141592653589793,6.283185307179586)-3.141592653589793;
  if(x>1.570796326794897)x=3.141592653589793-x;
@@ -97,9 +103,10 @@ export const cubeFaces = [
 export function viewOrientation([x,y,z]) {
   return {yaw:(x || y ? Math.atan2(-x,-y) : 0)||0,pitch:-Math.acos(Math.max(-1,Math.min(1,z/Math.hypot(x,y,z))))||0};
 }
-export function cameraPanDelta(dx,dy,{radius,zoom,yaw,pitch},width,height) {
+export function cameraPanDelta(dx,dy,{radius,zoom,yaw,pitch,roll=0},width,height) {
   const scale=.43/Math.max(radius,1e-12)*zoom*Math.max(1,Math.min(width,height));
-  const x=-dx/scale,y=dy/scale,c=Math.cos(yaw),s=Math.sin(yaw),a=Math.cos(pitch),b=Math.sin(pitch);
+  const u=-dx/scale,v=dy/scale,c=Math.cos(yaw),s=Math.sin(yaw),a=Math.cos(pitch),b=Math.sin(pitch);
+  const x=Math.cos(roll)*u+Math.sin(roll)*v,y=-Math.sin(roll)*u+Math.cos(roll)*v;
   return [c*x+s*a*y,-s*x+c*a*y,-b*y];
 }
 export function cubePatches(project,size=116) {
@@ -122,21 +129,27 @@ export function hitCube(patches,x,y) {
 }
 
 export class ModelViewer extends EventTarget {
-  constructor(canvas, {guides = true} = {}) {
+  constructor(canvas, {guides = true, frameExplosion = false, measurementOverlay = null} = {}) {
     super(); this.canvas = canvas; this.meshes = []; this.design = null; this.frame = null;
     this.selected = new Set(); this.hidden = new Set(); this.supports = false; this.housing = false;
     this.explosion = 0; this.section = false; this.yaw = -35*Math.PI/180; this.pitch = -55*Math.PI/180; this.zoom = 1; this.panOffset=[0,0,0]; this.panMode=false;
-    this.center = [0,0,0]; this.radius = this.explodedRadius = 30; this.lost = false; this.disposed = false; this.captureBusy = false;
+    this.center = this.assembledCenter = [0,0,0]; this.radius = this.explodedRadius = 30; this.lost = false; this.disposed = false; this.captureBusy = false;
     this.zoomSpeed = 1; this.rotationSpeed = 1; this.invertZoom = false;
     this.mouseNavigation='ratiolab';this.selectionColor=[0.98,0.65,0.30];this.gridColor=null;this.managedShortcuts=false;
     this.guides = guides;
+    this.frameExplosion = frameExplosion;
+    this.measurementOverlay = measurementOverlay;
+    this.measurementPoints = [];
+    this.measurementPose = null;
+    this.roll = 0; this.toothDetail = null; this.toothAnimation = 0; this.transitionRadius = null;
     this.contextOpacity = null; this.pickableIndices = null;
     this.events = new AbortController(); const signal = this.events.signal;
     this.gl = canvas.getContext('webgl', {antialias: true, alpha: true, stencil: true, preserveDrawingBuffer: true});
     if (!this.gl) throw Error('WebGL is unavailable. Enable hardware acceleration or use another WebGL-capable browser.');
     this.initialize();
     canvas.addEventListener('webglcontextlost', event => {
-      event.preventDefault(); this.lost = true; this.release(); this.program = this.sectionQuad = null;
+      event.preventDefault(); this.lost = true; this.release(); this.leaveToothDetail(false); this.program = this.sectionQuad = null;
+      if (this.measurementOverlay) this.measurementOverlay.setAttribute('hidden','');
       this.dispatchEvent(new CustomEvent('context', {detail: {lost: true}}));
     }, {signal});
     canvas.addEventListener('webglcontextrestored', () => {
@@ -144,7 +157,7 @@ export class ModelViewer extends EventTarget {
       catch (error) { this.dispatchEvent(new CustomEvent('error', {detail: error})); }
     }, {signal});
     let drag = null;
-    canvas.addEventListener('pointerdown', event => { if (![0,1,2].includes(event.button) || this.captureBusy) return; event.preventDefault(); const mode=dragMode(this.mouseNavigation,event.buttons??[1,4,2][event.button??drag?.button??0],{shift:event.shiftKey,control:event.ctrlKey,alt:event.altKey,panMode:this.panMode});drag={pan:mode==='pan',button:event.button,x:event.clientX,y:event.clientY,startX:event.clientX,startY:event.clientY,moved:false};if(drag.pan)canvas.style.cursor='grabbing';canvas.setPointerCapture(event.pointerId);canvas.focus({preventScroll:true}); }, {signal});
+    canvas.addEventListener('pointerdown', event => { if (![0,1,2].includes(event.button) || this.captureBusy) return; event.preventDefault(); this.interruptToothCamera(); const mode=dragMode(this.mouseNavigation,event.buttons??[1,4,2][event.button??drag?.button??0],{shift:event.shiftKey,control:event.ctrlKey,alt:event.altKey,panMode:this.panMode});drag={pan:mode==='pan',button:event.button,x:event.clientX,y:event.clientY,startX:event.clientX,startY:event.clientY,moved:false};if(drag.pan)canvas.style.cursor='grabbing';canvas.setPointerCapture(event.pointerId);canvas.focus({preventScroll:true}); }, {signal});
     canvas.addEventListener('pointermove', event => {
       if (!drag) return;
       if (!drag.moved && Math.hypot(event.clientX-drag.startX,event.clientY-drag.startY)<4) return;
@@ -159,9 +172,10 @@ export class ModelViewer extends EventTarget {
     canvas.addEventListener('contextmenu',event=>event.preventDefault(),{signal});
     canvas.addEventListener('dblclick',event=>{if(!this.captureBusy){event.preventDefault();this.fitCurrent();}},{signal});
     for (const name of ['pointercancel','lostpointercapture']) canvas.addEventListener(name, () => { drag = null;canvas.style.cursor=''; }, {signal});
-    canvas.addEventListener('wheel', event => { if (this.captureBusy) return; event.preventDefault(); const delta = Math.max(-20,Math.min(20,-event.deltaY*0.001*this.zoomSpeed*(this.invertZoom ? -1 : 1))); this.zoom = Math.max(0.12, Math.min(14, this.zoom*Math.exp(delta))); this.render(); }, {signal, passive: false});
+    canvas.addEventListener('wheel', event => { if (this.captureBusy) return; event.preventDefault(); this.interruptToothCamera(); const delta = Math.max(-20,Math.min(20,-event.deltaY*0.001*this.zoomSpeed*(this.invertZoom ? -1 : 1))); this.zoom = Math.max(0.12, Math.min(14, this.zoom*Math.exp(delta))); this.render(); }, {signal, passive: false});
     canvas.addEventListener('keydown', event => {
       if (this.captureBusy) return;
+      if (['+','-','='].includes(event.key) || event.key.startsWith('Arrow')) this.interruptToothCamera();
       if (!this.managedShortcuts && event.key.toLowerCase() === 'f') this.fit();
       else if (event.key === '+' || event.key === '=') { this.zoom = Math.min(14,this.zoom*1.15); this.render(); }
       else if (event.key === '-') { this.zoom = Math.max(.12,this.zoom/1.15); this.render(); }
@@ -182,39 +196,113 @@ export class ModelViewer extends EventTarget {
       this.program = program; this.attributes = {};
       for (const name of ['aPosition','aNormal','aMaterial']) this.attributes[name] = gl.getAttribLocation(program,name);
       this.uniforms = {};
-      for (const name of ['uModel','uCenter','uProjection','uOrbit','uExplode','uColor','uSection','uSectionY','uSelected','uSelectionColor','uFlexShape','uFlexBody','uArcFirst','uArcSecond','uFlexCenter','uPicking','uOpacity']) this.uniforms[name] = gl.getUniformLocation(program,name);
+      for (const name of ['uModel','uCenter','uProjection','uOrbit','uRoll','uExplode','uColor','uSection','uSectionY','uSelected','uSelectionColor','uFlexShape','uFlexBody','uArcFirst','uArcSecond','uFlexCenter','uPicking','uOpacity']) this.uniforms[name] = gl.getUniformLocation(program,name);
       gl.enable(gl.DEPTH_TEST); gl.disable(gl.CULL_FACE); gl.clearColor(0,0,0,0);
     } catch (error) { if (program) gl.deleteProgram(program); throw error; }
     finally { for (const shader of shaders) gl.deleteShader(shader); }
   }
-  release() { for (const mesh of this.meshes) for (const b of Object.values(mesh.gpu)) this.gl.deleteBuffer(b); this.meshes = []; }
-  upload(design) {
+  releaseMeshes(meshes) { for (const mesh of meshes) for (const b of Object.values(mesh.gpu)) this.gl.deleteBuffer(b); }
+  release() { this.releaseMeshes(this.meshes); this.meshes = []; }
+  uploadMeshes(parts,buffers) {
     const gl = this.gl; const meshes = [];
     try {
-      for (const part of design.parts) {
+      for (const part of parts) {
         const mesh = {part, gpu: {}, matrix: identityMatrix(), deformation: null}; meshes.push(mesh);
         for (const channel of ['positions','normals','material']) {
           if (part.mesh[channel] == null) continue;
-          const view = new Float32Array(design.buffers[part.mesh[channel]]);
+          const view = new Float32Array(buffers[part.mesh[channel]]);
           if (view.length !== part.mesh.vertex_count*3) throw Error('Incomplete '+channel+' buffer.');
           const buffer = gl.createBuffer(); if (!buffer) throw Error('Insufficient GPU memory for this model.');
           mesh.gpu[channel] = buffer; gl.bindBuffer(gl.ARRAY_BUFFER,buffer); gl.bufferData(gl.ARRAY_BUFFER,view,gl.STATIC_DRAW);
         }
       }
       if (gl.getError() !== gl.NO_ERROR) throw Error('The graphics device could not upload this model.');
-    } catch (error) { for (const mesh of meshes) for (const b of Object.values(mesh.gpu)) gl.deleteBuffer(b); throw error; }
+    } catch (error) { this.releaseMeshes(meshes); throw error; }
+    return meshes;
+  }
+  upload(design) {
+    const meshes = this.uploadMeshes(design.parts,design.buffers);
     this.release(); this.meshes = meshes;
     if (this.frame) this.applyFrame(this.frame, false);
   }
   setDesign(design, {fit = true} = {}) {
     if (design.motion.warping_indices?.length) throw Error('This model requires a deformation not supported by this browser renderer.');
     this.frame = null;
-    this.upload(design); this.design = design; this.selected.clear(); this.hidden.clear();
+    this.upload(design);
+    if (this.toothDetail) { this.releaseMeshes(this.toothDetail.meshes); this.toothDetail.meshes = []; }
+    this.design = design; this.selected.clear(); this.hidden.clear();
     this.updateFraming();
     if (fit) this.zoom = 1;
     this.render();
   }
-  clear() { this.release(); this.design = this.frame = null; this.selected.clear(); this.hidden.clear(); this.render(); }
+  clear() { this.leaveToothDetail(false); this.release(); this.design = this.frame = null; this.selected.clear(); this.hidden.clear(); this.render(); }
+  showToothDetail(data, reset=false) {
+    const previous = this.toothDetail;
+    const start = this.cameraSnapshot();
+    const meshes = this.uploadMeshes(data.ghosts.map(part=>({...part,index:data.index})),data.buffers);
+    const {yaw,pitch,roll,zoom,panOffset} = this;
+    this.toothDetail = {...data,meshes,occluded:new Set(data.occluded_indices),
+      camera:previous?.camera ?? {yaw,pitch,roll,zoom,panOffset}};
+    if (previous) this.releaseMeshes(previous.meshes);
+    if (reset || previous?.name !== data.name) this.resetToothCamera(start);
+    else {
+      this.interruptToothCamera();
+      this.panOffset = start.center.map((value,i)=>value-data.target[i]);
+      this.zoom = start.zoom*data.radius/start.radius;
+      this.render();
+    }
+  }
+  cameraSnapshot() {
+    return {angles:[this.yaw,this.pitch,this.roll],zoom:this.zoom,center:this.cameraCenter,radius:this.cameraRadius};
+  }
+  interruptToothCamera() {
+    if (!this.toothAnimation) return;
+    cancelAnimationFrame(this.toothAnimation); this.toothAnimation=0;
+    this.zoom*=this.framingRadius/this.cameraRadius;
+    this.transitionRadius=null;
+  }
+  animateToothCamera(start,end) {
+    this.interruptToothCamera();
+    const apply=frame=>{
+      [this.yaw,this.pitch,this.roll]=frame.angles;
+      this.zoom=frame.zoom;this.transitionRadius=frame.radius;
+      this.panOffset=frame.center.map((value,i)=>value-this.framingCenter[i]);
+      this.render();
+    };
+    if (globalThis.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches) {
+      apply(end);this.transitionRadius=null;return;
+    }
+    const initial=performance.now();
+    const tick=time=>{
+      const fraction=Math.max(0,Math.min(1,(time-initial)/350));
+      if (fraction===1) {
+        this.toothAnimation=0;apply(end);this.transitionRadius=null;return;
+      }
+      const t=fraction*fraction*fraction*(10+fraction*(-15+6*fraction));
+      const interpolate=(a,b)=>a+(b-a)*t;
+      const geometric=(a,b)=>Math.exp(interpolate(Math.log(a),Math.log(b)));
+      apply({angles:start.angles.map((a,i)=>a+angle(end.angles[i]-a)*t),
+        zoom:geometric(start.zoom,end.zoom),center:start.center.map((a,i)=>interpolate(a,end.center[i])),
+        radius:geometric(start.radius,end.radius)});
+      this.toothAnimation=requestAnimationFrame(tick);
+    };
+    apply(start);this.toothAnimation=requestAnimationFrame(tick);
+  }
+  resetToothCamera(start=this.cameraSnapshot()) {
+    if (!this.toothDetail) return;
+    this.animateToothCamera(start,{angles:this.toothDetail.orientation,zoom:1,
+      center:this.toothDetail.target,radius:this.toothDetail.radius});
+  }
+  leaveToothDetail(render=true,animate=render) {
+    const detail = this.toothDetail;
+    if (!detail) {this.interruptToothCamera();return;}
+    const start=this.cameraSnapshot();
+    this.interruptToothCamera();
+    this.releaseMeshes(detail.meshes); this.toothDetail = null;
+    Object.assign(this,detail.camera);
+    if (animate) this.animateToothCamera(start,this.cameraSnapshot());
+    else if (render) this.render();
+  }
   applyFrame(frame, render = true) {
     if (!this.design && render) return;
     if (frame.parts.length !== this.meshes.length) throw Error('Incomplete canonical motion frame.');
@@ -227,40 +315,50 @@ export class ModelViewer extends EventTarget {
     }
     this.frame = frame; if (render) this.render();
   }
-  isVisible(part) { return !this.hidden.has(part.index) && (part.role !== 'support' || this.supports) && (part.role !== 'housing' || this.housing); }
+  passesFilters(part) { return (part.role !== 'support' || this.supports) && (part.role !== 'housing' || this.housing); }
+  isVisible(part) { return !this.hidden.has(part.index) && this.passesFilters(part); }
   setVisibility(index, visible) { if (visible) this.hidden.delete(index); else this.hidden.add(index); this.render(); }
   setSelection(indices) { this.selected = new Set(indices); this.render(); }
-  get cameraCenter() { return this.center.map((v,i)=>v+this.panOffset[i]); }
+  get framingCenter() { return this.toothDetail?.target ?? this.center; }
+  get cameraCenter() { return this.framingCenter.map((v,i)=>v+this.panOffset[i]); }
   get explosionScale() {
     const view = Number(this.supports) + 2 * Number(this.housing);
     const gradual = this.design?.explosion_gradual_views?.includes(view);
     const minimum = gradual ? 0 : this.design?.explosion_minimum ?? 0;
     return this.explosion ? minimum + this.explosion * (1 - minimum) : 0;
   }
-  get cameraRadius() { return this.radius + this.explosionScale * (this.explodedRadius - this.radius); }
+  get cameraRadius() { return this.transitionRadius ?? this.framingRadius; }
+  get framingRadius() {
+    if (this.toothDetail) return this.toothDetail.radius;
+    return this.frameExplosion ? this.explodedRadius : this.radius + this.explosionScale * (this.explodedRadius - this.radius);
+  }
   panBy(dx,dy) {
     const rect=this.canvas.getBoundingClientRect();
-    const {yaw,pitch,zoom}=this;
-    const delta=cameraPanDelta(dx,dy,{yaw,pitch,zoom,radius:this.cameraRadius},rect.width,rect.height);
+    const {yaw,pitch,roll,zoom}=this;
+    const delta=cameraPanDelta(dx,dy,{yaw,pitch,roll,zoom,radius:this.cameraRadius},rect.width,rect.height);
     this.panOffset=this.panOffset.map((v,i)=>v+delta[i]);
   }
   orient(direction) {
     if (this.captureBusy) return;
-    Object.assign(this,viewOrientation(direction));this.render();
+    this.interruptToothCamera();
+    Object.assign(this,viewOrientation(direction));this.roll=0;this.render();
     const face=cubeFaces.find(([,n])=>n.every((v,i)=>v===direction[i]));
     this.dispatchEvent(new CustomEvent('camera',{detail:{view:face?.[0].toLowerCase()}}));
   }
   setView(name) {
     if (this.captureBusy) return;
+    this.interruptToothCamera();
     const face=cubeFaces.find(([label])=>label.toLowerCase()===name);
     if (face) Object.assign(this,viewOrientation(face[1]));
     else { this.yaw=-35*Math.PI/180;this.pitch=-55*Math.PI/180; }
+    this.roll=0;
     this.render();
     this.dispatchEvent(new CustomEvent('camera',{detail:{view:face ? name : 'isometric'}}));
   }
   fit() { if (this.captureBusy) return; this.zoom=1;this.panOffset=[0,0,0];this.setView('isometric'); }
   fitCurrent() {
     if (this.captureBusy) return;
+    this.interruptToothCamera();
     this.zoom=1;this.panOffset=[0,0,0];this.render();this.dispatchEvent(new CustomEvent('camera',{detail:{fitOnly:true}}));
   }
   installCube() {
@@ -269,7 +367,7 @@ export class ModelViewer extends EventTarget {
     const point=event=>{const r=cube.getBoundingClientRect();return [(event.clientX-r.left)*116/r.width,(event.clientY-r.top)*116/r.height];};
     cube.addEventListener('pointerdown',event=>{
       if (event.button!==0 || this.captureBusy) return;
-      event.preventDefault();cube.focus({preventScroll:true});cube.setPointerCapture(event.pointerId);
+      event.preventDefault();this.interruptToothCamera();cube.focus({preventScroll:true});cube.setPointerCapture(event.pointerId);
       drag={x:event.clientX,y:event.clientY,yaw:this.yaw,pitch:this.pitch,moved:false,point:point(event)};
     },{signal});
     cube.addEventListener('pointermove',event=>{
@@ -311,31 +409,97 @@ export class ModelViewer extends EventTarget {
   }
   updateFraming() {
     if (!this.design) return;
-    const visible = this.design.parts.filter(part => this.isVisible(part));
+    // Individual visibility is an inspection aid. Keep the workspace camera
+    // framed on the same support/housing scene while isolating components.
+    const visible = this.design.parts.filter(part => this.frameExplosion ? this.passesFilters(part) : this.isVisible(part));
     if (!visible.length) return;
     const minimum = [Infinity,Infinity,Infinity], maximum = [-Infinity,-Infinity,-Infinity];
     for (const part of visible) for (let i=0;i<3;i++) {
       minimum[i] = Math.min(minimum[i],part.bounds_mm.minimum[i]); maximum[i] = Math.max(maximum[i],part.bounds_mm.maximum[i]);
     }
-    this.visibleBounds = {minimum,maximum}; this.center = minimum.map((v,i) => (v+maximum[i])/2);
+    this.assembledCenter = minimum.map((v,i) => (v+maximum[i])/2);
+    // GTK frames the union of the assembled and fully exploded scene.
+    if (this.frameExplosion) {
+      for (const part of visible) {
+        const offset = this.explosionOffset(part,1);
+        for (let axis=0; axis<3; axis++) {
+          minimum[axis] = Math.min(minimum[axis],part.bounds_mm.minimum[axis]+offset[axis]);
+          maximum[axis] = Math.max(maximum[axis],part.bounds_mm.maximum[axis]+offset[axis]);
+        }
+        for (const corner of part.preview_cap_corners ?? []) {
+          for (let axis=0; axis<3; axis++) {
+            const value = corner[axis]+offset[axis];
+            minimum[axis] = Math.min(minimum[axis],value);
+            maximum[axis] = Math.max(maximum[axis],value);
+          }
+        }
+      }
+    }
+    this.visibleBounds = {minimum,maximum};
+    this.center = minimum.map((value,axis) => (value+maximum[axis])/2);
     let squared = 1, explodedSquared = 1;
-    // The desktop radius is the furthest sampled surface point from the centre,
-    // rather than the diagonal of a bounding box including hidden supports.
+    // Measure the radius from sampled points, including both poses for the
+    // workspace. Keep the assembled framing separately for nominal capture.
+    const [ax,ay,az] = this.assembledCenter;
+    const [cx,cy,cz] = this.center;
     for (const part of visible) {
       const positions = new Float32Array(this.design.buffers[part.mesh.positions]);
       const [dx,dy,dz] = this.explosionOffset(part, 1);
       for (let i=0;i<positions.length;i+=3) {
-        const x=positions[i]-this.center[0], y=positions[i+1]-this.center[1], z=positions[i+2]-this.center[2];
-        squared = Math.max(squared,x*x+y*y+z*z);
+        const px=positions[i], py=positions[i+1], pz=positions[i+2];
+        const x=px-cx, y=py-cy, z=pz-cz;
+        squared = Math.max(squared,(px-ax)**2+(py-ay)**2+(pz-az)**2);
         explodedSquared = Math.max(explodedSquared,(x+dx)**2+(y+dy)**2+(z+dz)**2);
+        if (this.frameExplosion) explodedSquared = Math.max(explodedSquared,x*x+y*y+z*z);
+      }
+      if (this.frameExplosion) {
+        for (const [x,y,z] of part.preview_cap_corners ?? []) {
+          explodedSquared = Math.max(explodedSquared,(x+dx-cx)**2+(y+dy-cy)**2+(z+dz-cz)**2);
+        }
       }
     }
     this.radius = Math.sqrt(squared);
-    this.explodedRadius = Math.sqrt(Math.max(squared,explodedSquared));
+    this.explodedRadius = Math.sqrt(this.frameExplosion ? explodedSquared : Math.max(squared,explodedSquared));
   }
   projectVector([x,y,z]) {
     const c=Math.cos(this.yaw),s=Math.sin(this.yaw),a=Math.cos(this.pitch),b=Math.sin(this.pitch);
-    return [c*x-s*y,a*(s*x+c*y)-b*z,b*(s*x+c*y)+a*z];
+    const u=c*x-s*y,v=a*(s*x+c*y)-b*z,w=b*(s*x+c*y)+a*z;
+    const cr=Math.cos(this.roll),sr=Math.sin(this.roll);
+    return [cr*u-sr*v,sr*u+cr*v,w];
+  }
+  projectPoint(point,width,height) {
+    const scale = .86/this.cameraRadius*this.zoom*Math.min(width,height)/2;
+    const center = this.cameraCenter;
+    const [x,y] = this.projectVector(point.map((value,i) => value-center[i]));
+    return [width/2+x*scale,height/2-y*scale];
+  }
+  setMeasurementPoints(points) {
+    this.measurementPoints = [...points];
+    this.measurementPose = points.length ? {frame:this.frame,section:this.section,explosion:this.explosion,design:this.design} : null;
+    this.updateMeasurementOverlay(this.canvas.clientWidth,this.canvas.clientHeight);
+  }
+  updateMeasurementOverlay(width,height) {
+    const overlay = this.measurementOverlay, pose = this.measurementPose;
+    if (!overlay) return;
+    if (pose && (pose.design !== this.design || pose.frame !== this.frame ||
+        pose.section !== this.section || pose.explosion !== this.explosion ||
+        this.measurementPoints.some(({index}) => !this.isVisible(this.design.parts[index])))) {
+      this.measurementPoints = []; this.measurementPose = null;
+      this.dispatchEvent(new Event('measurementinvalidate'));
+    }
+    const points = this.measurementPoints;
+    overlay.toggleAttribute('hidden',this.lost || !points.length);
+    if (!points.length || this.lost) return;
+    overlay.setAttribute('viewBox','0 0 '+width+' '+height);
+    const [line,first,second] = overlay.children;
+    line.toggleAttribute('hidden',points.length < 2);
+    second.toggleAttribute('hidden',points.length < 2);
+    first.removeAttribute('hidden');
+    const coords = points.map(({point}) => this.projectPoint(point,width,height));
+    coords.forEach(([x,y],i) => {
+      (i === 0 ? first : second).setAttribute('transform','translate('+x+' '+y+')');
+      line.setAttribute('x'+(i+1),x); line.setAttribute('y'+(i+1),y);
+    });
   }
   explosionOffset(part, scale = this.explosionScale) {
     return (part.explosion_offset_mm ?? [0,0,0]).map(value => value * scale);
@@ -352,24 +516,22 @@ export class ModelViewer extends EventTarget {
   updateGuides(width,height) {
     const grid = document.getElementById('viewport-grid');
     if (!grid) return;
-    const cache = JSON.stringify([width,height,this.center,this.panOffset,this.cameraRadius,this.yaw,this.pitch,this.zoom,!!this.design,this.gridColor]);
+    const cache = JSON.stringify([width,height,this.center,this.panOffset,this.cameraRadius,this.yaw,this.pitch,this.zoom,!!this.design,this.gridColor,!!this.toothDetail]);
     if (cache === this.guideCache) return; this.guideCache = cache;
     const ns = 'http://www.w3.org/2000/svg', element = (name,attrs) => {
       const el = document.createElementNS(ns,name); for (const [key,value] of Object.entries(attrs)) el.setAttribute(key,String(value)); return el;
     };
     grid.replaceChildren(); grid.setAttribute('viewBox',`0 0 ${width} ${height}`);
-    const projection = .86/this.cameraRadius*this.zoom*Math.min(width,height)/2;
-    if (this.design) {
+    if (this.design && !this.toothDetail) {
       const bounds=this.visibleBounds ?? this.design.bounds_mm;
       const span=Math.max(bounds.maximum[0]-bounds.minimum[0],bounds.maximum[1]-bounds.minimum[1],10);
       let step=10**Math.floor(Math.log10(span/8)); if (span/step>16) step*=2;
       const extent=Math.ceil(span*.7/step)*step, ground=bounds.minimum[2]-Math.max(.5,span*.025);
-      const project = p => { const q=this.projectVector(p.map((v,i)=>v-this.cameraCenter[i])); return [width/2+q[0]*projection,height/2-q[1]*projection]; };
       let path='';
       for (let j=-Math.round(extent/step);j<=Math.round(extent/step);j++) {
         const off=j*step,cx=this.center[0],cy=this.center[1];
         for (const [a,b] of [[[cx+off,cy-extent,ground],[cx+off,cy+extent,ground]],[[cx-extent,cy+off,ground],[cx+extent,cy+off,ground]]]) {
-          const p=project(a),q=project(b); path+=`M${p[0]},${p[1]}L${q[0]},${q[1]}`;
+          const p=this.projectPoint(a,width,height),q=this.projectPoint(b,width,height); path+=`M${p[0]},${p[1]}L${q[0]},${q[1]}`;
         }
       }
       grid.append(element('path',{d:path,fill:'none',stroke:this.gridColor??(document.documentElement.dataset.theme === 'light' ? '#c6d1d8' : '#1f2934'),'stroke-width':.7}));
@@ -407,26 +569,35 @@ export class ModelViewer extends EventTarget {
     const width = Math.max(1,Math.round(rect.width*dpr)), height = Math.max(1,Math.round(rect.height*dpr));
     if (!picking && (canvas.width !== width || canvas.height !== height)) { canvas.width = width; canvas.height = height; }
     gl.viewport(0,0,width,height); gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT); gl.useProgram(this.program);
-    const u = this.uniforms, radius = nominal ? this.radius : this.cameraRadius, scale = .86/radius*this.zoom, aspect = width/height;
+    const detail = !nominal && this.toothDetail;
+    const camera = nominal && this.toothDetail ? this.toothDetail.camera : this;
+    const u = this.uniforms, radius = nominal ? this.radius : this.cameraRadius, scale = .86/radius*camera.zoom, aspect = width/height;
     if (!picking) {
       if (this.guides !== false) this.updateGuides(rect.width,rect.height);
+      if (!nominal && !this.captureBusy && this.measurementOverlay) this.updateMeasurementOverlay(rect.width,rect.height);
       this.renderCube();
     }
     gl.uniform1f(u.uPicking,Number(picking));
-    gl.uniform3fv(u.uCenter,nominal ? this.center : this.cameraCenter); gl.uniform2f(u.uOrbit,this.yaw,this.pitch);
+    gl.uniform3fv(u.uCenter,nominal ? this.assembledCenter : this.cameraCenter);
+    gl.uniform2f(u.uOrbit,camera.yaw,camera.pitch); gl.uniform1f(u.uRoll,camera.roll);
     gl.uniform3f(u.uProjection,scale/Math.max(1,aspect),scale*Math.min(1,aspect),1/(radius*4));
     gl.uniform3fv(u.uSelectionColor,this.selectionColor);
-    const section = !nominal && this.section;
+    const section = !nominal && !detail && this.section;
     const capVisible = section && Math.abs(Math.cos(this.yaw)*Math.sin(this.pitch)) > 1e-6;
     gl.uniform1f(u.uSection,section ? 1 : 0); gl.uniform1f(u.uSectionY,this.center[1]);
     const selected = indices && new Set(indices);
-    const exploded = !nominal && this.explosion > 0, identity = exploded && identityMatrix();
+    const exploded = !nominal && !detail && this.explosion > 0, identity = (exploded || detail) && identityMatrix();
     // Explicit export indices can include hidden support and housing parts.
     const meshes = this.meshes.filter(({part}) =>
-      (selected ? selected.has(part.index) : this.isVisible(part)) &&
+      (selected ? selected.has(part.index) : detail && part.index===detail.index || this.isVisible(part)) &&
       (!picking || !this.pickableIndices || this.pickableIndices.has(part.index)));
     let passes = [{meshes}];
-    if (this.contextOpacity !== null && this.selected.size && !nominal && !section) {
+    if (detail) {
+      const context = meshes.filter(({part})=>detail.occluded.has(part.index));
+      passes = [{meshes:meshes.filter(({part})=>!detail.occluded.has(part.index))},
+        {meshes:detail.meshes,ghost:true,overlay:true,opacity:.32},
+        {meshes:context,depthOnly:true},{meshes:context,ghost:true,opacity:.25}];
+    } else if (this.contextOpacity !== null && this.selected.size && !nominal && !section) {
       const context = meshes.filter(({part}) => !this.selected.has(part.index));
       const focus = meshes.filter(({part}) => this.selected.has(part.index));
       // Limit the translucent context to the nearest surface before painting
@@ -440,21 +611,21 @@ export class ModelViewer extends EventTarget {
     for (const pass of passes) {
       gl.depthMask(!pass.ghost);
       if (pass.clearDepth) gl.clear(gl.DEPTH_BUFFER_BIT);
-      gl.depthFunc(pass.ghost ? gl.EQUAL : gl.LESS);
+      gl.depthFunc(pass.overlay ? gl.LEQUAL : pass.ghost ? gl.EQUAL : gl.LESS);
       gl.colorMask(!pass.depthOnly,!pass.depthOnly,!pass.depthOnly,!pass.depthOnly);
       if (pass.ghost) {
         gl.enable(gl.BLEND);
         gl.blendFuncSeparate(gl.SRC_ALPHA,gl.ONE_MINUS_SRC_ALPHA,gl.ONE,gl.ONE_MINUS_SRC_ALPHA);
       } else gl.disable(gl.BLEND);
-      gl.uniform1f(u.uOpacity,pass.ghost ? this.contextOpacity : 1);
+      gl.uniform1f(u.uOpacity,pass.ghost ? pass.opacity ?? this.contextOpacity : 1);
       for (const mesh of pass.meshes) {
         const part = mesh.part;
         const id=part.index+1;
-        gl.uniformMatrix4fv(u.uModel,false,exploded ? identity : mesh.matrix);
+        gl.uniformMatrix4fv(u.uModel,false,identity || mesh.matrix);
         gl.uniform3fv(u.uColor,picking ? [id&255,(id>>8)&255,(id>>16)&255].map(value=>value/255) : part.color);
-        gl.uniform1f(u.uSelected,!picking && !nominal && this.selected.has(part.index) ? 1 : 0);
-        gl.uniform3fv(u.uExplode,nominal ? [0,0,0] : this.explosionOffset(part));
-        const flex = exploded ? null : mesh.deformation;
+        gl.uniform1f(u.uSelected,!picking && !nominal && !detail && this.selected.has(part.index) ? 1 : 0);
+        gl.uniform3fv(u.uExplode,nominal || detail ? [0,0,0] : this.explosionOffset(part));
+        const flex = identity ? null : mesh.deformation;
         gl.uniform4fv(u.uFlexShape,flex ? [angle(flex[0]),angle(flex[1]),flex[2],flex[3]] : [0,0,1,1]);
         gl.uniform4fv(u.uFlexBody,flex ? [flex[4],flex[5],flex[6],1] : [1,1,0,0]);
         gl.uniform3fv(u.uFlexCenter,[...(part.center ?? [0,0]),0].slice(0,3));
@@ -533,5 +704,5 @@ export class ModelViewer extends EventTarget {
       return new Uint8Array(await blob.arrayBuffer());
     } finally { this.captureBusy = false; if (this.design === design) { if (previous) this.applyFrame(previous,false); this.render(); } }
   }
-  dispose() { this.disposed = true; this.events.abort(); this.resizeObserver.disconnect(); this.release(); if (this.program) this.gl.deleteProgram(this.program); if (this.sectionQuad) this.gl.deleteBuffer(this.sectionQuad); this.sectionQuad = this.program = this.design = null; }
+  dispose() { this.disposed = true; this.events.abort(); this.resizeObserver.disconnect(); this.leaveToothDetail(false); this.release(); if (this.program) this.gl.deleteProgram(this.program); if (this.sectionQuad) this.gl.deleteBuffer(this.sectionQuad); this.sectionQuad = this.program = this.design = null; }
 }

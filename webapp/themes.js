@@ -14,7 +14,7 @@ const evenRound=value=>value-Math.floor(value)===.5?2*Math.round(value/2):Math.r
 export const hexColor=values=>'#'+values.map(v=>evenRound(Math.min(1,Math.max(0,v))*255).toString(16).padStart(2,'0')).join('');
 const mix=(a,b,t)=>hexColor(rgb(a).map((v,i)=>v*(1-t)+rgb(b)[i]*t));
 const luminance=c=>rgb(c).reduce((n,v,i)=>n+[.2126,.7152,.0722][i]*(v<=.04045?v/12.92:((v+.055)/1.055)**2.4),0);
-const contrast=(a,b)=>(Math.max(luminance(a),luminance(b))+.05)/(Math.min(luminance(a),luminance(b))+.05);
+export const contrast=(a,b)=>(Math.max(luminance(a),luminance(b))+.05)/(Math.min(luminance(a),luminance(b))+.05);
 function related(p) {
   const {accent:a,text:t,surface:s}=p;
   return {...p,on_accent:contrast('#000000',a)>=contrast('#ffffff',a)?'#000000':'#ffffff',focus:mix(a,t,.2),
