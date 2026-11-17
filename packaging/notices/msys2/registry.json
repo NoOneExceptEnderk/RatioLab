@@ -57,6 +57,28 @@
       "source_recipe_file": "gst-plugins-bad-1.28.9-1/PKGBUILD.txt"
     },
     {
+      "name": "mingw-w64-ucrt-x86_64-gst-plugins-bad-libs",
+      "version": "1.28.9-2",
+      "license_declarations": [
+        "spdx:LGPL-2.1-or-later"
+      ],
+      "source": "https://gstreamer.freedesktop.org/src/gst-plugins-bad/gst-plugins-bad-1.28.9.tar.xz",
+      "source_sha256": "4a4e0b7bf84f868378c48f143a7ac3a98923b488a5b74f1a35ba46bc3c43f6b1",
+      "source_recipe": "https://mirror.msys2.org/mingw/sources/mingw-w64-gst-plugins-bad-1.28.9-2.src.tar.zst",
+      "source_recipe_sha256": "693fc3a4759d4530be01674546039c5023a0a5a96fe63a1e48925a654f5be43a",
+      "source_info": "gst-plugins-bad-1.28.9-2/SRCINFO.txt",
+      "source_info_sha256": "39926af64717126a41f79db87cc68f748382f231aa64819917e5dbc0198ae561",
+      "license_files": [
+        {
+          "path": "gst-plugins-bad-1.28.9-1/00-COPYING.txt",
+          "sha256": "dc626520dcd53a22f727af3ee42c770e56c97a64fe3adb063799d8ab032fe551",
+          "original_path": "gst-plugins-bad-1.28.9/COPYING"
+        }
+      ],
+      "selection": "Root COPYING for the shipped library package; test fixtures and notices for unbundled platform plugins are excluded.",
+      "source_recipe_file": "gst-plugins-bad-1.28.9-2/PKGBUILD.txt"
+    },
+    {
       "name": "mingw-w64-ucrt-x86_64-gst-plugins-base",
       "version": "1.28.9-1",
       "license_declarations": [
